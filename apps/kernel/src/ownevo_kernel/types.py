@@ -148,7 +148,7 @@ class EvalCase(_Base):
     cluster_id: UUID | None = None
     input: dict[str, Any]
     expected_behavior: dict[str, Any]
-    regression_tolerance: float | None = None
+    regression_tolerance: float | None = Field(default=None, ge=0.0, le=1.0)
     is_test_fold: bool = False
     created_at: datetime
 
