@@ -109,6 +109,27 @@ fresh `[Unreleased]` block above it.
   the gate fail-fasts on older (more-load-bearing) cases first.
   Train/test discipline: the `is_test_fold` filter is what the gate
   uses to surface held-out cases; gate runner refuses to train on them.
+- `apps/kernel/src/ownevo_kernel/datasets/m5_metric.py` — M5 scorers
+  (W2.6 prerequisite). Pure numpy. `rmse(predictions, actuals)` for the
+  headline baseline number; `wrmsse(predictions, actuals, weights=,
+  scales=)` per the M5 paper (per-series RMSSE / first-difference scale,
+  weighted by sales-dollar share); `compute_wrmsse_weights_and_scales`
+  derives both from training data; `make_held_out_fold(catalog,
+  val_days=28, test_days=28)` carves the train / val / test day-column
+  split per Phase 0's lock. Refuses zero-scale series so silent +inf
+  results can't slip past. numpy>=1.26,<3 added as a kernel dep.
+- `apps/kernel/src/ownevo_kernel/benchmark/` — `BenchmarkRunner` Protocol
+  + `BenchmarkResult` dataclass + `SyntheticBenchmarkRunner` (PR #5 from
+  the W2 plan; substrate for the gate self-test in W2.2a).
+  `BenchmarkResult.val_score` is the mean reward with `None` (timeout /
+  no-result) counting as 0.0 in the denominator so an agent can't game
+  the aggregate by causing dropouts. `n_passed` / `n_no_result` /
+  `n_tasks` accessors round out what the gate's regression-suite step
+  consumes. `SyntheticBenchmarkRunner` runs in-process — no Docker, no
+  DB, no LLM — so the gate self-test isolates gate logic from sandbox /
+  runtime behavior. Skill exceptions score as 0.0 (definite failure,
+  not missing measurement). Real M5 + Tau3 runners (W2.6 / W7-8) will
+  implement the same Protocol with workflow-specific scoring inside.
 
 ### Changed
 - `apps/kernel/migrations/0001_substrate.sql` — `proposals` table gains

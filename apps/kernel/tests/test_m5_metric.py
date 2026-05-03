@@ -147,7 +147,6 @@ def test_compute_uniform_weights_when_no_dollar_volume():
 
 def test_compute_weights_from_dollar_volume():
     """Weights are dollar shares — sum to 1.0."""
-    train = np.zeros((3, 3))
     weights, _ = compute_wrmsse_weights_and_scales(
         np.array([[0.0, 1.0, 0.5], [0.0, 2.0, 1.0], [0.0, 3.0, 1.5]]),
         dollar_volume=np.array([100.0, 300.0, 600.0]),
