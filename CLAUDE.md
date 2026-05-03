@@ -27,7 +27,9 @@ Agent-generated code runs in **local Docker** with hardening: `--network=none`, 
 
 ## Trace format is the contract
 
-`packages/trace-format/` defines the typed `AgentEvent` schema. It's the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing — standardize once, everything downstream works. **OSS positioning (Apache 2 community standard, OTel-Gen-AI-aligned, vs proprietary moat) is the one unresolved strategic call from the 2026-05-03 design review — DEADLINE: decide before W3.** Implementation cost is 0 if Apache 2 from start, weeks if retrofitted.
+`packages/trace-format/` defines the typed `AgentEvent` schema. It's the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing — standardize once, everything downstream works.
+
+**Spec status (2026-05-03):** canonical spec written at `packages/trace-format/SPEC.md`. Pydantic + Zod implementations conform to it. The MVP doc § Open-Core Line names Apache 2 as the working assumption for if/when public release happens, but **license, public-release timing, and package naming are deferred** — not blocking W1 implementation. OTel Gen AI alignment is design-with-awareness only (no formal cross-walk). See `packages/trace-format/README.md` for trigger conditions to revisit, and `TODOS.md` TODO-4 for the unresolved strategic surface.
 
 ## Where the IP lives
 
