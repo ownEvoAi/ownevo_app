@@ -264,3 +264,24 @@ fresh `[Unreleased]` block above it.
   legal transitions, terminal-state guards, audit-kind coupling, and the
   autonomous-mode path. Boundary/constraint tests added across both packages.
   64 tests pass.
+
+### Security
+- `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — close TODO-17
+  user-exception spoof. Previously the runner script ran user code via
+  `runpy.run_path` in its own process, so user code calling
+  `os._exit(100)` short-circuited the runner's `try/except` and exited the
+  container with the runner's user-exception sentinel — classifier returned
+  `error_class=None` (the gate's "logical failure the agent owns" path).
+  Runner now executes user code as a subprocess (`subprocess.run([sys.executable,
+  '/sandbox/user_code.py'])`) and maps the child's returncode according to a
+  fixed policy: 0 → 0; 1 → 100 (Python's default for uncaught exceptions);
+  100 → 102 (the new `_RUNNER_CRASH_REMAP_EXIT_CODE`, classifier returns
+  `Crash`); negative-N (signal) → 128+|N|; otherwise passthrough. Closes the
+  same-process attack surface — user code can no longer manipulate the runner
+  process's state, FDs, or memory. The `os._exit(0)` case remains observably
+  indistinguishable from clean exit at the process boundary; defense-in-depth
+  lives at the metric layer (`run_pipeline`'s JSON-output requirement →
+  missing/invalid → `outputs=None` → gate refuses to advance best-ever). Pinned
+  by 3 new tests in `test_sandbox.py`: `os._exit(100)` now classifies as
+  `Crash`, arbitrary `os._exit(N)` classifies as `Crash`, `os._exit(0)`
+  remains `ok` (documented limit, pinned to catch silent regressions).

@@ -110,16 +110,11 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — required for W6/W8 timelines.
 - **Depends on:** M5 pipeline + reproducibility rig operational (W4).
 
-### TODO-17: Sandbox classifier hardening — runner exit-code spoof
+### TODO-17: Sandbox classifier hardening — runner exit-code spoof — ✅ DONE 2026-05-03
 
 - **What:** A hostile (or buggy) agent inside `LocalDockerSandbox` can call `os._exit(0)` directly, bypassing the runner's `try/except` around `runpy.run_path`. The classifier sees `exit_code == 0` and returns `status="ok"` — or `os._exit(100)` to spoof the "logical error the agent owns" path with `error_class=None`. Per `apps/kernel/src/ownevo_kernel/types.py:SandboxErrorClass`, the gate runner advances `best_ever_score` only when `error_class is None`, so this is part of the trust boundary.
-- **Why:** Practical impact today is limited because the gate uses `metric_outputs` (not `status` alone) to compute `val_score` — an agent that exits early without producing metrics can't actually pass the regression gate. But CLAUDE.md sandbox section frames "agent-generated code may be hostile," and the trust boundary should hold without depending on the metric path catching it.
-- **Pros / Cons:** Closes a real bypass before unattended M5 replay (W4-W6) starts admitting agent-authored skill versions. Cost is ~30 LOC.
-- **Approach:**
-  1. Run user code as a subprocess of the runner (e.g., `subprocess.run([sys.executable, "/sandbox/user_code.py"])` inside the runner). The runner's exit code is then derived from the child's exit code + a sentinel marker the runner itself writes after collecting it. User code can't manipulate the runner's exit code.
-  2. Alternatively, runner writes `/tmp/.completed` only on clean exit; `_classify` requires the file's presence in the bind-mount/inspect output for `status="ok"`. Cheaper but `/tmp` is tmpfs and gone after container removal — would need to bind a status path or read it before `_remove_container`.
-- **Context:** `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py:48-65` (the `_RUNNER_SCRIPT`) and `_classify` at the same file. Tests live in `apps/kernel/tests/test_sandbox.py`; add a test that runs `import os; os._exit(0)` inside user code and asserts the result is NOT `status="ok"`.
-- **Effort:** S (human ~1 day / CC ~30 min).
+- **Status (2026-05-03):** Approach 1 shipped. Runner now runs user code as a subprocess (`subprocess.run([sys.executable, '/sandbox/user_code.py'])`); the runner's own exit code is derived from the child's returncode via a fixed policy (0 → 0; 1 → 100; 100 → 102=Crash; negative → 128+|N|; else passthrough). Closes the `os._exit(100)` spoof and the same-process attack surface. The `os._exit(0)` case remains observably indistinguishable from clean exit at the process boundary; defense-in-depth lives at the metric layer (`run_pipeline`'s JSON-output requirement). Pinned by 3 new tests in `apps/kernel/tests/test_sandbox.py`. Documented limit captured in the runner script's policy comment.
+- **Effort:** S (CC ~30 min, as predicted).
 - **Priority:** P1 — fix before W4 unattended M5 replay. Not blocking W2/W3.
 - **Depends on:** none. Self-contained sandbox change.
 

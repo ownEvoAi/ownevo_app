@@ -94,6 +94,66 @@ async def test_oom_classifies_as_OOM(sandbox: LocalDockerSandbox):
     )
 
 
+async def test_user_os_exit_100_is_crash_not_user_exception(
+    sandbox: LocalDockerSandbox,
+):
+    """TODO-17 hardening: a hostile (or buggy) agent that calls
+    `os._exit(100)` previously spoofed the user-exception path
+    (status='error', error_class=None) — exactly the classification
+    the gate runner treats as a logical failure the agent owns. The
+    subprocess-based runner remaps the child's 100 to the
+    crash-remap code so the classifier returns error_class='Crash'
+    instead. The gate refuses to advance best_ever_score on Crash."""
+    result = await sandbox.run(
+        "import os; os._exit(100)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_with_arbitrary_code_is_crash(
+    sandbox: LocalDockerSandbox,
+):
+    """Other os._exit values pass through to the classifier as Crash —
+    they're neither clean exit nor a runner-emitted sentinel."""
+    result = await sandbox.run(
+        "import os; os._exit(7)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_zero_remains_ok_documented_limit(
+    sandbox: LocalDockerSandbox,
+):
+    """TODO-17 acknowledged limit: `os._exit(0)` cannot be
+    distinguished from a clean exit at the process boundary — both
+    surface as exit code 0 to the parent. This test pins that
+    behavior so any future change that would silently shift it
+    (e.g., a stricter completion sentinel) is observed.
+
+    Defense-in-depth: `run_pipeline` parses JSON outputs from stdout;
+    a user that `os._exit(0)`s without writing valid metric output
+    leaves `outputs=None`, which the gate refuses to advance
+    best-ever on (val_score=0 / sandbox-error short-circuit).
+    """
+    result = await sandbox.run(
+        "import os; os._exit(0)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    # Pinned as ok — this is the known limit, not a guarantee that
+    # such code is "safe". The protective contract holds at the
+    # metric layer (run_pipeline + gate val_score derivation).
+    assert result.status == "ok"
+    assert result.error_class is None
+    assert result.exit_code == 0
+
+
 async def test_segfault_classifies_as_Crash(sandbox: LocalDockerSandbox):
     """SIGSEGV from a deref of NULL → error_class='Crash'.
     The interpreter died unexpectedly, not on a clean Python path."""

@@ -48,20 +48,52 @@ _USER_EXCEPTION_EXIT_CODE = 100
 Distinguishes a logical failure the agent owns from interpreter death,
 signals, or sandbox-runtime kills."""
 
-# Wrapper script: distinguishes user-code exceptions from interpreter
-# death / signals (any other non-zero exit). Mounted read-only at
-# /sandbox/runner.py.
-_RUNNER_SCRIPT = f"""\
-import runpy
-import sys
-import traceback
+_RUNNER_CRASH_REMAP_EXIT_CODE = 102
+"""TODO-17 hardening: when user code's subprocess exits with our
+internal user-exception sentinel ({_USER_EXCEPTION_EXIT_CODE}), the
+runner remaps to this value so the classifier sees a Crash rather
+than a user-owned logical failure. Closes the `os._exit(100)` spoof
+that previously let an agent set its own `error_class=None`."""
 
-try:
-    runpy.run_path("/sandbox/user_code.py", run_name="__main__")
-except BaseException:
-    traceback.print_exc(file=sys.stderr)
+# Wrapper script: runs user code as a subprocess so user os._exit() /
+# signals manipulate only the user-code subprocess exit code, not the
+# runner's. The runner's own exit code is derived from a fixed policy
+# over the child's returncode (see comments inside). Mounted read-only
+# at /sandbox/runner.py. TODO-17 hardening (closes `os._exit(100)`
+# spoof and the same-process attack surface; the `os._exit(0)` case
+# remains observably indistinguishable from clean exit at the process
+# boundary, with the run_pipeline JSON-output requirement providing
+# defense-in-depth).
+_RUNNER_SCRIPT = f"""\
+import subprocess
+import sys
+
+proc = subprocess.run(
+    [sys.executable, "/sandbox/user_code.py"],
+)
+rc = proc.returncode
+# Policy:
+#   * 0 → 0. Clean exit, sys.exit(0), or os._exit(0); classifier
+#     status='ok'. We cannot distinguish os._exit(0) from clean exit
+#     at the process boundary; the metric layer provides
+#     defense-in-depth.
+#   * 1 → user-exception sentinel. Python's default returncode for
+#     an uncaught exception; classifier returns error_class=None.
+#   * user-exception sentinel → crash-remap. A user attempting to
+#     spoof the user-exception path; classifier returns Crash.
+#   * negative (signal N) → 128 + |N|. Standard signal-exit
+#     convention; preserves OOM detection via inspect.State.OOMKilled
+#     and Crash detection for SIGSEGV.
+#   * any other → passthrough; classifier returns Crash.
+if rc == 0:
+    sys.exit(0)
+if rc == 1:
     sys.exit({_USER_EXCEPTION_EXIT_CODE})
-sys.exit(0)
+if rc == {_USER_EXCEPTION_EXIT_CODE}:
+    sys.exit({_RUNNER_CRASH_REMAP_EXIT_CODE})
+if rc < 0:
+    sys.exit(128 + (-rc))
+sys.exit(rc)
 """
 
 _KILL_GRACE_SECONDS = 5.0
