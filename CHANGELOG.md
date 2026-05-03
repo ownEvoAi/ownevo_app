@@ -39,6 +39,58 @@ fresh `[Unreleased]` block above it.
 - uv workspace wiring (root `pyproject.toml` dependency-groups, per-package
   hatchling builds, `--import-mode=importlib` for cross-dir test
   collection). `pydantic>=2.7,<3` pinned at workspace level.
+- `infra/docker-compose.yml` — local Postgres 16 + pgvector. Migrations
+  auto-applied on first boot via `docker-entrypoint-initdb.d`. Host port
+  configurable with `OWNEVO_PG_PORT`; data persisted to a named volume
+  (`docker compose down -v` to re-bootstrap). Production migration runner
+  with version tracking is out of scope for the substrate.
+- `apps/kernel/src/ownevo_kernel/db.py` — async connection helpers around
+  asyncpg. `open_pool()` / `pool_scope()` for runtime use; `migrate()`
+  applies all `apps/kernel/migrations/*.sql` in lexicographic order
+  against a single connection (used by tests to bootstrap throwaway
+  databases). Reads `OWNEVO_DATABASE_URL`; raises a clear setup error
+  when unset.
+- `apps/kernel/src/ownevo_kernel/sandbox/` — `LocalDockerSandbox` (D3
+  reference impl) + `SandboxRuntime` Protocol. Hardened flags
+  (`--network none`, `--read-only` rootfs + `/tmp` tmpfs, `--cap-drop ALL`,
+  `--security-opt no-new-privileges`, `--memory` + `--memory-swap` with no
+  swap, `--cpus`, `--pids-limit`). Failure classification matches the
+  `ToolCallResult` contract: exit 0 → `status="ok"`; runner-caught Python
+  exception (exit 100) → `status="error", error_class=None` (logical
+  failure the agent owns); wall-clock kill → `Timeout`; cgroup OOM-kill
+  (via `docker inspect State.OOMKilled`) → `OOM`; any other non-zero →
+  `Crash`. Disambiguates Timeout from OOM (both surface as exit 137).
+  Note: `--cap-drop ALL` strips `CAP_DAC_OVERRIDE`, so root in the
+  container can't bypass host file permissions on the bind-mounted
+  tempdir; the impl chmods the mount source to 0755 to compensate.
+- `apps/kernel/src/ownevo_kernel/skills/` — YAML frontmatter parser
+  per `SKILL_FORMAT.md` (handles both delimiter conventions: leading
+  `---` block for markdown skills, module-docstring `---` block for
+  Python skills). Registry writes `skills` + `skill_versions` in one
+  transaction with `parent_version_id` linkage and `head_version_id`
+  advancement; rejects `kind` mismatches across versions. `SkillFormatError`
+  funnels every parse/validate failure so callers don't see Pydantic
+  internals. `parse_stale_duration` covers `1h` / `24h` / `7d` / `never`
+  for the retention-violation eval-case generator. PyYAML added as a
+  kernel dep.
+- `apps/kernel/src/ownevo_kernel/traces/` — `TraceCollector` +
+  `trace_session` async context manager. Accumulates `AgentEvent`
+  objects in memory and writes the whole stream as one row in
+  `traces.events` (JSONB array) on context exit, including on exceptions
+  — failing iterations still produce traces for the clustering pipeline.
+  `make_event()` fills in `event_id` / `trace_id` / `timestamp` (and
+  `iteration_id` when known) and validates against the discriminated
+  union; `record()` rejects events with mismatched `trace_id` so a
+  routing bug can't silently corrupt traces. `finalize()` is idempotent.
+  ClickHouse / per-event row migration deferred to Phase 2.
+- `apps/kernel/src/ownevo_kernel/datasets/m5.py` — M5 forecasting
+  dataset loader. Path-and-shape only — no pandas on the kernel side
+  (agent code in the sandbox brings its own). `load_m5(data_dir)`
+  discovers the four CSVs and surfaces per-file metadata (columns,
+  row counts) plus `date_range()` from `calendar.csv`.
+  `make_sample_subset(catalog, num_items=)` slices an in-memory subset
+  for fast eval-gate cycles using stdlib `csv`. Raises
+  `M5DatasetError` with the missing filename when setup is incomplete.
 
 ### Changed
 - `apps/kernel/migrations/0001_substrate.sql` — `proposals` table gains
