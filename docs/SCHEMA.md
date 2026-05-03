@@ -24,6 +24,7 @@ Locked 2026-05-03 by CEO review v4.3 + eng review. Changes go through migrations
                                     │  metric_id           │     │
                                     │  sim_skill_id (FK) ─ │ ─┐  │
                                     │  meta_eval_score     │  │  │
+                                    │  mode (enum)         │  │  │
                                     └─────────┬────────────┘  │  │
                                               │ 1:N           │  │ N:1
                                               ▼               ▼  │
@@ -59,9 +60,10 @@ Locked 2026-05-03 by CEO review v4.3 + eng review. Changes go through migrations
             │  iteration_id (FK) │      │      approvals       │
             │  skill_version_id  │      │  proposal_id (FK)    │
             │  events (jsonb[])  │      │  decided_by          │
-            │  metric_outputs    │      │  decision            │
-            │  token_usage       │      │  comment             │
-            └────────────────────┘      │  became_eval_case_id │ ──┐
+            │  metric_outputs    │      │  approver_type (enum)│
+            │  token_usage       │      │  decision            │
+            └────────────────────┘      │  comment             │
+                                        │  became_eval_case_id │ ──┐
                                         └──────────────────────┘   │
                                                                    │ FK (loop)
             ┌────────────────────┐      ┌──────────────────────┐   │
@@ -99,6 +101,8 @@ Locked 2026-05-03 by CEO review v4.3 + eng review. Changes go through migrations
 ### `workflows`
 The user's described workflow + the NL-gen-generated artifacts. `spec` is the frozen-schema JSONB containing tools, ui block, environment description. `meta_eval_score` is the description-coverage from D7.
 
+`mode` is `'gated' | 'autonomous'` (default `'gated'`). In `autonomous` mode the regression gate's `gate-passed` state transitions directly to `approved-awaiting-deploy` without a human or LLM-judge step — used for benchmarking (τ³-bench conditions A/B/C) and any future fully-automated deployment pipeline. Mode is set per-workflow at creation and cannot be changed mid-run in MVP.
+
 ### `skills` + `skill_versions`
 Mirror the auto-harness "single mutable artifact" pattern. `head_version_id` points to the current HEAD (denormalized for hot reads). Every revision is an immutable row in `skill_versions`. `retention_block` is the parsed YAML frontmatter (see [`SKILL_FORMAT.md`](./SKILL_FORMAT.md)).
 
@@ -110,11 +114,11 @@ One row per loop iteration. `parent_skill_version_id` is what the agent started 
 `best_ever_score_before` and `best_ever_score_after` are the gate's "best ever val_score" snapshots. The convention: `best_ever_score_after = max(best_ever_score_before, val_score)` if gate passed, else equals `best_ever_score_before`.
 
 ### `proposals` + `approvals`
-The approval queue. `proposal_state_machine` documented in [`STATE_MACHINES.md`](./STATE_MACHINES.md). One proposal can have at most one resolved approval.
+The approval queue. State machine documented in [`STATE_MACHINES.md`](./STATE_MACHINES.md). One proposal can have at most one resolved approval.
 
-`proposals.eval_score` (numeric(3,2), `[0,1]` check) and `proposals.eval_rationale` (text) hold the LLM-judge-stub output. Carried over from `core/agentos_harness/types.py:Proposal` as the integration shape; populated starting W2 when the judge wires up.
+`proposals.eval_score` (numeric(3,2), `[0,1]` check) and `proposals.eval_rationale` (text) hold the LLM-judge-stub output. Shape carried over from `core/agentos_harness/types.py:Proposal` (MIT); populated starting W2 when the judge wires up.
 
-`approvals.became_eval_case_id` closes the comment-becomes-eval-case flow: when a reviewer rejects with a comment, the comment is structured into an `eval_cases` row tagged `provenance = 'rejected-feedback'`.
+`approvals.approver_type` is `'human' | 'llm-judge' | 'autonomous'`. In autonomous mode the gate runner writes the approval row directly (no human in the loop); `decided_by` is `"autonomous"` and `comment` is null. `approvals.became_eval_case_id` closes the comment-becomes-eval-case flow: when a human reviewer rejects with a comment, the comment is structured into an `eval_cases` row tagged `provenance = 'rejected-feedback'`. Not applicable in autonomous mode.
 
 ### `eval_cases`
 Per-workflow, with provenance tracking. `is_test_fold` enforces train/test discipline — gate runner refuses to use test-fold rows as training input.
@@ -142,7 +146,7 @@ The high-volume table. JSONB `events` is an array of typed `AgentEvent` (defined
 
 Indexes target the hot queries:
 
-- `pending_proposals` view (approval queue UI): `proposals(created_at) WHERE state IN ('pending', 'gate-passed-awaiting-human')` — partial index keeps it tiny.
+- `pending_proposals` view (approval queue UI): `proposals(created_at) WHERE state IN ('pending', 'gate-passed')` — partial index keeps it tiny.
 - `lift_series` view (lift chart): `iterations(workflow_id, iteration_index)` unique constraint covers this.
 - Failure cluster vector search: `ivfflat (centroid vector_cosine_ops)`.
 - Audit log export: `audit_entries(seq)` is the canonical order.

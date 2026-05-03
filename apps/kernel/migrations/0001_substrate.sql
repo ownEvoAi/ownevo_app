@@ -49,12 +49,16 @@ CREATE TYPE proposal_state AS ENUM (
     'pending',
     'in-gate',
     'gate-failed',
-    'gate-passed-awaiting-human',
+    'gate-passed',
     'rejected',
     'approved-awaiting-deploy',
     'deployed',
     'rolled-back'
 );
+
+CREATE TYPE workflow_mode AS ENUM ('gated', 'autonomous');
+
+CREATE TYPE approver_type AS ENUM ('human', 'llm-judge', 'autonomous');
 
 -- D3 — explicit sandbox failure classes; gate consumer does NOT advance best-ever
 -- when iteration ends with one of these.
@@ -89,6 +93,7 @@ CREATE TABLE workflows (
     metric_id           text,                             -- name of the success metric
     sim_skill_id        text,                             -- FK added after skills table exists
     meta_eval_score     numeric(3,2),                     -- description-coverage 0.00-1.00 (D7)
+    mode                workflow_mode NOT NULL DEFAULT 'gated',  -- 'gated' requires human/llm-judge; 'autonomous' auto-approves gate-pass
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 
@@ -246,7 +251,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_state_idx ON proposals(state);
 CREATE INDEX proposals_iteration_idx ON proposals(iteration_id);
 CREATE INDEX proposals_pending_idx ON proposals(created_at)
-    WHERE state IN ('pending', 'gate-passed-awaiting-human');
+    WHERE state IN ('pending', 'gate-passed');
 
 -- =============================================================================
 -- approvals (resolved decisions on proposals)
@@ -255,7 +260,8 @@ CREATE INDEX proposals_pending_idx ON proposals(created_at)
 CREATE TABLE approvals (
     id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     proposal_id             uuid NOT NULL REFERENCES proposals(id),
-    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge-stub'
+    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge-stub' | 'autonomous'
+    approver_type           approver_type NOT NULL,
     decision                text NOT NULL CHECK (decision IN ('approve', 'reject')),
     comment                 text,
     became_eval_case_id     uuid REFERENCES eval_cases(id),  -- if reject + comment
@@ -351,7 +357,7 @@ CREATE VIEW pending_proposals AS
     SELECT p.*, i.workflow_id, i.iteration_index
     FROM proposals p
     JOIN iterations i ON p.iteration_id = i.id
-    WHERE p.state IN ('pending', 'gate-passed-awaiting-human')
+    WHERE p.state IN ('pending', 'gate-passed')
     ORDER BY p.created_at ASC;
 
 CREATE VIEW lift_series AS

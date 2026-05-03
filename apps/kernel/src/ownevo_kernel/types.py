@@ -45,15 +45,26 @@ class IterationState(StrEnum):
     SANDBOX_ERROR = "sandbox-error"
 
 
+class WorkflowMode(StrEnum):
+    GATED = "gated"
+    AUTONOMOUS = "autonomous"
+
+
 class ProposalState(StrEnum):
     PENDING = "pending"
     IN_GATE = "in-gate"
     GATE_FAILED = "gate-failed"
-    GATE_PASSED_AWAITING_HUMAN = "gate-passed-awaiting-human"
+    GATE_PASSED = "gate-passed"
     REJECTED = "rejected"
     APPROVED_AWAITING_DEPLOY = "approved-awaiting-deploy"
     DEPLOYED = "deployed"
     ROLLED_BACK = "rolled-back"
+
+
+class ApproverType(StrEnum):
+    HUMAN = "human"
+    LLM_JUDGE = "llm-judge"
+    AUTONOMOUS = "autonomous"
 
 
 class SandboxErrorClass(StrEnum):
@@ -113,6 +124,7 @@ class Workflow(_Base):
     metric_id: str | None = None
     sim_skill_id: str | None = None
     meta_eval_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    mode: WorkflowMode = WorkflowMode.GATED
     created_at: datetime
 
 
@@ -234,7 +246,8 @@ class ProposalAction(_Base):
 class Approval(_Base):
     id: UUID
     proposal_id: UUID
-    decided_by: str  # "human:<id>" | "llm-judge-stub"
+    decided_by: str  # "human:<id>" | "llm-judge-stub" | "autonomous"
+    approver_type: ApproverType
     decision: Literal["approve", "reject"]
     comment: str | None = None
     became_eval_case_id: UUID | None = None

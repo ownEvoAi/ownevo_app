@@ -401,7 +401,13 @@ components:
       enum: [running, gate-pass, gate-blocked-regression, gate-blocked-no-improvement, sandbox-error]
     ProposalState:
       type: string
-      enum: [pending, in-gate, gate-failed, gate-passed-awaiting-human, rejected, approved-awaiting-deploy, deployed, rolled-back]
+      enum: [pending, in-gate, gate-failed, gate-passed, rejected, approved-awaiting-deploy, deployed, rolled-back]
+    WorkflowMode:
+      type: string
+      enum: [gated, autonomous]
+    ApproverType:
+      type: string
+      enum: [human, llm-judge, autonomous]
     SandboxErrorClass:
       type: string
       enum: [Timeout, OOM, Crash]
