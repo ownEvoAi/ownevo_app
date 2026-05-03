@@ -289,7 +289,7 @@ CREATE OR REPLACE FUNCTION audit_entries_worm() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    RAISE EXCEPTION 'audit_entries is append-only (WORM); UPDATE/DELETE forbidden. To bypass for schema migration, drop trigger explicitly.';
+    RAISE EXCEPTION 'audit_entries is append-only (WORM); UPDATE/DELETE/TRUNCATE forbidden. To bypass for schema migration, drop trigger explicitly.';
 END;
 $$;
 
@@ -300,6 +300,14 @@ CREATE TRIGGER audit_entries_no_update
 CREATE TRIGGER audit_entries_no_delete
     BEFORE DELETE ON audit_entries
     FOR EACH ROW EXECUTE FUNCTION audit_entries_worm();
+
+-- TRUNCATE is statement-level and bypasses BEFORE UPDATE/DELETE row triggers.
+-- Without this, a superuser (e.g., local dev, ad-hoc migration scripts) could
+-- empty the audit log silently. Layer 2 (role grants) is the production answer
+-- but this guards dev/test environments where the app role is not enforced.
+CREATE TRIGGER audit_entries_no_truncate
+    BEFORE TRUNCATE ON audit_entries
+    FOR EACH STATEMENT EXECUTE FUNCTION audit_entries_worm();
 
 -- =============================================================================
 -- meta_evals (NL-gen meta-eval per D7)
