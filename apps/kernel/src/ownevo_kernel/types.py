@@ -16,6 +16,8 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
+from ownevo_format import SandboxErrorClass  # canonical definition in trace-format; re-exported here
+
 from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
@@ -65,18 +67,6 @@ class ApproverType(StrEnum):
     HUMAN = "human"
     LLM_JUDGE = "llm-judge"
     AUTONOMOUS = "autonomous"
-
-
-class SandboxErrorClass(StrEnum):
-    """D3 — sandbox runtime failures.
-
-    Distinct from logical tool errors. The gate runner does NOT advance
-    `best_ever_score` when an iteration ends in any of these.
-    """
-
-    TIMEOUT = "Timeout"
-    OOM = "OOM"
-    CRASH = "Crash"
 
 
 class AuditKind(StrEnum):
@@ -173,10 +163,10 @@ class FailureCluster(_Base):
     # Most kernel readers don't need the centroid (similarity ops happen in SQL
     # via pgvector), but exposing it here lets `SELECT *` round-trip cleanly
     # under `extra="forbid"` and unblocks any consumer that needs the embedding.
-    centroid: list[float] | None = None
+    centroid: list[float] | None = Field(default=None, min_length=384, max_length=384)
     sample_trace_ids: list[UUID] = Field(default_factory=list)
     cluster_size: int = Field(ge=1)
-    quality_score: float | None = None
+    quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
     created_at: datetime
 
 
@@ -268,7 +258,7 @@ class ProposalAction(_Base):
 class Approval(_Base):
     id: UUID
     proposal_id: UUID
-    decided_by: str  # "human:<id>" | "llm-judge-stub" | "autonomous"
+    decided_by: str  # "human:<id>" | "llm-judge" | "autonomous"
     approver_type: ApproverType
     decision: Literal["approve", "reject"]
     comment: str | None = None
@@ -282,7 +272,7 @@ class AuditEntry(_Base):
     """
 
     id: UUID
-    seq: int
+    seq: int = Field(ge=1)
     kind: AuditKind
     payload: dict[str, Any]
     related_id: UUID | None = None

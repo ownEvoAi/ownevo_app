@@ -188,7 +188,7 @@ CREATE TABLE failure_clusters (
     workflow_id             text REFERENCES workflows(id),
     label                   text NOT NULL,                -- LLM-generated; eval'd for hallucination
     label_eval_score        numeric(3,2),                 -- judge-vs-human agreement (D4)
-    severity                text NOT NULL,                -- 'high' | 'medium' | 'low'
+    severity                text NOT NULL CHECK (severity IN ('high', 'medium', 'low')),
     centroid                vector(384),                  -- sentence-transformers all-MiniLM-L6-v2 dim
     sample_trace_ids        uuid[],
     cluster_size            integer NOT NULL,
@@ -287,12 +287,13 @@ CREATE INDEX proposals_pending_idx ON proposals(created_at)
 CREATE TABLE approvals (
     id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     proposal_id             uuid NOT NULL REFERENCES proposals(id),
-    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge-stub' | 'autonomous'
+    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge' | 'autonomous'
     approver_type           approver_type NOT NULL,
     decision                text NOT NULL CHECK (decision IN ('approve', 'reject')),
     comment                 text,
     became_eval_case_id     uuid REFERENCES eval_cases(id),  -- if reject + comment
-    decided_at              timestamptz NOT NULL DEFAULT now()
+    decided_at              timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (proposal_id)                                  -- one resolved decision per proposal
 );
 
 CREATE INDEX approvals_proposal_idx ON approvals(proposal_id);

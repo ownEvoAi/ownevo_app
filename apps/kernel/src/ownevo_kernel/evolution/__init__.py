@@ -26,10 +26,24 @@ detailed reuse audit.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
 from ownevo_kernel.types import FailureCluster, Iteration, Learning, Proposal
+
+
+class ReflectionDecision(StrEnum):
+    """Next-step decision emitted by the Reflector after reviewing an iteration.
+
+    FINALIZE: gate passed AND best-ever advanced → gate runner writes new skill version.
+    CONTINUE: gate passed BUT no improvement → log to learnings; start next iteration.
+    REPLAN:   gate blocked OR sandbox error → drop hypothesis; agent retries fresh.
+    """
+
+    FINALIZE = "finalize"
+    CONTINUE = "continue"
+    REPLAN = "replan"
 
 
 class Tracker(Protocol):
@@ -50,16 +64,13 @@ class Tracker(Protocol):
 
 
 class Reflector(Protocol):
-    """Reviews an iteration's outcome — emits next-step decision.
+    """Reviews an iteration's outcome — returns the next-step decision.
 
-    Mirrors core/'s `ReflectionDecision` (FINALIZE / CONTINUE / REPLAN)
-    but adapted for ownEvo's gate-mediated loop:
-      - FINALIZE: gate passed AND best-ever advanced → write skill version
-      - CONTINUE: gate passed BUT no improvement → log to learnings, next iteration
-      - REPLAN:   gate blocked OR sandbox error → drop hypothesis, agent retries
+    The concrete implementation also persists a Learning entry as a side-effect,
+    but the return value is the decision the loop runner acts on.
     """
 
-    async def reflect(self, iteration: Iteration) -> Learning: ...
+    async def reflect(self, iteration: Iteration) -> ReflectionDecision: ...
 
 
 class Curator(Protocol):
@@ -88,4 +99,4 @@ class Proposer(Protocol):
     async def propose(self, cluster: FailureCluster) -> Proposal: ...
 
 
-__all__ = ["Tracker", "Reflector", "Curator", "Proposer"]
+__all__ = ["ReflectionDecision", "Tracker", "Reflector", "Curator", "Proposer"]

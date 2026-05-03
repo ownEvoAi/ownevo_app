@@ -448,6 +448,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
+        mode: { $ref: '#/components/schemas/WorkflowMode' }
         created_at: { type: string, format: date-time }
 
     CreateWorkflowRequest:
@@ -455,6 +456,19 @@ components:
       required: [description]
       properties:
         description: { type: string, minLength: 10 }
+
+    Approval:
+      type: object
+      required: [id, proposal_id, decided_by, approver_type, decision, decided_at]
+      properties:
+        id: { type: string, format: uuid }
+        proposal_id: { type: string, format: uuid }
+        decided_by: { type: string, description: "'human:<id>' | 'llm-judge' | 'autonomous'" }
+        approver_type: { $ref: '#/components/schemas/ApproverType' }
+        decision: { type: string, enum: [approve, reject] }
+        comment: { type: string, nullable: true }
+        became_eval_case_id: { type: string, format: uuid, nullable: true, description: "Non-null when decision=reject and comment is non-empty" }
+        decided_at: { type: string, format: date-time }
 
     Proposal:
       type: object
@@ -466,6 +480,8 @@ components:
         parent_version_id: { type: string, format: uuid }
         plain_language_summary: { type: string }
         state: { $ref: '#/components/schemas/ProposalState' }
+        eval_score: { type: number, format: float, minimum: 0, maximum: 1, nullable: true, description: "LLM-judge score (W2)" }
+        eval_rationale: { type: string, nullable: true, description: "LLM-judge plain-language reason (W2)" }
         created_at: { type: string, format: date-time }
 
     ProposalDetail:
@@ -518,6 +534,9 @@ components:
         ts: { type: string, format: date-time }
         state: { $ref: '#/components/schemas/IterationState' }
         annotation: { type: string, description: "If non-null, an approved/rejected proposal that landed at this point." }
+        deployment_id: { type: string, format: uuid, nullable: true }
+        config_tag: { type: string, nullable: true, description: "SkillDeployment.config_tag; null when no deployment config" }
+        model_id: { type: string, nullable: true }
 
     AuditEntry:
       type: object

@@ -18,6 +18,7 @@ schema-freeze deliverable in `docs/PLAN.md`.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal, TypeGuard
 from uuid import UUID
 
@@ -48,9 +49,21 @@ class AgentEventBase(BaseModel):
 # ---------------------------------------------------------------------------
 
 ToolCallStatus = Literal["ok", "error"]
-SandboxErrorClass = Literal["Timeout", "OOM", "Crash"]
 MonitorSeverity = Literal["info", "warn", "error"]
 MonitorName = Literal["loop_detection", "redundancy", "context_near_limit"]
+
+
+class SandboxErrorClass(StrEnum):
+    """D3 — sandbox runtime failure classes for tool_call_result.error_class.
+
+    Distinct from logical errors inside the tool. The gate runner does NOT
+    advance best_ever_score when any of these are present.
+    Canonical definition lives here (trace-format); ownevo-kernel re-exports.
+    """
+
+    TIMEOUT = "Timeout"
+    OOM = "OOM"
+    CRASH = "Crash"
 
 
 # ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ audit kind they produce.
 - `gate-failed` (technical) is distinct from `rejected` (logical). The agent's `learnings.md` records both, but only `rejected` counts toward "3 failures on the same hypothesis → abandon."
 - `autonomous` mode does NOT write a human `approvals` row — the `approved-awaiting-deploy` transition is driven directly by the gate runner, with `approver_type = 'autonomous'` recorded in the audit payload.
 - `autonomous` mode is per-workflow (`workflows.mode`), not per-proposal. Switching a workflow between modes mid-run is not supported in MVP.
-- The `becomes_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty). Not applicable in autonomous mode (no rejection path from auto-approve).
+- The `became_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty). Not applicable in autonomous mode (no rejection path from auto-approve).
 
 ## Iteration
 

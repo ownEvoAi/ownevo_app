@@ -212,3 +212,27 @@ def test_all_variants_construct_cleanly():
     for v in variants:
         roundtripped = AgentEventAdapter.validate_python(v.model_dump(mode="python"))
         assert type(roundtripped) is type(v)
+
+
+# ---------------------------------------------------------------------------
+# Boundary / constraint tests added by review
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_ms", [-1, -100])
+def test_tool_call_result_rejects_negative_duration_ms(bad_ms: int):
+    with pytest.raises(ValidationError):
+        ToolCallResult(
+            **_base_fields(), type="tool_call_result",
+            call_id="c", name="x", status="ok", output=None, duration_ms=bad_ms,
+        )
+
+
+def test_citation_rejects_zero_ref():
+    with pytest.raises(ValidationError):
+        Citation(**_base_fields(), type="citation", ref=0, source="s", quote="q")
+
+
+def test_skill_loaded_rejects_zero_version_seq():
+    with pytest.raises(ValidationError):
+        SkillLoaded(**_base_fields(), type="skill_loaded", skill_id="s", version_seq=0)

@@ -317,3 +317,79 @@ def test_evolution_protocols_exposed():
     assert Reflector is not None
     assert Curator is not None
     assert Proposer is not None
+
+
+# ---------------------------------------------------------------------------
+# Boundary / constraint tests added by review
+# ---------------------------------------------------------------------------
+
+
+def test_skill_deployment_constructs_at_weight_boundaries():
+    SkillDeployment(
+        id=uuid4(), skill_id="s", config_tag="control",
+        model_id="claude-sonnet-4-6", traffic_weight=0.0, created_at=_now(),
+    )
+    SkillDeployment(
+        id=uuid4(), skill_id="s", config_tag="heavy",
+        model_id="claude-opus-4-7", traffic_weight=1.0, created_at=_now(),
+    )
+
+
+@pytest.mark.parametrize("bad_weight", [-0.01, 1.01])
+def test_skill_deployment_rejects_invalid_traffic_weight(bad_weight: float):
+    with pytest.raises(ValidationError):
+        SkillDeployment(
+            id=uuid4(), skill_id="s", config_tag="c",
+            model_id="m", traffic_weight=bad_weight, created_at=_now(),
+        )
+
+
+def test_workflow_mode_autonomous():
+    wf = Workflow(
+        id="bench-wf", description="τ³ benchmark condition C",
+        spec={}, mode=WorkflowMode.AUTONOMOUS, created_at=_now(),
+    )
+    assert wf.mode == WorkflowMode.AUTONOMOUS
+
+
+@pytest.mark.parametrize("bad_score", [1.01, -0.01])
+def test_proposal_rejects_out_of_range_eval_score(bad_score: float):
+    with pytest.raises(ValidationError):
+        Proposal(
+            id=uuid4(), iteration_id=uuid4(), skill_id="s",
+            proposed_content="...", plain_language_summary="...",
+            eval_score=bad_score, created_at=_now(), state_updated_at=_now(),
+        )
+
+
+def test_approval_rejects_invalid_decision():
+    with pytest.raises(ValidationError):
+        Approval(
+            id=uuid4(), proposal_id=uuid4(), decided_by="human:founder",
+            approver_type=ApproverType.HUMAN, decision="abstain",
+            decided_at=_now(),
+        )
+
+
+def test_approval_rejects_invalid_approver_type():
+    with pytest.raises(ValidationError):
+        Approval(
+            id=uuid4(), proposal_id=uuid4(), decided_by="oracle",
+            approver_type="oracle", decision="approve",  # type: ignore[arg-type]
+            decided_at=_now(),
+        )
+
+
+def test_iteration_rejects_negative_index():
+    with pytest.raises(ValidationError):
+        Iteration(
+            id=uuid4(), workflow_id="w", iteration_index=-1, started_at=_now(),
+        )
+
+
+def test_skill_version_rejects_zero_seq():
+    with pytest.raises(ValidationError):
+        SkillVersion(
+            id=uuid4(), skill_id="s", version_seq=0,
+            content="x", created_at=_now(), created_by="human:test",
+        )
