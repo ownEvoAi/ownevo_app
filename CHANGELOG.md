@@ -91,6 +91,24 @@ fresh `[Unreleased]` block above it.
   `make_sample_subset(catalog, num_items=)` slices an in-memory subset
   for fast eval-gate cycles using stdlib `csv`. Raises
   `M5DatasetError` with the missing filename when setup is incomplete.
+- `apps/kernel/src/ownevo_kernel/audit/` — append-only audit log writer
+  (W2.4 / D2). `append_audit_entry(conn, kind=, payload=, actor=,
+  related_id=)` returns the typed `AuditEntry`; `kind` accepts the
+  `AuditKind` enum or its string value. `export_audit_log(conn,
+  since_seq=, kind=)` reads in monotonic `seq` order with optional
+  filters for incremental and per-kind exports. `to_canonical_json`
+  serializes sorted-keys + no-whitespace + UTF-8 — bytes are the
+  contract so customers can `diff` exports byte-for-byte. WORM
+  enforcement (UPDATE / DELETE / TRUNCATE blocked) lives in the schema
+  per D2; the writer doesn't bypass it.
+- `apps/kernel/src/ownevo_kernel/eval_cases/` — eval-case CRUD (W2.3).
+  `add_eval_case(conn, provenance=, input=, expected_behavior=, ...)`
+  returns the typed `EvalCase`; `get_eval_case(conn, id)` fetches one
+  by id; `list_eval_cases(conn, workflow_id=, provenance=,
+  is_test_fold=, cluster_id=)` filters and orders by `created_at` so
+  the gate fail-fasts on older (more-load-bearing) cases first.
+  Train/test discipline: the `is_test_fold` filter is what the gate
+  uses to surface held-out cases; gate runner refuses to train on them.
 
 ### Changed
 - `apps/kernel/migrations/0001_substrate.sql` — `proposals` table gains
