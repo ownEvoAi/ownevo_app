@@ -62,3 +62,48 @@ fresh `[Unreleased]` block above it.
   exception; row count preserved. Layer 2 (role grants in
   `0002_grants.sql`) remains the production answer; this guards dev/test
   envs where the app role is not enforced.
+- `apps/kernel/migrations/0001_substrate.sql` — add `UNIQUE (proposal_id)`
+  to `approvals` table. Without it, concurrent gate-runner retries or a
+  race between an autonomous approval and a human click could insert two
+  resolved decisions for the same proposal.
+- `apps/kernel/migrations/0001_substrate.sql` — add
+  `CHECK (severity IN ('high', 'medium', 'low'))` to `failure_clusters`.
+  SQL had no constraint; any string would insert cleanly and only fail at
+  the Pydantic read boundary.
+- `apps/kernel/src/ownevo_kernel/types.py` — `FailureCluster.centroid` now
+  enforces `min_length=384, max_length=384` via `Field`; `quality_score`
+  gains `ge=0.0, le=1.0`; `AuditEntry.seq` gains `ge=1`. All three mirror
+  existing SQL constraints that were missing from the Pydantic layer.
+- `apps/kernel/src/ownevo_kernel/evolution/__init__.py` — `Reflector.reflect()`
+  return type was `Learning` (an audit record) but the docstring described
+  a three-way `FINALIZE / CONTINUE / REPLAN` decision. Introduced
+  `ReflectionDecision` `StrEnum` and changed the return type to match.
+  W2 implementations must now return an actionable decision; learning
+  persistence is a side-effect of the concrete class.
+- `packages/trace-format/src/ownevo_format/agent_event.py` — `SandboxErrorClass`
+  promoted from `Literal["Timeout","OOM","Crash"]` to a proper `StrEnum`
+  (single canonical definition). `apps/kernel/…/types.py` now imports from
+  `ownevo_format` instead of duplicating the enum; eliminates the two-place
+  update hazard when adding failure classes.
+- `docs/STATE_MACHINES.md` — corrected stale field name `becomes_eval_case_id`
+  → `became_eval_case_id` in the Invariants section.
+- `docs/api/openapi.yaml` — four schema gaps closed: `Workflow.mode`
+  (`WorkflowMode` ref), `Proposal.eval_score` / `eval_rationale`, and
+  `LiftPoint.deployment_id` / `config_tag` / `model_id` (the `lift_series`
+  view now joins `skill_deployments`; the typed client was silently dropping
+  variant data). `Approval` schema added — `approver_type` was `NOT NULL`
+  in SQL and required in Pydantic but invisible to API consumers.
+- `packages/trace-format/src/ownevo_format/__init__.py` — `MonitorSeverity`
+  and `MonitorName` type aliases added to public exports.
+
+### Tests
+- `apps/kernel/tests/state_machines/test_proposal_states.py` — new file.
+  `docs/STATE_MACHINES.md` referenced it as existing; it did not. 9 unit
+  tests (one per legal transition), 5 negative tests (illegal shortcuts /
+  terminal-state guards), 1 audit-coupling assertion, 3 autonomous-mode
+  tests. 64 tests total now pass.
+- Boundary/constraint tests added: `SkillDeployment` traffic-weight bounds,
+  `Proposal.eval_score` out-of-range, `Approval.decision` / `approver_type`
+  invalid values, `Iteration.iteration_index` negative, `SkillVersion.version_seq`
+  zero, `ToolCallResult.duration_ms` negative, `Citation.ref` zero,
+  `SkillLoaded.version_seq` zero.
