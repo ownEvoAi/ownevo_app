@@ -14,46 +14,13 @@ import uuid
 import asyncpg
 import pytest
 from ownevo_kernel.audit import append_audit_entry, export_audit_log, to_canonical_json
-from ownevo_kernel.db import ENV_VAR, migrate
+from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.types import AuditEntry, AuditKind
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
     reason=f"{ENV_VAR} not set; skipping integration tests",
 )
-
-
-def _admin_url() -> str:
-    base = os.environ[ENV_VAR]
-    return base.rsplit("/", 1)[0] + "/postgres"
-
-
-@pytest.fixture
-async def db():
-    dbname = f"ownevo_test_{uuid.uuid4().hex[:12]}"
-    admin = await asyncpg.connect(_admin_url())
-    try:
-        await admin.execute(f'CREATE DATABASE "{dbname}"')
-    finally:
-        await admin.close()
-    base = os.environ[ENV_VAR]
-    test_url = base.rsplit("/", 1)[0] + f"/{dbname}"
-    conn = await asyncpg.connect(test_url)
-    try:
-        await migrate(conn)
-        yield conn
-    finally:
-        await conn.close()
-        admin = await asyncpg.connect(_admin_url())
-        try:
-            await admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname=$1 AND pid<>pg_backend_pid()",
-                dbname,
-            )
-            await admin.execute(f'DROP DATABASE "{dbname}"')
-        finally:
-            await admin.close()
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +63,12 @@ async def test_append_records_related_id(db: asyncpg.Connection):
         related_id=rid,
     )
     assert entry.related_id == rid
+
+
+async def test_append_invalid_kind_rejected(db: asyncpg.Connection):
+    """DB enum rejects unknown kind strings — mirrors test_unknown_provenance_rejected_by_db."""
+    with pytest.raises(asyncpg.PostgresError):
+        await append_audit_entry(db, kind="not-a-real-kind", payload={}, actor="ops")
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +121,20 @@ async def test_export_filters_by_kind(db: asyncpg.Connection):
     assert all(e.kind == AuditKind.PROPOSAL_CREATED for e in proposals)
 
 
+async def test_export_combined_since_seq_and_kind(db: asyncpg.Connection):
+    """since_seq AND kind filters AND together — exercises both clauses in one query."""
+    e1 = await append_audit_entry(db, kind=AuditKind.PROPOSAL_CREATED, payload={"n": 1}, actor="a")
+    await append_audit_entry(db, kind=AuditKind.GATE_RUN_STARTED, payload={"n": 2}, actor="a")
+    e3 = await append_audit_entry(db, kind=AuditKind.PROPOSAL_CREATED, payload={"n": 3}, actor="a")
+    await append_audit_entry(db, kind=AuditKind.PROPOSAL_CREATED, payload={"n": 4}, actor="a")
+
+    # since_seq=e1 + kind=PROPOSAL_CREATED → e3 and e4, not e1 or the gate entry
+    results = await export_audit_log(db, since_seq=e1.seq, kind=AuditKind.PROPOSAL_CREATED)
+    assert {e.payload["n"] for e in results} == {3, 4}
+    assert all(e.kind == AuditKind.PROPOSAL_CREATED for e in results)
+    assert e3.seq in {e.seq for e in results}
+
+
 # ---------------------------------------------------------------------------
 # Canonical JSON
 # ---------------------------------------------------------------------------
@@ -165,7 +152,7 @@ async def test_canonical_json_has_sorted_keys_and_no_whitespace(db: asyncpg.Conn
     entries = await export_audit_log(db)
     blob = to_canonical_json(entries)
 
-    assert b" " not in blob.replace(b'"', b"") or blob.count(b" ") == 0  # no extraneous whitespace
+    assert b", " not in blob and b": " not in blob  # no whitespace in JSON separators
     decoded = json.loads(blob)
     payload = decoded[0]["payload"]
     keys = list(payload.keys())

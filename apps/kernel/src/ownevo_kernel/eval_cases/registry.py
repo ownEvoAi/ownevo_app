@@ -18,6 +18,7 @@ clustering and NL-gen pipelines write via `add_eval_case`.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 from uuid import UUID
 
@@ -46,6 +47,12 @@ async def add_eval_case(
     gate refuses to use for training (train/test discipline).
     """
     prov = provenance.value if isinstance(provenance, ProvenanceKind) else provenance
+    try:
+        input_json = json.dumps(input)
+        expected_json = json.dumps(expected_behavior)
+    except TypeError as exc:
+        field = "input" if "input" in str(exc) else "expected_behavior"
+        raise TypeError(f"add_eval_case: {field} is not JSON-serializable: {exc}") from exc
     row = await conn.fetchrow(
         """
         INSERT INTO eval_cases (
@@ -60,8 +67,8 @@ async def add_eval_case(
         workflow_id,
         prov,
         cluster_id,
-        json.dumps(input),
-        json.dumps(expected_behavior),
+        input_json,
+        expected_json,
         regression_tolerance,
         is_test_fold,
     )
@@ -139,6 +146,11 @@ def _row_to_case(row: asyncpg.Record) -> EvalCase:
         return json.loads(v) if isinstance(v, str) else v
 
     tol = row["regression_tolerance"]
+    tol_float: float | None = None
+    if tol is not None:
+        tol_float = float(tol)
+        if not math.isfinite(tol_float):
+            raise ValueError(f"regression_tolerance is not finite: {tol_float}")
     return EvalCase(
         id=row["id"],
         workflow_id=row["workflow_id"],
@@ -146,7 +158,7 @@ def _row_to_case(row: asyncpg.Record) -> EvalCase:
         cluster_id=row["cluster_id"],
         input=_decode(row["input"]),
         expected_behavior=_decode(row["expected_behavior"]),
-        regression_tolerance=float(tol) if tol is not None else None,
+        regression_tolerance=tol_float,
         is_test_fold=row["is_test_fold"],
         created_at=row["created_at"],
     )

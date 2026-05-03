@@ -13,7 +13,7 @@ import uuid
 
 import asyncpg
 import pytest
-from ownevo_kernel.db import ENV_VAR, migrate
+from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.eval_cases import add_eval_case, get_eval_case, list_eval_cases
 from ownevo_kernel.types import EvalCase, ProvenanceKind
 
@@ -21,39 +21,6 @@ pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
     reason=f"{ENV_VAR} not set; skipping integration tests",
 )
-
-
-def _admin_url() -> str:
-    base = os.environ[ENV_VAR]
-    return base.rsplit("/", 1)[0] + "/postgres"
-
-
-@pytest.fixture
-async def db():
-    dbname = f"ownevo_test_{uuid.uuid4().hex[:12]}"
-    admin = await asyncpg.connect(_admin_url())
-    try:
-        await admin.execute(f'CREATE DATABASE "{dbname}"')
-    finally:
-        await admin.close()
-    base = os.environ[ENV_VAR]
-    test_url = base.rsplit("/", 1)[0] + f"/{dbname}"
-    conn = await asyncpg.connect(test_url)
-    try:
-        await migrate(conn)
-        yield conn
-    finally:
-        await conn.close()
-        admin = await asyncpg.connect(_admin_url())
-        try:
-            await admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname=$1 AND pid<>pg_backend_pid()",
-                dbname,
-            )
-            await admin.execute(f'DROP DATABASE "{dbname}"')
-        finally:
-            await admin.close()
 
 
 # ---------------------------------------------------------------------------
@@ -260,3 +227,31 @@ async def test_cluster_derived_case_links_to_cluster(db: asyncpg.Connection):
     listed = await list_eval_cases(db, cluster_id=cluster_id)
     assert len(listed) == 1
     assert listed[0].id == case.id
+
+
+async def test_list_combined_cluster_and_test_fold(db: asyncpg.Connection):
+    """cluster_id + is_test_fold AND-chaining — exercises both clauses in one query."""
+    cluster_id = await db.fetchval(
+        "INSERT INTO failure_clusters (label, severity, cluster_size) "
+        "VALUES ('test cluster', 'low', 3) RETURNING id",
+    )
+    train_case = await add_eval_case(
+        db,
+        provenance=ProvenanceKind.CLUSTER_DERIVED,
+        cluster_id=cluster_id,
+        input={"fold": "train"},
+        expected_behavior={},
+        is_test_fold=False,
+    )
+    await add_eval_case(
+        db,
+        provenance=ProvenanceKind.CLUSTER_DERIVED,
+        cluster_id=cluster_id,
+        input={"fold": "test"},
+        expected_behavior={},
+        is_test_fold=True,
+    )
+
+    train_only = await list_eval_cases(db, cluster_id=cluster_id, is_test_fold=False)
+    assert len(train_only) == 1
+    assert train_only[0].id == train_case.id
