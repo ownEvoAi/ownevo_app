@@ -39,6 +39,10 @@ async def append_audit_entry(
     caller from importing the enum just to write a single entry.
     """
     kind_value = kind.value if isinstance(kind, AuditKind) else kind
+    try:
+        payload_json = json.dumps(payload)
+    except TypeError as exc:
+        raise TypeError(f"append_audit_entry: payload is not JSON-serializable: {exc}") from exc
     row = await conn.fetchrow(
         """
         INSERT INTO audit_entries (kind, payload, related_id, actor)
@@ -46,7 +50,7 @@ async def append_audit_entry(
         RETURNING id, seq, kind::text AS kind, payload, related_id, actor, created_at
         """,
         kind_value,
-        json.dumps(payload),
+        payload_json,
         related_id,
         actor,
     )
@@ -106,10 +110,16 @@ def _row_to_entry(row: asyncpg.Record) -> AuditEntry:
     payload = row["payload"]
     if isinstance(payload, str):
         payload = json.loads(payload)
+    try:
+        kind_enum = AuditKind(row["kind"])
+    except ValueError:
+        # DB enum has a value not yet in this Python deploy — preserve raw string
+        # so export_audit_log doesn't crash on unknown kinds during rolling deploys.
+        kind_enum = row["kind"]  # type: ignore[assignment]
     return AuditEntry(
         id=row["id"],
         seq=row["seq"],
-        kind=AuditKind(row["kind"]),
+        kind=kind_enum,
         payload=payload,
         related_id=row["related_id"],
         actor=row["actor"],

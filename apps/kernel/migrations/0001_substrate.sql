@@ -178,6 +178,9 @@ CREATE TABLE eval_cases (
 CREATE INDEX eval_cases_workflow_idx ON eval_cases(workflow_id);
 CREATE INDEX eval_cases_provenance_idx ON eval_cases(provenance);
 CREATE INDEX eval_cases_test_fold_idx ON eval_cases(is_test_fold) WHERE is_test_fold = true;
+CREATE INDEX eval_cases_cluster_idx ON eval_cases(cluster_id);
+CREATE INDEX eval_cases_created_at_id_idx ON eval_cases(created_at ASC, id ASC);
+CREATE INDEX eval_cases_gate_idx ON eval_cases(workflow_id, is_test_fold, created_at ASC);
 
 -- =============================================================================
 -- failure_clusters
