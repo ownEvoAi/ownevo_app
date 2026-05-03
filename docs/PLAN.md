@@ -2,11 +2,43 @@
 
 8 weeks to a YC-grade demo on **three pillars**: the natural-language workflow generator (the customer-facing IP), the M5 code-gen-loop benchmark (supply-chain VP credibility), and the τ³-bench head-to-head with NeoSigma (YC-partner / AI-engineer credibility).
 
-**Source of truth:** [`../../ownevo_docs/ownEvo_MVP.md`](../../ownevo_docs/ownEvo_MVP.md) (currently v4.1, 2026-05-03). Companion benchmark plans live at [`../../ownevo_docs/benchmarks/`](../../ownevo_docs/benchmarks/). Competitive framing lives at [`../../ownevo_docs/competitors/code-gen-loop-landscape.md`](../../ownevo_docs/competitors/code-gen-loop-landscape.md).
+**Source of truth:** [`../../ownevo_docs/ownEvo_MVP.md`](../../ownevo_docs/ownEvo_MVP.md) (currently v4.3, 2026-05-03 — hardened by CEO-mode review). Companion benchmark plans live at [`../../ownevo_docs/benchmarks/`](../../ownevo_docs/benchmarks/). Competitive framing lives at [`../../ownevo_docs/competitors/code-gen-loop-landscape.md`](../../ownevo_docs/competitors/code-gen-loop-landscape.md).
 
 This doc is the executable derivation — what to build, in what order, with what validates each step. When the two conflict, the MVP doc wins; update this one.
 
-*Last updated: 2026-05-03 (v2 — substrate-first parallel-track reframe per MVP doc v4.1)*
+*Last updated: 2026-05-03 (v3 — applies six CEO-review decisions from MVP v4.3: D2 audit reframe, D3 local Docker sandbox, D4 single-tenant for MVP, D5 τ³ B-frame, D6 `core/` 2-day spike, D7 NL-gen meta-eval)*
+
+---
+
+## Review decisions applied (2026-05-03 — MVP v4.3)
+
+This plan now reflects six decisions ratified by a CEO-mode review of the MVP doc. Index here; each is also inlined in the relevant section below.
+
+| # | Decision | Effect on this plan |
+|---|---|---|
+| **D2** | Cut "tamper-evident" from sovereignty pitch; reframe as append-only audit log, customer-controlled export | W2.4 audit trail simplified to append-only WORM (Postgres `REVOKE UPDATE, DELETE`); Risk #9 updated; Phase 2 retrofit checklist queues crypto upgrade |
+| **D3** | Local Docker for MVP sandbox (was: Modal recommended) | Phase 0 Locked: sandbox = local Docker. W1.3 wraps local Docker with hardening checklist + explicit failure semantics |
+| **D4** | Single-tenant for MVP. Full retrofit before customer #2 | Phase 0 Locked changed; W1.4 RLS test removed; Risk #7 reframed as accepted-cost retrofit |
+| **D5** | τ³ demo: B-frame head-to-head (autonomous + gated, explain the gap) | North Star storyboard 0:50-1:05 reframed; W8.3.1 framing updated; soft-result fallback documented |
+| **D6** | `core/` reuse: 2-day spike with hard cutoff at start of W1 | W1 split into days 1-2 (spike) and days 3-5 (substrate) |
+| **D7** | NL-gen meta-eval: full LLM-as-judge with its own eval set, validated W4-W5 | New deliverables A4.6 (meta-eval spec) and A5.5 (meta-eval validated); W4 exit criterion expanded |
+
+**Build-now substrate items added by the review** (each inlined in the relevant week):
+1. Audit log WORM enforcement (W1)
+2. Sandbox hardening checklist (W1)
+3. Sandbox failure semantics (W1)
+4. `core/` lift spike with hard cutoff (W1 days 1-2)
+5. Gate self-test harness (W2)
+6. Loop-stuck alerting (W2)
+7. Reproducibility CI (W3)
+8. NL-gen output schema freeze at end of W3 (W3)
+9. Demo workspace rollback runbook (W7)
+
+**Phase-2 retrofit checklist queued by the review** (added to "Explicitly NOT in MVP" / Phase 2 section):
+1. Multi-tenant retrofit (D4) — 1-2 weeks before customer #2
+2. Sandbox provider migration to e2b/Modal (D3) — when local Docker hits resource ceiling
+3. Audit chain crypto upgrade (D2) — when first regulated buyer evaluates
+4. **`AgentEvent` schema OSS positioning** (Apache 2 vs proprietary) — **DEADLINE: decide before W3.** Single unresolved strategic call from the CEO review.
 
 ---
 
@@ -16,8 +48,8 @@ A 90-second video that hits all three pillars without a slide:
 
 1. **Cold open (0:00-0:08):** M5 lift chart, 30 simulated days compressed. Condition D (loop + approval gate) climbs visibly above condition A (frozen baseline).
 2. **Hard cut to NL-gen (0:08-0:25):** A domain expert (Supply Chain VP role, non-engineer) types a workflow description in plain English. ownEvo generates simulator + eval cases + success metric in front of the reviewer.
-3. **Loop runs (0:25-0:50):** Failures cluster, system proposes code change with plain-language summary, gate badge shows "passes 47/48 prior eval cases · improves new cluster by 12%", domain expert clicks Approve, hash-chained audit entry appears, lift chart annotation lands.
-4. **τ³ split-screen (0:50-1:05):** Bar chart — ownEvo lift on τ³-bench *with the human-approval gate engaged* equals or beats NeoSigma's published autonomous +39.3%.
+3. **Loop runs (0:25-0:50):** Failures cluster, system proposes code change with plain-language summary, gate badge shows "passes 47/48 prior eval cases · improves new cluster by 12%", domain expert clicks Approve, append-only audit entry appears (D2), lift chart annotation lands.
+4. **τ³ two-bar frame (0:50-1:05) — D5 B-frame head-to-head:** condition B (loop autonomous) ≈ NeoSigma's published +39.3%; condition C (loop + approval gate) climbs alongside, with the gap explained as "the cost of safety." Caption: "Autonomous matches the published number. Gated is what enterprise deploys — with the audit trail exportable on every change." Removes binary outcome risk if condition C lands at +25%.
 5. **Close (1:05-1:30):** Four-workflow tab strip (demand-prediction live, others as positioning); title card with `github.com/ownEvoAi/ownevo` and `make m5-replay` / `make tau3-replay` for reproducibility.
 
 Reproducibility commitment: a reviewer who clones the repo gets both benchmark charts in <30 minutes from a fresh checkout.
@@ -34,7 +66,7 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 |---|---|---|
 | Background jobs | asyncio + Postgres queue | MVP default. Migrate to Temporal post-MVP if gate runs need durable replay. |
 | Primary DB | Postgres + pgvector | Skills, iterations, eval_cases, approvals, audit, failure_clusters embeddings. ClickHouse added when trace volume justifies. |
-| Multi-tenancy | `workspace_id` + RLS from day one | Painful to retrofit. Every domain table. |
+| Multi-tenancy | **Single-tenant for MVP. Full retrofit before customer #2.** (D4) | Demo runs on one workspace; RLS adds zero demo value. Retrofit is a bounded 1-2 week job in the breathing room between YC and customer #2. The "painful to retrofit" argument is correct in absolute terms but the relative bet against ~3-5 W1-W2 days landed on ruthless cuts. |
 | Web framework | Next.js App Router (TS) | SSE + WebSocket for real-time gate-run status. |
 | Python deps | uv | Already wired in `pyproject.toml`. |
 | TS deps | pnpm | Standard for Next monorepos. |
@@ -46,16 +78,19 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 
 | Decision | Recommended choice | Rationale | Block W1 if undecided? |
 |---|---|---|---|
-| **Sandboxed code execution** | **Modal** (managed, fastest to MVP) with abstraction so we can swap to e2b or self-hosted later | Modal: zero-infra, sub-second cold start, native Python. e2b: more control but ops burden. Pyodide: too restrictive (no LightGBM). | **YES — decide before W1 day 1.** Substrate dependency for everything. |
+| **Sandboxed code execution** | **Local Docker** with hardening checklist (`--network=none`, `--read-only`, `--cap-drop=ALL`, mem/cpu/pids limits, hard timeout, structured stdout/stderr) and explicit failure semantics (`tool_call_result {status: "error", error_class: "Timeout"\|"OOM"\|"Crash"}`) (D3). `SandboxRuntime` interface preserved so Phase 2 can swap to e2b or Modal | Local Docker keeps the MVP off managed-sandbox rate limits and bills; works fine for one team + one demo workspace. Phase-2 migration to e2b/Modal when local hits resource ceiling or first managed customer ships. Pyodide eliminated (can't run LightGBM). | **DECIDED.** |
 | **M5 fold strategy** | Held-out window: last 28 days = test fold; 28 prior days = validation fold for gate; everything before = training data agent can use | Mirrors real demand-planning evaluation; matches public M5 methodology. | YES — decide W1 day 1. |
 | **τ³ approval mechanism for benchmark runs** | LLM-judge stub (Claude Sonnet) admits proposals if (a) gate passes AND (b) plain-language explanation is coherent. Subset re-run with human approver (founder) for credibility. | Per `benchmarks/tau3-bench.md`. Unattended runs need an automated approver; human subset documents both paths. | No — decide by W6. |
 | **Reproducibility rig** | `make m5-replay` and `make tau3-replay` targets; Docker-packaged with cached intermediate artifacts (skill registry snapshots, eval-case snapshots) | <30-minute fresh-checkout repro is a Week-8 success criterion. | No — decide by W7. |
 | **Public-results post format** | Immutable markdown files: `benchmarks/m5-results-2026-Q3.md`, `benchmarks/tau3-results-2026-Q3.md` in `ownevo_docs/benchmarks/` | Matches the established `<benchmark>-results-<date>.md` convention. | No — decide by W8. |
 
-### Two questions still open (do not block W1)
+### One unresolved strategic call (DEADLINE: decide before W3)
+
+- **`packages/trace-format/` OSS positioning** — open-source under Apache 2 as a community standard (OTel-Gen-AI-aligned), or keep proprietary as a moat. Implementation cost is 0 if Apache 2 from start, weeks if retrofitted. Surfaced as the one unresolved strategic call by the 2026-05-03 CEO review. Affects whether the schema is built for community adoption or proprietary differentiation.
+
+### Other questions to track (do not block W1)
 
 - Managed cloud vs self-host only for design partners — affects `infra/` shape in Phase 3.
-- License header for `packages/trace-format/` — Apache 2 working assumption per MVP doc; confirm before public publish.
 
 ---
 
@@ -67,20 +102,32 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 
 ---
 
-### Week 1 — Sandboxed exec + skill registry + trace capture + M5 dataset
+### Week 1 — `core/` spike (days 1-2) + Sandboxed exec + skill registry + trace capture + M5 dataset (days 3-5)
+
+#### Days 1-2 — `core/` reuse spike with hard cutoff (D6)
+
+Lift `startup2026/core/agentos_harness/evolution/` into the ownEvo repo as the regression-gate scaffold. Add typed `AgentEvent` to `types.py`; add `regression_gate` action type to `ProposalAction`.
+
+**End of day 2 — go/no-go bar:** the evolution scaffold is wired into `apps/kernel/` AND at least one test passes against the new types.
+- **GO** → commit to reuse for the rest of W1-W2; the 377 existing tests carry over with the lift.
+- **NO-GO** → abandon the lift; go greenfield for W1-W2 (gate, eval-case format, audit log, approval scaffold built fresh in days 3-5 + W2). No "subject to revision" lingering.
+
+#### Days 3-5 — Substrate primitives
 
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
 | 1.1 | **`packages/trace-format/`** typed `AgentEvent` discriminated union | `packages/trace-format/src/` (Pydantic for Python, Zod-generated for TS) | JSON Schema generated; round-trip test (Python emit → TS parse → Python re-emit identical) |
-| 1.2 | **Domain types** | `apps/kernel/src/ownevo_kernel/types.py` — `Workspace`, `Skill`, `SkillVersion`, `Iteration`, `EvalCase`, `Trace`, `FailureCluster`, `Proposal`, `Approval`, `AuditEntry`. Schema mirrors MVP doc § "auto-harness → ownEvo (web + database)" mapping. | Pydantic models import + validate; `pytest -k test_types` green |
-| 1.3 | **Sandboxed code execution** wrapper around Modal | `apps/kernel/src/ownevo_kernel/sandbox/` — `SandboxRuntime` interface; `ModalSandbox` impl. Captures stdout/stderr/exitcode; pins deps via lockfile; enforces timeout + memory limits. | Smoke test: run `print("hello"); 1/0` in sandbox → captured stderr contains `ZeroDivisionError`, exitcode != 0. Run `import lightgbm; print(lightgbm.__version__)` → captured stdout has version string. |
-| 1.4 | **Skill-file registry** | `apps/kernel/src/ownevo_kernel/skills/` — `SkillRegistry` class; Postgres-backed; `read_skill(workspace_id, skill_id, version=HEAD)`, `write_skill(workspace_id, skill_id, content, parent_version) -> new_version`. Each version a row with diff to parent. | Integration test: write v1; write v2 with edited content; read HEAD returns v2; read v1 returns v1; diff(v1, v2) returns expected unified diff. RLS test: write in workspace A, can't read from workspace B. |
-| 1.5 | **Trace capture pipeline** | `apps/kernel/src/ownevo_kernel/tracing/` — Claude Agent SDK middleware emitting `AgentEvent` to OTel collector; `infra/docker-compose.yml` brings up Langfuse + Postgres + OTel collector. | Run τ-bench retail reference agent with middleware; events appear in Langfuse UI; `traces` table queryable by `workspace_id`. |
+| 1.2 | **Domain types** | `apps/kernel/src/ownevo_kernel/types.py` — `Skill`, `SkillVersion`, `Iteration`, `EvalCase`, `Trace`, `FailureCluster`, `Proposal`, `Approval`, `AuditEntry`. Single-tenant for MVP per D4 — no `Workspace` type or `workspace_id` columns yet. Schema mirrors MVP doc § "auto-harness → ownEvo (web + database)" mapping. | Pydantic models import + validate; `pytest -k test_types` green |
+| 1.3 | **Sandboxed code execution — local Docker (D3)** | `apps/kernel/src/ownevo_kernel/sandbox/` — `SandboxRuntime` interface; `LocalDockerSandbox` impl. Hardening checklist (W1 deliverable): `--network=none`, `--read-only` rootfs + tmpfs `/tmp`, `--cap-drop=ALL`, `--memory=2g`, `--cpus=2`, `--pids-limit=512`, hard timeout per iteration. Structured stdout/stderr capture. Failure semantics: `tool_call_result {status: "error", error_class: "Timeout"\|"OOM"\|"Crash"}` distinct from logical failures; gate does NOT advance best-ever on errors but DOES log to `learnings.md`. Pins deps via lockfile. | Smoke test: run `print("hello"); 1/0` in sandbox → captured stderr contains `ZeroDivisionError`, exitcode != 0. Run `import lightgbm; print(lightgbm.__version__)` → captured stdout has version string. **Hardening tests:** runaway script (timeout) + OOM-bomb (memory limit) + fork bomb (pids limit) + egress attempt (`--network=none` blocks) all return clean structured errors. |
+| 1.4 | **Skill-file registry** | `apps/kernel/src/ownevo_kernel/skills/` — `SkillRegistry` class; Postgres-backed; `read_skill(skill_id, version=HEAD)`, `write_skill(skill_id, content, parent_version) -> new_version`. Each version a row with diff to parent. Single-tenant for MVP (D4). | Integration test: write v1; write v2 with edited content; read HEAD returns v2; read v1 returns v1; diff(v1, v2) returns expected unified diff. (RLS test deferred to Phase-2 multi-tenant retrofit.) |
+| 1.5 | **Trace capture pipeline** | `apps/kernel/src/ownevo_kernel/tracing/` — Claude Agent SDK middleware emitting `AgentEvent` to OTel collector; `infra/docker-compose.yml` brings up Langfuse + Postgres + OTel collector. | Run τ-bench retail reference agent with middleware; events appear in Langfuse UI; `traces` table queryable. |
 | 1.6 | **M5 dataset loaded** | `apps/kernel/src/ownevo_kernel/benchmarks/m5/` — `dataset_loader.py` downloads M5 (kaggle CLI, cached); held-out fold defined per Phase 0 decision; `metric.py` implements RMSE + WRMSSE. | `pytest -k test_m5_metric` confirms RMSE/WRMSSE on a fixture matches a known reference value within 1e-6. Held-out fold rows count matches expected. |
 | 1.7 | **`infra/docker-compose.yml`** brings up local stack | Postgres + Langfuse + OTel collector + (later: web). Single command. | `docker compose up && uv run pytest` clean on a fresh machine. |
 
 **Week 1 exit criteria (must all pass):**
+- `core/` spike resolved (committed to lift OR committed to greenfield) by end of day 2 (D6).
 - A hand-written hello-world skill executes in the sandbox, produces a metric value, is recorded as v1 in the registry — verified by integration test.
+- Sandbox kills a runaway script (timeout, OOM, fork bomb) cleanly and records the structured error class.
 - The τ-bench retail reference agent emits structured `AgentEvent`s end-to-end — verified by Langfuse UI inspection + Postgres query.
 - M5 dataset is loaded; baseline RMSE harness returns the same value across two runs (deterministic).
 - `docker compose up && uv run pytest` passes on a fresh clone.
@@ -91,16 +138,19 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
-| 2.1 | **Coding-agent tool surface** | `apps/kernel/src/ownevo_kernel/agent_tools/` — `read_skill`, `write_skill`, `run_pipeline(workspace, version_id, fold)`, `read_metrics(run_id)`, `analyze_failures(run_id, k=10)`. Wired to Claude Agent SDK. | Unit test per tool; integration test: agent reads a skill, writes a modified version, runs the pipeline, reads the metric — all without human intervention. |
-| 2.2 | **3-step regression gate** | `apps/kernel/src/ownevo_kernel/gate/` — copy semantics from `startup2026/core/agentos_harness/evolution/` (gate.py if present, otherwise reimplement). Steps: (1) prior-eval-suite still passes, (2) full-test val-score beats best-ever, (3) newly-passing failures auto-promote to suite. Background job; status streams via SSE. | Integration test: write change that improves on new case but breaks an old case → gate rejects. Write change that improves both → gate accepts and promotes new cases. Train/test discipline: gate refuses to use test-fold rows for training. |
-| 2.3 | **Eval-case format + table** | `apps/kernel/src/ownevo_kernel/eval_cases/` — schema with `id`, `workspace_id`, `provenance` (cluster_id or "hand-authored" or "nl-gen"), `input`, `expected_behavior`, `regression_tolerance`, `created_at`. | Schema migration runs; insert + query roundtrip; eval-case provenance preserved through gate runs. |
-| 2.4 | **Hash-chained audit trail** | `apps/kernel/src/ownevo_kernel/audit/` — `audit_entries` table with `prev_hash`, `entry_hash` (SHA-256 over canonical-JSON of entry + prev_hash). `append_audit_entry(workspace_id, kind, payload)`. Export: `export_audit_chain(workspace_id) -> JSON` (open format). | Integration test: append 3 entries; tamper with middle entry; verify-chain function detects break. Export → re-import → chain still verifies. |
-| 2.5 | **Approval queue UI scaffold** | `apps/web/app/approvals/` — list of pending approvals; each card has plain-language summary placeholder, "View diff" toggle (side-by-side or unified), Approve/Reject + comment textbox. Functional skeleton; polish in W5. | Cypress/Playwright smoke: create pending approval via API → appears in queue → click Approve → state machine transitions → audit entry written. |
+| 2.1 | **Coding-agent tool surface** | `apps/kernel/src/ownevo_kernel/agent_tools/` — `read_skill`, `write_skill`, `run_pipeline(version_id, fold)`, `read_metrics(run_id)`, `analyze_failures(run_id, k=10)`. Wired to Claude Agent SDK. | Unit test per tool; integration test: agent reads a skill, writes a modified version, runs the pipeline, reads the metric — all without human intervention. |
+| 2.2 | **3-step regression gate** | `apps/kernel/src/ownevo_kernel/gate/` — if W1 days 1-2 spike succeeded, lift from `startup2026/core/agentos_harness/evolution/`; otherwise reimplement. Steps: (1) prior-eval-suite still passes, (2) full-test val-score beats best-ever, (3) newly-passing failures auto-promote to suite. **Bootstrap rule:** Day 1 has empty prior-eval-suite — step 1 skipped; only val-score-must-beat-best-ever applies until first cluster-derived eval cases land. Background job; status streams via SSE. | Integration test: write change that improves on new case but breaks an old case → gate rejects. Write change that improves both → gate accepts and promotes new cases. Train/test discipline: gate refuses to use test-fold rows for training. |
+| 2.2a | **Gate self-test harness** (added by review) | `apps/kernel/tests/gate_self_test/` — synthetic regression cases: a known-good-change skill must pass the gate; a known-bad-change skill must be blocked. Runs nightly in CI from W2 onward. The gate is the trust mechanism — if it has a bug, every "approved improvement" is meaningless. | CI green: known-bad blocked, known-good admitted; failing this harness fails the build. |
+| 2.3 | **Eval-case format + table** | `apps/kernel/src/ownevo_kernel/eval_cases/` — schema with `id`, `provenance` (cluster_id or "hand-authored" or "nl-gen"), `input`, `expected_behavior`, `regression_tolerance`, `created_at`. (Single-tenant for MVP per D4 — no `workspace_id` column yet.) | Schema migration runs; insert + query roundtrip; eval-case provenance preserved through gate runs. |
+| 2.4 | **Append-only audit log** (D2 — was hash-chained) | `apps/kernel/src/ownevo_kernel/audit/` — `audit_entries` table with `id`, `kind`, `payload` (JSONB), `created_at`. WORM-enforced at the DB level: `REVOKE UPDATE, DELETE ON audit_entries FROM app_role` (only `INSERT` permitted). `append_audit_entry(kind, payload)` writes; `export_audit_log() -> JSON` (open format) reads. Schema migrations preserve append-only semantics. **Crypto-grade tamper-evidence** (canonical-JSON content hash + parent hash + chain rotation procedure for migrations; Merkle + signed root + transparency log for the strongest claim) is a **Phase-2 retrofit** when first regulated buyer requires it. | Integration test: append 3 entries; export returns 3 entries in canonical-JSON. Negative test: app role's UPDATE/DELETE on audit_entries raises permission denied. Export → re-import → all entries present. |
+| 2.4a | **Loop-stuck alerting** (added by review) | `apps/kernel/src/ownevo_kernel/observability/` — Slack webhook fires if no new `learnings.md` entry in 2h. Catches "best-ever stuck" / agent-spinning-on-rejected-proposals failure mode flagged by the CEO review. | Integration test: simulate stuck state (no new entries) → webhook fires within 2h window; test mode uses a 1-min window for fast verification. |
+| 2.5 | **Approval queue UI scaffold** | `apps/web/app/approvals/` — list of pending approvals; each card has plain-language summary placeholder, "View diff" toggle (side-by-side or unified), Approve/Reject + comment textbox. Functional skeleton; polish in W5. **MVP approval surface only** — Slack/email digests, SLA tracking, time-delayed deploy, severity-based auto-approve are post-MVP enterprise polish. | Cypress/Playwright smoke: create pending approval via API → appears in queue → click Approve → state machine transitions → audit entry written. |
 | 2.6 | **M5 baseline pipeline runs end-to-end** | Agent (Claude Agent SDK) writes Day-1 LightGBM baseline (6 skill files: `data_loader.py`, `feature_engineer.py`, `model_trainer.py`, `outlier_handler.py`, `ensemble.py`, `predictor.py`). Pipeline runs in sandbox on held-out fold. Baseline RMSE recorded as the floor. | `make m5-baseline` writes 6 skill files (v1) + records baseline RMSE in `iterations` table. RMSE is reproducible across two runs to within numeric tolerance. |
 | 2.7 | **Substrate proves itself on a non-M5 task** | Hand-written sim + 3 eval cases + a hand-written skill that solves them. Run through the full pipeline (skill → sandbox → eval → gate → audit). | Smoke test passes end-to-end. Confirms substrate is domain-agnostic before Phase 2 starts. |
 
 **Week 2 exit criteria (must all pass):**
-- An agent-proposed change can be written, gated, approved (or rejected), and recorded in the audit chain end-to-end on M5 — proven by integration test.
+- An agent-proposed change can be written, gated, approved (or rejected), and recorded in the append-only audit log end-to-end on M5 — proven by integration test.
+- Gate self-test harness (2.2a) green in CI: known-bad blocked, known-good admitted.
 - The same primitives work on a non-M5 hand-written sim — proven by 2.7's smoke test.
 - M5 Day-1 baseline RMSE is recorded and reproducible.
 - All `pytest` and Playwright smoke tests pass on a fresh clone.
@@ -110,9 +160,10 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 Run a fresh-checkout end-to-end smoke test:
 1. `docker compose up`
 2. `make m5-baseline` — agent writes 6 skill files, baseline RMSE recorded
-3. Run the agent for one cycle: it edits one skill file, gate runs, audit entry written
-4. Open `apps/web/` → see the proposed change in the approval queue → click Approve → audit chain has 2 entries (initial + approval)
-5. Tamper with audit entry 1 in DB → run `verify_audit_chain(workspace)` → returns "broken at entry 2"
+3. Run the agent for one cycle: it edits one skill file, gate runs, audit entry appended
+4. Open `apps/web/` → see the proposed change in the approval queue → click Approve → audit log has 2 entries (initial + approval)
+5. Attempt to UPDATE/DELETE an audit entry as the app role → permission denied (WORM enforcement, D2)
+6. Gate self-test (2.2a) blocks a known-bad change and admits a known-good change — full CI run green
 
 If any step fails, do not start Phase 2. Diagnose root cause. Slipping Phase 2 by a week is far cheaper than building Phase 2 on a broken substrate.
 
@@ -137,8 +188,9 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 | A3.1 | **NL → workflow spec** | `apps/kernel/src/ownevo_kernel/nl_gen/` — Claude prompt + structured output (JSON schema): plain-English description → workflow spec (tools, environment, success criterion stub, UI primitives from MVP doc § UI Information Architecture). | Snapshot test: 3 hand-picked descriptions (supply chain demand forecast, credit risk, contract review) produce stable workflow specs. Schema validates. |
 | A3.2 | **NL → simulator** | `apps/kernel/src/ownevo_kernel/nl_gen/sim_generator.py` — workflow spec → Python sim module written into the skill registry. Deterministic, seedable. | Replay-equivalence test: same seed → same trajectory across two runs. Generated sim runs end-to-end without manual fixup for at least 1 of the 3 hand-picked workflows. |
 | A3.3 | **Sim runs in the sandbox** | The generated `sim.py` executes in the substrate sandbox (W1.3) without modification. | Generated sim from A3.2 runs in the sandbox; produces deterministic output. |
+| A3.4 | **NL-gen output schema FROZEN at end of W3** (added by review) | Tag `packages/trace-format/` and `apps/kernel/.../nl_gen/schemas/` with `v1.0-frozen-2026-W3`. UI rendering (W7) reads the locked schema; W4-W6 NL-gen iterations improve content within the freeze, not the schema shape. | Schema diff against v1.0-frozen tag in CI; any structural change requires explicit version bump + W7 UI re-test. |
 
-**Week 3 exit criterion (Track A):** at least one hand-picked workflow has a generated sim that runs deterministically in the sandbox.
+**Week 3 exit criterion (Track A):** at least one hand-picked workflow has a generated sim that runs deterministically in the sandbox; NL-gen output schema frozen and tagged.
 
 #### Week 4 — NL → eval cases + metric, validate on 3 workflows (Track A)
 
@@ -149,8 +201,9 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 | A4.3 | **Inspect AI integration** | `apps/kernel/src/ownevo_kernel/eval_runner/` — generated eval cases → Inspect AI task. Single command: replay an agent → score. | `make eval-replay WORKFLOW=demand-prediction` runs the loop end-to-end and emits a score. |
 | A4.4 | **Validate on 3 workflows end-to-end** | Supply chain demand forecast + credit risk + contract review. Each must produce a working sim + eval set + metric that a Claude agent runs and Inspect AI scores. | All 3 workflows pass `make nl-gen-smoketest WORKFLOW=<name>`. **If even one fails, slip Phase 2.** |
 | A4.5 | **Cost + determinism guardrails** | Fixed token budget per eval replay (Karpathy pattern); nondeterministic eval failures flagged as bugs. | Token budget exceeded → run aborts cleanly. Repeat eval-replay → identical score (within numeric tolerance). |
+| A4.6 | **NL-gen meta-eval spec authored** (D7 — added by review) | `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/` — full LLM-as-judge with its own eval set. The judge takes (description, generated sim, generated eval cases, generated metric) and scores: (1) does the sim instantiate every entity/condition/objective the description mentioned? (2) do the eval cases cover the described behaviors? (3) is the metric bounded and aligned with the description? Build the judge eval set: ~10-20 manually-evaluated workflow descriptions where humans have scored generated artifacts as good/bad. | Eval set authored: ≥10 descriptions × {good, bad} pairs each. Judge runs on the eval set and emits score + per-dimension breakdown. Validation in W5 (A5.5). |
 
-**Week 4 exit criterion (Track A):** plain-English description in → working sim + eval set + metric out, validated on all 3 workflows. **The single most important quality gate of the whole MVP.**
+**Week 4 exit criterion (Track A):** plain-English description in → working sim + eval set + metric out, validated on all 3 workflows; meta-eval spec + judge eval set authored. **The single most important quality gate of the whole MVP.**
 
 ---
 
@@ -161,20 +214,22 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
 | B3.1 | **`analyze_failures` on M5 misses** | `apps/kernel/src/ownevo_kernel/benchmarks/m5/failure_analyzer.py` — top-k worst predictions with structured context (which SKUs, stores, time windows, feature gaps). | Run on M5 baseline output; returns 10 top-k rows with structured context. |
-| B3.2 | **Failure clustering pipeline** | `apps/kernel/src/ownevo_kernel/clustering/` — sentence-transformers embed (all-MiniLM-L6-v2 or similar) → UMAP reduce → HDBSCAN cluster → Claude-labeled. Output: `failure_clusters` table (traces, root-cause one-liner, severity, sample excerpt). | Cluster M5 misses → 3+ named clusters appear (e.g., "winter footwear in Pacific NW Q4"). Cluster labels are intelligible. |
+| B3.2 | **Failure clustering pipeline** | `apps/kernel/src/ownevo_kernel/clustering/` — sentence-transformers embed (all-MiniLM-L6-v2 or similar) → UMAP reduce → HDBSCAN cluster → Claude-labeled. Output: `failure_clusters` table (traces, root-cause one-liner, severity, sample excerpt). **Cluster-quality threshold:** reject "1 mega-cluster" / "all noise" outputs and surface a "more iterations needed" UI state instead. | Cluster M5 misses → 3+ named clusters appear (e.g., "winter footwear in Pacific NW Q4"). Cluster labels are intelligible. Adversarial test: feed N=5 traces → cluster pipeline returns "insufficient data" UI state, not a junk cluster. |
 | B3.3 | **Cluster → eval case** | `apps/kernel/src/ownevo_kernel/eval_cases/from_cluster.py` — each cluster spawns 1+ `EvalCase` rows tagged with `provenance: cluster:<id>`. | First eval cases generated from clusters; insert into W2.3 schema; pass/fail reproducible. |
+| B3.4 | **Reproducibility CI** (added by review) | `.github/workflows/m5-replay-nightly.yml` — runs `make m5-replay` from a fresh container nightly. Fail-fast on drift (RMSE delta > tolerance vs prior night's baseline). | Workflow green; if it goes red, surfaces immediately, not in W8. |
 
-**Week 3 exit criterion (Track B):** running M5 baseline + 1 simulated week → ≥3 failure clusters surface → ≥3 eval cases generated, all without human intervention.
+**Week 3 exit criterion (Track B):** running M5 baseline + 1 simulated week → ≥3 failure clusters surface → ≥3 eval cases generated, all without human intervention. Reproducibility CI green.
 
 #### Week 4 — First end-to-end M5 loop cycle (Track B)
 
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
-| B4.1 | **M5 proposer agent** | Reuse `agent_tools` from W2.1. Agent reads a cluster, proposes a skill diff. One hypothesis per iteration. Three failures on the same hypothesis → abandon. | Agent proposes a code change in response to a cluster; gate runs against the change; audit entry written. |
+| B4.1 | **M5 proposer agent** | Reuse `agent_tools` from W2.1. Agent reads a cluster, proposes a skill diff. One hypothesis per iteration. Three failures on the same hypothesis → abandon. | Agent proposes a code change in response to a cluster; gate runs against the change; audit entry appended. |
 | B4.2 | **First lift on M5** | At least one agent-proposed change passes the gate end-to-end and lifts a held-out metric measurably. | RMSE on held-out fold strictly improves after the change is approved; lift recorded in `iterations` table. |
-| B4.3 | **First gate-blocked regression** | At least one proposed change is correctly rejected by the gate (e.g., it improves the new cluster but regresses prior eval cases). | Audit chain shows ≥1 reject entry with structured rationale. |
+| B4.3 | **First gate-blocked regression** | At least one proposed change is correctly rejected by the gate (e.g., it improves the new cluster but regresses prior eval cases). | Audit log shows ≥1 reject entry with structured rationale. |
+| B4.4 | **Day-7 milestone review** (added by review) | At end of W4, review the 7-day cumulative lift: if Day-7 lift is below +10% RMSE vs Day-1 baseline, escalate before W4 budget is gone. Catches drift early instead of discovering it in W6. | Lift report generated; either lift is on-track (≥+10% by Day 7) or an explicit escalation/correction has been made. |
 
-**Week 4 exit criterion (Track B):** at least one agent-proposed change passes the gate and lifts a metric; at least one regression is caught by the gate.
+**Week 4 exit criterion (Track B):** at least one agent-proposed change passes the gate and lifts a metric; at least one regression is caught by the gate; Day-7 milestone reviewed.
 
 #### Week 5 — Approval surface polish + 7-day M5 replay
 
@@ -183,13 +238,16 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Track | Deliverable | Files / location | Validation |
 |---|---|---|---|---|
 | 5.1 | **Shared** | **Approval surface — full polish** | `apps/web/app/approvals/[id]/page.tsx` — plain-language summary on top, side-by-side diff (Monaco or similar), gate-results badge with per-eval-case breakdown, expected-impact estimate, Approve/Reject with comment-to-eval-case flow. | Cypress flow: open card → approve with comment → state transitions → audit entry → if rejected, comment becomes a new eval case. Same UX serves NL-gen-flow and M5 approvals. |
-| 5.2 | **Shared** | **LLM-judge stub approver** | `apps/kernel/src/ownevo_kernel/approvers/llm_judge.py` — admits proposals if (a) gate passes AND (b) plain-language explanation is coherent (Claude Sonnet judge). Used for unattended benchmark runs. | Run on 5 hand-crafted proposals (3 good, 2 bad) → judge admits 3, rejects 2. |
+| 5.2 | **Shared** | **LLM-judge stub approver** (tightened by review) | `apps/kernel/src/ownevo_kernel/approvers/llm_judge.py` — admits proposals if (a) gate passes AND (b) plain-language explanation contains a structural element: references the cluster name AND names the change AND states an expected metric direction. Rejects everything else. Used for unattended benchmark runs. | Run on 5 hand-crafted proposals (3 good with structural explanations, 2 bad with hand-wavy explanations) → judge admits 3, rejects 2. Adversarial test: vague-but-positive explanation → rejected. |
 | 5.3 | **A** | **NL-gen failure clustering** | Track A's generated-sim traces flow through the W3 clustering pipeline (Track B's clustering, reused). | Run NL-gen workflow → cluster traces → at least 3 NL-gen-derived clusters appear. |
-| 5.4 | **B** | **7-day M5 replay** | Replay 7 simulated days of M5. Each day: agent proposes → gate runs → LLM-judge admits or rejects → audit chain grows → eval set grows. | `make m5-replay-7day` produces a visibly climbing lift curve over 7 cycles; audit chain has 7+ entries; eval set grew from clusters. |
+| 5.4 | **B** | **7-day M5 replay** | Replay 7 simulated days of M5. Each day: agent proposes → gate runs → LLM-judge admits or rejects → audit log grows → eval set grows. | `make m5-replay-7day` produces a visibly climbing lift curve over 7 cycles; audit log has 7+ entries; eval set grew from clusters. |
+| 5.5 | **A** | **NL-gen meta-eval validated** (D7 — added by review) | Run the W4 meta-eval judge (A4.6) against its eval set; require judge-vs-human agreement ≥0.7. Then wire the meta-eval as a quality gate: every generated workflow runs through meta-eval BEFORE the agent loop starts; coverage % surfaced in UI ("sim covers 11/12 of your description"). | Judge agreement ≥0.7 on eval set. End-to-end test: generate workflow → meta-eval coverage badge visible in UI → agent loop starts only after meta-eval passes threshold. |
 
 **Week 5 exit criteria:**
 - (Shared) Approval surface usable by a non-engineer in under 1 minute per card (dogfood test with a non-engineer reviewer).
+- (Shared) LLM-judge stub rejects vague/structural-empty explanations on adversarial test.
 - (Track A) Generated-sim traces flow through clustering successfully.
+- (Track A) NL-gen meta-eval validated (judge ≥0.7 agreement) and wired as quality gate.
 - (Track B) 7-day M5 replay produces a visibly climbing lift curve.
 
 #### Week 6 — Full M5 30-day replay + NL-gen end-to-end demo
@@ -231,6 +289,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | 7.1.10 | **Per-skill detail · prompt variant** | `apps/web/app/workspaces/[wsId]/skills/[skillId]/page.tsx` — SKILL.md content + retention contract + version history + recent eval results + Used-by + Capability tags. Mock parity: `18-skill-detail.html`. | All instruction-style skills (NL-gen-emitted) render with content visible + retention contract + ≥1 retention violation eval-case linked. |
 | 7.1.11 | **Per-skill detail · code variant** (M5 Python skills) | Same route as 7.1.10, but renders Python code with syntax highlighting + version-to-version inline diff (red/green) + extracted function signatures + per-eval-case "this change moved" table. Mock parity: `18a-skill-detail-code.html`. | All M5 code-skills (`feature_engineer.py`, `model_trainer.py`, `outlier_handler.py`, `ensemble.py`, `predictor.py`, `data_loader.py`) render with code + diff to prior version + ≥3 eval cases that moved. |
 | 7.1.12 | **Workflow Agent-anatomy pane** | `apps/web/components/AgentAnatomy.tsx` rendered on workflow Overview page. Three columns: Skills active (linked to skill-detail) · Tools available (with signatures) · Topology (single-agent loop) + Entry-point system prompt. Mock parity: section in `05-workflow-overview.html`. | The "what the agent CAN do" view is visible above the fold on every workflow Overview; reads from substrate `skills` and workflow-config tables. |
+| 7.1.13 | **Demo workspace rollback runbook** (added by review) | `docs/runbooks/demo-rollback.md` — revert-to-last-approved-skill procedure for the case where a bad skill version goes live in the demo workspace and the lift chart goes negative the day before YC. Step-by-step: (1) identify the regression in lift chart, (2) `make revert-skill SKILL=<id> TO_VERSION=<n>`, (3) recompute lift chart from previous gate run, (4) audit entry appended noting the rollback. Dry-run tested on a synthetic regression. | Runbook exists; dry-run produces clean rollback in <5 minutes; lift chart recomputes correctly; audit entry shows the rollback. |
 
 #### Track 3 — τ³-bench template + reproduce-NeoSigma sanity check
 
@@ -252,8 +311,8 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
-| 8.3.1 | **Condition C with gate engaged on full test set** | LLM-judge stub approver (W5.2) admits proposals; subset re-run with human approver (founder/advisor) for credibility. | Threshold: ≥+35% lift A→C. Stretch: ≥+40% (beats NeoSigma's autonomous +39.3%). All approved changes have a hash-chained audit entry. |
-| 8.3.2 | **`benchmarks/tau3-results-2026-Q3.md`** | `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` — immutable run record, three conditions plotted, head-to-head with NeoSigma, full audit chain exportable. | File written; reviewer can clone the repo and re-derive the chart from the audit chain. |
+| 8.3.1 | **Condition C with gate engaged on full test set** | LLM-judge stub approver (W5.2) admits proposals; subset re-run with human approver (founder/advisor) for credibility. **Demo framing per D5 B-frame:** record condition B (autonomous, ≈NeoSigma) AND condition C (gated) head-to-head, with the gap explained as "the cost of safety." Demo holds even if condition C lands at +25% — removes binary outcome risk. | Threshold: ≥+35% lift A→C. Stretch: ≥+40% (beats NeoSigma's autonomous +39.3%). **Soft-result fallback:** if condition C is below +35%, the B-frame demo still ships honestly: "autonomous matches the public number; gated is the enterprise tradeoff." All approved changes have an append-only audit entry. |
+| 8.3.2 | **`benchmarks/tau3-results-2026-Q3.md`** | `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` — immutable run record, three conditions plotted, B-frame head-to-head with NeoSigma (D5), append-only audit log exportable. | File written; reviewer can clone the repo and re-derive the chart from the audit log. |
 | 8.3.3 | **Sample human-approved subset documented** | ≥5 changes from condition C re-approved by a human (founder/advisor) instead of the LLM-judge stub. Document any divergence between human and LLM-judge decisions. | Subset documented in tau3-results post; honesty about any divergences preserved. |
 
 #### Track 1 — Demo materials (M5 + τ³ + NL-gen together)
@@ -302,7 +361,7 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 - OpsAgent-Bench (custom benchmark we publish) — post-Series-A
 - Self-evolving the harness itself (we evolve skills/prompts/code only)
 - Custom Rust gateway (LiteLLM is enough; revisit if local-model latency becomes a problem)
-- Multi-tenant features beyond scaffolding (workspace switcher, billing UI, org admin) — single demo workspace is enough for first 10 customers
+- **Multi-tenant scaffolding** (D4) — `workspace_id` columns, RLS policies, audit triggers, workspace-scoped query helpers, workspace switcher, billing UI, org admin. Single-tenant for MVP; full retrofit before customer #2.
 - Knowledge ingestion from Slack/email/docs/runbooks — Q3 2026 per existing roadmap
 - Mobile UI
 - Built-in skills marketplace
@@ -310,6 +369,9 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 - **Multi-agent topology graph view** (n8n / Google Opal style visualization) — Phase 2; MVP workflows are single-agent loops, the Workflow Agent-anatomy pane (7.1.12) is enough for single-agent inspection
 - **Visual workflow composition / node-graph editor** for hand-building workflows manually (n8n / Google Opal style) — Phase 2 deferred indefinitely; NL-gen (Track A) IS the composition surface, a visual builder competes with our own thesis
 - **Vellum-style prompt A/B variant workbench** — Phase 2; the regression gate IS the A/B test, the proposal review card already shows before/after with gate results
+- **Crypto-grade audit chain** (Merkle + signed root + transparency log) (D2) — append-only WORM ships in MVP. Crypto upgrade queued for Phase 2 when first regulated-industry buyer evaluates.
+- **Managed-sandbox provider** (e2b/Modal) (D3) — local Docker for MVP. Migration queued for Phase 2 when local Docker hits resource ceiling or first managed customer ships.
+- **Approval-process enterprise polish** — Slack/email digests, SLA tracking, time-delayed deploy, severity-based auto-approve. MVP approval surface is Approve/Reject + comment + audit-row.
 
 ---
 
@@ -323,21 +385,25 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 | 4 | **Failure clustering signal-to-noise (Phase 1 + Phase 2).** Nonsense clusters undermine credibility. | Medium | Medium | Validate clustering on real τ-bench traces in W3 before letting M5/NL-gen demo data anchor cluster examples; tune cluster-labeling prompt. |
 | 5 | **Approval UX cognitive load (Phase 2 W5).** "Plain-language summary" carries the value prop. If it doesn't reduce reviewer effort, the loop is just process. | Medium | High | Dogfood on real proposals by W6; design-partner test by W7; non-engineer time-to-decision must be <1 min/card. |
 | 6 | **30-day replay token cost overrun (Track B, W6).** Code-gen + execution loops are token-hungry. | Medium | Medium | Cap per-cycle token budget; use local models (qwen3:32b or similar) for routine work; cache aggressively. Budget several hundred dollars per complete 30-day replay. |
-| 7 | **Multi-tenant retrofit cost.** Postponing RLS would save 1-2 weeks now, cost 4+ weeks later. | Low | High | Enforce `workspace_id` on every domain table from W1. Smoke test cross-workspace isolation by end of W1. |
+| 7 | **Multi-tenant retrofit cost (accepted, D4).** Single-tenant for MVP per D4. Customer #2 onboarding will block on the retrofit (1-2 weeks), happening in the breathing room between YC and customer #2. | Medium | Medium | Schema design in W1-W2 stays "retrofit-friendly" (no patterns that fight a future `workspace_id` column). Phase-2 retrofit checklist budgeted. The decision was a deliberate trade against ~3-5 W1-W2 days; the retrofit cost is accepted. |
 | 8 | **Demo data feeling fake (Phase 3 mock workflows only).** Demand-prediction uses real M5 data, but the 3 positioning-mock workflows still need believable UX props. | Low | Low | Light prop-grade synthetic data for the 3 mocks; don't over-invest. |
-| 9 | **Audit-chain export-import asymmetry (Phase 1 W2).** If a chain exports but doesn't re-import-and-verify, the sovereignty story breaks. | Low | High | Round-trip test in W2.4; canonical-JSON format (sorted keys, no whitespace) avoids serialization drift. |
+| 9 | **Audit log export-import asymmetry (Phase 1 W2 — simplified by D2).** Append-only WORM (D2) avoids hash-chain pitfalls. The remaining risk is canonical-JSON serialization drift on export. | Low | Medium | Round-trip test in W2.4; canonical-JSON format (sorted keys, no whitespace) avoids serialization drift. Crypto-grade tamper-evidence (Merkle + signed root) is a Phase-2 retrofit when first regulated buyer requires it. |
 | 10 | **Sandbox dependency drift across replays.** A LightGBM version bump changes M5 results between replays, breaking reproducibility. | Low | Medium | Pin all deps via lockfile in the sandbox image; cache the image; reproducibility rig validates this. |
 
 ---
 
-## Open questions to track (do not block W1)
+## Open questions to track
+
+### DEADLINE: decide before W3
+
+- **`packages/trace-format/` OSS positioning** — Apache 2 (community standard, OTel-Gen-AI-aligned) vs proprietary moat. Surfaced as the one unresolved strategic call by the 2026-05-03 CEO review. Implementation cost is 0 if Apache 2 from start, weeks if retrofitted.
+
+### Do not block W1
 
 - Pricing model for first paying pilots — MVP doc lands on "platform fee + usage" but unit-of-value is TBD.
-- License terms for `packages/trace-format/` — Apache 2 working assumption; confirm before public publish.
 - Self-host vs managed cloud for first 5 customers — affects Phase 3 install docs.
-- When to OSS-release `packages/trace-format/` — sooner = format wins faster; locks API early.
 - Eval-case generation from clusters: do we let the LLM-judge stub also propose new eval cases, or only humans? (Affects credibility of "auto-grown eval set".)
-- Public-results post: do we publish the audit chain export as a sidecar artifact, or embed it in the post? (Affects reviewer reproduction speed.)
+- Public-results post: do we publish the audit log export as a sidecar artifact, or embed it in the post? (Affects reviewer reproduction speed.)
 
 ---
 
