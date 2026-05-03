@@ -58,11 +58,12 @@ async def db():
             await admin.close()
 
 
-def _events(conn_data: str | dict | list) -> list:
-    """Decode `traces.events` JSONB to a Python list (asyncpg returns it
-    as a JSON-encoded string by default)."""
+def _decode_jsonb(conn_data: str | dict | list) -> dict | list:
+    """Decode a JSONB column to a Python value. asyncpg returns JSONB as
+    a JSON-encoded string by default; some setups register a codec that
+    pre-decodes to dict/list, so handle both."""
     if isinstance(conn_data, (dict, list)):
-        return conn_data  # type: ignore[return-value]
+        return conn_data
     return json.loads(conn_data)
 
 
@@ -93,7 +94,7 @@ async def test_trace_session_persists_events_in_order(db: asyncpg.Connection):
         recorded_trace_id,
     )
     assert row is not None
-    events = _events(row["events"])
+    events = _decode_jsonb(row["events"])
     assert [e["type"] for e in events] == ["content_delta", "tool_call_start"]
     assert events[0]["text"] == "hello"
     assert events[1]["call_id"] == "toolu_1"
@@ -110,7 +111,7 @@ async def test_round_trip_through_AgentEventAdapter(db: asyncpg.Connection):
         trace_id = session.trace_id
 
     raw = await db.fetchval("SELECT events FROM traces WHERE id = $1", trace_id)
-    events = _events(raw)
+    events = _decode_jsonb(raw)
     typed = [AgentEventAdapter.validate_python(e) for e in events]
     assert isinstance(typed[0], ContentDelta)
     assert typed[0].text == "x"
@@ -131,8 +132,8 @@ async def test_metric_outputs_and_token_usage_persisted(db: asyncpg.Connection):
         "SELECT metric_outputs, token_usage FROM traces WHERE id = $1",
         trace_id,
     )
-    assert _events(row["metric_outputs"]) == {"acc": 0.84, "n": 100}
-    assert _events(row["token_usage"]) == {"input": 1234, "output": 567}
+    assert _decode_jsonb(row["metric_outputs"]) == {"acc": 0.84, "n": 100}
+    assert _decode_jsonb(row["token_usage"]) == {"input": 1234, "output": 567}
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +171,26 @@ def test_make_event_propagates_iteration_id():
     assert e.trace_id == collector.trace_id
 
 
+def test_make_event_rejects_unknown_type():
+    """`make_event` must validate against the AgentEvent discriminated
+    union so a typo in `type` doesn't silently produce a malformed event."""
+    from pydantic import ValidationError
+
+    collector = TraceCollector()
+    with pytest.raises(ValidationError):
+        collector.make_event(type="not_a_real_event_type", text="x")
+
+
+def test_make_event_rejects_missing_required_field():
+    """ContentDelta requires `text` and `model`; omitting either must
+    surface as a validation error before any record/finalize."""
+    from pydantic import ValidationError
+
+    collector = TraceCollector()
+    with pytest.raises(ValidationError):
+        collector.make_event(type="content_delta", text="x")  # missing model
+
+
 # ---------------------------------------------------------------------------
 # Failure path — finalize must still fire
 # ---------------------------------------------------------------------------
@@ -188,7 +209,7 @@ async def test_session_finalizes_on_exception(db: asyncpg.Connection):
 
     row = await db.fetchrow("SELECT events FROM traces WHERE id = $1", trace_id)
     assert row is not None
-    events = _events(row["events"])
+    events = _decode_jsonb(row["events"])
     assert events[0]["text"] == "partial"
 
 
@@ -204,6 +225,22 @@ async def test_finalize_is_idempotent(db: asyncpg.Connection):
 
     rows = await db.fetch("SELECT id FROM traces WHERE id = $1", collector.trace_id)
     assert len(rows) == 1
+
+
+async def test_empty_session_persists_empty_events_array(db: asyncpg.Connection):
+    """A session that records zero events still INSERTs a row, with
+    `events == []`. The clustering pipeline reads `events` and must
+    handle the empty case (e.g., a sandbox-error iteration that died
+    before emitting anything)."""
+    async with trace_session(db) as session:
+        trace_id = session.trace_id
+
+    row = await db.fetchrow(
+        "SELECT events FROM traces WHERE id = $1",
+        trace_id,
+    )
+    assert row is not None
+    assert _decode_jsonb(row["events"]) == []
 
 
 # ---------------------------------------------------------------------------

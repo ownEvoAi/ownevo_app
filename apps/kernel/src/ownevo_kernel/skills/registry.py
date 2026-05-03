@@ -8,7 +8,9 @@ Behavior contract:
   * Subsequent registrations of the same `skill_id` insert a new
     `skill_versions` row with `version_seq = max + 1` and link
     `parent_version_id` to the previous head, then advance
-    `skills.head_version_id`.
+    `skills.head_version_id`. `capability_tags` is refreshed to the
+    new version's tags on every re-registration; `kind` is locked at
+    first registration and a mismatch raises `SkillFormatError`.
   * The whole register is one transaction.
 
 The registry stores the raw frontmatter dict (not the validated Pydantic
@@ -96,7 +98,7 @@ async def _insert_record(
                 "SELECT COALESCE(MAX(version_seq), 0) FROM skill_versions WHERE skill_id = $1",
                 fm.id,
             )
-            next_seq = int(current_max) + 1
+            next_seq = current_max + 1
             # Refresh capability_tags on every registration so they don't
             # drift across versions.
             await conn.execute(

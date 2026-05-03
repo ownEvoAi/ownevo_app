@@ -104,6 +104,29 @@ fresh `[Unreleased]` block above it.
   vector(384)` column. Without this, `extra="forbid"` would reject any
   `SELECT *` from `failure_clusters`. Most readers will continue to fetch
   via SQL-side pgvector ops; this is for the explicit-fetch path.
+- `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — extract
+  `_USER_EXCEPTION_EXIT_CODE = 100` as a named constant; runner script
+  uses f-string interpolation so the runner side and the classifier
+  side reference the same source of truth.
+- `apps/kernel/src/ownevo_kernel/traces/collector.py` — `finalize()`
+  serializes events with one `model_dump(mode="json")` + `json.dumps`
+  pass instead of the previous `model_dump_json` → `json.loads` →
+  `json.dumps` triple roundtrip.
+- `apps/kernel/src/ownevo_kernel/datasets/m5.py` — simplify
+  `make_sample_subset` row-collection branch (drop redundant
+  `if iid in seen` guard that was always true after the preceding
+  block).
+- `apps/kernel/src/ownevo_kernel/skills/registry.py` — module docstring
+  clarifies that `capability_tags` is refreshed on every re-registration
+  while `kind` is locked at first registration.
+
+### Tests
+- `apps/kernel/tests/test_skill_format.py` — add coverage for malformed
+  YAML (`"not valid YAML"`), non-dict YAML (`"must be a YAML mapping"`),
+  and the `m` (minutes) unit in `parse_stale_duration`.
+- `apps/kernel/tests/test_trace_collector.py` — add `make_event`
+  validation tests (unknown `type`, missing required field) and an
+  empty-session test that verifies `events == []` is persisted.
 
 
 

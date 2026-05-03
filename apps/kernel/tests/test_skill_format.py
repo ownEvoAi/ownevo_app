@@ -25,6 +25,7 @@ from ownevo_kernel.skills import (
         ("7d", timedelta(days=7)),
         ("30d", timedelta(days=30)),
         ("60s", timedelta(seconds=60)),
+        ("5m", timedelta(minutes=5)),
         ("2w", timedelta(weeks=2)),
         ("never", NEVER),
         ("  24H  ", timedelta(hours=24)),  # whitespace + uppercase tolerated
@@ -243,4 +244,35 @@ created_by: x
 body
 """
     with pytest.raises(SkillFormatError, match="retention"):
+        parse_skill(bad)
+
+
+def test_malformed_yaml_rejected():
+    """Unparseable YAML in the frontmatter — surfaces as SkillFormatError,
+    not a raw yaml.YAMLError."""
+    bad = """\
+---
+id: x
+kind: instruction
+: : not yaml
+---
+
+body
+"""
+    with pytest.raises(SkillFormatError, match="not valid YAML"):
+        parse_skill(bad)
+
+
+def test_non_mapping_yaml_rejected():
+    """Frontmatter that parses to a non-dict (top-level list, scalar) is
+    a structural error, not a validation error."""
+    bad = """\
+---
+- a
+- b
+---
+
+body
+"""
+    with pytest.raises(SkillFormatError, match="must be a YAML mapping"):
         parse_skill(bad)

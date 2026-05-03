@@ -112,9 +112,9 @@ class TraceCollector:
         if self._finalized:
             return self.trace_id
         self.ended_at = datetime.now(UTC)
-        events_payload = [
-            json.loads(e.model_dump_json()) for e in self._events
-        ]
+        events_json = json.dumps(
+            [e.model_dump(mode="json") for e in self._events],
+        )
         await conn.execute(
             """
             INSERT INTO traces (
@@ -128,7 +128,7 @@ class TraceCollector:
             self.workflow_id,
             self.iteration_id,
             self.skill_version_id,
-            json.dumps(events_payload),
+            events_json,
             self.started_at,
             self.ended_at,
             json.dumps(self._metric_outputs) if self._metric_outputs is not None else None,

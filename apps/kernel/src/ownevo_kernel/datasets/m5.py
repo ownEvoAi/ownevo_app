@@ -143,8 +143,7 @@ def make_sample_subset(catalog: M5Catalog, *, num_items: int = 100) -> M5SampleS
                     continue
                 seen.add(iid)
                 item_ids.append(iid)
-            if iid in seen:
-                sales_rows.append(row)
+            sales_rows.append(row)
 
     with catalog.calendar.path.open() as f:
         calendar_rows = list(csv.DictReader(f))

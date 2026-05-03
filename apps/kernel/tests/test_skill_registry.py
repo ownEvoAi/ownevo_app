@@ -6,6 +6,7 @@ Skipped when `OWNEVO_DATABASE_URL` is unset (see test_db.py for setup).
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -130,8 +131,6 @@ async def test_retention_block_persisted_as_jsonb(db: asyncpg.Connection):
         result.version_id,
     )
     # asyncpg returns jsonb as a JSON string by default — decode for the assertion.
-    import json
-
     parsed = json.loads(block) if isinstance(block, str) else block
     assert parsed["id"] == "m5-feature-engineer"
     assert parsed["retention"]["refetches"][0]["source"] == "m5_calendar_features"

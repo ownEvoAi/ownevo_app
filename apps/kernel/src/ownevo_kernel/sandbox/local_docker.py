@@ -42,10 +42,15 @@ DEFAULT_IMAGE = "python:3.11-slim"
 """Small enough (~50MB compressed) for fast pulls; matches the kernel's
 target Python version."""
 
-# Wrapper script: distinguishes user-code exceptions (exit 100) from
-# interpreter death / signals (any other non-zero exit). Mounted read-only
-# at /sandbox/runner.py.
-_RUNNER_SCRIPT = """\
+_USER_EXCEPTION_EXIT_CODE = 100
+"""Runner exit code that means 'user code raised a Python exception'.
+Distinguishes a logical failure the agent owns from interpreter death,
+signals, or sandbox-runtime kills."""
+
+# Wrapper script: distinguishes user-code exceptions from interpreter
+# death / signals (any other non-zero exit). Mounted read-only at
+# /sandbox/runner.py.
+_RUNNER_SCRIPT = f"""\
 import runpy
 import sys
 import traceback
@@ -54,7 +59,7 @@ try:
     runpy.run_path("/sandbox/user_code.py", run_name="__main__")
 except BaseException:
     traceback.print_exc(file=sys.stderr)
-    sys.exit(100)
+    sys.exit({_USER_EXCEPTION_EXIT_CODE})
 sys.exit(0)
 """
 
@@ -270,14 +275,14 @@ class LocalDockerSandbox:
                 error=None,
                 error_class=None,
             )
-        if exit_code == 100:
+        if exit_code == _USER_EXCEPTION_EXIT_CODE:
             # Runner caught a Python exception from user code — logical
             # failure the agent owns, not a sandbox-runtime failure.
             return SandboxResult(
                 status="error",
                 output=stdout,
                 stderr=stderr,
-                exit_code=100,
+                exit_code=_USER_EXCEPTION_EXIT_CODE,
                 duration_ms=duration_ms,
                 error=stderr.strip() or "User code raised an exception",
                 error_class=None,
