@@ -16,6 +16,14 @@ test = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
 ]
+# Deps for the M5 LightGBM baseline under `apps/kernel/baselines/m5_lightgbm/`.
+# Kept out of the runtime kernel install (per CLAUDE.md "kernel stays
+# pandas-free"); production sandbox image bakes them in via the runtime
+# Dockerfile in PR #11c.
+baselines-m5 = [
+    "lightgbm>=4.3,<5",
+    "pandas>=2.2,<3",
+]
 
 [tool.uv.sources]
 ownevo-trace-format = { workspace = true }

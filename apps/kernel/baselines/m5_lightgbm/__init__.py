@@ -1,4 +1,4 @@
-"""M5 baseline orchestrator (Day-1 v1).
+"""M5 baseline orchestrator (Day-1 LightGBM).
 
 Six skill modules chained into one forecasting pipeline:
 
@@ -10,34 +10,37 @@ The 6-file split mirrors the agent's intended iteration target: in W4,
 the loop will propose a diff to one of these modules at a time
 (per `docs/PLAN.md` § Track B "One hypothesis per iteration").
 
-v1 implementation choice — seasonal-naive, NOT LightGBM
--------------------------------------------------------
-The `m5_lightgbm` directory name preserves the long-term naming from the
-plan. The v1 skill bodies, however, implement a **seasonal-naive
-forecaster** (last 28 training days repeated as the next 28-day forecast).
-Reasons:
+LightGBM model shape
+--------------------
+A single global LightGBM regressor over a long-format frame:
 
-  * v1 ships the **scaffolding** — runner, orchestrator, registration,
-    `make m5-baseline` target — without also pulling in lightgbm/pandas
-    deps and a sandbox image in the same PR.
-  * Seasonal-naive is a defensible Day-1 baseline (canonical "no model"
-    reference for time-series forecasting).
-  * The agent's first real iteration in W4 replaces the seasonal-naive
-    body with LightGBM — and the same 6-file split is preserved, so the
-    diff lives in one or two files at a time, not the whole pipeline.
+  * One row per (series, target_day) for both train and predict.
+  * Features: `lag_28` (the actual cell 28 days prior — non-recursive
+    for a 28-day horizon since the lag window is wholly inside the prior
+    fold), `day_of_week` (0..6), and `cat_id` as a LightGBM categorical.
+  * Target: unit sales for the target day.
+  * Train set is the validation fold (target = `validation_actuals`,
+    lag-28 looks back into the train fold). Test predictions look back
+    into the validation fold. The agent never sees test cells in
+    training — gate's train/test discipline is preserved by construction.
+  * Determinism: `seed`/`bagging_seed`/`feature_fraction_seed`/
+    `data_random_seed` all pinned, `num_threads=1` and
+    `deterministic=True` set; predictions are bit-identical across runs.
 
-Phase-2 PR #11b lifts: real LightGBM impl + sandbox image
-(lightgbm/pandas/sklearn pinned) + reproducibility CI. The runner +
-orchestrator do not change shape.
+PR #11c lifts the Docker sandbox boundary (`LocalDockerSandbox` via
+`run_pipeline` instead of in-process import) and PR #11d wires the
+B3.4 reproducibility CI cache strategy. The orchestrator + runner do
+not change shape.
 
 In-process vs sandbox
 ---------------------
-This orchestrator runs the skills **in-process** by direct Python import.
-The sandbox path in PR #11b will execute the same skill bodies inside
-`LocalDockerSandbox` via `run_pipeline`, with each stage's input/output
-serialized as JSON across the sandbox boundary. The skill bodies are
-written to be portable to that path: no module-level state, no global
-file handles, all I/O via the catalog path passed in.
+This orchestrator runs the skills **in-process** by direct Python
+import — kernel pulls `lightgbm` + `pandas` only via the
+`baselines-m5` extra (`pip install ownevo-kernel[baselines-m5]`).
+PR #11c will execute the same skill bodies inside `LocalDockerSandbox`
+via `run_pipeline`. The skill bodies are written to be portable to
+that path: no module-level state, no global file handles, all I/O via
+the catalog path passed in.
 """
 
 from __future__ import annotations
@@ -68,30 +71,45 @@ class RawSeriesData:
     validation_actuals: np.ndarray  # (n_series, n_val_days)
     test_actuals: np.ndarray    # (n_series, n_test_days)
     dollar_volume: np.ndarray | None  # (n_series,) or None when prices absent
+    metadata: list[dict[str, str]]  # per-series cat_id/dept_id/store_id/...
+    val_dow: np.ndarray   # (n_val_days,) day-of-week 0..6 for fold.validation
+    test_dow: np.ndarray  # (n_test_days,) day-of-week 0..6 for fold.test
 
 
 @dataclass(frozen=True)
 class FeatureMatrix:
     """feature_engineer output → model_trainer / predictor input.
 
-    For seasonal-naive v1, `features` carries the per-series last-28
-    training cells used as the forecast template. LightGBM v2 will
-    extend this with lag/rolling/categorical columns.
+    Long-format frames keyed by stage name:
+      * `train` — one row per (series, val_day); supervised target known.
+      * `test`  — one row per (series, test_day); target held out for scoring.
+
+    LightGBM consumes `train` for `fit`; `test` for `predict`. The
+    `categorical_feature_cols` list keeps the column set explicit so the
+    model_trainer doesn't have to guess at LightGBM's auto-detection.
     """
 
     series_ids: list[str]
-    features: dict[str, np.ndarray]
+    train: object   # pandas.DataFrame; declared as object to keep this module pandas-free
+    test: object    # pandas.DataFrame
+    target_col: str
+    feature_cols: list[str]
+    categorical_feature_cols: list[str]
 
 
 @dataclass(frozen=True)
 class TrainedModel:
     """model_trainer output → predictor input.
 
-    For seasonal-naive v1, `params` is empty (the model is the features).
-    LightGBM v2 will store a serialized booster here.
+    Holds the fitted LightGBM Booster. Declared as `object` so this
+    module doesn't require lightgbm at import time — the sandbox path
+    in PR #11c will marshal the booster across the boundary as a
+    serialized model_str.
     """
 
-    params: dict[str, np.ndarray]
+    booster: object  # lightgbm.Booster
+    feature_cols: list[str]
+    categorical_feature_cols: list[str]
 
 
 # ---------------------------------------------------------------------------
