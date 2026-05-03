@@ -318,6 +318,10 @@ class Trace(_Base):
     token_usage: dict[str, Any] | None = None
 
 
+LearningKind = Literal["hypothesis", "observation", "request-to-human", "failure-note"]
+"""Valid `kind` values — must match the SQL CHECK constraint in 0001_substrate.sql."""
+
+
 class Learning(_Base):
     """Mirrors auto-harness's `learnings.md` append-only file.
 
@@ -326,6 +330,6 @@ class Learning(_Base):
 
     id: UUID
     iteration_id: UUID | None = None
-    kind: Literal["hypothesis", "observation", "request-to-human", "failure-note"]
+    kind: LearningKind
     content: str
     created_at: datetime

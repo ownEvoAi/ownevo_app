@@ -22,13 +22,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.parse
 import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 import asyncpg
 
+from ..types import Learning
 from .learnings import latest_learning
 
 HttpPostFn = Callable[[str, dict], Awaitable[int]]
@@ -69,6 +71,10 @@ class LoopStuckAlerter:
 
     `webhook_url=None` puts the alerter in observe-only mode — it
     returns the signal but never POSTs. Useful for dev / dry-run.
+
+    Wire to a periodic background task in the kernel startup — see W2.6
+    (M5 loop). Example: check every 10 minutes, pass the pool connection.
+    Alert deduplication (cooldown) should be added at the call site.
     """
 
     def __init__(
@@ -82,6 +88,13 @@ class LoopStuckAlerter:
             raise ValueError(
                 f"idle_threshold_seconds must be positive; got {idle_threshold_seconds}",
             )
+        if webhook_url is not None:
+            _parsed = urllib.parse.urlparse(webhook_url)
+            if _parsed.scheme != "https" or _parsed.netloc != "hooks.slack.com":
+                raise ValueError(
+                    f"webhook_url must be an https://hooks.slack.com/... URL; "
+                    f"got {webhook_url!r}"
+                )
         self.webhook_url = webhook_url
         self.idle_threshold_seconds = idle_threshold_seconds
         self._http_post = http_post or _default_http_post
@@ -94,12 +107,28 @@ class LoopStuckAlerter:
     ) -> StuckSignal:
         """Read the most recent learning, decide, optionally page.
 
-        `now` is injectable so tests can fast-forward without sleeping.
-        Defaults to `datetime.now(timezone.utc)` — the kernel's
-        timestamps are stamped `timestamptz` so we compare in UTC.
+        Production path (`now=None`): the elapsed-time delta is computed
+        inside Postgres via `EXTRACT(EPOCH FROM (now() - created_at))`
+        to eliminate cross-host clock-skew as a source of false negatives.
+
+        Test override (`now=` set): delta is computed in Python against
+        the injected timestamp so tests can fast-forward without sleeping.
+        The injected `now` must be timezone-aware (UTC).
         """
-        current = now or datetime.now(UTC)
-        latest = await latest_learning(conn)
+        if now is not None and now.tzinfo is None:
+            raise ValueError(
+                "now must be timezone-aware (pass datetime.now(UTC) or datetime(..., tzinfo=UTC))"
+            )
+
+        if now is None:
+            latest, delta = await _latest_with_db_delta(conn)
+        else:
+            latest_obj = await latest_learning(conn)
+            if latest_obj is None:
+                latest, delta = None, None
+            else:
+                latest = latest_obj
+                delta = max(0.0, (now - latest.created_at).total_seconds())
 
         if latest is None:
             return StuckSignal(
@@ -111,7 +140,7 @@ class LoopStuckAlerter:
                 webhook_fired=False,
             )
 
-        delta = (current - latest.created_at).total_seconds()
+        assert delta is not None
         is_stuck = delta > self.idle_threshold_seconds
 
         if not is_stuck:
@@ -151,6 +180,41 @@ class LoopStuckAlerter:
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+async def _latest_with_db_delta(
+    conn: asyncpg.Connection,
+) -> tuple[Learning, float] | tuple[None, None]:
+    """Fetch the most recent learning and its age, computed in DB.
+
+    The delta is `EXTRACT(EPOCH FROM (now() - created_at))` — fully
+    inside Postgres, eliminating cross-host clock skew. Returns
+    (None, None) when the learnings table is empty.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT id, iteration_id, kind, content, created_at,
+               EXTRACT(EPOCH FROM (now() - created_at))::float AS delta_seconds
+        FROM learnings
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+    )
+    if row is None:
+        return None, None
+    learning = Learning(
+        id=row["id"],
+        iteration_id=row["iteration_id"],
+        kind=row["kind"],
+        content=row["content"],
+        created_at=row["created_at"],
+    )
+    return learning, max(0.0, float(row["delta_seconds"]))
+
+
+# ---------------------------------------------------------------------------
 # Default HTTP poster — stdlib only
 # ---------------------------------------------------------------------------
 
@@ -159,8 +223,9 @@ async def _default_http_post(url: str, payload: dict) -> int:
     """Synchronous urllib.request POST run on the asyncio threadpool.
 
     Returns the HTTP status code. Raises `OSError` (including
-    `urllib.error.URLError` subclass) on transport failures. Slack
-    accepts a JSON body and answers 200 with body `ok` on success.
+    `urllib.error.URLError` and `urllib.error.HTTPError` subclasses)
+    on transport failures or non-2xx responses. Slack accepts a JSON
+    body and answers 200 with body `ok` on success.
     """
 
     def _post() -> int:

@@ -8,11 +8,14 @@ Pins the W2.4a contract:
   * Webhook payload shape is `{"text": "..."}`.
   * `webhook_url=None` puts the alerter in observe-only mode.
   * `now=` is injectable so tests don't sleep.
+  * webhook_url must be https://hooks.slack.com/... (SSRF guard).
+  * Production path computes delta in DB (no cross-host clock skew).
 """
 
 from __future__ import annotations
 
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
@@ -30,6 +33,9 @@ pytestmark = pytest.mark.skipif(
     reason=f"{ENV_VAR} not set",
 )
 
+# Shared test-mode threshold — short enough to fast-forward without sleeping.
+TEST_THRESHOLD_SECONDS = 60.0
+
 
 # ---------------------------------------------------------------------------
 # learnings writer round-trip
@@ -46,6 +52,19 @@ async def test_write_learning_round_trip(db: asyncpg.Connection):
     assert "lag-7" in learning.content
     assert learning.iteration_id is None
     assert learning.created_at.tzinfo is not None  # timestamptz preserved
+
+
+async def test_write_learning_with_iteration_id_fk_enforced(db: asyncpg.Connection):
+    """iteration_id is passed through to the SQL (not silently dropped).
+    A non-existent UUID triggers FK violation — proves the parameter is wired."""
+    fake_iter_id = uuid.uuid4()
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        await write_learning(
+            db,
+            kind="observation",
+            content="Gate passed; RMSE improved 3.2%.",
+            iteration_id=fake_iter_id,
+        )
 
 
 async def test_write_learning_rejects_invalid_kind(db: asyncpg.Connection):
@@ -85,8 +104,8 @@ async def test_alerter_not_stuck_on_empty_table(db: asyncpg.Connection):
         return 200
 
     alerter = LoopStuckAlerter(
-        webhook_url="https://hooks.example.test/X",
-        idle_threshold_seconds=60.0,
+        webhook_url="https://hooks.slack.com/services/FAKE/FAKE/fake",
+        idle_threshold_seconds=TEST_THRESHOLD_SECONDS,
         http_post=fake_post,
     )
     signal = await alerter.check_and_alert(db)
@@ -101,18 +120,20 @@ async def test_alerter_not_stuck_on_recent_learning(db: asyncpg.Connection):
     """Latest learning is fresher than threshold → not stuck."""
     await write_learning(db, kind="observation", content="recent")
 
-    fired: list = []
+    fired: list[tuple[str, dict]] = []
 
     async def fake_post(url: str, payload: dict) -> int:
         fired.append((url, payload))
         return 200
 
     alerter = LoopStuckAlerter(
-        webhook_url="https://hooks.example.test/X",
+        webhook_url="https://hooks.slack.com/services/FAKE/FAKE/fake",
         idle_threshold_seconds=3600.0,  # 1h
         http_post=fake_post,
     )
-    signal = await alerter.check_and_alert(db)
+    # Inject `now` explicitly so the test is independent of the system clock.
+    just_now = datetime.now(UTC)
+    signal = await alerter.check_and_alert(db, now=just_now)
     assert signal.is_stuck is False
     assert signal.seconds_since_last is not None
     assert signal.seconds_since_last < 3600.0
@@ -132,8 +153,8 @@ async def test_alerter_stuck_past_threshold_fires_webhook(db: asyncpg.Connection
         return 200
 
     alerter = LoopStuckAlerter(
-        webhook_url="https://hooks.example.test/X",
-        idle_threshold_seconds=60.0,
+        webhook_url="https://hooks.slack.com/services/FAKE/FAKE/fake",
+        idle_threshold_seconds=TEST_THRESHOLD_SECONDS,
         http_post=fake_post,
     )
 
@@ -143,11 +164,11 @@ async def test_alerter_stuck_past_threshold_fires_webhook(db: asyncpg.Connection
 
     assert signal.is_stuck is True
     assert signal.seconds_since_last is not None
-    assert signal.seconds_since_last > 60.0
+    assert signal.seconds_since_last > TEST_THRESHOLD_SECONDS
     assert signal.webhook_fired is True
     assert len(fired) == 1
     url, payload = fired[0]
-    assert url == "https://hooks.example.test/X"
+    assert url == "https://hooks.slack.com/services/FAKE/FAKE/fake"
     assert "text" in payload
     assert "stuck" in payload["text"].lower()
     # Payload references the kind of the last entry so an oncall
@@ -160,7 +181,7 @@ async def test_alerter_observe_only_when_webhook_url_none(db: asyncpg.Connection
     Useful for dev / dry-run / tests-without-mocking."""
     await write_learning(db, kind="observation", content="ancient")
 
-    fired: list = []
+    fired: list[tuple[str, dict]] = []
 
     async def fake_post(url: str, payload: dict) -> int:
         fired.append((url, payload))
@@ -168,7 +189,7 @@ async def test_alerter_observe_only_when_webhook_url_none(db: asyncpg.Connection
 
     alerter = LoopStuckAlerter(
         webhook_url=None,
-        idle_threshold_seconds=60.0,
+        idle_threshold_seconds=TEST_THRESHOLD_SECONDS,
         http_post=fake_post,
     )
     far_future = datetime.now(UTC) + timedelta(minutes=10)
@@ -188,6 +209,52 @@ async def test_alerter_threshold_validation():
         LoopStuckAlerter(idle_threshold_seconds=-1)
 
 
+async def test_alerter_rejects_non_slack_webhook_url():
+    """SSRF guard: webhook_url must be https://hooks.slack.com/..."""
+    with pytest.raises(ValueError, match="hooks.slack.com"):
+        LoopStuckAlerter(webhook_url="http://169.254.169.254/latest/meta-data")
+    with pytest.raises(ValueError, match="hooks.slack.com"):
+        LoopStuckAlerter(webhook_url="https://attacker.example.com/steal")
+    with pytest.raises(ValueError, match="hooks.slack.com"):
+        LoopStuckAlerter(webhook_url="https://hooks.example.test/X")
+    # Valid URL must not raise
+    LoopStuckAlerter(webhook_url="https://hooks.slack.com/services/T/B/key")
+
+
+async def test_alerter_production_path_uses_db_delta(db: asyncpg.Connection):
+    """Production path (now=None) computes delta in DB — no cross-host clock comparison.
+    A very recent learning → not stuck, delta very small."""
+    await write_learning(db, kind="hypothesis", content="just wrote this")
+
+    fired: list[tuple[str, dict]] = []
+
+    async def fake_post(url: str, payload: dict) -> int:
+        fired.append((url, payload))
+        return 200
+
+    alerter = LoopStuckAlerter(
+        webhook_url="https://hooks.slack.com/services/FAKE/FAKE/fake",
+        idle_threshold_seconds=3600.0,
+        http_post=fake_post,
+    )
+    # No now= override — exercises the DB-delta code path.
+    signal = await alerter.check_and_alert(db)
+    assert signal.is_stuck is False
+    assert signal.seconds_since_last is not None
+    assert signal.seconds_since_last < 3600.0
+    assert fired == []
+
+
+async def test_alerter_rejects_naive_now(db: asyncpg.Connection):
+    """Passing a timezone-naive datetime as now= raises ValueError.
+    latest.created_at is timestamptz (UTC-aware); arithmetic with a
+    naive datetime raises TypeError — we guard this explicitly."""
+    alerter = LoopStuckAlerter(idle_threshold_seconds=TEST_THRESHOLD_SECONDS)
+    naive_now = datetime(2026, 5, 3, 12, 0, 0)  # no tzinfo
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await alerter.check_and_alert(db, now=naive_now)
+
+
 async def test_alerter_summary_humanizes_duration(db: asyncpg.Connection):
     """Summary uses h/m/s units so an oncall can read it at a glance."""
     await write_learning(db, kind="hypothesis", content="x")
@@ -196,8 +263,8 @@ async def test_alerter_summary_humanizes_duration(db: asyncpg.Connection):
         return 200
 
     alerter = LoopStuckAlerter(
-        webhook_url="https://hooks.example.test/X",
-        idle_threshold_seconds=60.0,
+        webhook_url="https://hooks.slack.com/services/FAKE/FAKE/fake",
+        idle_threshold_seconds=TEST_THRESHOLD_SECONDS,
         http_post=fake_post,
     )
     far_future = datetime.now(UTC) + timedelta(hours=3)
@@ -213,25 +280,22 @@ async def test_alerter_summary_humanizes_duration(db: asyncpg.Connection):
 # ---------------------------------------------------------------------------
 
 
-async def test_latest_learning_breaks_ties_deterministically(
+async def test_latest_learning_handles_equal_timestamps(
     db: asyncpg.Connection,
 ):
-    """If two rows share the same created_at (clock granularity), id
-    DESC tiebreaks. We can't easily induce equal timestamps with
-    `DEFAULT now()`, but we can write explicit timestamps to verify."""
+    """If two rows share the same created_at (clock granularity collision),
+    the query returns one of them deterministically without crashing.
+    UUID4 ordering is random, so we assert only that one row is returned —
+    not which one. The tiebreak prevents ambiguous multi-row results."""
     ts = datetime.now(UTC)
     await db.execute(
         "INSERT INTO learnings (kind, content, created_at) VALUES ($1, $2, $3)",
-        "hypothesis", "first-by-id", ts,
+        "hypothesis", "row-a", ts,
     )
     await db.execute(
         "INSERT INTO learnings (kind, content, created_at) VALUES ($1, $2, $3)",
-        "hypothesis", "second-by-id", ts,
+        "hypothesis", "row-b", ts,
     )
     latest = await latest_learning(db)
     assert latest is not None
-    # Both have the same created_at; either could legitimately come
-    # first. The query says ORDER BY id DESC for ties — id is uuid4
-    # so the comparison is lexicographic on hex. The test asserts
-    # only that we get *one* of the two without crashing.
-    assert latest.content in {"first-by-id", "second-by-id"}
+    assert latest.content in {"row-a", "row-b"}

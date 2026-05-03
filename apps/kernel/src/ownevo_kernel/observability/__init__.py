@@ -13,11 +13,13 @@ no `httpx` / `aiohttp` dep added for one webhook call. A custom
 `http_post` callable is injectable for tests.
 """
 
+from ..types import LearningKind
 from .learnings import latest_learning, write_learning
 from .loop_stuck import LoopStuckAlerter, StuckSignal
 
 __all__ = [
     "LoopStuckAlerter",
+    "LearningKind",
     "StuckSignal",
     "latest_learning",
     "write_learning",

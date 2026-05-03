@@ -6,23 +6,19 @@ whether to page. The table is INSERT-only by convention (no enforced
 WORM trigger; the kind/content is the agent's reasoning trail, not
 the audit log).
 
-`LearningKind` mirrors the SQL CHECK constraint in 0001_substrate.sql:
-the agent records hypotheses (proposed changes), observations (gate
-outcomes / metric deltas), failure-notes (what didn't work), and
-request-to-human (escalations). Three rejected hypotheses on the
-same idea → abandon, per the proposer-loop discipline.
+`LearningKind` is defined in `types.py` to match the SQL CHECK constraint
+in 0001_substrate.sql: hypothesis / observation / failure-note /
+request-to-human. Three rejected hypotheses on the same idea → abandon,
+per the proposer-loop discipline.
 """
 
 from __future__ import annotations
 
-from typing import Literal
 from uuid import UUID
 
 import asyncpg
 
-from ..types import Learning
-
-LearningKind = Literal["hypothesis", "observation", "request-to-human", "failure-note"]
+from ..types import Learning, LearningKind
 
 
 async def write_learning(
