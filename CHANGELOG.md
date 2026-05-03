@@ -18,6 +18,26 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/observability/` — loop-stuck Slack
+  alerter + learnings writer (W2.4a). `write_learning(conn, kind=,
+  content=, iteration_id=)` appends one row to the `learnings` table
+  (the agent's append-only memory mirroring auto-harness's
+  `learnings.md`); kind is one of `hypothesis` / `observation` /
+  `request-to-human` / `failure-note` per the SQL CHECK constraint.
+  `latest_learning(conn)` returns the most recent row (sorted by
+  `created_at DESC, id DESC` for determinism) or None.
+  `LoopStuckAlerter` reads the latest learning, compares to `now`,
+  and fires a Slack webhook if the gap exceeds
+  `idle_threshold_seconds` (default 2h per the design review's spec).
+  Returns a structured `StuckSignal` (is_stuck, last_learning_at,
+  seconds_since_last, threshold_seconds, summary, webhook_fired) so
+  the caller has the evidence even when no webhook fires. Empty
+  `learnings` table → not stuck (the alerter catches stalls, not
+  not-yet-started workflows). `webhook_url=None` puts the alerter
+  in observe-only mode for dev / dry-run. `now=` is injectable so
+  integration tests fast-forward without sleeping. Stdlib HTTP via
+  `asyncio.to_thread(urllib.request.urlopen)` — no `httpx` /
+  `aiohttp` dep added. `http_post` is injectable for test mocks.
 - `apps/kernel/src/ownevo_kernel/gate/` — 3-step regression gate
   (W2.2). `run_gate(runner, *, prior_eval_task_ids=, best_ever_score=,
   regression_tolerance=, improvement_epsilon=)` is a pure async
