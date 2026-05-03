@@ -38,7 +38,7 @@ This plan now reflects six decisions ratified by a CEO-mode review of the MVP do
 1. Multi-tenant retrofit (D4) — 1-2 weeks before customer #2
 2. Sandbox provider migration to e2b/Modal (D3) — when local Docker hits resource ceiling
 3. Audit chain crypto upgrade (D2) — when first regulated buyer evaluates
-4. **`AgentEvent` schema OSS positioning** (Apache 2 vs proprietary) — **DEADLINE: decide before W3.** Single unresolved strategic call from the CEO review.
+4. **`AgentEvent` schema license / public-release / naming** — spec written at [`../packages/trace-format/SPEC.md`](../packages/trace-format/SPEC.md); license + public-release timing + package naming all deferred. MVP doc names Apache 2 as the working assumption but no formal commitment is in code. Revisit when triggered (customer asks the license question, second team needs to depend on the package, OTel Gen AI ask, or strategic decision to publish post-MVP). See [`../packages/trace-format/README.md`](../packages/trace-format/README.md) for trigger conditions and [`../TODOS.md`](../TODOS.md) TODO-4.
 
 ---
 
@@ -117,9 +117,9 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 | **Reproducibility rig** | `make m5-replay` and `make tau3-replay` targets; Docker-packaged with cached intermediate artifacts (skill registry snapshots, eval-case snapshots) | <30-minute fresh-checkout repro is a Week-8 success criterion. | No — decide by W7. |
 | **Public-results post format** | Immutable markdown files: `benchmarks/m5-results-2026-Q3.md`, `benchmarks/tau3-results-2026-Q3.md` in `ownevo_docs/benchmarks/` | Matches the established `<benchmark>-results-<date>.md` convention. | No — decide by W8. |
 
-### One unresolved strategic call (DEADLINE: decide before W3)
+### Strategic call deferred — trigger-based, not deadline-based
 
-- **`packages/trace-format/` OSS positioning** — open-source under Apache 2 as a community standard (OTel-Gen-AI-aligned), or keep proprietary as a moat. Implementation cost is 0 if Apache 2 from start, weeks if retrofitted. Surfaced as the one unresolved strategic call by the 2026-05-03 CEO review. Affects whether the schema is built for community adoption or proprietary differentiation.
+- **`packages/trace-format/` license / public-release / naming** — canonical spec written at [`../packages/trace-format/SPEC.md`](../packages/trace-format/SPEC.md) (2026-05-03). W1 builds against the spec, internal-use-only. License (Apache 2 working assumption per MVP doc § Open-Core Line; no formal commitment in code), public-release timing, and package naming are deferred until any of: a customer asks the license question, a second team needs to depend on the package, OTel Gen AI working group asks to align, or strategic decision to publish post-MVP. See [`../packages/trace-format/README.md`](../packages/trace-format/README.md) for the full trigger list.
 
 ### Other questions to track (do not block W1)
 
@@ -428,9 +428,9 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 
 ## Open questions to track
 
-### DEADLINE: decide before W3
+### Trigger-based, not deadline-based
 
-- **`packages/trace-format/` OSS positioning** — Apache 2 (community standard, OTel-Gen-AI-aligned) vs proprietary moat. Surfaced as the one unresolved strategic call by the 2026-05-03 CEO review. Implementation cost is 0 if Apache 2 from start, weeks if retrofitted.
+- **`packages/trace-format/` license / public-release / naming** — spec written at [`../packages/trace-format/SPEC.md`](../packages/trace-format/SPEC.md); the W1 team builds against it as internal-use-only. License, public-release timing, and package naming are deferred until any of the following triggers: a customer asks "what license is this under?", a second team or repo needs to depend on the package, an OTel Gen AI working group asks to align, or a strategic decision to publish (post-MVP, with first design partners). See [`../packages/trace-format/README.md`](../packages/trace-format/README.md) and [`../TODOS.md`](../TODOS.md) TODO-4.
 
 ### Do not block W1
 

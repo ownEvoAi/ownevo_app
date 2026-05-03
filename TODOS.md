@@ -50,18 +50,26 @@ Format follows the standard:
 - **Priority:** P2 — triggers when first regulated buyer evaluates.
 - **Depends on:** specific regulatory requirement (EU AI Act, HIPAA, SOC 2 Type II audit, etc.).
 
-### TODO-4: `AgentEvent` schema OSS positioning [DEADLINE: before W3]
+### TODO-4: `AgentEvent` schema license / public-release / naming
 
-- **What:** Decide whether to open-source `packages/trace-format/` under Apache 2 as a community standard (OTel-Gen-AI-aligned), or keep proprietary as a moat.
-- **Why:** The schema is the contract for the improvement loop. If it becomes a standard, every customer's agent traces flow through ownEvo's format for free. If it stays proprietary, the moat deepens but adoption slows.
-- **Pros (Apache 2):** Implementation cost is 0 if Apache 2 from start. Industry alignment. Easier customer integration ("we already speak this").
-- **Cons (Apache 2):** Loses "we define the format" lock-in. Competitors get the standard for free.
-- **Pros (proprietary):** Stronger moat. Format-defining role.
-- **Cons (proprietary):** Slower adoption. Retrofit to Apache 2 later costs weeks.
-- **Context:** This is the **single unresolved strategic call** from the 2026-05-03 CEO review. Surfaced in [`PLAN.md`](docs/PLAN.md) § Open Questions (DEADLINE: before W3) and [`ownEvo_MVP.md`](../ownevo_docs/ownEvo_MVP.md) § Open Questions.
-- **Effort:** S decision; 0 if right call from start, L if retrofitted.
-- **Priority:** **P0 — block W3.**
-- **Depends on:** founder/board discussion of OSS strategy.
+- **What:** Lock the license (Apache 2 working assumption per MVP doc § Open-Core Line, but no formal commitment in code yet), publication path (npm + PyPI? separate repo? quiet drop or public announcement?), and package naming (currently internal-only Python `ownevo_format`, no npm/PyPI name reserved).
+- **Status (2026-05-03):** Spec written at [`packages/trace-format/SPEC.md`](packages/trace-format/SPEC.md). Pydantic + Zod implementations land in W1 against the spec, internal-use-only within `ownevo_app/`. The W3 schema-freeze deliverable bumps the spec to 1.0 internally. None of these decisions block W1 implementation.
+- **Why deferred:** The "decide before W3" framing was unnecessarily aggressive. The spec exists; the team can build against it. License + publication + naming are externally-facing concerns that don't gate internal implementation. Premature commitment carries small but real costs (e.g., picking an npm scope before there's a customer to install it).
+- **Trigger conditions to revisit:**
+  - A customer asks "what license is this under?"
+  - A second team or repo needs to depend on this package
+  - An OTel Gen AI working group asks to align (or vice versa)
+  - Strategic decision to publish (post-MVP, with first design partners)
+- **Sub-decisions when triggered:**
+  - License: Apache 2 (MVP doc default), or stay proprietary, or BSL/AGPL middle-ground (note: AGPL doesn't apply to schemas; BSL hurts standardization)
+  - Where it lives: stay in monorepo, or extract to `ownEvoAi/agent-event-spec` standalone repo
+  - Publication: quiet drop to npm + PyPI, or coordinated announcement (YC demo, OSS post, design-partner-only)
+  - Scope: just the JSON Schema + Pydantic + Zod, or also reference middleware (Claude Agent SDK adapter)
+  - Naming: npm scope (`@ownevoai/...`?), PyPI name (`ownevo-agent-event`?)
+  - OTel Gen AI alignment: design-with-awareness (current state, no cross-walk doc) vs formal cross-walk doc as a Phase-2 task
+- **Effort to lock when triggered:** ~30-45 min if Apache-2-in-monorepo (current default); 1-2 days if extract + publication pipeline; weeks if retrofitting to Apache 2 after public release as proprietary.
+- **Priority:** **P1 — strategic, not blocking.** No longer P0 since the spec is written and W1 is unblocked.
+- **Depends on:** founder/board discussion of OSS strategy, OR first external trigger above.
 
 ---
 
