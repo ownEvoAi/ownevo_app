@@ -94,6 +94,66 @@ async def test_oom_classifies_as_OOM(sandbox: LocalDockerSandbox):
     )
 
 
+async def test_user_os_exit_100_is_crash_not_user_exception(
+    sandbox: LocalDockerSandbox,
+):
+    """TODO-17 hardening: a hostile (or buggy) agent that calls
+    `os._exit(100)` previously spoofed the user-exception path
+    (status='error', error_class=None) — exactly the classification
+    the gate runner treats as a logical failure the agent owns. The
+    subprocess-based runner remaps the child's 100 to the
+    crash-remap code so the classifier returns error_class='Crash'
+    instead. The gate refuses to advance best_ever_score on Crash."""
+    result = await sandbox.run(
+        "import os; os._exit(100)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_with_arbitrary_code_is_crash(
+    sandbox: LocalDockerSandbox,
+):
+    """Other os._exit values pass through to the classifier as Crash —
+    they're neither clean exit nor a runner-emitted sentinel."""
+    result = await sandbox.run(
+        "import os; os._exit(7)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_zero_remains_ok_documented_limit(
+    sandbox: LocalDockerSandbox,
+):
+    """TODO-17 acknowledged limit: `os._exit(0)` cannot be
+    distinguished from a clean exit at the process boundary — both
+    surface as exit code 0 to the parent. This test pins that
+    behavior so any future change that would silently shift it
+    (e.g., a stricter completion sentinel) is observed.
+
+    Defense-in-depth: `run_pipeline` parses JSON outputs from stdout;
+    a user that `os._exit(0)`s without writing valid metric output
+    leaves `outputs=None`, which the gate refuses to advance
+    best-ever on (val_score=0 / sandbox-error short-circuit).
+    """
+    result = await sandbox.run(
+        "import os; os._exit(0)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    # Pinned as ok — this is the known limit, not a guarantee that
+    # such code is "safe". The protective contract holds at the
+    # metric layer (run_pipeline + gate val_score derivation).
+    assert result.status == "ok"
+    assert result.error_class is None
+    assert result.exit_code == 0
+
+
 async def test_segfault_classifies_as_Crash(sandbox: LocalDockerSandbox):
     """SIGSEGV from a deref of NULL → error_class='Crash'.
     The interpreter died unexpectedly, not on a clean Python path."""
@@ -141,6 +201,61 @@ async def test_sandbox_rootfs_is_read_only(sandbox: LocalDockerSandbox):
     assert "UNEXPECTED WRITE" not in result.output
     assert "blocked:" in result.output
     assert "tmp ok" in result.output
+
+
+def test_classify_crash_remap_exit_code_no_docker():
+    """Unit test for _classify with exit_code=102 (_RUNNER_CRASH_REMAP_EXIT_CODE).
+    Does not require Docker — exercises the classifier logic directly.
+    Pins that the crash-remap sentinel always maps to Crash regardless of
+    any future _classify refactor that might add an explicit branch for it."""
+    from ownevo_kernel.sandbox.local_docker import (
+        LocalDockerSandbox,
+        _RUNNER_CRASH_REMAP_EXIT_CODE,
+    )
+
+    result = LocalDockerSandbox._classify(
+        stdout="",
+        stderr="",
+        duration_ms=10,
+        inspect={},
+        timed_out=False,
+        timeout_seconds=15.0,
+        proc_returncode=_RUNNER_CRASH_REMAP_EXIT_CODE,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+    assert result.exit_code == _RUNNER_CRASH_REMAP_EXIT_CODE
+
+
+async def test_user_os_exit_crash_remap_code_is_crash(sandbox: LocalDockerSandbox):
+    """os._exit(102) is _RUNNER_CRASH_REMAP_EXIT_CODE. The passthrough policy
+    exits the runner with 102, which the classifier must still call Crash.
+    Pins the constant so a future _classify change observes any regression."""
+    result = await sandbox.run(
+        "import os; os._exit(102)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_one_is_user_exception_documented_limit(
+    sandbox: LocalDockerSandbox,
+):
+    """Residual known limit: os._exit(1) maps to error_class=None (same as
+    an uncaught exception) because the runner's policy maps child exit 1 to
+    the user-exception sentinel. Gate impact is nil — run_pipeline only
+    parses outputs when status='ok', so outputs=None triggers SANDBOX_ERROR
+    either way. Pinned so any future policy change that shifts this is
+    observed."""
+    result = await sandbox.run(
+        "import os; os._exit(1)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class is None  # known limit, not a guarantee
 
 
 def test_sandbox_result_invariants_match_tool_call_result():
