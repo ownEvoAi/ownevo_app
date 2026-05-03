@@ -112,6 +112,8 @@ One row per loop iteration. `parent_skill_version_id` is what the agent started 
 ### `proposals` + `approvals`
 The approval queue. `proposal_state_machine` documented in [`STATE_MACHINES.md`](./STATE_MACHINES.md). One proposal can have at most one resolved approval.
 
+`proposals.eval_score` (numeric(3,2), `[0,1]` check) and `proposals.eval_rationale` (text) hold the LLM-judge-stub output. Carried over from `core/agentos_harness/types.py:Proposal` as the integration shape; populated starting W2 when the judge wires up.
+
 `approvals.became_eval_case_id` closes the comment-becomes-eval-case flow: when a reviewer rejects with a comment, the comment is structured into an `eval_cases` row tagged `provenance = 'rejected-feedback'`.
 
 ### `eval_cases`

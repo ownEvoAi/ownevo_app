@@ -40,6 +40,14 @@ fresh `[Unreleased]` block above it.
   hatchling builds, `--import-mode=importlib` for cross-dir test
   collection). `pydantic>=2.7,<3` pinned at workspace level.
 
+### Changed
+- `apps/kernel/migrations/0001_substrate.sql` — `proposals` table gains
+  `eval_score numeric(3,2)` (with `[0,1]` check) and `eval_rationale text`
+  to align with the Pydantic `Proposal` model. Pre-stages the LLM-judge
+  wiring that lands in W2; closes the schema-vs-types divergence flagged
+  in `/review`. Migration not yet applied to any deployed DB so this is a
+  forward-only edit, not a `0002_*.sql` follow-up.
+
 ### Fixed
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
   `audit_entries` WORM trigger. Adds `BEFORE TRUNCATE … FOR EACH STATEMENT`

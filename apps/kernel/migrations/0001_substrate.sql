@@ -237,6 +237,8 @@ CREATE TABLE proposals (
     plain_language_summary  text NOT NULL,
     expected_impact         jsonb,                        -- {improves: [...eval_case_ids], regresses: [...]}
     state                   proposal_state NOT NULL DEFAULT 'pending',
+    eval_score              numeric(3,2) CHECK (eval_score IS NULL OR (eval_score >= 0 AND eval_score <= 1)),  -- LLM-judge stub score (W2)
+    eval_rationale          text,                         -- LLM-judge plain-language reason (W2)
     created_at              timestamptz NOT NULL DEFAULT now(),
     state_updated_at        timestamptz NOT NULL DEFAULT now()
 );
