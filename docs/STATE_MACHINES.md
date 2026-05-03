@@ -34,51 +34,65 @@ audit kind they produce.
    gate passes (val_score > best_ever AND prior suite still passes)
               │
               ▼
-       ┌──────────────────────────────┐
-       │ gate-passed-awaiting-human   │
-       └────────┬─────────────────┬───┘
-                │                 │
-       human    │     human/      │
-       approves │     LLM-judge   │
-                │     rejects     │
-                ▼                 ▼
-       ┌──────────────────┐  ┌──────────┐
-       │ approved-        │  │ rejected │
-       │ awaiting-deploy  │  └──────────┘
-       └────────┬─────────┘
-                │ deploy job runs
-                ▼
        ┌──────────────────┐
-       │     deployed     │
-       └────────┬─────────┘
-                │ (W7 demo rollback runbook)
-                ▼
-       ┌──────────────────┐
-       │   rolled-back    │
-       └──────────────────┘
+       │   gate-passed    │
+       └───────┬──────────┘
+               │
+   ┌───────────┴───────────────────────┐
+   │ workflow.mode = autonomous        │ workflow.mode = gated
+   │ (auto-approved immediately)       │
+   │                                   │ human / LLM-judge decides
+   │                         ┌─────────┴──────────┐
+   │                         │                    │
+   │                     approves             rejects
+   │                         │                    ▼
+   │                         │             ┌──────────┐
+   │                         │             │ rejected │
+   │                         │             └──────────┘
+   │                         │
+   └─────────────────────────┤
+                             ▼
+                    ┌──────────────────────┐
+                    │ approved-            │
+                    │ awaiting-deploy      │
+                    └────────┬─────────────┘
+                             │ deploy job runs
+                             ▼
+                    ┌──────────────────┐
+                    │     deployed     │
+                    └────────┬─────────┘
+                             │ (W7 demo rollback runbook)
+                             ▼
+                    ┌──────────────────┐
+                    │   rolled-back    │
+                    └──────────────────┘
 ```
 
 ### Transition rules
 
-| From | To | Trigger | Audit kind |
-|------|-----|---------|------------|
-| (none) | `pending` | Agent emits proposal via `write_skill` | `proposal-created` |
-| `pending` | `in-gate` | Gate runner picks up the proposal | `gate-run-started` |
-| `in-gate` | `gate-failed` | Sandbox returned `error_class` (Timeout/OOM/Crash) | `gate-run-completed` (state=sandbox-error) |
-| `in-gate` | `rejected` (regression) | Step 1 of gate failed | `gate-run-completed` + `proposal-rejected` |
-| `in-gate` | `rejected` (no-improve) | Step 2 of gate failed | `gate-run-completed` + `proposal-rejected` |
-| `in-gate` | `gate-passed-awaiting-human` | All 3 steps passed | `gate-run-completed` |
-| `gate-passed-awaiting-human` | `approved-awaiting-deploy` | Human or LLM-judge approve | `proposal-approved` |
-| `gate-passed-awaiting-human` | `rejected` | Human or LLM-judge reject | `proposal-rejected` |
-| `approved-awaiting-deploy` | `deployed` | Deploy job advances HEAD on `skills` table | `proposal-deployed` |
-| `deployed` | `rolled-back` | `POST /api/skills/{id}/revert` (W7 demo runbook) | `proposal-rolled-back` |
+| From | To | Trigger | `approver_type` | Audit kind |
+|------|-----|---------|-----------------|------------|
+| (none) | `pending` | Agent emits proposal via `write_skill` | — | `proposal-created` |
+| `pending` | `in-gate` | Gate runner picks up the proposal | — | `gate-run-started` |
+| `in-gate` | `gate-failed` | Sandbox returned `error_class` (Timeout/OOM/Crash) | — | `gate-run-completed` (state=sandbox-error) |
+| `in-gate` | `rejected` (regression) | Step 1 of gate failed | — | `gate-run-completed` + `proposal-rejected` |
+| `in-gate` | `rejected` (no-improve) | Step 2 of gate failed | — | `gate-run-completed` + `proposal-rejected` |
+| `in-gate` | `gate-passed` | All 3 steps passed | — | `gate-run-completed` |
+| `gate-passed` | `approved-awaiting-deploy` | `workflow.mode = autonomous` — auto-approved without human review | `autonomous` | `proposal-approved` |
+| `gate-passed` | `approved-awaiting-deploy` | Human approves | `human` | `proposal-approved` |
+| `gate-passed` | `approved-awaiting-deploy` | LLM-judge approves | `llm-judge` | `proposal-approved` |
+| `gate-passed` | `rejected` | Human or LLM-judge rejects | `human` / `llm-judge` | `proposal-rejected` |
+| `approved-awaiting-deploy` | `deployed` | Deploy job advances HEAD on `skills` table | — | `proposal-deployed` |
+| `deployed` | `rolled-back` | `POST /api/skills/{id}/revert` (W7 demo runbook) | — | `proposal-rolled-back` |
 
 ### Invariants
 
-- A proposal CAN'T skip `in-gate` — gate runs on every proposal regardless of source (agent or human).
+- A proposal CAN'T skip `in-gate` — gate runs on every proposal regardless of mode or source.
 - `rejected` is terminal. If the same agent wants to retry, it creates a NEW proposal (new `proposals.id`).
 - `gate-failed` (technical) is distinct from `rejected` (logical). The agent's `learnings.md` records both, but only `rejected` counts toward "3 failures on the same hypothesis → abandon."
-- The `becomes_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty).
+- `autonomous` mode does NOT write a human `approvals` row — the `approved-awaiting-deploy` transition is driven directly by the gate runner, with `approver_type = 'autonomous'` recorded in the audit payload.
+- `autonomous` mode is per-workflow (`workflows.mode`), not per-proposal. Switching a workflow between modes mid-run is not supported in MVP.
+- The `became_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty). Not applicable in autonomous mode (no rejection path from auto-approve).
 
 ## Iteration
 
@@ -149,6 +163,8 @@ Workflow lifecycle is implicit in the database (sim_skill_id null vs set; meta_e
 | `workflow-created` | `workflows.id` (cast to uuid via lookup, or use payload.workflow_id) |
 | `meta-eval-result` | `workflows.id` |
 | `schema-migration` | null (payload contains migration filename) |
+| `deployment-created` | `skill_deployments.id` |
+| `deployment-updated` | `skill_deployments.id` |
 
 ## Test coverage requirements (eng review)
 
