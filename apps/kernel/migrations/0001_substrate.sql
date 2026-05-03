@@ -78,7 +78,9 @@ CREATE TYPE audit_kind AS ENUM (
     'cluster-relabeled',
     'workflow-created',
     'meta-eval-result',
-    'schema-migration'
+    'schema-migration',
+    'deployment-created',
+    'deployment-updated'
 );
 
 -- =============================================================================
@@ -133,6 +135,29 @@ CREATE INDEX skill_versions_skill_idx ON skill_versions(skill_id);
 CREATE INDEX skill_versions_parent_idx ON skill_versions(parent_version_id);
 CREATE INDEX skills_workflow_idx ON skills(workflow_id);
 CREATE INDEX skills_capability_tags_idx ON skills USING gin(capability_tags);
+
+-- =============================================================================
+-- skill_deployments — deployment configs for A/B testing and per-model variants
+-- =============================================================================
+-- Each row is a named deployment of a skill: same content, different runtime config
+-- (model, temperature, tools, etc.). Traffic weights control call routing. Iterations
+-- reference deployment_id so the lift chart can compare variants on the same eval set.
+
+CREATE TABLE skill_deployments (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    skill_id        text NOT NULL REFERENCES skills(id),
+    config_tag      text NOT NULL,                           -- 'control' | 'opus-low-temp' | 'sonnet-v2'
+    model_id        text NOT NULL,                           -- 'claude-opus-4-7' | 'claude-sonnet-4-6' etc.
+    run_config      jsonb NOT NULL DEFAULT '{}',             -- temperature, tools, system_prompt_override, timeout_ms
+    traffic_weight  numeric(3,2) NOT NULL DEFAULT 1.00
+                        CHECK (traffic_weight >= 0 AND traffic_weight <= 1),
+    is_active       boolean NOT NULL DEFAULT true,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (skill_id, config_tag)
+);
+
+CREATE INDEX skill_deployments_skill_idx ON skill_deployments(skill_id);
+CREATE INDEX skill_deployments_active_idx ON skill_deployments(skill_id) WHERE is_active = true;
 
 -- =============================================================================
 -- eval_cases
@@ -216,6 +241,7 @@ CREATE TABLE iterations (
     best_ever_score_before      numeric(10,6),
     best_ever_score_after       numeric(10,6),
     cluster_id                  uuid REFERENCES failure_clusters(id),  -- which cluster triggered this iteration
+    deployment_id               uuid REFERENCES skill_deployments(id),  -- nullable; null = no deployment config
     token_budget_used           integer,
     token_budget_total          integer,
     started_at                  timestamptz NOT NULL DEFAULT now(),
@@ -225,6 +251,7 @@ CREATE TABLE iterations (
 
 CREATE INDEX iterations_workflow_idx ON iterations(workflow_id);
 CREATE INDEX iterations_state_idx ON iterations(state);
+CREATE INDEX iterations_deployment_idx ON iterations(deployment_id);
 
 ALTER TABLE traces
     ADD CONSTRAINT traces_iteration_fk FOREIGN KEY (iteration_id) REFERENCES iterations(id);
@@ -362,11 +389,15 @@ CREATE VIEW pending_proposals AS
 
 CREATE VIEW lift_series AS
     SELECT
-        workflow_id,
-        iteration_index,
-        best_ever_score_after AS score,
-        ended_at AS ts,
-        state
-    FROM iterations
-    WHERE state IN ('gate-pass', 'gate-blocked-regression', 'gate-blocked-no-improvement')
-    ORDER BY workflow_id, iteration_index;
+        i.workflow_id,
+        i.iteration_index,
+        i.best_ever_score_after AS score,
+        i.ended_at AS ts,
+        i.state,
+        i.deployment_id,
+        d.config_tag,
+        d.model_id
+    FROM iterations i
+    LEFT JOIN skill_deployments d ON i.deployment_id = d.id
+    WHERE i.state IN ('gate-pass', 'gate-blocked-regression', 'gate-blocked-no-improvement')
+    ORDER BY i.workflow_id, i.iteration_index;

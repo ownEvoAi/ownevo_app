@@ -163,6 +163,8 @@ Workflow lifecycle is implicit in the database (sim_skill_id null vs set; meta_e
 | `workflow-created` | `workflows.id` (cast to uuid via lookup, or use payload.workflow_id) |
 | `meta-eval-result` | `workflows.id` |
 | `schema-migration` | null (payload contains migration filename) |
+| `deployment-created` | `skill_deployments.id` |
+| `deployment-updated` | `skill_deployments.id` |
 
 ## Test coverage requirements (eng review)
 

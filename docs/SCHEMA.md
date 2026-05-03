@@ -40,7 +40,8 @@ Locked 2026-05-03 by CEO review v4.3 + eng review. Changes go through migrations
                       ▼                 │  val_score           │
             ┌────────────────────┐      │  best_ever_*         │
             │   skill_versions   │◄─────│  cluster_id (FK)     │
-            │  id (PK, uuid)     │      └─────────┬────────────┘
+            │  id (PK, uuid)     │      │  deployment_id (FK) ─┼──► skill_deployments
+            │                    │      └─────────┬────────────┘
             │  skill_id (FK)     │                │ 1:N
             │  parent_version_id │                ▼
             │  version_seq       │      ┌──────────────────────┐
@@ -108,8 +109,15 @@ Mirror the auto-harness "single mutable artifact" pattern. `head_version_id` poi
 
 `version_seq` is monotonic per-skill (1, 2, 3...). The unique constraint enforces this.
 
+### `skill_deployments`
+Named deployment configs for a skill — same content, different runtime. Each row is a `(skill, config_tag)` pair specifying the model, temperature, tools, and other call-time parameters. Multiple deployments can be active simultaneously on the same skill, enabling A/B testing and per-model comparison without branching skill content.
+
+`traffic_weight` (0.00–1.00) controls what fraction of live calls are routed to this deployment; the runtime is responsible for ensuring weights across active deployments sum to 1.0. `run_config` is open-ended JSONB — expected keys: `temperature`, `tools`, `system_prompt_override`, `timeout_ms`.
+
+`iterations.deployment_id` ties each gate run to the config it ran under, so the `lift_series` view can plot variant lines on the same eval set. Which deployment drives the loop is a runtime concern, not a schema constraint.
+
 ### `iterations`
-One row per loop iteration. `parent_skill_version_id` is what the agent started with; `proposed_skill_version_id` is what it ended with (only written if gate passes; null if rejected). `sandbox_error_class` is non-null iff `state = 'sandbox-error'` (D3).
+One row per loop iteration. `parent_skill_version_id` is what the agent started with; `proposed_skill_version_id` is what it ended with (only written if gate passes; null if rejected). `sandbox_error_class` is non-null iff `state = 'sandbox-error'` (D3). `deployment_id` is the deployment config the iteration ran under; null for iterations without a deployment config.
 
 `best_ever_score_before` and `best_ever_score_after` are the gate's "best ever val_score" snapshots. The convention: `best_ever_score_after = max(best_ever_score_before, val_score)` if gate passed, else equals `best_ever_score_before`.
 

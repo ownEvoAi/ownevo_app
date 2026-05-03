@@ -428,6 +428,8 @@ components:
         - workflow-created
         - meta-eval-result
         - schema-migration
+        - deployment-created
+        - deployment-updated
 
     # ---------- core entities ----------
     Workflow:
@@ -564,6 +566,21 @@ components:
         diff_summary: { type: string }
         created_at: { type: string, format: date-time }
         created_by: { type: string }
+
+    SkillDeployment:
+      type: object
+      required: [id, skill_id, config_tag, model_id, run_config, traffic_weight, is_active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        skill_id: { type: string }
+        config_tag: { type: string, description: "e.g. 'control' | 'opus-low-temp' | 'sonnet-v2'" }
+        model_id: { type: string, description: "e.g. 'claude-opus-4-7'" }
+        run_config:
+          type: object
+          description: "temperature, tools, system_prompt_override, timeout_ms"
+        traffic_weight: { type: number, minimum: 0, maximum: 1 }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
 
     FailureCluster:
       type: object

@@ -14,6 +14,7 @@ import pytest
 from ownevo_kernel.evolution import Curator, Proposer, Reflector, Tracker
 from ownevo_kernel.types import (
     Approval,
+    ApproverType,
     AuditEntry,
     AuditKind,
     EvalCase,
@@ -28,10 +29,12 @@ from ownevo_kernel.types import (
     ProvenanceKind,
     SandboxErrorClass,
     Skill,
+    SkillDeployment,
     SkillKind,
     SkillVersion,
     Trace,
     Workflow,
+    WorkflowMode,
 )
 from pydantic import ValidationError
 
@@ -267,6 +270,7 @@ def test_approval_with_become_eval_case():
         id=uuid4(),
         proposal_id=uuid4(),
         decided_by="human:founder",
+        approver_type=ApproverType.HUMAN,
         decision="reject",
         comment="Don't weight last quarter's stock-outs so heavily",
         became_eval_case_id=uuid4(),

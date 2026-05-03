@@ -98,6 +98,8 @@ class AuditKind(StrEnum):
     WORKFLOW_CREATED = "workflow-created"
     META_EVAL_RESULT = "meta-eval-result"
     SCHEMA_MIGRATION = "schema-migration"
+    DEPLOYMENT_CREATED = "deployment-created"
+    DEPLOYMENT_UPDATED = "deployment-updated"
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +180,25 @@ class FailureCluster(_Base):
     created_at: datetime
 
 
+class SkillDeployment(_Base):
+    """A named deployment config for a skill — same content, different runtime.
+
+    Enables A/B testing and per-model comparison: deploy the same skill under
+    'control' (sonnet, temp=0.7) and 'opus-low-temp' (opus, temp=0.2) simultaneously.
+    Iterations reference deployment_id so the lift chart separates variant lines.
+    `run_config` keys: temperature, tools, system_prompt_override, timeout_ms.
+    """
+
+    id: UUID
+    skill_id: str
+    config_tag: str
+    model_id: str
+    run_config: dict[str, Any] = Field(default_factory=dict)
+    traffic_weight: float = Field(default=1.0, ge=0.0, le=1.0)
+    is_active: bool = True
+    created_at: datetime
+
+
 class Iteration(_Base):
     id: UUID
     workflow_id: str
@@ -190,6 +211,7 @@ class Iteration(_Base):
     best_ever_score_before: float | None = None
     best_ever_score_after: float | None = None
     cluster_id: UUID | None = None
+    deployment_id: UUID | None = None
     token_budget_used: int | None = None
     token_budget_total: int | None = None
     started_at: datetime
