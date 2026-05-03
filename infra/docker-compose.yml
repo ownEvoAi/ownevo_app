@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ownevo-postgres
+    environment:
+      POSTGRES_USER: ownevo
+      POSTGRES_PASSWORD: ownevo
+      POSTGRES_DB: ownevo
+    ports:
+      - "${OWNEVO_PG_PORT:-5432}:5432"
+    volumes:
+      - ownevo-pg-data:/var/lib/postgresql/data
+      # Migrations run on first init only (when the data volume is empty).
+      # `docker compose down -v` to drop the volume and re-bootstrap.
+      - ../apps/kernel/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ownevo", "-d", "ownevo"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  ownevo-pg-data:
