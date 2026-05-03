@@ -203,6 +203,61 @@ async def test_sandbox_rootfs_is_read_only(sandbox: LocalDockerSandbox):
     assert "tmp ok" in result.output
 
 
+def test_classify_crash_remap_exit_code_no_docker():
+    """Unit test for _classify with exit_code=102 (_RUNNER_CRASH_REMAP_EXIT_CODE).
+    Does not require Docker — exercises the classifier logic directly.
+    Pins that the crash-remap sentinel always maps to Crash regardless of
+    any future _classify refactor that might add an explicit branch for it."""
+    from ownevo_kernel.sandbox.local_docker import (
+        LocalDockerSandbox,
+        _RUNNER_CRASH_REMAP_EXIT_CODE,
+    )
+
+    result = LocalDockerSandbox._classify(
+        stdout="",
+        stderr="",
+        duration_ms=10,
+        inspect={},
+        timed_out=False,
+        timeout_seconds=15.0,
+        proc_returncode=_RUNNER_CRASH_REMAP_EXIT_CODE,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+    assert result.exit_code == _RUNNER_CRASH_REMAP_EXIT_CODE
+
+
+async def test_user_os_exit_crash_remap_code_is_crash(sandbox: LocalDockerSandbox):
+    """os._exit(102) is _RUNNER_CRASH_REMAP_EXIT_CODE. The passthrough policy
+    exits the runner with 102, which the classifier must still call Crash.
+    Pins the constant so a future _classify change observes any regression."""
+    result = await sandbox.run(
+        "import os; os._exit(102)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class == "Crash"
+
+
+async def test_user_os_exit_one_is_user_exception_documented_limit(
+    sandbox: LocalDockerSandbox,
+):
+    """Residual known limit: os._exit(1) maps to error_class=None (same as
+    an uncaught exception) because the runner's policy maps child exit 1 to
+    the user-exception sentinel. Gate impact is nil — run_pipeline only
+    parses outputs when status='ok', so outputs=None triggers SANDBOX_ERROR
+    either way. Pinned so any future policy change that shifts this is
+    observed."""
+    result = await sandbox.run(
+        "import os; os._exit(1)",
+        timeout_seconds=15,
+        memory_mb=128,
+    )
+    assert result.status == "error"
+    assert result.error_class is None  # known limit, not a guarantee
+
+
 def test_sandbox_result_invariants_match_tool_call_result():
     """Defensive: SandboxResult mirrors the AgentEvent.ToolCallResult
     error-field invariants so a caller can pass them straight through."""

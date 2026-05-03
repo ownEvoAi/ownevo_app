@@ -18,11 +18,12 @@ Failure classification (see `types.SandboxResult` doc):
     container and tag the result.
   * OOM     — `docker inspect` reports `State.OOMKilled = true` after
     exit. The kernel killed the process; the agent isn't to blame.
-  * Crash   — non-zero exit code that's neither a clean Python exception
-    (the runner script's exit code 100) nor an OOM. Covers SIGSEGV, signals
-    sent from outside the sandbox, and interpreter death.
-  * (None)  — exit 0 (success) or exit 100 (the runner caught a Python
-    exception from user code; logical failure the agent owns).
+  * Crash   — non-zero exit code that's neither the user-exception
+    sentinel (100) nor OOM. Covers SIGSEGV, signals, interpreter
+    death, and the crash-remap sentinel (102 = remapped os._exit(100)).
+  * (None)  — exit 0 (success) or exit 100 (runner observed child
+    exit code 1, Python's default for an uncaught exception; logical
+    failure the agent owns).
 """
 
 from __future__ import annotations
@@ -50,10 +51,10 @@ signals, or sandbox-runtime kills."""
 
 _RUNNER_CRASH_REMAP_EXIT_CODE = 102
 """TODO-17 hardening: when user code's subprocess exits with our
-internal user-exception sentinel ({_USER_EXCEPTION_EXIT_CODE}), the
-runner remaps to this value so the classifier sees a Crash rather
-than a user-owned logical failure. Closes the `os._exit(100)` spoof
-that previously let an agent set its own `error_class=None`."""
+internal user-exception sentinel (100), the runner remaps to this
+value so the classifier sees a Crash rather than a user-owned logical
+failure. Closes the `os._exit(100)` spoof that previously let an
+agent set its own `error_class=None`."""
 
 # Wrapper script: runs user code as a subprocess so user os._exit() /
 # signals manipulate only the user-code subprocess exit code, not the
@@ -81,7 +82,7 @@ rc = proc.returncode
 #     an uncaught exception; classifier returns error_class=None.
 #   * user-exception sentinel → crash-remap. A user attempting to
 #     spoof the user-exception path; classifier returns Crash.
-#   * negative (signal N) → 128 + |N|. Standard signal-exit
+#   * negative (signal N) → min(255, 128+|N|). Standard signal-exit
 #     convention; preserves OOM detection via inspect.State.OOMKilled
 #     and Crash detection for SIGSEGV.
 #   * any other → passthrough; classifier returns Crash.
@@ -92,7 +93,7 @@ if rc == 1:
 if rc == {_USER_EXCEPTION_EXIT_CODE}:
     sys.exit({_RUNNER_CRASH_REMAP_EXIT_CODE})
 if rc < 0:
-    sys.exit(128 + (-rc))
+    sys.exit(min(255, 128 + (-rc)))
 sys.exit(rc)
 """
 
@@ -129,6 +130,8 @@ class LocalDockerSandbox:
         timeout_seconds: float,
         memory_mb: int,
     ) -> SandboxResult:
+        if memory_mb <= 0:
+            raise ValueError(f"memory_mb must be positive, got {memory_mb}")
         container_name = f"ownevo-sb-{uuid.uuid4().hex[:12]}"
         host_dir = Path(tempfile.mkdtemp(prefix="ownevo-sandbox-"))
         try:
@@ -139,8 +142,8 @@ class LocalDockerSandbox:
             os.chmod(host_dir, 0o755)
             runner = host_dir / "runner.py"
             user = host_dir / "user_code.py"
-            runner.write_text(_RUNNER_SCRIPT)
-            user.write_text(code)
+            runner.write_text(_RUNNER_SCRIPT, encoding="utf-8")
+            user.write_text(code, encoding="utf-8")
             os.chmod(runner, 0o644)
             os.chmod(user, 0o644)
 
