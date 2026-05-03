@@ -28,6 +28,7 @@ runner-agnostic.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from ..benchmark import BenchmarkRunner
@@ -65,12 +66,50 @@ async def run_gate(
         raise ValueError(
             f"regression_tolerance must be in [0,1]; got {regression_tolerance}",
         )
-    if improvement_epsilon < 0.0:
+    if not (math.isfinite(improvement_epsilon) and improvement_epsilon >= 0.0):
         raise ValueError(
-            f"improvement_epsilon must be >= 0; got {improvement_epsilon}",
+            f"improvement_epsilon must be finite and >= 0; got {improvement_epsilon}",
+        )
+    if best_ever_score is not None and not math.isfinite(best_ever_score):
+        raise ValueError(
+            f"best_ever_score must be finite; got {best_ever_score}",
         )
 
-    full_run = await runner.run(None)
+    try:
+        full_run = await runner.run(None)
+    except BaseException as exc:
+        return GateResult(
+            decision=GateDecision.SANDBOX_ERROR,
+            rationale=f"Runner raised {type(exc).__name__}: {exc}",
+            val_score=None,
+            best_ever_score_before=best_ever_score,
+            best_ever_score_after=best_ever_score,
+            full_run=None,
+            failed_prior_task_ids=(),
+            promotable_task_ids=(),
+        )
+
+    # Reward trust boundary: validate values the runner returned. NaN
+    # and out-of-range rewards bypass step-1 (NaN < threshold is always
+    # False) and inflate val_score; treat them as infra errors.
+    invalid_rewards = [
+        t for t, v in full_run.rewards.items()
+        if v is not None and (not math.isfinite(v) or not 0.0 <= v <= 1.0)
+    ]
+    if invalid_rewards:
+        return GateResult(
+            decision=GateDecision.SANDBOX_ERROR,
+            rationale=(
+                f"Runner returned {len(invalid_rewards)} out-of-range reward(s) "
+                f"(expected finite [0,1]): {', '.join(invalid_rewards[:3])}"
+            ),
+            val_score=None,
+            best_ever_score_before=best_ever_score,
+            best_ever_score_after=best_ever_score,
+            full_run=full_run,
+            failed_prior_task_ids=(),
+            promotable_task_ids=(),
+        )
 
     # Sandbox-error short-circuit (D3): any None reward poisons the
     # whole gate run — we don't trust val_score, don't advance
@@ -100,7 +139,7 @@ async def run_gate(
     # broken and we reject conservatively.
     failed_prior = tuple(
         t for t in prior_eval_task_ids
-        if full_run.rewards.get(t) is None or full_run.rewards[t] < threshold
+        if (r := full_run.rewards.get(t)) is None or r < threshold
     )
     if failed_prior:
         preview = ", ".join(failed_prior[:3])
@@ -141,12 +180,14 @@ async def run_gate(
         )
 
     # Step 3: collect promotable task IDs — passed at threshold AND not
-    # already in the prior suite.
+    # already in the prior suite. Require r > 0.0 so that
+    # regression_tolerance=1.0 (threshold=0.0) never promotes tasks
+    # that scored 0.0 (definite failures) into the eval suite.
     prior_set = set(prior_eval_task_ids)
-    promotable = tuple(
+    promotable = tuple(sorted(
         t for t, r in full_run.rewards.items()
-        if t not in prior_set and r is not None and r >= threshold
-    )
+        if t not in prior_set and r is not None and r > 0.0 and r >= threshold
+    ))
 
     new_best = (
         val_score if best_ever_score is None else max(best_ever_score, val_score)

@@ -154,6 +154,7 @@ async def test_step2_blocks_when_val_score_regresses():
     result = await run_gate(runner, best_ever_score=0.5)
     assert result.decision == GateDecision.FAIL_NO_IMPROVEMENT
     assert result.val_score == 0.0
+    assert result.best_ever_score_after == 0.5
 
 
 async def test_step2_passes_when_val_score_strictly_better():
@@ -192,9 +193,6 @@ async def test_regression_tolerance_admits_partial_credit():
     """A custom judge that returns partial credit (0.95) — with
     regression_tolerance=0.1 the gate accepts; with 0.0 it rejects."""
 
-    def near_judge(out: int, exp: int) -> bool:
-        return out == exp
-
     # SyntheticBenchmarkRunner only emits 0.0 or 1.0; emulate partial
     # credit by mixing pass/fail and using regression_tolerance to
     # control acceptance — but here we test directly with a fresh
@@ -228,6 +226,20 @@ async def test_improvement_epsilon_validated():
     runner = SyntheticBenchmarkRunner(tasks=_doubler_tasks(1), skill=lambda x: x * 2)
     with pytest.raises(ValueError, match="improvement_epsilon"):
         await run_gate(runner, improvement_epsilon=-0.01)
+    with pytest.raises(ValueError, match="improvement_epsilon"):
+        await run_gate(runner, improvement_epsilon=float("nan"))
+    with pytest.raises(ValueError, match="improvement_epsilon"):
+        await run_gate(runner, improvement_epsilon=float("inf"))
+
+
+async def test_best_ever_score_validated():
+    runner = SyntheticBenchmarkRunner(tasks=_doubler_tasks(1), skill=lambda x: x * 2)
+    with pytest.raises(ValueError, match="best_ever_score"):
+        await run_gate(runner, best_ever_score=float("nan"))
+    with pytest.raises(ValueError, match="best_ever_score"):
+        await run_gate(runner, best_ever_score=float("inf"))
+    with pytest.raises(ValueError, match="best_ever_score"):
+        await run_gate(runner, best_ever_score=float("-inf"))
 
 
 # ---------------------------------------------------------------------------
@@ -409,3 +421,90 @@ async def test_rationale_explains_pass():
     assert result.decision == GateDecision.PASS
     assert "Gate passed" in result.rationale
     assert "promotable" in result.rationale
+
+
+# ---------------------------------------------------------------------------
+# Reward trust boundary — NaN / out-of-range rewards (D1)
+# ---------------------------------------------------------------------------
+
+
+async def test_nan_reward_treated_as_sandbox_error():
+    """NaN in rewards bypasses `is None` check and `NaN < threshold` → False,
+    so without explicit validation the gate would silently PASS. Validated."""
+
+    class _NaNRunner:
+        async def run(self, task_ids=None):
+            return BenchmarkResult(rewards={"a": float("nan"), "b": 1.0})
+
+    result = await run_gate(_NaNRunner(), best_ever_score=0.5)
+    assert result.decision == GateDecision.SANDBOX_ERROR
+    assert result.val_score is None
+    assert result.best_ever_score_after == 0.5  # never advances
+
+
+async def test_out_of_range_reward_treated_as_sandbox_error():
+    """Reward > 1.0 inflates val_score and would trivially beat best_ever;
+    treat as a trust-boundary error."""
+
+    class _CheatRunner:
+        async def run(self, task_ids=None):
+            return BenchmarkResult(rewards={"a": 2.5, "b": 1.0})
+
+    result = await run_gate(_CheatRunner(), best_ever_score=0.5)
+    assert result.decision == GateDecision.SANDBOX_ERROR
+
+
+# ---------------------------------------------------------------------------
+# Runner exception → SANDBOX_ERROR (D2)
+# ---------------------------------------------------------------------------
+
+
+async def test_runner_exception_returns_sandbox_error():
+    """If the runner raises (Docker not running, network failure), the
+    gate returns SANDBOX_ERROR instead of propagating a raw exception."""
+
+    class _CrashingRunner:
+        async def run(self, task_ids=None):
+            raise RuntimeError("Docker daemon not running")
+
+    result = await run_gate(_CrashingRunner(), best_ever_score=0.5)
+    assert result.decision == GateDecision.SANDBOX_ERROR
+    assert "RuntimeError" in result.rationale
+    assert result.val_score is None
+    assert result.best_ever_score_after == 0.5  # never advances on error
+
+
+# ---------------------------------------------------------------------------
+# Promotable ordering is deterministic (D3)
+# ---------------------------------------------------------------------------
+
+
+async def test_promotable_task_ids_are_sorted():
+    """promotable_task_ids is sorted so the audit log is identical for
+    the same candidate regardless of runner parallelism."""
+    runner = SyntheticBenchmarkRunner(tasks=_doubler_tasks(5), skill=lambda x: x * 2)
+    result = await run_gate(runner)
+    assert result.promotable_task_ids == tuple(sorted(result.promotable_task_ids))
+
+
+# ---------------------------------------------------------------------------
+# Zero-scoring tasks not promotable even at regression_tolerance=1.0 (D4)
+# ---------------------------------------------------------------------------
+
+
+async def test_zero_scoring_tasks_not_promoted_at_max_tolerance():
+    """regression_tolerance=1.0 → threshold=0.0. Without the r > 0.0
+    guard, 0.0-scoring (definitively failing) tasks would be promoted
+    into the prior suite and silently never trigger regression."""
+    tasks = tuple(
+        SyntheticTask(id=str(i), input=i, expected=i * 2) for i in range(4)
+    )
+    # Skill passes task "0" (reward=1.0), fails tasks 1-3 (reward=0.0).
+    runner = SyntheticBenchmarkRunner(tasks=tasks, skill=lambda x: 0 if x == 0 else x)
+    result = await run_gate(runner, regression_tolerance=1.0)
+    assert result.decision == GateDecision.PASS
+    # Only the passing task is promotable — the 0.0-scoring ones must not be.
+    assert "0" in result.promotable_task_ids
+    assert "1" not in result.promotable_task_ids
+    assert "2" not in result.promotable_task_ids
+    assert "3" not in result.promotable_task_ids

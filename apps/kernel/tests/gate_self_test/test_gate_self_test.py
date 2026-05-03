@@ -221,9 +221,10 @@ async def test_known_bad_change_with_higher_aggregate_is_still_blocked():
 
 
 async def test_sandbox_error_short_circuits():
-    """A candidate that raises SystemExit is scored 0.0 by
-    SyntheticBenchmarkRunner (definite failure, not None). Real
-    sandbox-error short-circuit (None rewards) is exercised in
+    """A candidate that raises an exception (RuntimeError here) is scored
+    0.0 by SyntheticBenchmarkRunner — `except BaseException` catches all
+    exceptions and returns definite-failure, not None. Real sandbox-error
+    short-circuit (None rewards from timeout/OOM/crash) is exercised in
     test_gate.py — here we pin the synthetic-runner behavior so the
     self-test surfaces exception-style failures as gate-blocked, not
     as a silent "0.0 was good enough" admission."""
