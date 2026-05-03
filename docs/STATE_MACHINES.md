@@ -1,0 +1,161 @@
+# State Machines
+
+Locked 2026-05-03 by eng review. Every state transition writes an `audit_entries`
+row (D2). The state machines below define which transitions are legal and which
+audit kind they produce.
+
+## Proposal
+
+```
+                    ┌─────────────┐
+                    │   pending   │
+                    └──────┬──────┘
+                           │ gate-run-started
+                           ▼
+                    ┌─────────────┐
+                    │   in-gate   │
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────────────────────┐
+              │            │                            │
+   gate fails │      regression                no improvement
+   technically│      blocked                   blocked
+              ▼            ▼                            ▼
+       ┌─────────────┐ ┌──────────────┐         ┌──────────────┐
+       │ gate-failed │ │  rejected    │         │  rejected    │
+       │  (sandbox   │ │ (regression) │         │ (no-improve) │
+       │   error)    │ │              │         │              │
+       └──────┬──────┘ └──────────────┘         └──────────────┘
+              │
+              │  human-retried (Phase 2; not MVP)
+              ▼
+              X (drop)
+
+   gate passes (val_score > best_ever AND prior suite still passes)
+              │
+              ▼
+       ┌──────────────────────────────┐
+       │ gate-passed-awaiting-human   │
+       └────────┬─────────────────┬───┘
+                │                 │
+       human    │     human/      │
+       approves │     LLM-judge   │
+                │     rejects     │
+                ▼                 ▼
+       ┌──────────────────┐  ┌──────────┐
+       │ approved-        │  │ rejected │
+       │ awaiting-deploy  │  └──────────┘
+       └────────┬─────────┘
+                │ deploy job runs
+                ▼
+       ┌──────────────────┐
+       │     deployed     │
+       └────────┬─────────┘
+                │ (W7 demo rollback runbook)
+                ▼
+       ┌──────────────────┐
+       │   rolled-back    │
+       └──────────────────┘
+```
+
+### Transition rules
+
+| From | To | Trigger | Audit kind |
+|------|-----|---------|------------|
+| (none) | `pending` | Agent emits proposal via `write_skill` | `proposal-created` |
+| `pending` | `in-gate` | Gate runner picks up the proposal | `gate-run-started` |
+| `in-gate` | `gate-failed` | Sandbox returned `error_class` (Timeout/OOM/Crash) | `gate-run-completed` (state=sandbox-error) |
+| `in-gate` | `rejected` (regression) | Step 1 of gate failed | `gate-run-completed` + `proposal-rejected` |
+| `in-gate` | `rejected` (no-improve) | Step 2 of gate failed | `gate-run-completed` + `proposal-rejected` |
+| `in-gate` | `gate-passed-awaiting-human` | All 3 steps passed | `gate-run-completed` |
+| `gate-passed-awaiting-human` | `approved-awaiting-deploy` | Human or LLM-judge approve | `proposal-approved` |
+| `gate-passed-awaiting-human` | `rejected` | Human or LLM-judge reject | `proposal-rejected` |
+| `approved-awaiting-deploy` | `deployed` | Deploy job advances HEAD on `skills` table | `proposal-deployed` |
+| `deployed` | `rolled-back` | `POST /api/skills/{id}/revert` (W7 demo runbook) | `proposal-rolled-back` |
+
+### Invariants
+
+- A proposal CAN'T skip `in-gate` — gate runs on every proposal regardless of source (agent or human).
+- `rejected` is terminal. If the same agent wants to retry, it creates a NEW proposal (new `proposals.id`).
+- `gate-failed` (technical) is distinct from `rejected` (logical). The agent's `learnings.md` records both, but only `rejected` counts toward "3 failures on the same hypothesis → abandon."
+- The `becomes_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty).
+
+## Iteration
+
+```
+   ┌──────────┐
+   │ running  │
+   └─────┬────┘
+         │ agent emits proposal AND gate completes
+         ▼
+   ┌─────────────────────────────────────────┐
+   │  gate-pass | gate-blocked-regression |  │
+   │  gate-blocked-no-improvement |          │
+   │  sandbox-error                          │
+   └─────────────────────────────────────────┘
+   (terminal — iterations are immutable once ended)
+```
+
+`best_ever_score_after = best_ever_score_before` UNLESS state = `gate-pass`,
+in which case `best_ever_score_after = max(best_ever_score_before, val_score)`.
+
+D3: `sandbox-error` does NOT advance best_ever_score.
+
+## Workflow (NL-gen lifecycle)
+
+```
+   ┌────────────────────┐
+   │     created        │  (description received)
+   └──────────┬─────────┘
+              │ NL-gen sim_generator runs
+              ▼
+   ┌────────────────────┐
+   │   sim-generated    │
+   └──────────┬─────────┘
+              │ NL-gen eval_generator + metric_generator run
+              ▼
+   ┌────────────────────┐
+   │   artifacts-built  │
+   └──────────┬─────────┘
+              │ meta-eval (D7) runs
+              ▼
+   ┌────────────────────────────────────────────┐
+   │  meta-eval-passed | meta-eval-failed       │
+   └────────────────────────────────────────────┘
+              │
+              ▼  (only if meta-eval-passed)
+   ┌────────────────────┐
+   │   loop-eligible    │  (agent loop can run)
+   └────────────────────┘
+```
+
+Workflow lifecycle is implicit in the database (sim_skill_id null vs set; meta_eval_score < threshold vs ≥) rather than explicit in a `workflows.state` column. Adding the column is trivial if observability needs it; deferred for MVP.
+
+## Audit kind → related_id mapping
+
+| audit kind | `related_id` references |
+|-----------|------------------------|
+| `skill-version-created` | `skill_versions.id` |
+| `gate-run-started` | `iterations.id` |
+| `gate-run-completed` | `iterations.id` |
+| `proposal-created` | `proposals.id` |
+| `proposal-approved` | `proposals.id` |
+| `proposal-rejected` | `proposals.id` |
+| `proposal-deployed` | `proposals.id` |
+| `proposal-rolled-back` | `proposals.id` |
+| `eval-case-added` | `eval_cases.id` |
+| `cluster-created` | `failure_clusters.id` |
+| `cluster-relabeled` | `failure_clusters.id` |
+| `workflow-created` | `workflows.id` (cast to uuid via lookup, or use payload.workflow_id) |
+| `meta-eval-result` | `workflows.id` |
+| `schema-migration` | null (payload contains migration filename) |
+
+## Test coverage requirements (eng review)
+
+Every transition above must have:
+
+1. **Unit test** that asserts the transition is legal under the right conditions.
+2. **Negative test** that asserts an illegal transition raises (e.g., `pending → deployed` skipping `in-gate`).
+3. **Audit-coupling test** that asserts the right `audit_kind` is appended on each transition.
+
+These live at `apps/kernel/tests/state_machines/test_proposal_states.py`.
