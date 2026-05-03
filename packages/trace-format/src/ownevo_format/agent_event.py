@@ -18,7 +18,7 @@ schema-freeze deliverable in `docs/PLAN.md`.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeGuard
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
@@ -213,29 +213,29 @@ Example:
 # ---------------------------------------------------------------------------
 
 
-def is_content_delta(e: BaseModel) -> bool:
+def is_content_delta(e: BaseModel) -> TypeGuard[ContentDelta]:
     return getattr(e, "type", None) == "content_delta"
 
 
-def is_reasoning_delta(e: BaseModel) -> bool:
+def is_reasoning_delta(e: BaseModel) -> TypeGuard[ReasoningDelta]:
     return getattr(e, "type", None) == "reasoning_delta"
 
 
-def is_tool_call_start(e: BaseModel) -> bool:
+def is_tool_call_start(e: BaseModel) -> TypeGuard[ToolCallStart]:
     return getattr(e, "type", None) == "tool_call_start"
 
 
-def is_tool_call_result(e: BaseModel) -> bool:
+def is_tool_call_result(e: BaseModel) -> TypeGuard[ToolCallResult]:
     return getattr(e, "type", None) == "tool_call_result"
 
 
-def is_skill_loaded(e: BaseModel) -> bool:
+def is_skill_loaded(e: BaseModel) -> TypeGuard[SkillLoaded]:
     return getattr(e, "type", None) == "skill_loaded"
 
 
-def is_citation(e: BaseModel) -> bool:
+def is_citation(e: BaseModel) -> TypeGuard[Citation]:
     return getattr(e, "type", None) == "citation"
 
 
-def is_monitor_signal(e: BaseModel) -> bool:
+def is_monitor_signal(e: BaseModel) -> TypeGuard[MonitorSignal]:
     return getattr(e, "type", None) == "monitor_signal"

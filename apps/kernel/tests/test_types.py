@@ -219,13 +219,14 @@ def test_meta_eval_result_d7():
     assert me.passed_threshold
 
 
-def test_meta_eval_result_rejects_out_of_range_score():
+@pytest.mark.parametrize("bad_score", [1.5, -0.1])
+def test_meta_eval_result_rejects_out_of_range_score(bad_score: float):
     with pytest.raises(ValidationError):
         MetaEvalResult(
             id=uuid4(),
             workflow_id="w1",
             description="...",
-            coverage_score=1.5,  # > 1.0
+            coverage_score=bad_score,  # outside [0.0, 1.0]
             per_dimension={},
             judge_model="x",
             passed_threshold=False,
