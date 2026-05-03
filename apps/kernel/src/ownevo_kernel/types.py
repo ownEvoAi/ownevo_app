@@ -213,11 +213,10 @@ class Proposal(_Base):
 class ProposalAction(_Base):
     """Structured executable action for a proposal.
 
-    Lifted from `core/agentos_harness/types.py:ProposalAction` shape (the one
-    cleanly-portable type from the spike inspection). Discriminator-based
-    pattern preserved; ownEvo-specific extension: `regression_gate` action
-    type per D6 — gate outcomes flow through the same proposal pipeline as
-    skill mutations.
+    Shape inspired by `core/agentos_harness/types.py:ProposalAction` (MIT);
+    greenfield implementation. Discriminator-based pattern preserved;
+    ownEvo-specific extension: `regression_gate` action type per D6 — gate
+    outcomes flow through the same proposal pipeline as skill mutations.
     """
 
     action_type: Literal[

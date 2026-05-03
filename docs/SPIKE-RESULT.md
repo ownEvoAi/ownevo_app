@@ -32,7 +32,7 @@ Inspected:
 ### What carries over (reference architecture, NOT code)
 
 - **4-stage pipeline shape** — Tracker → Reflector → Curator → Proposer. Preserved as Protocol scaffolding in [`apps/kernel/src/ownevo_kernel/evolution/__init__.py`](../apps/kernel/src/ownevo_kernel/evolution/__init__.py). Concrete impls land in W2.
-- **`ProposalAction` discriminator pattern.** Lifted as a Pydantic model with `action_type` literal + the original 4 action types (`workflow_update`, `tool_priority`, `prompt_refinement`, `config_update`). Extended with **`regression_gate`** per D6 — gate outcomes flow through the same proposal pipeline as skill mutations. See [`apps/kernel/src/ownevo_kernel/types.py`](../apps/kernel/src/ownevo_kernel/types.py) `ProposalAction`.
+- **`ProposalAction` discriminator pattern.** Shape carried over as a greenfield Pydantic model with `action_type` literal + the original 4 action types (`workflow_update`, `tool_priority`, `prompt_refinement`, `config_update`). Extended with **`regression_gate`** per D6 — gate outcomes flow through the same proposal pipeline as skill mutations. See [`apps/kernel/src/ownevo_kernel/types.py`](../apps/kernel/src/ownevo_kernel/types.py) `ProposalAction`.
 - **`Proposal.eval_score` + `eval_rationale`** — the LLM-judge-stub integration shape. Carried over.
 - **Pattern promotion thresholds** — ≥3 occurrences, ≥0.6 confidence (curator.py:18-19) — adopted as the starting heuristic for ownEvo's failure-cluster admission gate.
 
