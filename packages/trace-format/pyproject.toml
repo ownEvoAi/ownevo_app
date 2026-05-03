@@ -1,0 +1,6 @@
+[project]
+name = "ownevo-trace-format"
+version = "0.0.0"
+description = "Typed AgentEvent schema — the contract between any agent and the ownEvo improvement loop"
+requires-python = ">=3.11"
+dependencies = []

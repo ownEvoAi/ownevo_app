@@ -1,0 +1,6 @@
+[project]
+name = "ownevo-kernel"
+version = "0.0.0"
+description = "Python kernel — agent runtime, eval harness, failure clustering, regression gate"
+requires-python = ">=3.11"
+dependencies = []
