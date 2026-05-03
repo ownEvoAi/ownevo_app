@@ -18,6 +18,38 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/gate/` — 3-step regression gate
+  (W2.2). `run_gate(runner, *, prior_eval_task_ids=, best_ever_score=,
+  regression_tolerance=, improvement_epsilon=)` is a pure async
+  function over the `BenchmarkRunner` Protocol; returns a structured
+  `GateResult` with `decision` (PASS / FAIL_REGRESSION /
+  FAIL_NO_IMPROVEMENT / SANDBOX_ERROR), `val_score`,
+  `failed_prior_task_ids`, and `promotable_task_ids`. Steps: (1)
+  every task in `prior_eval_task_ids` must score at or above
+  `1.0 - regression_tolerance`; empty prior suite → step skipped per
+  the Day-1 bootstrap rule. (2) val_score must exceed
+  `best_ever_score + improvement_epsilon`; `best_ever_score=None` →
+  step skipped (first run becomes the baseline). (3) tasks that
+  passed at threshold and were not in the prior suite are returned
+  as `promotable_task_ids` for the caller to wire into
+  `add_eval_case`. D3 sandbox-error short-circuit: any None reward
+  in the runner result emits SANDBOX_ERROR without trusting
+  val_score and without advancing best-ever. `GateDecision` values
+  are wire-compatible with `IterationState` so the wrapper that
+  writes iterations + proposals + audit entries (lands alongside the
+  M5 baseline pipeline) can use `decision.value` directly. The gate
+  executes `runner.run(None)` exactly once and derives all three
+  steps from that result.
+- `apps/kernel/tests/gate_self_test/` — gate self-test harness
+  (W2.2a). Five synthetic scenarios pin the gate-trust contract:
+  known-good change admitted; known-bad regression blocked; no-net-
+  improvement blocked; adversarial higher-aggregate-but-regresses-
+  prior change blocked (the failure mode val_score-alone would
+  silently admit); crashing skill blocked. Runs in-process via
+  `SyntheticBenchmarkRunner` — no Docker, no DB, no LLM — so the
+  failure mode being detected is purely "the gate logic is broken,"
+  not substrate flakiness. Picks up automatically under `pytest`;
+  failing the harness fails the build.
 - `apps/kernel/src/ownevo_kernel/agent_tools/` — 5 kernel-side tool
   functions exposed to the coding agent (W2.1):
   `read_skill(conn, skill_id)` and `write_skill(conn, skill_id, content,
