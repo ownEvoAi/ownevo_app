@@ -98,6 +98,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "learnings",
             "meta_evals",
             "proposals",
+            "skill_deployments",
             "skill_versions",
             "skills",
             "traces",
@@ -108,12 +109,14 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "SELECT typname FROM pg_type WHERE typtype='e' ORDER BY typname",
         )
         assert {r["typname"] for r in enums} == {
+            "approver_type",
             "audit_kind",
             "iteration_state",
             "proposal_state",
             "provenance_kind",
             "sandbox_error_class",
             "skill_kind",
+            "workflow_mode",
         }
     finally:
         await conn.close()
