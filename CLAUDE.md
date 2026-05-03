@@ -13,13 +13,21 @@ The production implementation of ownEvo per `../ownevo_docs/ownEvo_MVP.md`. That
 Why not pure TS: clustering ecosystem is Python-first at the quality bar required.
 Why not pure Python: web UI is unavoidably TS/Next.
 
-## Multi-tenant from day one
+## Single-tenant for MVP, multi-tenant retrofit before next deployment (D4)
 
-Every domain table gets `workspace_id`. RLS at the DB level. Audit log on every state change. Painful to retrofit — don't.
+Per the 2026-05-03 design review (D4), the MVP runs on **one workspace** — no `workspace_id` columns, no RLS policies, no workspace-scoped query helpers. Multi-tenant retrofit is a bounded 1-2 week job in the breathing room between the investor program and the next deployment. Schema design should stay "retrofit-friendly" (no patterns that fight a future `workspace_id` column being added) but does not pre-build the isolation.
+
+## Append-only audit log, customer-controlled export (D2)
+
+`audit_entries` is append-only at the DB level: `REVOKE UPDATE, DELETE` from the app role; only `INSERT` permitted. Exportable in canonical JSON (sorted keys, no whitespace). **Crypto-grade tamper-evidence** (canonical content hash + parent hash + chain rotation; Merkle + signed root for the strongest claim) is a Phase-2 retrofit when first regulated-industry buyer requires it. The marketing claim is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain."
+
+## Sandbox: local Docker for MVP (D3)
+
+Agent-generated code runs in **local Docker** with hardening: `--network=none`, `--read-only` rootfs + tmpfs `/tmp`, `--cap-drop=ALL`, mem/cpu/pids limits, hard timeout, structured stdout/stderr capture, explicit failure semantics (`tool_call_result {status: "error", error_class: "Timeout"|"OOM"|"Crash"}`). The `SandboxRuntime` interface stays preserved so a Phase-2 swap to e2b or Modal is bounded. Pyodide eliminated (can't run LightGBM).
 
 ## Trace format is the contract
 
-`packages/trace-format/` defines the typed `AgentEvent` schema. It's the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing — standardize once, everything downstream works. Target: OSS spec (Apache 2).
+`packages/trace-format/` defines the typed `AgentEvent` schema. It's the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing — standardize once, everything downstream works. **OSS positioning (Apache 2 community standard, OTel-Gen-AI-aligned, vs proprietary moat) is the one unresolved strategic call from the 2026-05-03 design review — DEADLINE: decide before W3.** Implementation cost is 0 if Apache 2 from start, weeks if retrofitted.
 
 ## Where the IP lives
 
