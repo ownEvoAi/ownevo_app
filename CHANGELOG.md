@@ -54,6 +54,7 @@ fresh `[Unreleased]` block above it.
   via SQL-side pgvector ops; this is for the explicit-fetch path.
 
 
+
 ### Fixed
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
   `audit_entries` WORM trigger. Adds `BEFORE TRUNCATE … FOR EACH STATEMENT`
