@@ -49,12 +49,16 @@ CREATE TYPE proposal_state AS ENUM (
     'pending',
     'in-gate',
     'gate-failed',
-    'gate-passed-awaiting-human',
+    'gate-passed',
     'rejected',
     'approved-awaiting-deploy',
     'deployed',
     'rolled-back'
 );
+
+CREATE TYPE workflow_mode AS ENUM ('gated', 'autonomous');
+
+CREATE TYPE approver_type AS ENUM ('human', 'llm-judge', 'autonomous');
 
 -- D3 — explicit sandbox failure classes; gate consumer does NOT advance best-ever
 -- when iteration ends with one of these.
@@ -74,7 +78,9 @@ CREATE TYPE audit_kind AS ENUM (
     'cluster-relabeled',
     'workflow-created',
     'meta-eval-result',
-    'schema-migration'
+    'schema-migration',
+    'deployment-created',
+    'deployment-updated'
 );
 
 -- =============================================================================
@@ -89,6 +95,7 @@ CREATE TABLE workflows (
     metric_id           text,                             -- name of the success metric
     sim_skill_id        text,                             -- FK added after skills table exists
     meta_eval_score     numeric(3,2),                     -- description-coverage 0.00-1.00 (D7)
+    mode                workflow_mode NOT NULL DEFAULT 'gated',  -- 'gated' requires human/llm-judge; 'autonomous' auto-approves gate-pass
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 
@@ -130,6 +137,29 @@ CREATE INDEX skills_workflow_idx ON skills(workflow_id);
 CREATE INDEX skills_capability_tags_idx ON skills USING gin(capability_tags);
 
 -- =============================================================================
+-- skill_deployments — deployment configs for A/B testing and per-model variants
+-- =============================================================================
+-- Each row is a named deployment of a skill: same content, different runtime config
+-- (model, temperature, tools, etc.). Traffic weights control call routing. Iterations
+-- reference deployment_id so the lift chart can compare variants on the same eval set.
+
+CREATE TABLE skill_deployments (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    skill_id        text NOT NULL REFERENCES skills(id),
+    config_tag      text NOT NULL,                           -- 'control' | 'opus-low-temp' | 'sonnet-v2'
+    model_id        text NOT NULL,                           -- 'claude-opus-4-7' | 'claude-sonnet-4-6' etc.
+    run_config      jsonb NOT NULL DEFAULT '{}',             -- temperature, tools, system_prompt_override, timeout_ms
+    traffic_weight  numeric(3,2) NOT NULL DEFAULT 1.00
+                        CHECK (traffic_weight >= 0 AND traffic_weight <= 1),
+    is_active       boolean NOT NULL DEFAULT true,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (skill_id, config_tag)
+);
+
+CREATE INDEX skill_deployments_skill_idx ON skill_deployments(skill_id);
+CREATE INDEX skill_deployments_active_idx ON skill_deployments(skill_id) WHERE is_active = true;
+
+-- =============================================================================
 -- eval_cases
 -- =============================================================================
 
@@ -158,7 +188,7 @@ CREATE TABLE failure_clusters (
     workflow_id             text REFERENCES workflows(id),
     label                   text NOT NULL,                -- LLM-generated; eval'd for hallucination
     label_eval_score        numeric(3,2),                 -- judge-vs-human agreement (D4)
-    severity                text NOT NULL,                -- 'high' | 'medium' | 'low'
+    severity                text NOT NULL CHECK (severity IN ('high', 'medium', 'low')),
     centroid                vector(384),                  -- sentence-transformers all-MiniLM-L6-v2 dim
     sample_trace_ids        uuid[],
     cluster_size            integer NOT NULL,
@@ -211,6 +241,7 @@ CREATE TABLE iterations (
     best_ever_score_before      numeric(10,6),
     best_ever_score_after       numeric(10,6),
     cluster_id                  uuid REFERENCES failure_clusters(id),  -- which cluster triggered this iteration
+    deployment_id               uuid REFERENCES skill_deployments(id),  -- nullable; null = no deployment config
     token_budget_used           integer,
     token_budget_total          integer,
     started_at                  timestamptz NOT NULL DEFAULT now(),
@@ -220,6 +251,7 @@ CREATE TABLE iterations (
 
 CREATE INDEX iterations_workflow_idx ON iterations(workflow_id);
 CREATE INDEX iterations_state_idx ON iterations(state);
+CREATE INDEX iterations_deployment_idx ON iterations(deployment_id);
 
 ALTER TABLE traces
     ADD CONSTRAINT traces_iteration_fk FOREIGN KEY (iteration_id) REFERENCES iterations(id);
@@ -237,6 +269,8 @@ CREATE TABLE proposals (
     plain_language_summary  text NOT NULL,
     expected_impact         jsonb,                        -- {improves: [...eval_case_ids], regresses: [...]}
     state                   proposal_state NOT NULL DEFAULT 'pending',
+    eval_score              numeric(3,2) CHECK (eval_score IS NULL OR (eval_score >= 0 AND eval_score <= 1)),  -- LLM-judge stub score (W2)
+    eval_rationale          text,                         -- LLM-judge plain-language reason (W2)
     created_at              timestamptz NOT NULL DEFAULT now(),
     state_updated_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -244,7 +278,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_state_idx ON proposals(state);
 CREATE INDEX proposals_iteration_idx ON proposals(iteration_id);
 CREATE INDEX proposals_pending_idx ON proposals(created_at)
-    WHERE state IN ('pending', 'gate-passed-awaiting-human');
+    WHERE state IN ('pending', 'gate-passed');
 
 -- =============================================================================
 -- approvals (resolved decisions on proposals)
@@ -253,11 +287,13 @@ CREATE INDEX proposals_pending_idx ON proposals(created_at)
 CREATE TABLE approvals (
     id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     proposal_id             uuid NOT NULL REFERENCES proposals(id),
-    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge-stub'
+    decided_by              text NOT NULL,                -- 'human:<id>' | 'llm-judge' | 'autonomous'
+    approver_type           approver_type NOT NULL,
     decision                text NOT NULL CHECK (decision IN ('approve', 'reject')),
     comment                 text,
     became_eval_case_id     uuid REFERENCES eval_cases(id),  -- if reject + comment
-    decided_at              timestamptz NOT NULL DEFAULT now()
+    decided_at              timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (proposal_id)                                  -- one resolved decision per proposal
 );
 
 CREATE INDEX approvals_proposal_idx ON approvals(proposal_id);
@@ -289,7 +325,7 @@ CREATE OR REPLACE FUNCTION audit_entries_worm() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    RAISE EXCEPTION 'audit_entries is append-only (WORM); UPDATE/DELETE forbidden. To bypass for schema migration, drop trigger explicitly.';
+    RAISE EXCEPTION 'audit_entries is append-only (WORM); UPDATE/DELETE/TRUNCATE forbidden. To bypass for schema migration, drop trigger explicitly.';
 END;
 $$;
 
@@ -300,6 +336,14 @@ CREATE TRIGGER audit_entries_no_update
 CREATE TRIGGER audit_entries_no_delete
     BEFORE DELETE ON audit_entries
     FOR EACH ROW EXECUTE FUNCTION audit_entries_worm();
+
+-- TRUNCATE is statement-level and bypasses BEFORE UPDATE/DELETE row triggers.
+-- Without this, a superuser (e.g., local dev, ad-hoc migration scripts) could
+-- empty the audit log silently. Layer 2 (role grants) is the production answer
+-- but this guards dev/test environments where the app role is not enforced.
+CREATE TRIGGER audit_entries_no_truncate
+    BEFORE TRUNCATE ON audit_entries
+    FOR EACH STATEMENT EXECUTE FUNCTION audit_entries_worm();
 
 -- =============================================================================
 -- meta_evals (NL-gen meta-eval per D7)
@@ -341,16 +385,20 @@ CREATE VIEW pending_proposals AS
     SELECT p.*, i.workflow_id, i.iteration_index
     FROM proposals p
     JOIN iterations i ON p.iteration_id = i.id
-    WHERE p.state IN ('pending', 'gate-passed-awaiting-human')
+    WHERE p.state IN ('pending', 'gate-passed')
     ORDER BY p.created_at ASC;
 
 CREATE VIEW lift_series AS
     SELECT
-        workflow_id,
-        iteration_index,
-        best_ever_score_after AS score,
-        ended_at AS ts,
-        state
-    FROM iterations
-    WHERE state IN ('gate-pass', 'gate-blocked-regression', 'gate-blocked-no-improvement')
-    ORDER BY workflow_id, iteration_index;
+        i.workflow_id,
+        i.iteration_index,
+        i.best_ever_score_after AS score,
+        i.ended_at AS ts,
+        i.state,
+        i.deployment_id,
+        d.config_tag,
+        d.model_id
+    FROM iterations i
+    LEFT JOIN skill_deployments d ON i.deployment_id = d.id
+    WHERE i.state IN ('gate-pass', 'gate-blocked-regression', 'gate-blocked-no-improvement')
+    ORDER BY i.workflow_id, i.iteration_index;
