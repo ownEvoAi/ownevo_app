@@ -18,6 +18,27 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/agent_tools/` — 5 kernel-side tool
+  functions exposed to the coding agent (W2.1):
+  `read_skill(conn, skill_id)` and `write_skill(conn, skill_id, content,
+  created_by=)` wrap the skill registry; `run_pipeline(sandbox,
+  skill_content=, input_data=, timeout_seconds=, memory_mb=,
+  task_timeout_seconds=)` runs a skill in the sandbox with a
+  per-task timeout layer above the sandbox per-call timeout, an
+  `input_data` Python global injected via prologue (no file I/O — the
+  bind-mount is RO), and JSON-on-stdout output parsing into
+  `PipelineResult.outputs`; `read_metrics(conn, trace_id)` and
+  `analyze_failures(conn, workflow_id=, k=10)` are the agent's read
+  surface over `traces`. Both read tools enforce **train/test
+  discipline**: by default, neither surfaces traces stamped
+  `metric_outputs.fold == "test"` (raises `TestFoldAccessRefused` /
+  filters them out). `include_test_fold=True` is reserved for the gate
+  runner. The convention is the enforcement boundary until the
+  iteration↔eval_case schema linkage lands in W4. Claude Agent SDK
+  middleware adapter — exposing these as agent tool definitions and
+  emitting AgentEvents into a TraceCollector — is a separate slice; the
+  kernel-side functions are usable directly from the gate runner (W2.2)
+  and tests without taking the SDK as a dep.
 - `packages/trace-format/` — Pydantic implementation of the canonical
   AgentEvent schema (`SPEC.md`). 7 variants (`content_delta`,
   `reasoning_delta`, `tool_call_start`, `tool_call_result`, `skill_loaded`,
@@ -166,6 +187,28 @@ fresh `[Unreleased]` block above it.
   while `kind` is locked at first registration.
 
 ### Fixed
+- `apps/kernel/src/ownevo_kernel/agent_tools/run_pipeline.py` — `run_pipeline`
+  now catches `TypeError`/`ValueError` from `json.dumps(input_data)` and returns
+  a structured `PipelineResult(status="error")` instead of propagating a raw
+  exception when `input_data` contains non-JSON-serializable values (datetime,
+  UUID, custom objects).
+- `apps/kernel/src/ownevo_kernel/agent_tools/skills.py` — `write_skill` now
+  validates that the `skill_id` argument matches the frontmatter `id` in
+  `content`, raising `SkillFormatError` before any DB write on mismatch.
+  Previously the arg was advisory-only and a mismatch silently wrote to the
+  wrong skill.
+- `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — Docker container
+  leaked when the outer `asyncio.wait_for` in `run_pipeline` cancelled
+  `sandbox.run()`: `CancelledError` bypassed the `except TimeoutError` handler
+  so `_kill_container` was never called and the container kept running until its
+  own timeout expired. Added `except asyncio.CancelledError` to kill and remove
+  the container before re-raising.
+- `apps/kernel/src/ownevo_kernel/agent_tools/metrics.py` — `analyze_failures`
+  secondary sort key was ascending by `started_at` (oldest-first for equal error
+  counts); corrected to descending so the agent surfaces the most recent failures
+  first. `read_metrics` now returns `None` for non-dict JSONB `metric_outputs`
+  (closes a return-type contract violation and a subtle test-fold bypass for
+  corrupt rows).
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
   `audit_entries` WORM trigger. Adds `BEFORE TRUNCATE … FOR EACH STATEMENT`
   trigger; row-level `BEFORE UPDATE/DELETE` triggers do not catch
