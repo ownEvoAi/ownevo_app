@@ -13,14 +13,12 @@ define the contract the implementations must satisfy.
 from __future__ import annotations
 
 import pytest
-
 from ownevo_kernel.types import (
     ApproverType,
     AuditKind,
     ProposalState,
     WorkflowMode,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — lightweight state machine simulator (no DB; tests the logic only)
@@ -55,7 +53,8 @@ _TRANSITION_AUDIT_KIND: dict[tuple[ProposalState, ProposalState], AuditKind] = {
     (ProposalState.IN_GATE, ProposalState.GATE_PASSED): AuditKind.GATE_RUN_COMPLETED,
     (ProposalState.IN_GATE, ProposalState.REJECTED): AuditKind.PROPOSAL_REJECTED,
     (ProposalState.GATE_FAILED, ProposalState.PENDING): AuditKind.PROPOSAL_CREATED,
-    (ProposalState.GATE_PASSED, ProposalState.APPROVED_AWAITING_DEPLOY): AuditKind.PROPOSAL_APPROVED,
+    (ProposalState.GATE_PASSED, ProposalState.APPROVED_AWAITING_DEPLOY):
+        AuditKind.PROPOSAL_APPROVED,
     (ProposalState.GATE_PASSED, ProposalState.REJECTED): AuditKind.PROPOSAL_REJECTED,
     (ProposalState.APPROVED_AWAITING_DEPLOY, ProposalState.DEPLOYED): AuditKind.PROPOSAL_DEPLOYED,
     (ProposalState.DEPLOYED, ProposalState.ROLLED_BACK): AuditKind.PROPOSAL_ROLLED_BACK,

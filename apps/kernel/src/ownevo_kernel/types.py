@@ -16,8 +16,9 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
-from ownevo_format import SandboxErrorClass  # canonical definition in trace-format; re-exported here
-
+from ownevo_format import (
+    SandboxErrorClass,  # canonical definition in trace-format; re-exported here
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ Failure classification (see `types.SandboxResult` doc):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -136,6 +137,17 @@ class LocalDockerSandbox:
                     )
                 except TimeoutError:
                     stdout_b, stderr_b = b"", b""
+            except asyncio.CancelledError:
+                # Outer task was cancelled (e.g. run_pipeline's per-task
+                # timeout fired). Kill the container before propagating so
+                # it doesn't keep running until its own timeout expires.
+                await self._kill_container(container_name)
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+                    await asyncio.wait_for(
+                        proc.communicate(),
+                        timeout=_KILL_GRACE_SECONDS,
+                    )
+                raise
 
             duration_ms = int((time.monotonic() - start) * 1000)
 
