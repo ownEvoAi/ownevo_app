@@ -227,6 +227,10 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | 7.1.6 | **Health page (default landing)** | `apps/web/app/workspaces/[wsId]/page.tsx` — glance metrics across workflows (only demand-prediction is live; other 3 are positioning mocks). | Default landing for the workspace; M5 lift chart visible above the fold. |
 | 7.1.7 | **"New Workflow" entry point active** | The workspace UI surfaces "New Workflow" in the sidebar; clicking it opens the NL-gen flow from Track A. | A non-engineer can describe a workflow in plain English in the live workspace UI and see the generation happen. |
 | 7.1.8 | **Three other workflows as positioning mocks** | Labour, contract, customer support — wire to mock data per `ownEvo_MVP_mocks.md` (or current preview). Visual parity with demand-prediction; no live backend. | Tab strip shows 4 workflows; clicking the 3 mocks renders the mocked surfaces; the framing "same loop, NL-gen the rest" is visible. |
+| 7.1.9 | **Per-trace step inspection** (closes agent-flow-visibility gap) | `apps/web/app/workspaces/[wsId]/traces/[traceId]/page.tsx` — chronological agent steps (skill_loaded → reasoning_delta → tool_call_start → tool_call_result → content_delta → citation), with per-step input/output expand. Mock parity: `15-traces.html` right pane. Reads from substrate `traces` table populated W1.5. | Cypress: click a trace in the list → see ≥6 step types rendered chronologically with timestamps, durations, inputs, outputs. LangSmith / LangFuse parallel — table-stakes inspectability. |
+| 7.1.10 | **Per-skill detail · prompt variant** | `apps/web/app/workspaces/[wsId]/skills/[skillId]/page.tsx` — SKILL.md content + retention contract + version history + recent eval results + Used-by + Capability tags. Mock parity: `18-skill-detail.html`. | All instruction-style skills (NL-gen-emitted) render with content visible + retention contract + ≥1 retention violation eval-case linked. |
+| 7.1.11 | **Per-skill detail · code variant** (M5 Python skills) | Same route as 7.1.10, but renders Python code with syntax highlighting + version-to-version inline diff (red/green) + extracted function signatures + per-eval-case "this change moved" table. Mock parity: `18a-skill-detail-code.html`. | All M5 code-skills (`feature_engineer.py`, `model_trainer.py`, `outlier_handler.py`, `ensemble.py`, `predictor.py`, `data_loader.py`) render with code + diff to prior version + ≥3 eval cases that moved. |
+| 7.1.12 | **Workflow Agent-anatomy pane** | `apps/web/components/AgentAnatomy.tsx` rendered on workflow Overview page. Three columns: Skills active (linked to skill-detail) · Tools available (with signatures) · Topology (single-agent loop) + Entry-point system prompt. Mock parity: section in `05-workflow-overview.html`. | The "what the agent CAN do" view is visible above the fold on every workflow Overview; reads from substrate `skills` and workflow-config tables. |
 
 #### Track 3 — τ³-bench template + reproduce-NeoSigma sanity check
 
@@ -303,6 +307,9 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 - Mobile UI
 - Built-in skills marketplace
 - Re-running tau-bench in original prompt-only form (auto-harness already proved that loop; we run code-gen-under-gate on M5 + τ³ instead)
+- **Multi-agent topology graph view** (n8n / Google Opal style visualization) — Phase 2; MVP workflows are single-agent loops, the Workflow Agent-anatomy pane (7.1.12) is enough for single-agent inspection
+- **Visual workflow composition / node-graph editor** for hand-building workflows manually (n8n / Google Opal style) — Phase 2 deferred indefinitely; NL-gen (Track A) IS the composition surface, a visual builder competes with our own thesis
+- **Vellum-style prompt A/B variant workbench** — Phase 2; the regression gate IS the A/B test, the proposal review card already shows before/after with gate results
 
 ---
 
