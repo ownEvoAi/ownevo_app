@@ -175,6 +175,32 @@ def test_failure_cluster_with_label_eval_score_d4():
     assert fc.label_eval_score == 0.85
 
 
+def test_failure_cluster_round_trips_centroid():
+    """`SELECT *` from failure_clusters must round-trip under extra='forbid'.
+    centroid is pgvector vector(384) in SQL; here it's list[float] | None."""
+    centroid = [0.01] * 384
+    fc = FailureCluster(
+        id=uuid4(),
+        label="x",
+        severity="low",
+        centroid=centroid,
+        cluster_size=3,
+        created_at=_now(),
+    )
+    assert fc.centroid is not None
+    assert len(fc.centroid) == 384
+
+    # Default to None when the SELECT didn't include centroid.
+    fc_no_centroid = FailureCluster(
+        id=uuid4(),
+        label="x",
+        severity="low",
+        cluster_size=3,
+        created_at=_now(),
+    )
+    assert fc_no_centroid.centroid is None
+
+
 def test_audit_entry_kind_includes_d2_state_transitions():
     """Every state-machine transition has an audit-kind mapping per
     docs/STATE_MACHINES.md."""

@@ -155,6 +155,11 @@ class FailureCluster(_Base):
     label: str
     label_eval_score: float | None = Field(default=None, ge=0.0, le=1.0)
     severity: Literal["high", "medium", "low"]
+    # pgvector vector(384) — sentence-transformers/all-MiniLM-L6-v2 dim.
+    # Most kernel readers don't need the centroid (similarity ops happen in SQL
+    # via pgvector), but exposing it here lets `SELECT *` round-trip cleanly
+    # under `extra="forbid"` and unblocks any consumer that needs the embedding.
+    centroid: list[float] | None = None
     sample_trace_ids: list[UUID] = Field(default_factory=list)
     cluster_size: int = Field(ge=1)
     quality_score: float | None = None

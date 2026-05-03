@@ -47,6 +47,11 @@ fresh `[Unreleased]` block above it.
   wiring that lands in W2; closes the schema-vs-types divergence flagged
   in `/review`. Migration not yet applied to any deployed DB so this is a
   forward-only edit, not a `0002_*.sql` follow-up.
+- `apps/kernel/src/ownevo_kernel/types.py` — `FailureCluster` gains
+  `centroid: list[float] | None = None` mirroring the SQL `centroid
+  vector(384)` column. Without this, `extra="forbid"` would reject any
+  `SELECT *` from `failure_clusters`. Most readers will continue to fetch
+  via SQL-side pgvector ops; this is for the explicit-fetch path.
 
 ### Fixed
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
