@@ -70,7 +70,18 @@ async def run_pipeline(
     `timeout_seconds + 30.0` so caller-side stalls (e.g., docker exec
     daemon delays) don't keep the iteration alive indefinitely.
     """
-    payload = json.dumps(input_data if input_data is not None else {})
+    try:
+        payload = json.dumps(input_data if input_data is not None else {})
+    except (TypeError, ValueError) as exc:
+        return PipelineResult(
+            status="error",
+            outputs=None,
+            raw_stdout="",
+            raw_stderr="",
+            duration_ms=0,
+            error=f"input_data is not JSON-serializable: {exc}",
+            error_class=None,
+        )
     prologue = (
         "import json as _ownevo_json\n"
         f"input_data = _ownevo_json.loads({payload!r})\n"

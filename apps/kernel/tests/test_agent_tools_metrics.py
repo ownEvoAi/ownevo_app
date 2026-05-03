@@ -113,9 +113,9 @@ async def test_read_metrics_no_metrics_returns_none(db: asyncpg.Connection):
 
 async def test_analyze_failures_orders_by_error_count(db: asyncpg.Connection):
     """Higher tool_call_result error count → earlier in the result."""
-    a = await _seed_trace(db, n_tool_errors=1)
-    b = await _seed_trace(db, n_tool_errors=3)
-    c = await _seed_trace(db, n_tool_errors=2)
+    a = await _seed_trace(db, n_tool_errors=1, started_at=datetime(2025, 1, 1, 0, 0, 0))
+    b = await _seed_trace(db, n_tool_errors=3, started_at=datetime(2025, 1, 1, 0, 0, 1))
+    c = await _seed_trace(db, n_tool_errors=2, started_at=datetime(2025, 1, 1, 0, 0, 2))
 
     snapshots = await analyze_failures(db, workflow_id="demo-wf")
     assert [s.trace_id for s in snapshots] == [b, c, a]

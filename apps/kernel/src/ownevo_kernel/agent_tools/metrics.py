@@ -71,11 +71,9 @@ async def read_metrics(
     if raw is None:
         return None
     metrics = _decode_jsonb(raw)
-    if (
-        not include_test_fold
-        and isinstance(metrics, dict)
-        and metrics.get(FOLD_KEY) == TEST_FOLD
-    ):
+    if not isinstance(metrics, dict):
+        return None
+    if not include_test_fold and metrics.get(FOLD_KEY) == TEST_FOLD:
         raise TestFoldAccessRefused(
             f"trace {trace_id} ran on the test fold; "
             "set include_test_fold=True only from the gate runner",
@@ -134,7 +132,7 @@ async def analyze_failures(
         workflow_id,
         # Pull a generous window so we can post-filter by fold and still
         # honor `k`. 4× is cheap on Postgres at MVP scale.
-        max(k * 4, k),
+        k * 4,
     )
 
     snapshots: list[FailureSnapshot] = []
@@ -160,7 +158,7 @@ async def analyze_failures(
         if len(snapshots) >= k:
             break
 
-    snapshots.sort(key=lambda s: (-s.tool_errors, s.started_at))
+    snapshots.sort(key=lambda s: (-s.tool_errors, -s.started_at.timestamp()))
     return snapshots[:k]
 
 
@@ -170,7 +168,7 @@ async def analyze_failures(
 
 
 def _decode_jsonb(raw: Any) -> Any:
-    """asyncpg returns JSONB as a JSON string by default — decode here."""
+    """Normalize asyncpg JSONB output — may arrive as str or native object."""
     if raw is None:
         return None
     if isinstance(raw, str):

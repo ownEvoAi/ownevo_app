@@ -108,10 +108,22 @@ async def test_write_with_malformed_frontmatter_raises(db: asyncpg.Connection):
         )
 
 
+async def test_write_with_mismatched_skill_id_raises(db: asyncpg.Connection):
+    """skill_id arg must match frontmatter id — mismatch raises before any
+    DB write so the agent can't silently overwrite the wrong skill."""
+    with pytest.raises(SkillFormatError, match="does not match frontmatter"):
+        await write_skill(
+            db,
+            "wrong-id",
+            SKILL_V1,  # frontmatter declares id: m5-feature-engineer
+            created_by="agent:test",
+        )
+
+
 async def test_write_with_kind_change_rejected(db: asyncpg.Connection):
     """Re-registering a Python skill as instruction must be rejected —
     silently flipping the kind would corrupt the FK shape downstream."""
-    await write_skill(db, "x", SKILL_V1, created_by="agent:test")
+    await write_skill(db, "m5-feature-engineer", SKILL_V1, created_by="agent:test")
     flipped = SKILL_V1.replace("kind: python", "kind: instruction")
     with pytest.raises(SkillFormatError, match="kind mismatch"):
-        await write_skill(db, "x", flipped, created_by="agent:test")
+        await write_skill(db, "m5-feature-engineer", flipped, created_by="agent:test")

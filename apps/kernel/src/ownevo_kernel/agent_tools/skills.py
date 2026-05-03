@@ -22,6 +22,7 @@ from ..skills import (
     SkillFormatError,
     SkillHead,
     get_head,
+    parse_skill,
     register_skill,
 )
 
@@ -30,9 +31,9 @@ from ..skills import (
 class SkillReadResult:
     """What the agent sees when it reads a skill.
 
-    `content` is the raw skill source (Python or markdown). `retention`
-    is the parsed YAML frontmatter; the agent uses it to know what state
-    the skill keeps and what it must re-fetch.
+    `content` is the raw skill source (Python or markdown) including the
+    YAML frontmatter block; the agent reads the retention contract from
+    the frontmatter embedded in `content`.
     """
 
     skill_id: str
@@ -74,15 +75,15 @@ async def write_skill(
     """Register `content` as a new version of `skill_id`.
 
     The frontmatter inside `content` MUST declare an `id` matching
-    `skill_id` (the registry validates this implicitly via the
-    SkillFrontmatter schema; mismatched IDs surface as SkillFormatError).
+    `skill_id`; a mismatch raises `SkillFormatError` before any DB write.
     The `created_by` arg overrides whatever the file declares — used by
     the gate runner to stamp the actual emitting model.
     """
-    # The skill-registry signature pulls skill_id from the frontmatter,
-    # not from a separate arg; we surface skill_id here for symmetry
-    # with read_skill and to make the wrapper greppable.
-    _ = skill_id  # validated through frontmatter; explicit arg is documentation
+    fm = parse_skill(content).frontmatter
+    if fm.id != skill_id:
+        raise SkillFormatError(
+            f"skill_id {skill_id!r} does not match frontmatter id {fm.id!r}",
+        )
     return await register_skill(
         conn,
         content,

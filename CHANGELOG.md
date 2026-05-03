@@ -187,6 +187,28 @@ fresh `[Unreleased]` block above it.
   while `kind` is locked at first registration.
 
 ### Fixed
+- `apps/kernel/src/ownevo_kernel/agent_tools/run_pipeline.py` — `run_pipeline`
+  now catches `TypeError`/`ValueError` from `json.dumps(input_data)` and returns
+  a structured `PipelineResult(status="error")` instead of propagating a raw
+  exception when `input_data` contains non-JSON-serializable values (datetime,
+  UUID, custom objects).
+- `apps/kernel/src/ownevo_kernel/agent_tools/skills.py` — `write_skill` now
+  validates that the `skill_id` argument matches the frontmatter `id` in
+  `content`, raising `SkillFormatError` before any DB write on mismatch.
+  Previously the arg was advisory-only and a mismatch silently wrote to the
+  wrong skill.
+- `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — Docker container
+  leaked when the outer `asyncio.wait_for` in `run_pipeline` cancelled
+  `sandbox.run()`: `CancelledError` bypassed the `except TimeoutError` handler
+  so `_kill_container` was never called and the container kept running until its
+  own timeout expired. Added `except asyncio.CancelledError` to kill and remove
+  the container before re-raising.
+- `apps/kernel/src/ownevo_kernel/agent_tools/metrics.py` — `analyze_failures`
+  secondary sort key was ascending by `started_at` (oldest-first for equal error
+  counts); corrected to descending so the agent surfaces the most recent failures
+  first. `read_metrics` now returns `None` for non-dict JSONB `metric_outputs`
+  (closes a return-type contract violation and a subtle test-fold bypass for
+  corrupt rows).
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
   `audit_entries` WORM trigger. Adds `BEFORE TRUNCATE … FOR EACH STATEMENT`
   trigger; row-level `BEFORE UPDATE/DELETE` triggers do not catch
