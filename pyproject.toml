@@ -10,6 +10,23 @@ members = [
     "packages/trace-format",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ownevo-kernel",
+    "ownevo-trace-format",
+]
+
+[tool.uv.sources]
+ownevo-kernel = { workspace = true }
+ownevo-trace-format = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["apps/kernel/tests", "packages/trace-format/tests"]
+asyncio_mode = "auto"
+addopts = "--import-mode=importlib"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
