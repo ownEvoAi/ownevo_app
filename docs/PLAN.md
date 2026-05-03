@@ -42,6 +42,39 @@ This plan now reflects six decisions ratified by a CEO-mode review of the MVP do
 
 ---
 
+## Eng-review decisions (2026-05-03)
+
+Followed the CEO review with a /plan-eng-review pass. Locked the execution-level specs that the CEO review left as-strategic. Four decisions ratified and four spec files added.
+
+| # | Decision | Spec landed at |
+|---|---|---|
+| **D1** | DB schema locked pre-W1 — single source of truth for all 9 tables, FK graph, indexes, WORM trigger on `audit_entries` | [`apps/kernel/migrations/0001_substrate.sql`](../apps/kernel/migrations/0001_substrate.sql) + [`docs/SCHEMA.md`](./SCHEMA.md) (ER diagram) |
+| **D2** | Python ↔ TS API contract: OpenAPI 3.1 + SSE event types; generate Pydantic + TS clients | [`docs/api/openapi.yaml`](./api/openapi.yaml) |
+| **D3** | Skill retention contract: YAML frontmatter on every skill file; parsed at registry load; consumed by eval generator to produce retention-violation tests | [`docs/SKILL_FORMAT.md`](./SKILL_FORMAT.md) |
+| **D4** | Cluster-label LLM eval added to W3 — hand-label 20 M5 clusters; nightly judge-vs-human ≥0.7 | W3 Track B deliverable B3.5 below + TODOS-5 |
+
+**State-machine + integration specs written by the eng review:**
+- [`docs/STATE_MACHINES.md`](./STATE_MACHINES.md) — Proposal, Iteration, Workflow state machines + audit-kind mapping (locks W2.5 approval queue scaffold)
+- `apps/kernel/src/ownevo_kernel/sandbox/__init__.py` — `SandboxRuntime` Protocol (lock at W1.3): `async def run(skill_id, version_id, args, timeout_s) -> SandboxResult` where `SandboxResult = {stdout, stderr, exit_code, duration_s, error_class: Literal["Timeout"|"OOM"|"Crash"|None], metric_outputs: dict}`
+- `apps/kernel/src/ownevo_kernel/eval_runner/inspect_adapter.py` — EvalCase → Inspect Sample/Solver/Scorer mapping (W2 alongside eval_cases schema)
+- `packages/trace-format/src/ownevo_format/ui_primitives.py` — discriminated-union Pydantic models for the 8 UI primitives (W3 alongside NL-gen schema freeze)
+- `apps/kernel/src/ownevo_kernel/errors.py` — typed exception taxonomy (`GateBlockedRegression`, `GateBlockedNoImprovement`, `GateError`, `ClusteringInsufficientData`, `ClusteringFailed`, `NLGenSchemaError`, `NLGenMetaEvalFailed`, `SkillFormatError`, `SandboxRuntimeError`)
+
+**Build-now substrate items added by the eng review (in addition to CEO review's 9):**
+
+10. **Cluster-label LLM eval** — hand-label 20 M5 clusters; nightly judge-vs-human eval at `apps/kernel/eval_runner/cluster_label_eval/`; target ≥0.7 (~1 day, W3)
+11. **LLM-judge stub eval expansion** — from 5 hand-crafted to ~30 hand-labeled (proposal, explanation) pairs with structural-element ground truth; nightly run (~1 day, W5)
+12. **Reproducibility CI cache strategy** — 4 cache layers (LLM responses fixture, sandbox image, M5 Postgres volume, skill-version-hash-keyed LightGBM artifacts) (~2-3 days, W3)
+13. **Parallel-conditions strategy** — M5 4-way parallel + τ³ 3-way parallel via separate Docker compose stacks; merge in `iterations` table (~2-3 days, W4-W6)
+14. **Anti-pattern file-length lint** — CI fails any `apps/kernel/src/ownevo_kernel/` file >400 LOC (~15 min, W1)
+15. **Test framework lock-in** — pytest + pytest-asyncio (kernel), vitest (`packages/trace-format/`), Playwright (web E2E). Cypress eliminated.
+
+**Test framework decision:** **Playwright** for web E2E. Cypress mentioned in PLAN.md is dropped. Single E2E framework, supports component + integration + E2E in one tool, faster on local dev.
+
+**Net new W1-W3 work: ~6-8 days.** Combined with CEO review's 6-7 days and meta-eval's 5-7 days, Phase 1+2 has ~17-22 net new person-days of substrate work. Most likely compression target stays W7 customer-skin scope (defer non-demand-prediction "Operate" views).
+
+---
+
 ## North star (Week 8 demo)
 
 A 90-second video that hits all three pillars without a slide:
@@ -216,9 +249,10 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 | B3.1 | **`analyze_failures` on M5 misses** | `apps/kernel/src/ownevo_kernel/benchmarks/m5/failure_analyzer.py` — top-k worst predictions with structured context (which SKUs, stores, time windows, feature gaps). | Run on M5 baseline output; returns 10 top-k rows with structured context. |
 | B3.2 | **Failure clustering pipeline** | `apps/kernel/src/ownevo_kernel/clustering/` — sentence-transformers embed (all-MiniLM-L6-v2 or similar) → UMAP reduce → HDBSCAN cluster → Claude-labeled. Output: `failure_clusters` table (traces, root-cause one-liner, severity, sample excerpt). **Cluster-quality threshold:** reject "1 mega-cluster" / "all noise" outputs and surface a "more iterations needed" UI state instead. | Cluster M5 misses → 3+ named clusters appear (e.g., "winter footwear in Pacific NW Q4"). Cluster labels are intelligible. Adversarial test: feed N=5 traces → cluster pipeline returns "insufficient data" UI state, not a junk cluster. |
 | B3.3 | **Cluster → eval case** | `apps/kernel/src/ownevo_kernel/eval_cases/from_cluster.py` — each cluster spawns 1+ `EvalCase` rows tagged with `provenance: cluster:<id>`. | First eval cases generated from clusters; insert into W2.3 schema; pass/fail reproducible. |
-| B3.4 | **Reproducibility CI** (added by review) | `.github/workflows/m5-replay-nightly.yml` — runs `make m5-replay` from a fresh container nightly. Fail-fast on drift (RMSE delta > tolerance vs prior night's baseline). | Workflow green; if it goes red, surfaces immediately, not in W8. |
+| B3.4 | **Reproducibility CI** (added by review) | `.github/workflows/m5-replay-nightly.yml` — runs `make m5-replay` from a fresh container nightly. Fail-fast on drift (RMSE delta > tolerance vs prior night's baseline). **Cache strategy required for the <30 min budget:** (a) LLM responses replayed from a fixture file (not live API); (b) sandbox Docker image pre-built and cached as GHCR layer; (c) M5 data pre-loaded into a Postgres volume snapshot; (d) LightGBM training artifacts cached keyed by skill-version-hash. Without all four, CI hits live APIs and misses the budget by 10x. | Workflow green; <30 min wall time on a cold run with caches warmed. |
+| B3.5 | **Cluster-label LLM eval** (added by eng review — D4) | `apps/kernel/eval_runner/cluster_label_eval/` — hand-label 20 M5 clusters with ground-truth names. Nightly LLM-judge-vs-human agreement check using a separate Claude judge (different model from the labeler). Target agreement ≥0.7. Surface drift in CI. | 20 ground-truth labels written; nightly job emits agreement score; agreement <0.7 fails CI (so demo-day labels are checked). |
 
-**Week 3 exit criterion (Track B):** running M5 baseline + 1 simulated week → ≥3 failure clusters surface → ≥3 eval cases generated, all without human intervention. Reproducibility CI green.
+**Week 3 exit criterion (Track B):** running M5 baseline + 1 simulated week → ≥3 failure clusters surface → ≥3 eval cases generated, all without human intervention. Reproducibility CI green with all 4 cache layers. Cluster-label eval ≥0.7.
 
 #### Week 4 — First end-to-end M5 loop cycle (Track B)
 
@@ -238,7 +272,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Track | Deliverable | Files / location | Validation |
 |---|---|---|---|---|
 | 5.1 | **Shared** | **Approval surface — full polish** | `apps/web/app/approvals/[id]/page.tsx` — plain-language summary on top, side-by-side diff (Monaco or similar), gate-results badge with per-eval-case breakdown, expected-impact estimate, Approve/Reject with comment-to-eval-case flow. | Cypress flow: open card → approve with comment → state transitions → audit entry → if rejected, comment becomes a new eval case. Same UX serves NL-gen-flow and M5 approvals. |
-| 5.2 | **Shared** | **LLM-judge stub approver** (tightened by review) | `apps/kernel/src/ownevo_kernel/approvers/llm_judge.py` — admits proposals if (a) gate passes AND (b) plain-language explanation contains a structural element: references the cluster name AND names the change AND states an expected metric direction. Rejects everything else. Used for unattended benchmark runs. | Run on 5 hand-crafted proposals (3 good with structural explanations, 2 bad with hand-wavy explanations) → judge admits 3, rejects 2. Adversarial test: vague-but-positive explanation → rejected. |
+| 5.2 | **Shared** | **LLM-judge stub approver** (tightened by review + eng-review eval expansion) | `apps/kernel/src/ownevo_kernel/approvers/llm_judge.py` — admits proposals if (a) gate passes AND (b) plain-language explanation contains a structural element: references the cluster name AND names the change AND states an expected metric direction. Rejects everything else. Used for unattended benchmark runs. **Eng-review eval expansion (added 2026-05-03):** hand-label ~30 (proposal, explanation) pairs with structural-element ground truth (good: structural; bad: vague-but-positive, structural-but-wrong-direction, hand-wavy). Run nightly. Surface drift in CI. | Smoke test: 5 hand-crafted proposals → judge admits 3, rejects 2. **Eval test:** ~30 hand-labeled pairs → judge agreement with ground truth ≥0.85 (higher bar than cluster-label since false-positives drift M5 lift the wrong direction). Adversarial test: vague-but-positive → rejected. |
 | 5.3 | **A** | **NL-gen failure clustering** | Track A's generated-sim traces flow through the W3 clustering pipeline (Track B's clustering, reused). | Run NL-gen workflow → cluster traces → at least 3 NL-gen-derived clusters appear. |
 | 5.4 | **B** | **7-day M5 replay** | Replay 7 simulated days of M5. Each day: agent proposes → gate runs → LLM-judge admits or rejects → audit log grows → eval set grows. | `make m5-replay-7day` produces a visibly climbing lift curve over 7 cycles; audit log has 7+ entries; eval set grew from clusters. |
 | 5.5 | **A** | **NL-gen meta-eval validated** (D7 — added by review) | Run the W4 meta-eval judge (A4.6) against its eval set; require judge-vs-human agreement ≥0.7. Then wire the meta-eval as a quality gate: every generated workflow runs through meta-eval BEFORE the agent loop starts; coverage % surfaced in UI ("sim covers 11/12 of your description"). | Judge agreement ≥0.7 on eval set. End-to-end test: generate workflow → meta-eval coverage badge visible in UI → agent loop starts only after meta-eval passes threshold. |
@@ -255,7 +289,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Track | Deliverable | Files / location | Validation |
 |---|---|---|---|---|
 | 6.1 | **A** | **NL-gen end-to-end live demo** | The full Track A flow runs in <5 minutes from "type description" to "lift chart climbs". On a hand-picked workflow (probably supply-chain demand-forecast since it overlaps M5 narrative). | **Validation gate:** an external reviewer (founder/advisor) can sit through the live demo without intervention; lift chart visibly moves. |
-| 6.2 | **B** | **Full 30-day M5 replay across 4 conditions** | Per [`benchmarks/m5-code-gen-loop.md`](../../ownevo_docs/benchmarks/m5-code-gen-loop.md): A (frozen baseline), B (static LLM single-shot, sanity check), C (loop autonomous), D (loop + approval gate). | `make m5-replay-30day` runs all 4 conditions; hero chart generated; per-cluster lift report generated; gate-blocked-regression count emitted. |
+| 6.2 | **B** | **Full 30-day M5 replay across 4 conditions (parallel — added by eng review)** | Per [`benchmarks/m5-code-gen-loop.md`](../../ownevo_docs/benchmarks/m5-code-gen-loop.md): A (frozen baseline), B (static LLM single-shot, sanity check), C (loop autonomous), D (loop + approval gate). **Run all 4 conditions in parallel on separate Docker compose stacks** (each with its own Postgres + sandbox); merge results in `iterations` table at the end. Sequential = ~150 hours wall time; 4-way parallel ≈ 37 hours. Without parallel strategy, W6 budget is too tight. | `make m5-replay-30day` launches 4 parallel stacks; each writes to a stack-namespaced workspace_id (prefix-hack for the merge), hero chart generated from merged `iterations`; per-cluster lift report generated; gate-blocked-regression count emitted; total wall time <40 hours. |
 | 6.3 | **B** | **M5 success thresholds met** | Per `benchmarks/m5-code-gen-loop.md` § Success Criteria: ≥+25% RMSE lift Day-1→Day-30 in condition D; ≥50 eval cases generated; ≥15 approved revisions; ≥5 gate-blocked regressions; reproducible from fresh checkout. | All thresholds verified by reading the run record. If any miss the threshold, document why + decide whether to extend Phase 2 or accept the lower number. |
 
 **Week 6 exit criteria (Phase 2 validation gate, must pass before Phase 3):**
@@ -311,7 +345,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
-| 8.3.1 | **Condition C with gate engaged on full test set** | LLM-judge stub approver (W5.2) admits proposals; subset re-run with human approver (founder/advisor) for credibility. **Demo framing per D5 B-frame:** record condition B (autonomous, ≈NeoSigma) AND condition C (gated) head-to-head, with the gap explained as "the cost of safety." Demo holds even if condition C lands at +25% — removes binary outcome risk. | Threshold: ≥+35% lift A→C. Stretch: ≥+40% (beats NeoSigma's autonomous +39.3%). **Soft-result fallback:** if condition C is below +35%, the B-frame demo still ships honestly: "autonomous matches the public number; gated is the enterprise tradeoff." All approved changes have an append-only audit entry. |
+| 8.3.1 | **Condition C with gate engaged on full test set (parallel — added by eng review)** | LLM-judge stub approver (W5.2, eval-expanded) admits proposals; subset re-run with human approver (founder/advisor) for credibility. **Demo framing per D5 B-frame:** record condition B (autonomous, ≈NeoSigma) AND condition C (gated) head-to-head, with the gap explained as "the cost of safety." Demo holds even if condition C lands at +25% — removes binary outcome risk. **Run conditions A/B/C in parallel** on separate Docker compose stacks (same pattern as M5 W6.2); merge in `iterations` table. | Threshold: ≥+35% lift A→C. Stretch: ≥+40% (beats NeoSigma's autonomous +39.3%). **Soft-result fallback:** if condition C is below +35%, the B-frame demo still ships honestly: "autonomous matches the public number; gated is the enterprise tradeoff." All approved changes have an append-only audit entry. Total wall time <2 days for the full test set across 3 conditions. |
 | 8.3.2 | **`benchmarks/tau3-results-2026-Q3.md`** | `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` — immutable run record, three conditions plotted, B-frame head-to-head with NeoSigma (D5), append-only audit log exportable. | File written; reviewer can clone the repo and re-derive the chart from the audit log. |
 | 8.3.3 | **Sample human-approved subset documented** | ≥5 changes from condition C re-approved by a human (founder/advisor) instead of the LLM-judge stub. Document any divergence between human and LLM-judge decisions. | Subset documented in tau3-results post; honesty about any divergences preserved. |
 

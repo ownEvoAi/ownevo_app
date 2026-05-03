@@ -1,0 +1,686 @@
+openapi: 3.1.0
+info:
+  title: ownEvo Kernel API
+  version: 0.1.0
+  description: |
+    REST + Server-Sent Events contract between the Python kernel (`apps/kernel/`)
+    and the TS web app (`apps/web/`). Locked 2026-05-03 by eng review (D2).
+
+    Generated artifacts:
+      - Python Pydantic models: `apps/kernel/src/ownevo_kernel/api/models.py`
+      - TypeScript client: `apps/web/lib/api/client.ts` (via openapi-typescript)
+
+    Auth model (MVP, single-tenant per D4): no auth in development;
+    dev-token middleware in staging. Production auth is Phase 2.
+
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+
+tags:
+  - name: workflows
+    description: Workflow lifecycle (NL-gen creates them)
+  - name: proposals
+    description: Approval queue
+  - name: gate
+    description: Gate runs and live status
+  - name: lift
+    description: Lift charts and metrics
+  - name: audit
+    description: Append-only audit log
+  - name: skills
+    description: Skill registry
+  - name: clusters
+    description: Failure clusters
+  - name: traces
+    description: Agent event streams
+
+paths:
+  # ---------- workflows ----------
+  /api/workflows:
+    post:
+      tags: [workflows]
+      summary: Create workflow from natural-language description (NL-gen)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '201':
+          description: Created. Server begins NL-gen + meta-eval; subscribe to /api/workflows/{id}/stream for progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+    get:
+      tags: [workflows]
+      summary: List workflows
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Workflow'
+
+  /api/workflows/{id}:
+    get:
+      tags: [workflows]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/stream:
+    get:
+      tags: [workflows]
+      summary: SSE — workflow generation progress (sim, eval cases, metric, meta-eval)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: text/event-stream of SSEEvent (see components.x-sse-events)
+          content:
+            text/event-stream: {}
+
+  # ---------- proposals (approval queue) ----------
+  /api/proposals:
+    get:
+      tags: [proposals]
+      summary: List proposals (filterable by state)
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/ProposalState'
+        - name: workflow_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalListResponse'
+
+  /api/proposals/{id}:
+    get:
+      tags: [proposals]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalDetail'
+
+  /api/proposals/{id}/approve:
+    post:
+      tags: [proposals]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string }
+      responses:
+        '200':
+          description: Approval recorded. Audit entry appended. Deploy job enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+
+  /api/proposals/{id}/reject:
+    post:
+      tags: [proposals]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  description: Required on reject; becomes an eval_case row with provenance=rejected-feedback.
+      responses:
+        '200':
+          description: Rejection recorded. Audit entry appended. Comment converted to eval case.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+
+  # ---------- gate ----------
+  /api/gate/runs/{iteration_id}/stream:
+    get:
+      tags: [gate]
+      summary: SSE — live gate-run progress for one iteration
+      parameters:
+        - name: iteration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: text/event-stream of GateProgressEvent
+          content:
+            text/event-stream: {}
+
+  # ---------- lift ----------
+  /api/lift/series:
+    get:
+      tags: [lift]
+      summary: Lift chart series (one workflow)
+      parameters:
+        - name: workflow_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LiftPoint'
+
+  # ---------- audit ----------
+  /api/audit:
+    get:
+      tags: [audit]
+      summary: Audit log (paginated by seq)
+      parameters:
+        - name: cursor
+          in: query
+          description: Last seq from previous page; returns rows with seq > cursor.
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+        - name: kinds
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/AuditKind'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPage'
+
+  /api/audit/export:
+    get:
+      tags: [audit]
+      summary: Full audit log export (canonical JSON, customer-controlled per D2)
+      responses:
+        '200':
+          description: Canonical JSON dump of audit_entries ordered by seq
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+
+  /api/audit/verify:
+    post:
+      tags: [audit]
+      summary: Verify the append-only chain (no gaps, no out-of-order seq)
+      responses:
+        '200':
+          description: ok or details on broken integrity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok, broken] }
+                  broken_at_seq: { type: integer }
+                  message: { type: string }
+
+  # ---------- skills ----------
+  /api/skills:
+    get:
+      tags: [skills]
+      parameters:
+        - name: workflow_id
+          in: query
+          schema: { type: string }
+        - name: capability
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Skill'
+
+  /api/skills/{id}/versions:
+    get:
+      tags: [skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillVersion'
+
+  /api/skills/{id}/revert:
+    post:
+      tags: [skills]
+      summary: Revert to a prior version (W7 demo rollback runbook)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_version_seq, reason]
+              properties:
+                to_version_seq: { type: integer }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Reverted. Audit entry kind=proposal-rolled-back appended.
+
+  # ---------- clusters ----------
+  /api/clusters:
+    get:
+      tags: [clusters]
+      parameters:
+        - name: workflow_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FailureCluster'
+
+  # ---------- traces ----------
+  /api/traces/{id}:
+    get:
+      tags: [traces]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trace'
+
+components:
+  schemas:
+    # ---------- enums ----------
+    SkillKind:
+      type: string
+      enum: [python, instruction, composite]
+    ProvenanceKind:
+      type: string
+      enum: [hand-authored, cluster-derived, nl-gen, retention-violation, rejected-feedback]
+    IterationState:
+      type: string
+      enum: [running, gate-pass, gate-blocked-regression, gate-blocked-no-improvement, sandbox-error]
+    ProposalState:
+      type: string
+      enum: [pending, in-gate, gate-failed, gate-passed-awaiting-human, rejected, approved-awaiting-deploy, deployed, rolled-back]
+    SandboxErrorClass:
+      type: string
+      enum: [Timeout, OOM, Crash]
+    AuditKind:
+      type: string
+      enum:
+        - skill-version-created
+        - gate-run-started
+        - gate-run-completed
+        - proposal-created
+        - proposal-approved
+        - proposal-rejected
+        - proposal-deployed
+        - proposal-rolled-back
+        - eval-case-added
+        - cluster-created
+        - cluster-relabeled
+        - workflow-created
+        - meta-eval-result
+        - schema-migration
+
+    # ---------- core entities ----------
+    Workflow:
+      type: object
+      required: [id, description, spec, created_at]
+      properties:
+        id: { type: string }
+        description: { type: string }
+        spec:
+          type: object
+          description: Frozen-schema NL-gen output (W3 freeze). See packages/trace-format/ for shape.
+        metric_id: { type: string }
+        sim_skill_id: { type: string }
+        meta_eval_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        created_at: { type: string, format: date-time }
+
+    CreateWorkflowRequest:
+      type: object
+      required: [description]
+      properties:
+        description: { type: string, minLength: 10 }
+
+    Proposal:
+      type: object
+      required: [id, iteration_id, skill_id, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        iteration_id: { type: string, format: uuid }
+        skill_id: { type: string }
+        parent_version_id: { type: string, format: uuid }
+        plain_language_summary: { type: string }
+        state: { $ref: '#/components/schemas/ProposalState' }
+        created_at: { type: string, format: date-time }
+
+    ProposalDetail:
+      allOf:
+        - $ref: '#/components/schemas/Proposal'
+        - type: object
+          properties:
+            proposed_content: { type: string }
+            parent_content: { type: string }
+            unified_diff: { type: string }
+            expected_impact:
+              type: object
+              properties:
+                improves:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      eval_case_id: { type: string, format: uuid }
+                      delta: { type: number }
+                regresses:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      eval_case_id: { type: string, format: uuid }
+                      delta: { type: number }
+            gate_result:
+              type: object
+              properties:
+                passes_prior_suite: { type: integer }
+                total_prior_suite: { type: integer }
+                val_score: { type: number }
+                best_ever_score: { type: number }
+
+    ProposalListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Proposal' }
+        next_cursor: { type: string }
+
+    LiftPoint:
+      type: object
+      required: [iteration_index, score]
+      properties:
+        iteration_index: { type: integer }
+        score: { type: number }
+        ts: { type: string, format: date-time }
+        state: { $ref: '#/components/schemas/IterationState' }
+        annotation: { type: string, description: "If non-null, an approved/rejected proposal that landed at this point." }
+
+    AuditEntry:
+      type: object
+      required: [id, seq, kind, payload, actor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seq: { type: integer, format: int64 }
+        kind: { $ref: '#/components/schemas/AuditKind' }
+        payload: { type: object }
+        related_id: { type: string, format: uuid }
+        actor: { type: string }
+        created_at: { type: string, format: date-time }
+
+    AuditPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntry' }
+        next_cursor: { type: integer }
+
+    Skill:
+      type: object
+      required: [id, kind, head_version_id]
+      properties:
+        id: { type: string }
+        kind: { $ref: '#/components/schemas/SkillKind' }
+        head_version_id: { type: string, format: uuid }
+        workflow_id: { type: string }
+        capability_tags:
+          type: array
+          items: { type: string }
+
+    SkillVersion:
+      type: object
+      required: [id, skill_id, version_seq, content, created_at, created_by]
+      properties:
+        id: { type: string, format: uuid }
+        skill_id: { type: string }
+        parent_version_id: { type: string, format: uuid }
+        version_seq: { type: integer }
+        content: { type: string }
+        retention_block:
+          type: object
+          description: Parsed YAML frontmatter; see SKILL_FORMAT.md
+        diff_summary: { type: string }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string }
+
+    FailureCluster:
+      type: object
+      required: [id, label, severity, cluster_size]
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string }
+        label: { type: string }
+        label_eval_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "D4 cluster-label-vs-human agreement score."
+        severity:
+          type: string
+          enum: [high, medium, low]
+        cluster_size: { type: integer }
+        quality_score: { type: number, description: "HDBSCAN persistence; below threshold → 'more iterations needed' UI." }
+
+    Trace:
+      type: object
+      required: [id, events, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string }
+        iteration_id: { type: string, format: uuid }
+        skill_version_id: { type: string, format: uuid }
+        events:
+          type: array
+          description: Typed AgentEvent (see packages/trace-format/)
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        token_usage: { type: object }
+
+    # ---------- SSE event types ----------
+    SSEEvent:
+      oneOf:
+        - $ref: '#/components/schemas/GateProgressEvent'
+        - $ref: '#/components/schemas/IterationCompletedEvent'
+        - $ref: '#/components/schemas/ProposalStateChangedEvent'
+        - $ref: '#/components/schemas/AuditAppendedEvent'
+        - $ref: '#/components/schemas/LiftUpdatedEvent'
+        - $ref: '#/components/schemas/MetaEvalProgressEvent'
+        - $ref: '#/components/schemas/SimGeneratedEvent'
+      discriminator:
+        propertyName: type
+
+    GateProgressEvent:
+      type: object
+      required: [type, iteration_id, step]
+      properties:
+        type: { type: string, enum: [gate_progress] }
+        iteration_id: { type: string, format: uuid }
+        step:
+          type: string
+          enum: [running-prior-suite, running-val-score, promoting-failures, completed]
+        progress: { type: number, minimum: 0, maximum: 1 }
+        partial_result: { type: object }
+
+    IterationCompletedEvent:
+      type: object
+      required: [type, iteration_id, state]
+      properties:
+        type: { type: string, enum: [iteration_completed] }
+        iteration_id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/IterationState' }
+        sandbox_error_class: { $ref: '#/components/schemas/SandboxErrorClass' }
+        val_score: { type: number }
+
+    ProposalStateChangedEvent:
+      type: object
+      required: [type, proposal_id, new_state]
+      properties:
+        type: { type: string, enum: [proposal_state_changed] }
+        proposal_id: { type: string, format: uuid }
+        new_state: { $ref: '#/components/schemas/ProposalState' }
+
+    AuditAppendedEvent:
+      type: object
+      required: [type, seq, kind]
+      properties:
+        type: { type: string, enum: [audit_appended] }
+        seq: { type: integer, format: int64 }
+        kind: { $ref: '#/components/schemas/AuditKind' }
+        related_id: { type: string, format: uuid }
+
+    LiftUpdatedEvent:
+      type: object
+      required: [type, workflow_id, point]
+      properties:
+        type: { type: string, enum: [lift_updated] }
+        workflow_id: { type: string }
+        point: { $ref: '#/components/schemas/LiftPoint' }
+
+    MetaEvalProgressEvent:
+      type: object
+      required: [type, workflow_id]
+      properties:
+        type: { type: string, enum: [meta_eval_progress] }
+        workflow_id: { type: string }
+        coverage_score: { type: number }
+        per_dimension: { type: object }
+
+    SimGeneratedEvent:
+      type: object
+      required: [type, workflow_id]
+      properties:
+        type: { type: string, enum: [sim_generated] }
+        workflow_id: { type: string }
+        sim_skill_id: { type: string }
+
+    # ---------- errors ----------
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
