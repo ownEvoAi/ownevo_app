@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "ownevo-trace-format",
     "pydantic>=2.7,<3",
+    "asyncpg>=0.29",
 ]
 
 [project.optional-dependencies]
