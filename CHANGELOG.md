@@ -109,6 +109,33 @@ fresh `[Unreleased]` block above it.
   the gate fail-fasts on older (more-load-bearing) cases first.
   Train/test discipline: the `is_test_fold` filter is what the gate
   uses to surface held-out cases; gate runner refuses to train on them.
+- `apps/kernel/src/ownevo_kernel/datasets/m5_metric.py` — M5 scorers
+  (W2.6 prerequisite). Pure numpy. `rmse(predictions, actuals)` for the
+  headline baseline number; `wrmsse(predictions, actuals, weights=,
+  scales=)` per the M5 paper (per-series RMSSE / first-difference scale,
+  weighted by sales-dollar share); `compute_wrmsse_weights_and_scales`
+  derives both from training data; `make_held_out_fold(catalog,
+  val_days=28, test_days=28)` carves the train / val / test day-column
+  split per Phase 0's lock. Refuses zero-scale series so silent +inf
+  results can't slip past. numpy>=1.26,<3 added as a kernel dep.
+- `apps/kernel/src/ownevo_kernel/benchmark/` — `BenchmarkRunner` Protocol
+  + `BenchmarkResult` dataclass + `SyntheticBenchmarkRunner` (PR #5 from
+  the W2 plan; substrate for the gate self-test in W2.2a).
+  `BenchmarkResult.val_score` is the mean reward with `None` (timeout /
+  no-result) counting as 0.0 in the denominator so an agent can't game
+  the aggregate by causing dropouts. `n_passed` / `n_no_result` /
+  `n_tasks` accessors round out what the gate's regression-suite step
+  consumes. `SyntheticBenchmarkRunner` runs in-process — no Docker, no
+  DB, no LLM — so the gate self-test isolates gate logic from sandbox /
+  runtime behavior. Skill exceptions score as 0.0 (definite failure,
+  not missing measurement). Real M5 + Tau3 runners (W2.6 / W7-8) will
+  implement the same Protocol with workflow-specific scoring inside.
+- `apps/kernel/tests/test_skill_format.py` — add coverage for malformed
+  YAML (`"not valid YAML"`), non-dict YAML (`"must be a YAML mapping"`),
+  and the `m` (minutes) unit in `parse_stale_duration`.
+- `apps/kernel/tests/test_trace_collector.py` — add `make_event`
+  validation tests (unknown `type`, missing required field) and an
+  empty-session test that verifies `events == []` is persisted.
 
 ### Changed
 - `apps/kernel/migrations/0001_substrate.sql` — `proposals` table gains
@@ -118,10 +145,10 @@ fresh `[Unreleased]` block above it.
   in `/review`. Migration not yet applied to any deployed DB so this is a
   forward-only edit, not a `0002_*.sql` follow-up.
 - `apps/kernel/src/ownevo_kernel/types.py` — `FailureCluster` gains
-  `centroid: list[float] | None = None` mirroring the SQL `centroid
-  vector(384)` column. Without this, `extra="forbid"` would reject any
-  `SELECT *` from `failure_clusters`. Most readers will continue to fetch
-  via SQL-side pgvector ops; this is for the explicit-fetch path.
+  `centroid: list[float] | None = Field(default=None, min_length=384, max_length=384)`
+  mirroring the SQL `centroid vector(384)` column. Without this, `extra="forbid"`
+  would reject any `SELECT *` from `failure_clusters`. Length constraint enforces
+  the all-MiniLM-L6-v2 dimension at the Pydantic layer.
 - `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — extract
   `_USER_EXCEPTION_EXIT_CODE = 100` as a named constant; runner script
   uses f-string interpolation so the runner side and the classifier
@@ -137,16 +164,6 @@ fresh `[Unreleased]` block above it.
 - `apps/kernel/src/ownevo_kernel/skills/registry.py` — module docstring
   clarifies that `capability_tags` is refreshed on every re-registration
   while `kind` is locked at first registration.
-
-### Tests
-- `apps/kernel/tests/test_skill_format.py` — add coverage for malformed
-  YAML (`"not valid YAML"`), non-dict YAML (`"must be a YAML mapping"`),
-  and the `m` (minutes) unit in `parse_stale_duration`.
-- `apps/kernel/tests/test_trace_collector.py` — add `make_event`
-  validation tests (unknown `type`, missing required field) and an
-  empty-session test that verifies `events == []` is persisted.
-
-
 
 ### Fixed
 - `apps/kernel/migrations/0001_substrate.sql` — close TRUNCATE bypass on the
