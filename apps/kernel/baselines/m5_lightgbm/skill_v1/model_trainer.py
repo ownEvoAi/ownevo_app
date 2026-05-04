@@ -18,7 +18,7 @@ import lightgbm as lgb
 
 from ownevo_kernel.datasets import M5Fold
 
-from .. import FeatureMatrix, RawSeriesData, TrainedModel
+from .. import FeatureMatrix, TrainedModel
 
 # Tight model on purpose: this is the Day-1 floor. The agent will
 # expand depth, leaves, and rounds in W4 once the loop is live.

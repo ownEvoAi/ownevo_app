@@ -33,10 +33,8 @@ def engineer(raw: RawSeriesData, fold: M5Fold) -> FeatureMatrix:
     validation — also fully observed since `|val| == |test|` by
     construction). The agent never sees test cells in training.
 
-    Categoricals are integer-encoded using the train metadata frame so
-    the test frame inherits a stable code mapping. Unseen categories at
-    test time map to -1 (LightGBM treats this as missing under
-    `categorical_feature` semantics).
+    Categoricals are integer-encoded from the series metadata. Train and
+    test use the same series_ids so the code mapping is always stable.
     """
     n_val = len(fold.validation)
     n_test = len(fold.test)
@@ -48,7 +46,7 @@ def engineer(raw: RawSeriesData, fold: M5Fold) -> FeatureMatrix:
 
     train_lag = raw.train_actuals[:, -n_val:]
     test_lag = raw.validation_actuals
-    cat_codes, cat_index = _encode_categorical([m.get("cat_id", "") for m in raw.metadata])
+    cat_codes, _ = _encode_categorical([m.get("cat_id", "") for m in raw.metadata])
 
     train_df = _long_frame(
         series_ids=raw.series_ids,
@@ -64,8 +62,7 @@ def engineer(raw: RawSeriesData, fold: M5Fold) -> FeatureMatrix:
         dow=raw.test_dow,
         cat_codes=cat_codes,
     )
-    test_df = test_df.assign(_test_day_idx=test_df.groupby("series_id").cumcount())
-    del cat_index, n_test
+    del n_test
 
     return FeatureMatrix(
         series_ids=list(raw.series_ids),
