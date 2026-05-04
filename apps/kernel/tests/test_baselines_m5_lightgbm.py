@@ -187,3 +187,86 @@ def test_outlier_handler_drops_zero_movement_series():
     assert cleaned.metadata == [{"cat_id": "HOBBIES"}]
     np.testing.assert_array_equal(cleaned.val_dow, raw.val_dow)
     np.testing.assert_array_equal(cleaned.test_dow, raw.test_dow)
+
+
+def test_outlier_handler_preserves_sparse_demand_series():
+    """Sparse-demand series (≤1% non-zero days) used to be silently
+    destroyed by the unconditional 99th-percentile clip: with cap=0,
+    `np.minimum(row, 0)` zeroed the entire row, and the next step
+    (`_compute_weights_and_scales`) raised because scale=0.
+
+    The fix: skip the clip when its cap is non-positive. Sparse series
+    are then preserved with their raw values intact, and their scale
+    stays > 0 (because `np.diff` on `[0, …, 0, spike, 0, …, 0]` is not
+    all zero). Dropping these series would lose model-able signal that
+    the raw data carries.
+    """
+    from baselines.m5_lightgbm.skill_v1 import outlier_handler
+
+    rng = np.random.default_rng(seed=42)
+    dense = rng.integers(0, 10, size=200).astype(np.float64)
+    sparse = np.zeros(200, dtype=np.float64)
+    sparse[100] = 5.0  # one isolated spike — pre-fix, gets clipped to all 0
+
+    raw = RawSeriesData(
+        series_ids=["dense", "sparse"],
+        train_actuals=np.stack([dense, sparse]),
+        validation_actuals=np.zeros((2, 28)),
+        test_actuals=np.zeros((2, 28)),
+        dollar_volume=None,
+        metadata=[{"item_id": "dense"}, {"item_id": "sparse"}],
+        val_dow=np.zeros(28, dtype=np.int64),
+        test_dow=np.zeros(28, dtype=np.int64),
+    )
+
+    cleaned = outlier_handler.handle(raw)
+    assert cleaned.series_ids == ["dense", "sparse"], (
+        f"both series should be preserved; got {cleaned.series_ids}"
+    )
+    # The sparse row's spike is intact (not clipped to zero).
+    assert cleaned.train_actuals[1, 100] == 5.0
+    # Every kept series satisfies the WRMSSE-scale > 0 contract that
+    # _compute_weights_and_scales checks immediately downstream.
+    diffs = np.diff(cleaned.train_actuals, axis=1)
+    scales = np.sqrt(np.mean(diffs * diffs, axis=1))
+    assert np.all(scales > 0), f"all kept series must have scale > 0; got {scales}"
+
+
+def test_outlier_handler_real_m5_shape_runs_without_zero_scale():
+    """Pre-fix regression: on real M5 (30,490 series × 1,857 train days),
+    a non-trivial fraction of series are intermittent-demand and trip the
+    'percentile=0 → clip→0 → scale=0' chain. The kept output must always
+    satisfy scale > 0; the runner downstream depends on this invariant.
+
+    This synthesises the relevant real-M5 shape — many series, few of
+    which are sparse — without requiring the actual CSVs at test time.
+    """
+    from baselines.m5_lightgbm.skill_v1 import outlier_handler
+
+    rng = np.random.default_rng(seed=7)
+    n_series, n_days = 50, 1857  # real M5 train length
+    train = rng.integers(0, 5, size=(n_series, n_days)).astype(np.float64)
+    # Replace 5 of the rows with deliberately-sparse demand patterns
+    for i in range(5):
+        train[i] = 0.0
+        # Spike at a single random day — << 1% non-zero
+        train[i, rng.integers(0, n_days)] = float(rng.integers(1, 10))
+
+    raw = RawSeriesData(
+        series_ids=[f"s{i:03d}" for i in range(n_series)],
+        train_actuals=train,
+        validation_actuals=np.zeros((n_series, 28)),
+        test_actuals=np.zeros((n_series, 28)),
+        dollar_volume=None,
+        metadata=[{"item_id": f"s{i:03d}"} for i in range(n_series)],
+        val_dow=np.zeros(28, dtype=np.int64),
+        test_dow=np.zeros(28, dtype=np.int64),
+    )
+
+    cleaned = outlier_handler.handle(raw)
+    diffs = np.diff(cleaned.train_actuals, axis=1)
+    scales = np.sqrt(np.mean(diffs * diffs, axis=1))
+    assert np.all(scales > 0), (
+        f"outlier_handler invariant broken: {int((scales <= 0).sum())} "
+        f"output series have scale <= 0"
+    )
