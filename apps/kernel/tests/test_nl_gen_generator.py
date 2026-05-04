@@ -33,7 +33,7 @@ from ownevo_kernel.nl_gen.fixtures import DESCRIPTIONS, FIXTURES
 from ownevo_kernel.nl_gen.workflow_spec_generator import (
     SYSTEM_PROMPT,
     TOOL_NAME,
-    _tool_definition,
+    _TOOL_DEFINITION,
 )
 
 
@@ -86,7 +86,7 @@ def _text_block(text: str) -> SimpleNamespace:
 
 
 def test_tool_definition_shape():
-    td = _tool_definition()
+    td = _TOOL_DEFINITION
     assert td["name"] == TOOL_NAME
     assert td["description"]
     schema = td["input_schema"]
@@ -204,6 +204,18 @@ async def test_extra_field_in_tool_input_raises_validation_error():
     )
     with pytest.raises(WorkflowSpecValidationError):
         await generate_workflow_spec(client, "describe me")
+
+
+async def test_flat_tool_input_without_spec_wrapper_round_trips():
+    """Model emits spec un-wrapped at top level (no 'spec' key) — fallback path."""
+    fixture = FIXTURES["demand-prediction"]
+    payload = json.loads(fixture.model_dump_json())  # no {"spec": ...} wrapper
+    client = _FakeClient(
+        _ScriptedResponse(content=[_tool_use_block(TOOL_NAME, payload)])
+    )
+    result = await generate_workflow_spec(client, "describe me")
+    assert isinstance(result, WorkflowSpec)
+    assert result == fixture
 
 
 # ---------------------------------------------------------------------------

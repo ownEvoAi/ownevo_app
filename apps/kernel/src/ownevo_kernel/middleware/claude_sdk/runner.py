@@ -266,6 +266,15 @@ async def run_agent_turn(
     dispatch is identical. Useful for backends where streaming breaks
     tool-call translation (e.g., Ollama via LiteLLM proxy).
 
+    `enable_prompt_caching` (default False) wraps the system prompt
+    and the last tool definition in `cache_control: {type: "ephemeral"}`
+    markers. On Anthropic cloud, this enables prompt caching: cache_read
+    tokens cost ~10% of cache_creation tokens with 5-minute TTL, cutting
+    multi-iteration cost ~80%. LMS Anthropic shim caches automatically
+    without markers (per F8 in docs/local-model-testing.md), so this
+    flag is a no-op for LMS but a major saving on cloud. Defaults False
+    so existing tests' `system="..."` string assertions don't change.
+
     LMS strict-validation recovery: LM Studio's Anthropic-compat shim
     aborts streams with "Failed to generate a valid tool call" when
     the model emits malformed tool-use output. By design — the shim

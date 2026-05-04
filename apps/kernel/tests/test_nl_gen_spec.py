@@ -287,9 +287,9 @@ def test_workflow_spec_emits_json_schema():
     required = set(schema.get("required", []))
     for f in ("id", "domain", "environment", "tools",
               "reviewer", "success_criterion", "ui"):
-        assert f in required
+        assert f in required, f"'{f}' missing from required: {required}"
     assert "description" not in required
-    assert "description" not in schema["properties"], f"expected '{f}' in required: {required}"
+    assert "description" not in schema["properties"]
 
 
 def test_provenance_kind_is_a_locked_literal_in_schema():

@@ -25,6 +25,9 @@ def _load_dotenv() -> None:
     """
     here = Path(__file__).resolve()
     for parent in (here.parent, *here.parents):
+        # Stop at the repo root — don't pick up ~/.env or /root/.env.
+        if (parent / ".git").exists() and parent != here.parent:
+            break
         candidate = parent / ".env"
         if candidate.is_file():
             for raw in candidate.read_text().splitlines():

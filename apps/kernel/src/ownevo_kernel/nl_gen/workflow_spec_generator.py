@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from .spec import WorkflowSpec
+from .spec import SCHEMA_VERSION, WorkflowSpec
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
@@ -71,7 +71,7 @@ SYSTEM_PROMPT = (
     "direction, and describe what counts as a correct outcome in the "
     "user's words. A later step generates the full metric formula.\n"
     "7. Use kebab-case for `id` (lowercase letters, digits, dashes only).\n"
-    "8. Set `schema_version` to \"0.1\". Do not invent extra fields."
+    f"8. Set `schema_version` to \"{SCHEMA_VERSION}\". Do not invent extra fields."
 )
 
 
@@ -97,7 +97,7 @@ class NoToolUseError(NLGenError):
         self.content_preview = content_preview
 
 
-def _tool_definition() -> dict[str, Any]:
+def _build_tool_definition() -> dict[str, Any]:
     """Anthropic tool definition.
 
     Wraps `WorkflowSpec` under a `spec` parameter rather than inlining its
@@ -107,16 +107,30 @@ def _tool_definition() -> dict[str, Any]:
     Explicit wrapping matches that behavior so structured output is robust
     across the model tier; larger models accept the wrapper without
     issue. We unwrap in `generate_workflow_spec` before validating.
+
+    `$defs` from the spec schema are hoisted to the `input_schema` root so
+    that `$ref: "#/$defs/..."` pointers resolve correctly — JSON Schema `#/`
+    refs resolve against the document root (`input_schema`), not the embedded
+    `spec` sub-schema where Pydantic originally placed them.
     """
+    spec_schema = WorkflowSpec.model_json_schema()
+    defs = spec_schema.pop("$defs", {})
+    input_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"spec": spec_schema},
+        "required": ["spec"],
+    }
+    if defs:
+        input_schema["$defs"] = defs
     return {
         "name": TOOL_NAME,
         "description": TOOL_DESCRIPTION,
-        "input_schema": {
-            "type": "object",
-            "properties": {"spec": WorkflowSpec.model_json_schema()},
-            "required": ["spec"],
-        },
+        "input_schema": input_schema,
     }
+
+
+_TOOL_DEFINITION: dict[str, Any] = _build_tool_definition()
+"""Computed once at import time — WorkflowSpec schema is static."""
 
 
 async def generate_workflow_spec(
@@ -147,7 +161,7 @@ async def generate_workflow_spec(
         model=model,
         max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
-        tools=[_tool_definition()],
+        tools=[_TOOL_DEFINITION],
         tool_choice={"type": "tool", "name": TOOL_NAME},
         messages=[{"role": "user", "content": description}],
     )

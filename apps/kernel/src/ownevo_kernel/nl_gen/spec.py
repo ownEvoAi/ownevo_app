@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Literal
 
 from ownevo_format import UIPrimitive
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "0.1"
 """Bumps to "1.0" at A3.4 (end of W3) per docs/PLAN.md schema-freeze."""
@@ -44,7 +44,7 @@ FieldType = Literal["string", "int", "float", "bool", "date", "datetime", "categ
 
 
 class _Base(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class Provenance(_Base):
@@ -139,6 +139,19 @@ class WorkflowEnvironment(_Base):
     personas: list[Persona] = Field(default_factory=list)
     seasonality: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _unique_names(self) -> "WorkflowEnvironment":
+        for label, items, key in [
+            ("entities", self.entities, lambda e: e.name),
+            ("data_sources", self.data_sources, lambda d: d.id),
+            ("env_generators", self.env_generators, lambda g: g.name),
+        ]:
+            names = [key(i) for i in items]  # type: ignore[operator]
+            if len(names) != len(set(names)):
+                dupes = {n for n in names if names.count(n) > 1}
+                raise ValueError(f"{label} contains duplicate names: {dupes}")
+        return self
+
 
 class ToolParam(_Base):
     name: str = Field(min_length=1)
@@ -221,8 +234,8 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: str = Field(default=SCHEMA_VERSION, pattern=r"^\d+\.\d+$")
-    id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    schema_version: Literal["0.1"] = SCHEMA_VERSION
+    id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment
     tools: list[AgentTool] = Field(min_length=1)
@@ -230,6 +243,14 @@ class WorkflowSpec(_Base):
     reviewer: ReviewerSpec
     success_criterion: SuccessCriterionStub
     ui: UILayout
+
+    @model_validator(mode="after")
+    def _unique_tool_names(self) -> "WorkflowSpec":
+        names = [t.name for t in self.tools]
+        if len(names) != len(set(names)):
+            dupes = {n for n in names if names.count(n) > 1}
+            raise ValueError(f"tools contains duplicate names: {dupes}")
+        return self
 
 
 __all__ = [
