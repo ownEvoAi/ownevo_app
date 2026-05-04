@@ -136,7 +136,7 @@ def test_trajectory_envelope_shape(fixture_id, plan, spec):
     ns = _exec_skill_body(plan, spec)
     result = ns["run_simulation"](seed=plan.seed_default, n_steps=5)
     assert result["workflow_spec_id"] == spec.id
-    assert result["schema_version"] == "0.1"
+    assert result["schema_version"] == "1.0"
     assert result["seed"] == plan.seed_default
     assert result["n_steps"] == 5
     assert isinstance(result["trajectory"], list)

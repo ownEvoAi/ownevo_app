@@ -11,8 +11,12 @@ Conventions enforced here:
   - ToolCallResult.error is non-null iff status="error"
   - AgentEventAdapter is the canonical entry point for parsing dict -> typed event
 
-Versioning: spec is at v0.1 (pre-W3 freeze). Bumps to 1.0 at end-of-W3
-schema-freeze deliverable in `docs/PLAN.md`.
+Versioning: spec is at v1.0 (frozen 2026-05-04 per PLAN.md A3.4
+schema-freeze; tag `v1.0-frozen-2026-W3`). Drift detection lives in
+`tests/test_schema_freeze.py` against the snapshot at
+`schemas/agent_event.v1.0.json`. To intentionally change the schema,
+bump SPEC.md + this docstring, regenerate via
+`scripts/regen_schemas.py`, and re-test the W7 UI rendering.
 """
 
 from __future__ import annotations
