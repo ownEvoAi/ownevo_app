@@ -42,4 +42,4 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 
 ## Status
 
-**Week 2 (W2.6).** W1 substrate complete (DB schema, sandbox, skills, traces, M5 loader). W2 spine complete: eval cases, audit log, agent tools, regression gate, loop-stuck observability, M5 `BenchmarkRunner`, and LightGBM baseline skills. Next: sandbox flip to `LocalDockerSandbox` + reproducibility CI (W2.6c/d), then W3 clustering pipeline.
+**W2 complete — v0.1.0-w2 (2026-05-04).** All W2 rows green on main. W1 substrate (DB schema, sandbox, skills, traces, M5 loader) + W2: eval cases, audit log, agent tools, regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI, non-M5 substrate proof (labour shift validator). Next: bootstrap loop seeding (BL.1-3), then W3 failure clustering pipeline (sentence-transformers + UMAP + HDBSCAN).

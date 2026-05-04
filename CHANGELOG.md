@@ -17,6 +17,8 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.1.0-w2] — 2026-05-04
+
 ### Added
 - `apps/kernel/src/ownevo_kernel/approvals/` +
   `apps/kernel/src/ownevo_kernel/api/` +
@@ -491,6 +493,49 @@ fresh `[Unreleased]` block above it.
   legal transitions, terminal-state guards, audit-kind coupling, and the
   autonomous-mode path. Boundary/constraint tests added across both packages.
   64 tests pass.
+- `apps/web/public/styles/shell.css` — added missing inbox, filter-chip,
+  gate-badge, and inbox-icon CSS classes; `.inbox-icon svg` now sets
+  `width/height: 16px; fill: none; stroke: currentColor` — without these,
+  SVGs without explicit dimensions defaulted to 300×150px with a black fill
+  in Chrome and the filter-chip / count layout was unstyled.
+- `apps/web/lib/api.ts` — `KernelApiError` now correctly parses FastAPI
+  Pydantic 422 errors, which return `detail` as an array of `{loc, msg,
+  type}` objects; previously the array was cast as `{ detail?: string }` and
+  coerced to `"[object Object]"` in the error message.
+- `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` — `state` query
+  parameter now carries a regex pattern validator; without it, invalid state
+  strings were cast `::proposal_state` in SQL and surfaced as an unhandled
+  Postgres `InvalidTextRepresentationError` (500) instead of a FastAPI 422.
+- `apps/kernel/src/ownevo_kernel/approvals/service.py` — `ApprovalStateError`
+  now inherits from `Exception` instead of `ValueError`; the prior inheritance
+  created a catch-order footgun where reordering the `except` blocks in the
+  route handler would silently map 409 Conflict responses to 422.
+- `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` — removed redundant
+  `fetchval` round-trip after `_decide`; new proposal state is deterministic
+  from the decision (`approved-awaiting-deploy` on approve, `rejected` on
+  reject) and does not require a second DB read.
+- `apps/web/next.config.mjs` — removed `OWNEVO_KERNEL_API_URL` from the
+  Next.js `env` block; that block uses webpack `DefinePlugin` to inline values
+  into all bundles (client + server). The kernel URL should stay server-only
+  in `process.env`.
+- `apps/web/app/inbox/page.tsx` — replaced single 50-item unfiltered fetch
+  with two parallel calls: `state=gate-passed` (limit 200) for the pending
+  queue and an unfiltered call (limit 50) for history. Previously, if total
+  proposals exceeded 50 the filter-chip count and subtitle were wrong and
+  gate-passed proposals could be silently omitted from the queue.
+- `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` — `audit_entries`
+  fetch in `get_proposal` capped at `LIMIT 500` (was unbounded; the WORM log
+  grows monotonically and an uncapped fetch is an OOM/latency risk).
+- `apps/kernel/tests/test_api_proposals.py` — added reject 404 / 409 /
+  422-whitespace-`decided_by` tests; the reject endpoint had happy-path +
+  comment-to-eval-case coverage but no failure-path parity with approve.
+- `pyproject.toml` / `uv.lock` — `ownevo-kernel` now declared with
+  `[baselines-m5,api,test]` extras in the workspace dev group. `uv sync
+  --all-extras` activates extras only for the root workspace package (which
+  defines none), so `pandas` and `lightgbm` were never installed in CI —
+  `test_sandboxed_matches_in_process_predictions` failed with
+  `ModuleNotFoundError: No module named 'pandas'` on every push that touched
+  the M5 paths.
 
 ### Security
 - `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` — close TODO-17
