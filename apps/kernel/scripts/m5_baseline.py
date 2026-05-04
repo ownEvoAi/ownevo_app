@@ -129,7 +129,8 @@ async def main_async(args: CliArgs) -> int:
     runner = M5BenchmarkRunner(catalog=catalog, fold=fold, pipeline_fn=run_baseline)
     result = await runner.run()
     arts = runner.last_artifacts
-    assert arts is not None  # populated by run()
+    if arts is None:
+        raise RuntimeError("M5BenchmarkRunner.run() did not populate last_artifacts")
 
     summary = {
         "val_score": round(result.val_score, 6),
@@ -152,7 +153,11 @@ async def main_async(args: CliArgs) -> int:
 
     import asyncpg
 
-    conn = await asyncpg.connect(db_url)
+    try:
+        conn = await asyncpg.connect(db_url, timeout=10)
+    except (asyncpg.PostgresConnectionFailureError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 4
     try:
         await record_baseline(
             conn,
@@ -190,26 +195,38 @@ async def record_baseline(
          keeps `version_seq` from incrementing on every replay.
       3. Append one `iterations` row at `MAX(iteration_index)+1` so
          re-runs cleanly stack alongside prior replays.
+
+    All three steps run inside a single transaction. The workflow row is
+    locked (`SELECT … FOR UPDATE`) before the skill registration and
+    iteration insert, serializing concurrent re-runs so they don't both
+    read MAX(iteration_index)=-1 and collide on the UNIQUE constraint.
     """
     from ownevo_kernel.skills.registry import get_head, register_skill
 
-    await _ensure_workflow_row(conn, workflow_id)
-    skill_dir = skill_files_dir()
-    for fname in SKILL_FILES:
-        content = (skill_dir / fname).read_text()
-        existing = await _existing_head_for_content(conn, get_head, content)
-        if existing is None:
-            await register_skill(
-                conn,
-                content,
-                created_by="bootstrap-m5-baseline",
-                diff_summary=f"bootstrap: {fname}",
-            )
-    await _insert_baseline_iteration(
-        conn,
-        workflow_id=workflow_id,
-        val_score=val_score,
-    )
+    async with conn.transaction():
+        await _ensure_workflow_row(conn, workflow_id)
+        # Serialize concurrent runs: lock the workflow row before reads that
+        # feed subsequent inserts (skill version_seq + iteration_index).
+        await conn.execute(
+            "SELECT id FROM workflows WHERE id = $1 FOR UPDATE",
+            workflow_id,
+        )
+        skill_dir = skill_files_dir()
+        for fname in SKILL_FILES:
+            content = (skill_dir / fname).read_text()
+            existing = await _existing_head_for_content(conn, get_head, content)
+            if existing is None:
+                await register_skill(
+                    conn,
+                    content,
+                    created_by="bootstrap-m5-baseline",
+                    diff_summary=f"bootstrap: {fname}",
+                )
+        await _insert_baseline_iteration(
+            conn,
+            workflow_id=workflow_id,
+            val_score=val_score,
+        )
 
 
 async def _ensure_workflow_row(conn, workflow_id: str) -> None:

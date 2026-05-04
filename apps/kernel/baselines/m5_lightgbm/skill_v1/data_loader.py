@@ -17,7 +17,6 @@ from __future__ import annotations
 import csv
 
 import numpy as np
-
 from ownevo_kernel.datasets import M5Catalog, M5Fold
 
 from .. import RawSeriesData
@@ -40,6 +39,11 @@ def load(
     LightGBM iteration will pull it in. Uniform weights are used for
     WRMSSE in the meantime.
     """
+    if series_ids is not None and len(series_ids) == 0:
+        raise ValueError(
+            "series_ids must be None (load all series) or a non-empty list; "
+            "got an empty list — this would produce a 1D ndarray downstream."
+        )
     train_idx, val_idx, test_idx = _fold_column_indices(catalog, fold)
     requested: set[str] | None = set(series_ids) if series_ids is not None else None
 
@@ -51,8 +55,9 @@ def load(
     with catalog.sales_train.path.open() as f:
         reader = csv.reader(f)
         header = next(reader)
+        id_col = header.index("id")
         for row in reader:
-            sid = row[header.index("id")]
+            sid = row[id_col]
             if requested is not None and sid not in requested:
                 continue
             keep_ids.append(sid)

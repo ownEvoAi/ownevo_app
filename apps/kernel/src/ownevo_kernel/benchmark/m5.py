@@ -15,9 +15,9 @@ RMSSE — the M5 paper's per-series scaled error — into [0, 1] via:
 `exp(-x)` is monotonically decreasing in error and bounded in (0, 1]:
 perfect prediction (rmsse=0) → 1.0; rmsse=1 → ~0.37; rmsse=2 → ~0.14.
 Mean across series gives a single scalar `val_score` the gate can compare
-iteration-to-iteration. The aggregate WRMSSE/RMSE that sit on
-`M5RunArtifacts` are the human-facing summary numbers (recorded in
-`iterations.val_score` for the lift chart).
+iteration-to-iteration. WRMSSE/RMSE are the human-facing summary numbers
+printed to stdout; `iterations.val_score` stores the gate metric
+`mean(exp(-RMSSE_i))` (in (0, 1]), not WRMSSE-scale values.
 
 Series with `scale_i == 0` (intermittent items with zero training movement)
 are filtered before scoring — `wrmsse()` rejects them with ValueError, and
@@ -136,7 +136,8 @@ class M5BenchmarkRunner:
         self,
         task_ids: list[str] | None = None,
     ) -> BenchmarkResult:
-        out = self.pipeline_fn(self.catalog, self.fold, task_ids)
+        import asyncio
+        out = await asyncio.to_thread(self.pipeline_fn, self.catalog, self.fold, task_ids)
         _validate_pipeline_output(out)
 
         rewards = _compute_rewards(out.predictions, out.actuals, out.scales, out.series_ids)
@@ -170,7 +171,7 @@ def _compute_rewards(
     actuals: np.ndarray,
     scales: np.ndarray,
     series_ids: list[str],
-) -> dict[str, float | None]:
+) -> dict[str, float]:
     """Per-series reward = exp(-RMSSE_i). Pure numpy, no pandas."""
     if len(series_ids) != predictions.shape[0]:
         raise ValueError(
@@ -207,3 +208,10 @@ def _validate_pipeline_output(out: M5PipelineOutput) -> None:
             "pipeline returned scales <= 0 — filter zero-scale series "
             "(intermittent items with no training movement) upstream.",
         )
+    if not np.all(np.isfinite(out.predictions)):
+        raise ValueError(
+            "pipeline returned NaN or inf in predictions — the gate would "
+            "store NaN in iterations.val_score and silently break forever.",
+        )
+    if not np.all(np.isfinite(out.actuals)):
+        raise ValueError("pipeline returned NaN or inf in actuals.")

@@ -15,7 +15,6 @@ retention:
 from __future__ import annotations
 
 import numpy as np
-
 from ownevo_kernel.datasets import M5Fold
 
 from .. import FeatureMatrix, RawSeriesData
@@ -24,8 +23,8 @@ from .. import FeatureMatrix, RawSeriesData
 def engineer(raw: RawSeriesData, fold: M5Fold) -> FeatureMatrix:
     """Build the seasonal-naive feature: the last 28 training days per series.
 
-    `predictor.predict` consumes `last_28_train` directly as the next
-    28-day forecast (canonical seasonal-naive baseline).
+    `predictor.predict` consumes `last_n_train` directly as the next
+    n-day forecast (canonical seasonal-naive baseline).
 
     LightGBM v2 will extend this with lag/rolling/categorical features
     and reshape the matrix to long form (one row per (series, day)).
