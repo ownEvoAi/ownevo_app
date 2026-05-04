@@ -179,20 +179,60 @@ Two hypotheses:
 
 ### F4 — 8B-class models stall in the read-loop, never commit to write_skill
 
-| Model | Backend | iter | tool_calls | tool_errors | input | cache_read | Outcome |
-|---|---|---|---|---|---|---|---|
-| `granite-4.1-8b` | LMS Anthropic | 25 (max) | 25 | 11 | 80K | 64K | ⚠️ stall |
-| `ibm/granite-3.2-8b` | LMS Anthropic | 25 (max) | 25 | 0 | 102K | 98K | ⚠️ stall |
+| Model | Backend | iter | tool_calls | tool_errors | input | cache_read | output | Outcome |
+|---|---|---|---|---|---|---|---|---|
+| `granite-4.1-8b` | LMS Anthropic | 25 (max) | 25 | 11 | 80K | 64K | 10K | ⚠️ stall |
+| `ibm/granite-3.2-8b` | LMS Anthropic | 25 (max) | 25 | 0 | 102K | 98K | 8.5K | ⚠️ stall |
+| `meta-llama-3.1-8b-instruct` | LMS Anthropic | 25 (max) | 25 | 0 | 84K | 80K | **650** | ⚠️ stall (extreme) |
 
-Both 8B models read + explore the workflow but never commit to a
-hypothesis. Granite-3.2 is "cleaner" (zero tool errors, more
-context navigated) but still doesn't propose a fix. Anthropic
-caching working as expected (`cache_read` ~80% of input).
+All three 8B models read + explore the workflow but never commit to
+a hypothesis. Anthropic prompt caching works as expected
+(`cache_read` ~80% of input). The most extreme case (llama-3.1-8b)
+generated only 650 output tokens across 25 turns — ~26 tokens per
+turn, essentially mechanical tool-calling with no reasoning trace.
 
-**Takeaway:** at 8B scale, models can navigate tool errors but lack
-the "commit to fix" capability for this M5 task. Phase 1 will
-likely surface the same pattern at 9–14B; the productive zone is
-likely 24–32B based on the sole working data point so far.
+**Takeaway (refined by F5 below):** the 8B stall is a real
+capability gap, but the gap doesn't close at 14B or 32B either —
+size alone is not the issue. See F5.
+
+### F5 — qwen3-coder-30b is the only LMS-Anthropic model that reliably drives the loop (10 runs, 1 PASS)
+
+After 10 LMS-Anthropic-streaming runs spanning 8B → 32B, the only
+PASS is `qwen/qwen3-coder-30b` (val_score 0.4642 on synthetic, 19
+iter, 18 calls, 11 tool errors recovered, 157K input / 142K
+cache_read / 14K output). The remaining 9 runs fail in 5 distinct
+modes:
+
+| Mode | Models hit |
+|---|---|
+| **Read-loop stall** (no commit, output token count tiny) | granite-4.1-8b, granite-3.2-8b, llama-3.1-8b |
+| **Output exhaustion** (max_tokens after 1–2 iter) | omnicoder-9b |
+| **Tool-format struggle** (errors > 50%) | phi-4 (68%), qwen2.5-coder-32b (48%), qwen3-32b base (96%) |
+| **Adapter rejection** (LMS shim refuses output) | qwen3.5-27b Claude-distill, qwen3.6-35b/27b, devstral-small-2 |
+| **LMS-side load failure** | qwen3-30b-a3b-2507 |
+
+**The capability is in the fine-tune, not the size.** qwen3-32b
+(dense base) at the same size as qwen3-coder-30b had the *worst*
+tool-format compliance of any model tested (96% errors). qwen2.5-coder
+(prior coder generation) at 32B couldn't commit either. Only
+qwen3-coder's specific training distribution — code + tool-use +
+agentic recovery — produces the "drive the loop end-to-end" stack.
+
+**Implications:**
+
+- **Phase 3 picks itself.** With the current substrate
+  (`run_agent_turn` + Anthropic streaming via LMS), the only viable
+  local model for the M5 improvement loop is `qwen/qwen3-coder-30b`.
+  Either Phase 3 runs on it as a single-model result, or the
+  substrate is expanded.
+- **F1 fix #2 (PR #24) is high-leverage.** It opens the Ollama side
+  with `qwen3-coder:30b` direct (apples-to-apples confirmation) and
+  unlocks Ollama-only 30B coders (`qwen3:30b-instruct`, `qwen3:30b-a3b`)
+  that may also work.
+- **Don't waste the sweep on more 8B–14B models.** The pattern is
+  consistent. Future sweeps should jump straight to 27B+ class with
+  fine-tunes that target tool-use (qwen3-coder, devstral coder
+  variants, future qwen3.6-coder when released).
 
 ---
 
