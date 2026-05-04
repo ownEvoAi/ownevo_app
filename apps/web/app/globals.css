@@ -1,0 +1,6 @@
+/* Mock CSS lifted verbatim from www/preview/s26-rk7p3/ — single source
+   of truth for shell tokens + workflow primitives. Polish in W5 will
+   pull these into a build pipeline; for now `next dev` serves them
+   from public/styles. */
+@import url('/styles/shell.css');
+@import url('/styles/primitives.css');
