@@ -78,6 +78,11 @@ def _result(
 
 
 def test_returns_latest_successful_write_skill():
+    """`content` lives on the tool_call_result output (built by the
+    dispatcher from the agent's structured args), not on the start
+    event's args. The agent sends skill_id/kind/body/retention; the
+    dispatcher constructs the canonical content and echoes it in the
+    result so this extractor reads what the registry actually persisted."""
     version_id = uuid4()
     events = [
         _start("c1", "read_skill", {"skill_id": "m5.baseline.v1.predictor"}),
@@ -91,7 +96,9 @@ def test_returns_latest_successful_write_skill():
             "write_skill",
             {
                 "skill_id": "m5.baseline.v1.predictor",
-                "content": "BODY-V2",
+                "kind": "python",
+                "body": "def predict(): pass",
+                "retention": {"stateless": True},
                 "diff_summary": "tweak clip floor",
             },
         ),
@@ -102,6 +109,7 @@ def test_returns_latest_successful_write_skill():
                 "skill_id": "m5.baseline.v1.predictor",
                 "version_id": str(version_id),
                 "version_seq": 2,
+                "content": "BODY-V2",
             },
         ),
     ]
@@ -142,7 +150,12 @@ def test_ignores_errored_write_skill():
         _start(
             "c1",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.predictor", "content": "BAD"},
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "x",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c1",
@@ -167,7 +180,12 @@ def test_picks_last_successful_write_when_multiple():
         _start(
             "c1",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.predictor", "content": "FIRST"},
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "x",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c1",
@@ -176,12 +194,18 @@ def test_picks_last_successful_write_when_multiple():
                 "skill_id": "m5.baseline.v1.predictor",
                 "version_id": str(v1),
                 "version_seq": 2,
+                "content": "FIRST",
             },
         ),
         _start(
             "c2",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.feature_engineer", "content": "SECOND"},
+            {
+                "skill_id": "m5.baseline.v1.feature_engineer",
+                "kind": "python",
+                "body": "y",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c2",
@@ -190,6 +214,7 @@ def test_picks_last_successful_write_when_multiple():
                 "skill_id": "m5.baseline.v1.feature_engineer",
                 "version_id": str(v2),
                 "version_seq": 2,
+                "content": "SECOND",
             },
         ),
     ]
@@ -211,7 +236,12 @@ def test_skips_errored_write_between_successful_ones():
         _start(
             "c1",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.predictor", "content": "OK1"},
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "x",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c1",
@@ -220,12 +250,18 @@ def test_skips_errored_write_between_successful_ones():
                 "skill_id": "m5.baseline.v1.predictor",
                 "version_id": str(v1),
                 "version_seq": 2,
+                "content": "OK1",
             },
         ),
         _start(
             "c2",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.predictor", "content": "BAD"},
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "y",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c2",
@@ -247,16 +283,52 @@ def test_skips_errored_write_between_successful_ones():
 
 
 def test_returns_none_on_malformed_result_output():
+    """Result output missing version_id / content → return None rather
+    than crash. Malformed outputs shouldn't propagate as a half-built
+    proposal."""
     events = [
         _start(
             "c1",
             "write_skill",
-            {"skill_id": "m5.baseline.v1.predictor", "content": "X"},
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "x",
+                "retention": {"stateless": True},
+            },
         ),
         _result(
             "c1",
             "write_skill",
             output={"skill_id": "m5.baseline.v1.predictor"},
+        ),
+    ]
+    assert _extract_latest_write_skill(events) is None
+
+
+def test_returns_none_on_missing_content_in_result():
+    """Result output missing the dispatcher-built `content` → return
+    None. Without canonical content the bind-mount path can't run."""
+    events = [
+        _start(
+            "c1",
+            "write_skill",
+            {
+                "skill_id": "m5.baseline.v1.predictor",
+                "kind": "python",
+                "body": "x",
+                "retention": {"stateless": True},
+            },
+        ),
+        _result(
+            "c1",
+            "write_skill",
+            output={
+                "skill_id": "m5.baseline.v1.predictor",
+                "version_id": str(uuid4()),
+                "version_seq": 2,
+                # `content` deliberately missing
+            },
         ),
     ]
     assert _extract_latest_write_skill(events) is None

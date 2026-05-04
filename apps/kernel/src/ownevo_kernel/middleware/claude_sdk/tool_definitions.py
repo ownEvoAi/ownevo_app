@@ -55,6 +55,7 @@ from ...agent_tools.skills import (
     write_skill,
 )
 from ...sandbox import LocalDockerSandbox
+from ...skills import build_skill_content
 
 _ERROR_MESSAGE_MAX_CHARS = 4096
 """Cap on tool-error messages handed back to the model. A LightGBM
@@ -134,27 +135,68 @@ def kernel_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "write_skill",
             "description": (
-                "Register a new version of a skill. The frontmatter id inside "
-                "`content` MUST equal `skill_id`; mismatches are rejected with "
-                "SkillFormatError before any DB write. The new version becomes "
-                "the head; the prior head is retained as version history. "
-                "Pair with run_pipeline to validate the new version before the "
-                "gate runs."
+                "Register a new version of a skill. Provide structured fields — "
+                "the kernel constructs the canonical file with YAML frontmatter "
+                "and (for Python skills) the docstring wrapper. You do NOT emit "
+                "YAML, `---` markers, or `\"\"\"` markers anywhere; just the "
+                "executable body. The new version becomes the head; the prior "
+                "head is retained as version history. Pair with run_pipeline to "
+                "validate before the gate runs."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "skill_id": {
                         "type": "string",
-                        "description": "Skill id (must match frontmatter).",
+                        "description": (
+                            "Skill id, e.g. `m5.baseline.v1.feature_engineer`. "
+                            "Use the same id as the version you read with "
+                            "read_skill."
+                        ),
                     },
-                    "content": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["python", "instruction", "composite"],
+                        "description": (
+                            "Skill kind. `python` for executable Python skills "
+                            "the sandbox runs; `instruction` for markdown "
+                            "guidance; `composite` for multi-skill bundles."
+                        ),
+                    },
+                    "body": {
                         "type": "string",
                         "description": (
-                            "Full skill source including YAML frontmatter. "
-                            "For Python skills, the frontmatter is the "
-                            "module-level docstring's `---` block."
+                            "Skill body. For kind=python, the executable Python "
+                            "source ONLY (imports + functions + module code). "
+                            "Do NOT include `\"\"\"`, `---`, or any YAML — the "
+                            "kernel adds them. For kind=instruction/composite, "
+                            "the markdown body."
                         ),
+                    },
+                    "capability_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of capability tags (e.g. "
+                            "['m5', 'feature-engineering']). Surfaces in the "
+                            "registry index."
+                        ),
+                    },
+                    "retention": {
+                        "type": "object",
+                        "description": (
+                            "Retention contract. For pure-function skills with "
+                            "no remembered state, set `{\"stateless\": true}`. "
+                            "Otherwise provide `remembers` (list of {field, "
+                            "reason}) and/or `refetches` (list of {source, "
+                            "stale_after, reason}). `stale_after` accepts "
+                            "`1h`/`24h`/`7d`/`never`."
+                        ),
+                        "properties": {
+                            "stateless": {"type": "boolean"},
+                            "remembers": {"type": "array"},
+                            "refetches": {"type": "array"},
+                        },
                     },
                     "diff_summary": {
                         "type": "string",
@@ -164,7 +206,7 @@ def kernel_tool_definitions() -> list[dict[str, Any]]:
                         ),
                     },
                 },
-                "required": ["skill_id", "content"],
+                "required": ["skill_id", "kind", "body", "retention"],
             },
         },
         {
@@ -398,10 +440,34 @@ async def _dispatch_write_skill(
     ctx: KernelContext,
 ) -> ToolDispatchResult:
     skill_id = _required_str(args, "skill_id")
-    content = _required_str(args, "content")
+    kind = _required_str(args, "kind")
+    body = _required_str(args, "body")
+    retention = args.get("retention")
+    if not isinstance(retention, dict):
+        raise TypeError("retention must be an object (dict)")
+
+    capability_tags_raw = args.get("capability_tags") or []
+    if not isinstance(capability_tags_raw, list) or not all(
+        isinstance(t, str) for t in capability_tags_raw
+    ):
+        raise TypeError("capability_tags must be a list of strings when present")
+
     diff_summary = args.get("diff_summary")
     if diff_summary is not None and not isinstance(diff_summary, str):
         raise TypeError("diff_summary must be a string when present")
+
+    # Construct the canonical skill text from structured fields. The
+    # agent never serializes YAML or docstring markers; that's the
+    # kernel's job. Result still passes through `parse_skill` for
+    # validation inside `write_skill` — single source of truth.
+    content = build_skill_content(
+        skill_id=skill_id,
+        kind=kind,
+        body=body,
+        capability_tags=capability_tags_raw,
+        retention=retention,
+        created_by=ctx.actor,
+    )
 
     register_result = await write_skill(
         ctx.conn,
@@ -415,6 +481,11 @@ async def _dispatch_write_skill(
             "skill_id": register_result.skill_id,
             "version_id": str(register_result.version_id),
             "version_seq": register_result.version_seq,
+            # Echo the constructed content so downstream consumers
+            # (gate's bind-mount path in run_improvement_loop) read
+            # the canonical file the registry persisted, not the raw
+            # structured args.
+            "content": content,
         },
         is_error=False,
         error_class=None,

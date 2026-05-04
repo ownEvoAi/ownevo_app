@@ -8,6 +8,7 @@ import pytest
 from ownevo_kernel.skills import (
     NEVER,
     SkillFormatError,
+    build_skill_content,
     parse_skill,
     parse_stale_duration,
 )
@@ -455,3 +456,115 @@ body
 """
     with pytest.raises(SkillFormatError, match="must be a YAML mapping"):
         parse_skill(bad)
+
+
+# ---------------------------------------------------------------------------
+# build_skill_content — inverse of parse_skill, used by the structured
+# write_skill tool to construct canonical skill text from agent fields.
+# ---------------------------------------------------------------------------
+
+
+def test_build_skill_content_python_round_trip():
+    """The canonical Python shape built from structured fields parses
+    back to those exact fields. This is the contract the structured
+    write_skill tool relies on."""
+    text = build_skill_content(
+        skill_id="m5.baseline.v1.feature_engineer",
+        kind="python",
+        body="from __future__ import annotations\n\ndef engineer(df, prices, calendar):\n    return df\n",
+        capability_tags=["m5", "feature-engineering"],
+        retention={"stateless": True},
+        created_by="agent:claude-opus-4-7",
+    )
+    rec = parse_skill(text)
+    assert rec.frontmatter.id == "m5.baseline.v1.feature_engineer"
+    assert rec.frontmatter.kind == "python"
+    assert rec.frontmatter.created_by == "agent:claude-opus-4-7"
+    assert rec.frontmatter.capability_tags == ["m5", "feature-engineering"]
+    assert rec.frontmatter.retention.stateless is True
+    assert "def engineer" in rec.body
+    assert "from __future__ import annotations" in rec.body
+
+
+def test_build_skill_content_instruction_round_trip():
+    """Markdown skill kinds use the `---` fence shape, not the docstring."""
+    text = build_skill_content(
+        skill_id="supplier-negotiation",
+        kind="instruction",
+        body="When the user asks about a supplier, ...\n",
+        capability_tags=["supply-chain"],
+        retention={
+            "remembers": [{"field": "supplier_id", "reason": "thread id"}],
+            "refetches": [],
+        },
+        created_by="human:founder",
+    )
+    rec = parse_skill(text)
+    assert rec.frontmatter.id == "supplier-negotiation"
+    assert rec.frontmatter.kind == "instruction"
+    assert len(rec.frontmatter.retention.remembers) == 1
+    # Markdown shape: no docstring wrapper.
+    assert '"""' not in text
+
+
+def test_build_skill_content_default_retention_is_stateless():
+    """Omitting retention defaults to stateless — the common case for
+    pure-function skills."""
+    text = build_skill_content(
+        skill_id="x",
+        kind="python",
+        body="def f(): pass",
+        created_by="agent:test",
+    )
+    rec = parse_skill(text)
+    assert rec.frontmatter.retention.stateless is True
+
+
+def test_build_skill_content_omits_capability_tags_when_empty():
+    """Empty capability_tags should not appear in the frontmatter (clean
+    output) but the parsed result still has an empty list."""
+    text = build_skill_content(
+        skill_id="x",
+        kind="python",
+        body="def f(): pass",
+        capability_tags=[],
+        retention={"stateless": True},
+        created_by="agent:test",
+    )
+    assert "capability_tags" not in text
+    rec = parse_skill(text)
+    assert rec.frontmatter.capability_tags == []
+
+
+def test_build_skill_content_body_trailing_newline_normalized():
+    """Body trailing newlines normalize to exactly one. Stable canonical output."""
+    base_args = dict(
+        skill_id="x",
+        kind="python",
+        retention={"stateless": True},
+        created_by="agent:test",
+    )
+    no_newline = build_skill_content(body="def f(): pass", **base_args)
+    one_newline = build_skill_content(body="def f(): pass\n", **base_args)
+    many_newlines = build_skill_content(body="def f(): pass\n\n\n", **base_args)
+    assert no_newline == one_newline == many_newlines
+
+
+def test_build_skill_content_with_refetches():
+    """Refetch retention with stale_after gets validated by the parser."""
+    text = build_skill_content(
+        skill_id="m5.feature",
+        kind="python",
+        body="def f(): pass",
+        retention={
+            "refetches": [
+                {"source": "m5_calendar", "stale_after": "24h", "reason": "daily"},
+            ],
+        },
+        created_by="agent:test",
+    )
+    rec = parse_skill(text)
+    assert len(rec.frontmatter.retention.refetches) == 1
+    assert rec.frontmatter.retention.refetches[0].stale_after == "24h"
+
+
