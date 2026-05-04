@@ -92,6 +92,32 @@ Bounds runaway loops (model proposes → tool errors → model retries
 gate runner would have already failed long before this cap."""
 
 
+# LMS Anthropic recovery — see docs/local-model-testing.md F6b.
+# When the LMS shim aborts a stream with this message, the protocol
+# expects the client to inject a synthetic user retry rather than
+# crash. Substring match keeps us SDK-agnostic (no anthropic import).
+_VALIDATION_RECOVERY_MARKERS: tuple[str, ...] = (
+    "Failed to generate a valid tool call",
+)
+_VALIDATION_RECOVERY_USER_MSG = (
+    "Your previous tool call was malformed and the API rejected it. "
+    "Please retry — emit a valid tool_use block with well-formed JSON "
+    "arguments matching the tool's input_schema."
+)
+_VALIDATION_RECOVERY_ASSISTANT_PLACEHOLDER = (
+    "[Previous response was rejected by the API as a malformed tool call.]"
+)
+
+
+def _is_validation_recovery_error(exc: BaseException) -> bool:
+    """Detect 'malformed tool call' errors (LMS Anthropic strict
+    validation) by substring-matching the exception's str(). We don't
+    import anthropic to identify the type — the runner needs to stay
+    SDK-agnostic for tests."""
+    msg = str(exc)
+    return any(marker in msg for marker in _VALIDATION_RECOVERY_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # Protocol — tests mock this without depending on AsyncAnthropic
 # ---------------------------------------------------------------------------
@@ -238,6 +264,14 @@ async def run_agent_turn(
     Trace events are coarser (no per-token content_delta) but tool
     dispatch is identical. Useful for backends where streaming breaks
     tool-call translation (e.g., Ollama via LiteLLM proxy).
+
+    LMS strict-validation recovery: LM Studio's Anthropic-compat shim
+    aborts streams with "Failed to generate a valid tool call" when
+    the model emits malformed tool-use output. By design — the shim
+    expects the client to recover. We catch that specific failure,
+    append a synthetic [assistant, user] retry pair to the message
+    history, and continue the loop. The retry costs one iteration.
+    Other exceptions propagate. See docs/local-model-testing.md F6b.
     """
     if max_iterations <= 0:
         raise ValueError(f"max_iterations must be positive; got {max_iterations}")
@@ -281,17 +315,42 @@ async def run_agent_turn(
         if output_config is not None:
             call_kwargs["output_config"] = output_config
 
-        if no_stream:
-            final_message, assistant_blocks, finished_tools = (
-                await _run_turn_no_stream(client, call_kwargs, collector, model)
+        try:
+            if no_stream:
+                final_message, assistant_blocks, finished_tools = (
+                    await _run_turn_no_stream(client, call_kwargs, collector, model)
+                )
+            else:
+                async with client.messages.stream(**call_kwargs) as stream:
+                    async for event in stream:
+                        router.on_event(event)
+                    final_message = await stream.get_final_message()
+                assistant_blocks = router.finalize_blocks_in_order()
+                finished_tools = router.pop_finished_tool_calls()
+        except Exception as exc:
+            if not _is_validation_recovery_error(exc):
+                raise
+            # LMS Anthropic strict-validation rejection (see
+            # docs/local-model-testing.md F6b). Inject a synthetic
+            # [assistant, user] pair to keep message alternation valid
+            # and ask the model to retry. The iteration still counts
+            # toward max_iterations, so bounded recovery is automatic.
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": _VALIDATION_RECOVERY_ASSISTANT_PLACEHOLDER,
+                        }
+                    ],
+                }
             )
-        else:
-            async with client.messages.stream(**call_kwargs) as stream:
-                async for event in stream:
-                    router.on_event(event)
-                final_message = await stream.get_final_message()
-            assistant_blocks = router.finalize_blocks_in_order()
-            finished_tools = router.pop_finished_tool_calls()
+            messages.append(
+                {"role": "user", "content": _VALIDATION_RECOVERY_USER_MSG}
+            )
+            last_stop_reason = "validation_error_recovered"
+            continue
 
         # Accumulate usage from this turn into the run-level totals.
         usage = getattr(final_message, "usage", None)
