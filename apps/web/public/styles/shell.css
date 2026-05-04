@@ -185,3 +185,32 @@ button { font-family: inherit; cursor: pointer; }
 .faint { color: var(--text-faint); }
 .numeric { font-variant-numeric: tabular-nums; }
 .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+/* ── Filter chips ── */
+.filters { display: flex; gap: 8px; margin-bottom: 20px; }
+.filter-chip { background: var(--bg); border: 1px solid var(--border); color: var(--text-3); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+.filter-chip:hover { border-color: var(--border-light); color: var(--text); }
+.filter-chip.active { background: var(--accent-muted); color: var(--accent); border-color: var(--accent); }
+.filter-chip .count { background: var(--surface-2); color: var(--text-muted); padding: 1px 6px; border-radius: 8px; font-size: 11px; }
+.filter-chip.active .count { background: var(--accent); color: white; }
+
+/* ── Section title ── */
+.section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 12px; }
+
+/* ── Inbox list ── */
+.inbox { display: flex; flex-direction: column; gap: 8px; }
+.inbox-item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-sm); transition: border-color 0.12s, box-shadow 0.12s; color: inherit; }
+.inbox-item:hover { border-color: var(--border-light); box-shadow: var(--shadow); }
+.inbox-item.featured { border-color: var(--accent); background: var(--accent-glow); }
+.inbox-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text-muted); }
+.inbox-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; }
+.inbox-icon.proposal { background: var(--accent-muted); color: var(--accent); }
+.inbox-body { flex: 1; min-width: 0; }
+.inbox-meta-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-bottom: 3px; }
+.inbox-source { font-weight: 500; color: var(--text-3); }
+.inbox-dot { color: var(--text-faint); }
+.inbox-age { color: var(--text-faint); }
+.inbox-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 5px; }
+.inbox-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.gate-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-weight: 500; }
+.inbox-action { flex-shrink: 0; }
