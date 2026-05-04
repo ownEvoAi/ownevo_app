@@ -42,4 +42,4 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 
 ## Status
 
-**W2 complete — v0.1.0-w2 (2026-05-04).** All W2 rows green on main. W1 substrate (DB schema, sandbox, skills, traces, M5 loader) + W2: eval cases, audit log, agent tools, regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI, non-M5 substrate proof (labour shift validator). Next: bootstrap loop seeding (BL.1-3), then W3 failure clustering pipeline (sentence-transformers + UMAP + HDBSCAN).
+**W2 complete — v0.1.0 (2026-05-04).** All W2 rows green on main. W1 substrate (DB schema, sandbox, skills, traces, M5 loader) + W2: eval cases, audit log, agent tools, regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI, non-M5 substrate proof (labour shift validator). Next: bootstrap loop seeding (BL.1-3), then W3 failure clustering pipeline (sentence-transformers + UMAP + HDBSCAN).
