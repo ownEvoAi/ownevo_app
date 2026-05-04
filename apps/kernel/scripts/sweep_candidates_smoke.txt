@@ -1,0 +1,4 @@
+# Smoke test for sweep_probes.py — 2 known-available models that should both pass.
+# Used to verify the driver works before scaling up to the full ~33-model sweep.
+ollama qwen3-coder:30b
+lms qwen/qwen3-coder-30b
