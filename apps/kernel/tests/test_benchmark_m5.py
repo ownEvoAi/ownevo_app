@@ -18,7 +18,9 @@ from ownevo_kernel.benchmark import (
     BenchmarkRunner,
     M5BenchmarkRunner,
     M5PipelineOutput,
+    SandboxedM5BenchmarkRunner,
 )
+from ownevo_kernel.sandbox import LocalDockerSandbox
 from ownevo_kernel.datasets import (
     M5Fold,
     load_m5,
@@ -292,3 +294,45 @@ def test_fold_shape_unchanged():
     fold = M5Fold(train=("d_1",), validation=("d_2",), test=("d_3",))
     for f in fields:
         assert hasattr(fold, f)
+
+
+# ---------------------------------------------------------------------------
+# B4.1: SandboxedM5BenchmarkRunner.skill_override_dir validation (no Docker)
+# ---------------------------------------------------------------------------
+
+_FAKE_FOLD = M5Fold(train=("d_1",), validation=("d_2",), test=("d_3",))
+
+
+def _fake_sandbox(tmp_path: Path) -> LocalDockerSandbox:
+    return LocalDockerSandbox(image="ownevo-sandbox-m5:test")
+
+
+def test_skill_override_dir_nonexistent_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="skill_override_dir"):
+        SandboxedM5BenchmarkRunner(
+            catalog_dir=tmp_path,
+            fold=_FAKE_FOLD,
+            sandbox=_fake_sandbox(tmp_path),
+            skill_override_dir=tmp_path / "does_not_exist",
+        )
+
+
+def test_skill_override_dir_valid_path_resolves(tmp_path: Path) -> None:
+    override = tmp_path / "override"
+    override.mkdir()
+    runner = SandboxedM5BenchmarkRunner(
+        catalog_dir=tmp_path,
+        fold=_FAKE_FOLD,
+        sandbox=_fake_sandbox(tmp_path),
+        skill_override_dir=override,
+    )
+    assert runner.skill_override_dir == override.resolve()
+
+
+def test_skill_override_dir_none_leaves_field_none(tmp_path: Path) -> None:
+    runner = SandboxedM5BenchmarkRunner(
+        catalog_dir=tmp_path,
+        fold=_FAKE_FOLD,
+        sandbox=_fake_sandbox(tmp_path),
+    )
+    assert runner.skill_override_dir is None

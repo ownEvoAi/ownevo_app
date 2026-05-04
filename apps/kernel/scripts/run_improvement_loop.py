@@ -29,19 +29,18 @@ Bootstrap-mode contract (per docs/PLAN.md v3.8 § Pre-W3 Bootstrap loop)
 * The very first run trivially passes (no prior suite, no best to
   beat). Run 2 onward enforces improvement only.
 
-Known architectural gap (W4 unblock)
-------------------------------------
-The agent's `write_skill` updates `skill_versions` in the DB. The
-sandbox image bakes the on-disk `baselines/m5_lightgbm/skill_v1/` files
-in at build time, so the gate's `SandboxedM5BenchmarkRunner` runs the
-on-disk version regardless of what the agent registered. That means the
-agent's diff is *recorded* (and the audit log shows it), but it does
-*not* affect the val_score on this iteration. Closing this gap —
-materializing the latest DB skill versions to a temp dir + bind-mounting
-into the sandbox — is W4 work (PLAN.md B4.1 "First lift on M5"). The
-bootstrap exit criterion only requires the loop to fire end-to-end and
-record the proposal; it does not require the diff to take effect on the
-gate score.
+Skill override into the sandbox (B4.1)
+--------------------------------------
+The sandbox image bakes the v1 skill bodies at
+`/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1/`. To score the
+agent's *proposed* change instead of the baked-in baseline, this script
+materializes all 6 baseline skill files plus `__init__.py` to a host
+tempdir, overwrites the one the agent rewrote, and passes the tempdir to
+`SandboxedM5BenchmarkRunner` as `skill_override_dir=`. The runner adds a
+read-only bind-mount that shadows the image's `skill_v1/` package, so the
+container's `from baselines.m5_lightgbm import run_baseline` ends up
+importing the override. The tempdir lives until `persist_gate_run`
+returns, then cleans up.
 
 LLM backend
 -----------
@@ -65,6 +64,7 @@ Exit codes
 4  could not connect to the DB
 5  agent loop failed (sandbox_error_propagated / max_iterations / refusal)
 6  agent did not register any skill change — no proposal to gate
+7  agent proposed a skill the baseline override doesn't recognize
 """
 
 from __future__ import annotations
@@ -73,7 +73,9 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse as _urlparse
@@ -84,6 +86,7 @@ _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
+from baselines.m5_lightgbm import SKILL_FILES, materialize_skill_v1_dir  # noqa: E402
 from ownevo_kernel.benchmark import SandboxedM5BenchmarkRunner  # noqa: E402
 from ownevo_kernel.datasets import (  # noqa: E402
     M5DatasetError,
@@ -314,11 +317,6 @@ async def main_async(args: CliArgs) -> int:
             image=args.sandbox_image,
             tmpfs_size_mb=_DEFAULT_TMPFS_MB,
         )
-        runner = SandboxedM5BenchmarkRunner(
-            catalog_dir=args.m5_dir,
-            fold=fold,
-            sandbox=sandbox,
-        )
 
         actor = f"agent:{args.llm_model}"
         kernel_context = KernelContext(
@@ -424,20 +422,39 @@ async def main_async(args: CliArgs) -> int:
             f"version_seq={proposal.version_seq}",
         )
 
-        persisted = await persist_gate_run(
-            conn,
-            runner,
-            workflow_id=args.workflow_id,
-            skill_id=proposal.skill_id,
-            proposed_content=proposal.content,
-            plain_language_summary=proposal.diff_summary
-                or agent_result.final_text[:_MAX_SUMMARY_CHARS]
-                or f"agent-proposed change to {proposal.skill_id}",
-            actor=actor,
-            proposed_skill_version_id=proposal.version_id,
-            prior_eval_task_ids=(),
-            best_ever_score=None,
-        )
+        with tempfile.TemporaryDirectory(prefix="ownevo-skill-override-") as tmpdir:
+            override_dir = Path(tmpdir)
+            try:
+                _materialize_skill_override(override_dir, proposal)
+            except UnknownProposedSkillError as exc:
+                print(
+                    f"error: {exc} "
+                    f"(orphaned skill_version={proposal.version_id})",
+                    file=sys.stderr,
+                )
+                return 7
+
+            runner = SandboxedM5BenchmarkRunner(
+                catalog_dir=args.m5_dir,
+                fold=fold,
+                sandbox=sandbox,
+                skill_override_dir=override_dir,
+            )
+
+            persisted = await persist_gate_run(
+                conn,
+                runner,
+                workflow_id=args.workflow_id,
+                skill_id=proposal.skill_id,
+                proposed_content=proposal.content,
+                plain_language_summary=proposal.diff_summary
+                    or agent_result.final_text[:_MAX_SUMMARY_CHARS]
+                    or f"agent-proposed change to {proposal.skill_id}",
+                actor=actor,
+                proposed_skill_version_id=proposal.version_id,
+                prior_eval_task_ids=(),
+                best_ever_score=None,
+            )
 
         gate = persisted.gate_result
         summary = {
@@ -457,6 +474,52 @@ async def main_async(args: CliArgs) -> int:
         return 0
     finally:
         await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Skill-override materialization (B4.1)
+# ---------------------------------------------------------------------------
+
+
+class UnknownProposedSkillError(ValueError):
+    """The agent registered a skill_id that doesn't map onto one of the
+    6 baseline files. The bootstrap loop only knows how to override the
+    v1 LightGBM pipeline; a brand-new skill_id has no slot to fill."""
+
+
+def _materialize_skill_override(dst: Path, proposal: _AgentProposal) -> None:
+    """Copy the 6 baseline skill files + ``__init__.py`` into ``dst``,
+    then overwrite the one the agent rewrote with ``proposal.content``.
+
+    The container's image bakes the v1 skills at
+    ``/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1/``. A
+    bind-mount of ``dst`` on top of that path lets the orchestrator's
+    ``from .skill_v1 import ...`` resolve to the override instead.
+
+    Skill-id → filename: ``m5.baseline.v1.feature_engineer`` →
+    ``feature_engineer.py``. Anything outside the 6 known files raises
+    :class:`UnknownProposedSkillError`.
+
+    Permissions: the sandbox container drops CAP_DAC_OVERRIDE, so its
+    uid 0 cannot bypass DAC. ``materialize_skill_v1_dir`` relaxes the
+    dir and per-file modes to world-readable so the bind-mount is
+    consumable inside the container.
+    """
+    if "/" in proposal.skill_id or "\x00" in proposal.skill_id:
+        raise UnknownProposedSkillError(
+            f"agent proposed skill_id with illegal path character: {proposal.skill_id!r}"
+        )
+
+    proposed_fname = proposal.skill_id.rsplit(".", 1)[-1] + ".py"
+    if proposed_fname not in SKILL_FILES:
+        raise UnknownProposedSkillError(
+            f"agent proposed unknown skill_id {proposal.skill_id!r}; "
+            f"override expects one of {SKILL_FILES!r}"
+        )
+
+    materialize_skill_v1_dir(dst)
+    (dst / proposed_fname).write_text(proposal.content, encoding="utf-8")
+    os.chmod(dst / proposed_fname, 0o644)
 
 
 # ---------------------------------------------------------------------------
