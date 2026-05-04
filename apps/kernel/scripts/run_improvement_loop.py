@@ -92,6 +92,7 @@ from ownevo_kernel.gate import persist_gate_run  # noqa: E402
 from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
     KernelContext,
     run_agent_turn,
+    run_agent_turn_openai,
 )
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
@@ -104,9 +105,11 @@ ENV_LLM_BASE_URL = "OWNEVO_LLM_BASE_URL"
 ENV_LLM_MODEL = "OWNEVO_LLM_MODEL"
 ENV_LLM_API_KEY = "OWNEVO_LLM_API_KEY"
 ENV_MAX_ITERATIONS = "OWNEVO_AGENT_MAX_ITERATIONS"
+ENV_LLM_API_FORMAT = "OWNEVO_LLM_API_FORMAT"
 
 DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-m5:0.1.0"
 DEFAULT_LLM_BASE_URL = "http://192.168.1.50:1234"
+DEFAULT_LLM_BASE_URL_OPENAI = "http://192.168.1.50:11434/v1"
 DEFAULT_LLM_MODEL = "qwen/qwen3-coder-30b"
 DEFAULT_LLM_API_KEY = "lm-studio"
 DEFAULT_MAX_ITERATIONS = 25
@@ -142,6 +145,8 @@ class CliArgs:
     llm_api_key: str
     max_iterations: int
     seed_first: bool
+    api_format: str  # "anthropic" | "openai"
+    no_stream: bool  # only meaningful when api_format="anthropic"
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -164,11 +169,32 @@ def parse_args(argv: list[str]) -> CliArgs:
         help=f"Docker image (default: ${ENV_M5_SANDBOX_IMAGE} or {DEFAULT_SANDBOX_IMAGE}).",
     )
     parser.add_argument(
-        "--llm-base-url",
-        default=os.environ.get(ENV_LLM_BASE_URL, DEFAULT_LLM_BASE_URL),
+        "--api-format",
+        choices=["anthropic", "openai"],
+        default=os.environ.get(ENV_LLM_API_FORMAT, "anthropic"),
         help=(
-            f"Anthropic-compatible base URL. Default: ${ENV_LLM_BASE_URL} or "
-            f"{DEFAULT_LLM_BASE_URL} (LM Studio's native /v1/messages adapter)."
+            "API format the backend speaks. 'anthropic' uses AsyncAnthropic + "
+            "/v1/messages (LM Studio, LiteLLM proxy). 'openai' uses AsyncOpenAI + "
+            "/v1/chat/completions (direct Ollama, vLLM, etc.). "
+            f"Default: ${ENV_LLM_API_FORMAT} or 'anthropic'."
+        ),
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help=(
+            "Use messages.create() (non-streaming) instead of messages.stream(). "
+            "Only applies when --api-format=anthropic. Bypasses streaming tool-call "
+            "translation bugs in LiteLLM proxy when fronting Ollama."
+        ),
+    )
+    parser.add_argument(
+        "--llm-base-url",
+        default=None,
+        help=(
+            f"Base URL for the LLM backend. Default depends on --api-format: "
+            f"'anthropic' → ${ENV_LLM_BASE_URL} or {DEFAULT_LLM_BASE_URL} "
+            f"(LM Studio); 'openai' → {DEFAULT_LLM_BASE_URL_OPENAI} (Ollama)."
         ),
     )
     parser.add_argument(
@@ -202,17 +228,28 @@ def parse_args(argv: list[str]) -> CliArgs:
         ),
     )
     ns = parser.parse_args(argv)
+
+    # Resolve base URL default per api_format when not explicitly supplied
+    if ns.llm_base_url is not None:
+        base_url = ns.llm_base_url
+    elif ns.api_format == "openai":
+        base_url = os.environ.get(ENV_LLM_BASE_URL, DEFAULT_LLM_BASE_URL_OPENAI)
+    else:
+        base_url = os.environ.get(ENV_LLM_BASE_URL, DEFAULT_LLM_BASE_URL)
+
     return CliArgs(
         m5_dir=ns.m5_dir,
         val_days=ns.val_days,
         test_days=ns.test_days,
         workflow_id=ns.workflow_id,
         sandbox_image=ns.sandbox_image,
-        llm_base_url=ns.llm_base_url,
+        llm_base_url=base_url,
         llm_model=ns.llm_model,
         llm_api_key=ns.llm_api_key,
         max_iterations=ns.max_iterations,
         seed_first=not ns.no_seed,
+        api_format=ns.api_format,
+        no_stream=ns.no_stream,
     )
 
 
@@ -248,7 +285,6 @@ async def main_async(args: CliArgs) -> int:
         return 3
 
     import asyncpg
-    from anthropic import AsyncAnthropic
 
     from scripts.seed_m5_baseline import seed_baseline
 
@@ -286,30 +322,54 @@ async def main_async(args: CliArgs) -> int:
             default_workflow_id=args.workflow_id,
         )
 
-        client = AsyncAnthropic(
-            api_key=args.llm_api_key,
-            base_url=args.llm_base_url,
-        )
+        if args.api_format == "openai":
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(
+                api_key=args.llm_api_key,
+                base_url=args.llm_base_url,
+            )
+        else:
+            from anthropic import AsyncAnthropic
+            client = AsyncAnthropic(
+                api_key=args.llm_api_key,
+                base_url=args.llm_base_url,
+            )
 
         system_prompt = _PROMPT_PATH.read_text()
 
         _p = _urlparse(args.llm_base_url)
         _safe_url = f"{_p.scheme}://{_p.hostname}:{_p.port or ''}"
+        _stream_flag = "" if args.api_format == "openai" else (
+            " no_stream=True" if args.no_stream else ""
+        )
         print(
             f"agent: model={args.llm_model} base_url={_safe_url} "
+            f"api_format={args.api_format}{_stream_flag} "
             f"max_iterations={args.max_iterations}",
         )
 
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
-            agent_result = await run_agent_turn(
-                client,
-                system=system_prompt,
-                user_message=_kickoff_message(args.workflow_id),
-                kernel_context=kernel_context,
-                collector=collector,
-                model=args.llm_model,
-                max_iterations=args.max_iterations,
-            )
+            if args.api_format == "openai":
+                agent_result = await run_agent_turn_openai(
+                    client,
+                    system=system_prompt,
+                    user_message=_kickoff_message(args.workflow_id),
+                    kernel_context=kernel_context,
+                    collector=collector,
+                    model=args.llm_model,
+                    max_iterations=args.max_iterations,
+                )
+            else:
+                agent_result = await run_agent_turn(
+                    client,
+                    system=system_prompt,
+                    user_message=_kickoff_message(args.workflow_id),
+                    kernel_context=kernel_context,
+                    collector=collector,
+                    model=args.llm_model,
+                    max_iterations=args.max_iterations,
+                    no_stream=args.no_stream,
+                )
             collector.set_token_usage(dict(agent_result.token_usage))
 
             print(

@@ -367,8 +367,214 @@ class StreamEventRouter:
         return obj if isinstance(obj, dict) else {}
 
 
+class OpenAIStreamAccumulator:
+    """Accumulates OpenAI streaming chunks and emits AgentEvents.
+
+    OpenAI streams tool calls as delta fragments across many chunks:
+
+      chunk.choices[0].delta.tool_calls[0].id           = "call_abc"   # first chunk only
+      chunk.choices[0].delta.tool_calls[0].function.name = "read_skill" # first chunk only
+      chunk.choices[0].delta.tool_calls[0].function.arguments = '{"s'  # fragments
+      chunk.choices[0].finish_reason = "tool_calls"                     # terminal chunk
+
+    This accumulator assembles those fragments, emits ToolCallStart
+    events (once per complete call, at finish time), and produces the
+    same `FinalizedBlock` / `FinalizedToolCall` shape that
+    `StreamEventRouter` does — so the rest of the runner is format-agnostic.
+
+    One instance per `chat.completions.create(stream=True)` call.
+    """
+
+    def __init__(self, *, collector: TraceCollector, model: str) -> None:
+        self._collector = collector
+        self._model = model
+        self._text_chunks: list[str] = []
+        self._tool_states: dict[int, _BlockState] = {}
+        self._finished_tool_calls: list[FinalizedToolCall] = []
+        self._finish_reason: str | None = None
+        self._usage: dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # Chunk entry point
+    # ------------------------------------------------------------------
+
+    def on_chunk(self, chunk: Any) -> None:
+        """Feed one chunk from an OpenAI streaming response."""
+        choice = chunk.choices[0] if chunk.choices else None
+        if choice is None:
+            # Usage-only trailing chunk (some backends)
+            self._maybe_record_usage(chunk)
+            return
+
+        delta = choice.delta
+
+        # --- text ---
+        if delta.content:
+            self._text_chunks.append(delta.content)
+            self._collector.record(
+                self._collector.make_event(
+                    type="content_delta",
+                    text=delta.content,
+                    model=self._model,
+                )
+            )
+
+        # --- tool call deltas ---
+        for tc_delta in delta.tool_calls or []:
+            idx = tc_delta.index
+            if idx not in self._tool_states:
+                self._tool_states[idx] = _BlockState(
+                    kind="tool_use",
+                    index=idx,
+                    tool_call_id=tc_delta.id or "",
+                    tool_name=(tc_delta.function.name if tc_delta.function else "") or "",
+                    span_id=uuid4(),
+                )
+            state = self._tool_states[idx]
+            # id / name only appear on the first delta for this index
+            if tc_delta.id:
+                state.tool_call_id = tc_delta.id
+            fn = tc_delta.function
+            if fn:
+                if fn.name:
+                    state.tool_name = fn.name
+                if fn.arguments:
+                    state.tool_input_json_chunks.append(fn.arguments)
+
+        # --- finish ---
+        if choice.finish_reason:
+            self._finish_reason = choice.finish_reason
+            if choice.finish_reason == "tool_calls":
+                self._finalize_tool_calls()
+
+        self._maybe_record_usage(chunk)
+
+    def _finalize_tool_calls(self) -> None:
+        for state in sorted(self._tool_states.values(), key=lambda s: s.index):
+            if not state.tool_call_id or not state.tool_name:
+                continue
+            raw = "".join(state.tool_input_json_chunks)
+            try:
+                input_obj = json.loads(raw) if raw.strip() else {}
+            except json.JSONDecodeError:
+                input_obj = {}
+            if not isinstance(input_obj, dict):
+                input_obj = {}
+            state.tool_input_parsed = input_obj
+            assert state.span_id is not None
+            self._collector.record(
+                self._collector.make_event(
+                    type="tool_call_start",
+                    call_id=state.tool_call_id,
+                    name=state.tool_name,
+                    args=input_obj,
+                    parent_span_id=state.span_id,
+                )
+            )
+            self._finished_tool_calls.append(
+                FinalizedToolCall(
+                    call_id=state.tool_call_id,
+                    name=state.tool_name,
+                    input=input_obj,
+                    span_id=state.span_id,
+                )
+            )
+
+    def _maybe_record_usage(self, chunk: Any) -> None:
+        usage = getattr(chunk, "usage", None)
+        if usage is None:
+            return
+        mapping = {
+            "prompt_tokens": "input_tokens",
+            "completion_tokens": "output_tokens",
+            "prompt_tokens_details": None,
+            "completion_tokens_details": None,
+        }
+        for oai_key, ant_key in mapping.items():
+            if ant_key is None:
+                continue
+            val = getattr(usage, oai_key, None)
+            if val is not None:
+                self._usage[ant_key] = int(val)
+
+    # ------------------------------------------------------------------
+    # Runner-facing helpers (same interface as StreamEventRouter)
+    # ------------------------------------------------------------------
+
+    def pop_finished_tool_calls(self) -> list[FinalizedToolCall]:
+        out = self._finished_tool_calls
+        self._finished_tool_calls = []
+        return out
+
+    def record_tool_result(
+        self,
+        *,
+        call_id: str,
+        name: str,
+        status: str,
+        output: Any,
+        duration_ms: int | None,
+        error: str | None,
+        error_class: str | None,
+        parent_span_id: UUID | None = None,
+    ) -> None:
+        event_kwargs: dict[str, Any] = {
+            "type": "tool_call_result",
+            "call_id": call_id,
+            "name": name,
+            "status": status,
+            "output": output,
+            "duration_ms": duration_ms if duration_ms is not None else 0,
+            "error": error,
+            "error_class": error_class,
+        }
+        if parent_span_id is not None:
+            event_kwargs["parent_span_id"] = parent_span_id
+        self._collector.record(self._collector.make_event(**event_kwargs))
+
+    def finalize_blocks_in_order(self) -> list[FinalizedBlock]:
+        out: list[FinalizedBlock] = []
+        text = "".join(self._text_chunks)
+        if text:
+            out.append(FinalizedBlock(kind="text", text=text))
+        for state in sorted(self._tool_states.values(), key=lambda s: s.index):
+            if state.tool_call_id and state.tool_name:
+                out.append(
+                    FinalizedBlock(
+                        kind="tool_use",
+                        tool_call_id=state.tool_call_id,
+                        tool_name=state.tool_name,
+                        tool_input=state.tool_input_parsed or {},
+                    )
+                )
+        return out
+
+    @property
+    def finish_reason(self) -> str | None:
+        return self._finish_reason
+
+    def get_token_usage(self) -> dict[str, int]:
+        return dict(self._usage)
+
+    def assistant_tool_calls_for_history(self) -> list[dict[str, Any]]:
+        """Build the tool_calls array for the OpenAI assistant message."""
+        return [
+            {
+                "id": state.tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": state.tool_name,
+                    "arguments": "".join(state.tool_input_json_chunks),
+                },
+            }
+            for state in sorted(self._tool_states.values(), key=lambda s: s.index)
+            if state.tool_call_id and state.tool_name
+        ]
+
+
 __all__ = [
     "FinalizedBlock",
     "FinalizedToolCall",
+    "OpenAIStreamAccumulator",
     "StreamEventRouter",
 ]

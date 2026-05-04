@@ -53,3 +53,5 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+.temp
+data/m5/

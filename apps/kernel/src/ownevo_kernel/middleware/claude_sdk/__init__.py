@@ -6,6 +6,10 @@ Public surface (everything an outside caller needs):
       Drive one agent run with the 5 kernel tools; emits AgentEvents
       into the collector. Returns AgentTurnResult.
 
+  run_agent_turn_openai(client, *, system, user_message, kernel_context, ...)
+      Same contract, but for OpenAI-compatible backends (Ollama, etc.)
+      that speak /v1/chat/completions instead of /v1/messages.
+
   KernelContext(conn, sandbox, actor, default_workflow_id)
       Bundle of dependencies the tools execute against.
 
@@ -21,6 +25,7 @@ those submodules in caller code; use this package's namespace.
 from .event_router import (
     FinalizedBlock,
     FinalizedToolCall,
+    OpenAIStreamAccumulator,
     StreamEventRouter,
 )
 from .runner import (
@@ -30,12 +35,14 @@ from .runner import (
     AgentTurnResult,
     AnthropicClientProtocol,
     run_agent_turn,
+    run_agent_turn_openai,
 )
 from .tool_definitions import (
     KernelContext,
     ToolDispatchResult,
     dispatch_tool,
     kernel_tool_definitions,
+    kernel_tool_definitions_openai,
 )
 
 __all__ = [
@@ -47,9 +54,12 @@ __all__ = [
     "FinalizedBlock",
     "FinalizedToolCall",
     "KernelContext",
+    "OpenAIStreamAccumulator",
     "StreamEventRouter",
     "ToolDispatchResult",
     "dispatch_tool",
     "kernel_tool_definitions",
+    "kernel_tool_definitions_openai",
     "run_agent_turn",
+    "run_agent_turn_openai",
 ]
