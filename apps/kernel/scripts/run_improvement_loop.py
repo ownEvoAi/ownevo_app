@@ -86,7 +86,7 @@ _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
-from baselines.m5_lightgbm import SKILL_FILES, skill_files_dir  # noqa: E402
+from baselines.m5_lightgbm import SKILL_FILES, materialize_skill_v1_dir  # noqa: E402
 from ownevo_kernel.benchmark import SandboxedM5BenchmarkRunner  # noqa: E402
 from ownevo_kernel.datasets import (  # noqa: E402
     M5DatasetError,
@@ -427,7 +427,11 @@ async def main_async(args: CliArgs) -> int:
             try:
                 _materialize_skill_override(override_dir, proposal)
             except UnknownProposedSkillError as exc:
-                print(f"error: {exc}", file=sys.stderr)
+                print(
+                    f"error: {exc} "
+                    f"(orphaned skill_version={proposal.version_id})",
+                    file=sys.stderr,
+                )
                 return 7
 
             runner = SandboxedM5BenchmarkRunner(
@@ -497,13 +501,14 @@ def _materialize_skill_override(dst: Path, proposal: _AgentProposal) -> None:
     :class:`UnknownProposedSkillError`.
 
     Permissions: the sandbox container drops CAP_DAC_OVERRIDE, so its
-    uid 0 cannot bypass DAC. The host tempdir defaults to 0700; we
-    relax it (and per-file modes) to world-readable so the bind-mount
-    is actually consumable inside the container.
+    uid 0 cannot bypass DAC. ``materialize_skill_v1_dir`` relaxes the
+    dir and per-file modes to world-readable so the bind-mount is
+    consumable inside the container.
     """
-    src = skill_files_dir()
-    for fname in (*SKILL_FILES, "__init__.py"):
-        shutil.copy2(src / fname, dst / fname)
+    if "/" in proposal.skill_id or "\x00" in proposal.skill_id:
+        raise UnknownProposedSkillError(
+            f"agent proposed skill_id with illegal path character: {proposal.skill_id!r}"
+        )
 
     proposed_fname = proposal.skill_id.rsplit(".", 1)[-1] + ".py"
     if proposed_fname not in SKILL_FILES:
@@ -511,11 +516,10 @@ def _materialize_skill_override(dst: Path, proposal: _AgentProposal) -> None:
             f"agent proposed unknown skill_id {proposal.skill_id!r}; "
             f"override expects one of {SKILL_FILES!r}"
         )
-    (dst / proposed_fname).write_text(proposal.content)
 
-    os.chmod(dst, 0o755)
-    for entry in dst.iterdir():
-        os.chmod(entry, 0o644)
+    materialize_skill_v1_dir(dst)
+    (dst / proposed_fname).write_text(proposal.content, encoding="utf-8")
+    os.chmod(dst / proposed_fname, 0o644)
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -35,9 +36,8 @@ if str(_REPO_KERNEL) not in sys.path:
     sys.path.insert(0, str(_REPO_KERNEL))
 
 from baselines.m5_lightgbm import (  # noqa: E402
-    SKILL_FILES,
+    materialize_skill_v1_dir,
     run_baseline,
-    skill_files_dir,
 )
 from ownevo_kernel.benchmark import (  # noqa: E402
     M5BenchmarkRunner,
@@ -116,8 +116,6 @@ def m5_dir(tmp_path: Path) -> Path:
     _build_synthetic_m5(tmp_path)
     # Sandbox container drops CAP_DAC_OVERRIDE — its uid 0 cannot read
     # files unless DAC permits. tmp_path defaults to 0700 on most systems.
-    import os
-    import stat
     os.chmod(tmp_path, 0o755)
     for f in tmp_path.iterdir():
         os.chmod(f, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
@@ -284,18 +282,6 @@ def ensemble(predictions_list: list[np.ndarray]) -> np.ndarray:
 '''
 
 
-def _materialize_baseline_to(dst: Path) -> None:
-    """Copy the 6 baseline skills + `__init__.py` into `dst` and relax
-    permissions so the sandbox container's uid 0 (no CAP_DAC_OVERRIDE)
-    can read the bind-mount."""
-    src = skill_files_dir()
-    for fname in (*SKILL_FILES, "__init__.py"):
-        shutil.copy2(src / fname, dst / fname)
-    os.chmod(dst, 0o755)
-    for entry in dst.iterdir():
-        os.chmod(entry, 0o644)
-
-
 async def test_skill_override_dir_actually_overrides_baked_in_skill(
     m5_dir: Path,
     sandbox: LocalDockerSandbox,
@@ -321,8 +307,8 @@ async def test_skill_override_dir_actually_overrides_baked_in_skill(
 
     override_dir = tmp_path / "skill_override"
     override_dir.mkdir()
-    _materialize_baseline_to(override_dir)
-    (override_dir / "ensemble.py").write_text(_OVERRIDE_ENSEMBLE_BODY)
+    materialize_skill_v1_dir(override_dir)
+    (override_dir / "ensemble.py").write_text(_OVERRIDE_ENSEMBLE_BODY, encoding="utf-8")
     os.chmod(override_dir / "ensemble.py", 0o644)
 
     override_runner = SandboxedM5BenchmarkRunner(

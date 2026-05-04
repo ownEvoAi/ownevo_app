@@ -45,6 +45,8 @@ the catalog path passed in.
 
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -176,6 +178,23 @@ def skill_files_dir() -> Path:
     script reads each file as raw bytes and registers it via
     `ownevo_kernel.skills.registry.register_skill`."""
     return Path(__file__).parent / "skill_v1"
+
+
+def materialize_skill_v1_dir(dst: Path) -> None:
+    """Copy the 6 baseline skill files + ``__init__.py`` into ``dst`` and
+    relax permissions so a Docker container running without CAP_DAC_OVERRIDE
+    can read the bind-mount (uid 0 needs DAC permission).
+
+    Sets ``dst`` to 0o755 and each file to 0o644.  Used by both the
+    improvement loop's skill-override materialization and the integration
+    tests that seed the override directory.
+    """
+    src = skill_files_dir()
+    for fname in (*SKILL_FILES, "__init__.py"):
+        shutil.copy2(src / fname, dst / fname)
+    os.chmod(dst, 0o755)
+    for entry in dst.iterdir():
+        os.chmod(entry, 0o644)
 
 
 # ---------------------------------------------------------------------------
