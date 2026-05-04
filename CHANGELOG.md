@@ -18,6 +18,44 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/` — Claude
+  Agent SDK middleware (W2.1 follow-on). Three pieces:
+  `tool_definitions.py` exposes the 5 kernel tools (`read_skill`,
+  `write_skill`, `run_pipeline`, `read_metrics`, `analyze_failures`)
+  as Anthropic Messages API tool params and routes `tool_use` calls
+  to the kernel functions via `dispatch_tool(name, args, ctx)`;
+  internal flags (`include_test_fold`) are NOT exposed and the
+  agent's `created_by` is sourced from `KernelContext.actor` rather
+  than the model's args (no self-spoofing). Kernel-side exceptions
+  shape into `is_error=True` results capped at 4096 chars so a
+  runaway traceback doesn't poison context. `analyze_failures.k` is
+  hard-capped at 100. `event_router.py` (`StreamEventRouter`)
+  accumulates Anthropic stream events per content block — `text_delta`
+  → `content_delta`, `thinking_delta` → `reasoning_delta`,
+  `input_json_delta` buffered until `content_block_stop` then emitted
+  as `tool_call_start` with the assembled args. `signature_delta`
+  accumulates onto thinking blocks. `parent_span_id` ties each delta
+  to its block so the trace is walkable. `runner.py`
+  (`run_agent_turn`) is a manual loop over `client.messages.stream`
+  rather than `tool_runner` — the per-token granularity the
+  AgentEvent contract demands isn't surfaced by `tool_runner` (which
+  hands back complete BetaMessages). Defaults: model
+  `claude-opus-4-7`, `max_tokens=64000`, `max_iterations=25`. Adaptive
+  thinking + `effort="xhigh"` are opt-in kwargs threaded through to
+  `output_config`. Sandbox-error short-circuit on (default True): if
+  any tool result carries `error_class != None` (Timeout / OOM /
+  Crash from `run_pipeline`), the loop ends with
+  `stop_reason="sandbox_error_propagated"` so the gate's D3 invariant
+  ("don't trust val_score on sandbox errors") is preserved end-to-
+  end. The internal `_error_class` key is stripped from tool_results
+  before they're sent back to Anthropic. Tool dispatch is sequential
+  (single asyncpg connection + sandbox cgroup pressure on parallel
+  containers); `asyncio.gather` is the future swap. Token usage
+  (`input_tokens` / `output_tokens` / `cache_creation_input_tokens` /
+  `cache_read_input_tokens`) accumulates across turns onto the run
+  result. `anthropic>=0.95,<1` ships as the new `agent` extra
+  (`uv sync --package ownevo-kernel --extra agent`) so kernel unit
+  tests + the M5 sandboxed path don't need a network-capable install.
 - `apps/kernel/src/ownevo_kernel/gate/persistence.py` —
   `persist_gate_run(conn, runner, *, workflow_id, skill_id,
   proposed_content, plain_language_summary, actor, ...)` is the

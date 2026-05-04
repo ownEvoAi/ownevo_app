@@ -24,6 +24,12 @@ baselines-m5 = [
     "lightgbm>=4.3,<5",
     "pandas>=2.2,<3",
 ]
+# Claude Agent SDK middleware (W2.1 follow-on). Optional so kernel
+# unit tests + the M5 sandboxed path don't need a network-capable
+# install. The W4 agent-loop entrypoint uses `pip install ownevo-kernel[agent]`.
+agent = [
+    "anthropic>=0.95,<1",
+]
 
 [tool.uv.sources]
 ownevo-trace-format = { workspace = true }
