@@ -50,19 +50,26 @@ The improvement loop (`scripts/run_improvement_loop.py`) supports two API format
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
 - `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
 
-**Confirmed working model (2026-05-04):** `devstral-small-2:latest` on Ollama. Calls tools reliably, generates clean Python, gate-pass confirmed.
+**Recommended model (2026-05-04, after benchmarking ~50 models):** `qwen3:8b` on Ollama. Fastest end-to-end run (51s, 3 iterations, 0 sandbox errors). 8B params, cheap to run.
 
 ```bash
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
   --api-format openai \
-  --llm-model devstral-small-2:latest \
+  --llm-model qwen3:8b \
   --no-seed
 ```
 
-Models tested and **not** working well:
-- `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError
-- `qwen3-coder:30b` — thinking mode causes it to skip tool calls on first turn
+**Other passers (full M5 loop, gate-pass):** `qwen3:14b` (91s), `devstral-small-2:latest` (148s, messy 16-iter run with 6 sandbox errors), `qwen2.5:14b` (338s).
+
+**Models tested and not working well:**
+- `granite3.3:8b`, `llama3.1:8b` — call tools in simple prompts but balk at the M5 system prompt (terminate after 1 turn, 0 tool calls)
+- `granite4.1:8b` — calls tools but generates em-dashes in Python code → SyntaxError
+- `qwen3:30b-a3b`, `Qwq:32b` — em-dashes in code position
+- `qwen3.5:27b`, `qwen3.5:35b-a3b` — lose YAML frontmatter + function signature when rewriting skill files
+- `qwen3-coder:30b` — thinking mode skips tool calls on first turn
 - `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`
+
+Note: gate `val_score` is currently identical across all passers because the bootstrap loop's gate runs the on-disk baseline, not the agent's DB-registered change (the skill-override work needed to close that gap landed and was reverted; see git history). Today's signal is "did the loop fire end-to-end with clean tool calls + valid Python", not lift.
 
 ## Out of scope for MVP (don't build unless asked)
 
