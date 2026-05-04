@@ -564,6 +564,7 @@ async def run_agent_turn_openai(
     max_tokens: int = DEFAULT_MAX_TOKENS_OPENAI,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     short_circuit_on_sandbox_error: bool = True,
+    ollama_num_ctx: int | None = None,
 ) -> AgentTurnResult:
     """Drive one agent run using an OpenAI-compatible client (e.g. Ollama).
 
@@ -578,11 +579,24 @@ async def run_agent_turn_openai(
       batched in a single user message.
     - Assistant messages carry {"tool_calls": [...]} instead of content blocks.
     - Always streams (OpenAI streaming is well-supported by Ollama directly).
+
+    `ollama_num_ctx`: when set, forwarded to the backend as
+    ``extra_body={"options": {"num_ctx": ollama_num_ctx}}``. Ollama's
+    ``/v1/chat/completions`` endpoint defaults to a smaller context than
+    the daemon-level ``OLLAMA_CONTEXT_LENGTH``, and ``AsyncOpenAI``
+    doesn't pass ``options.num_ctx`` natively (not in the OpenAI spec).
+    Without this override, an agent loop on Ollama silently truncates
+    its conversation history mid-run. Backends that don't recognise
+    the ``options`` field (LMS via OpenAI, vLLM, openai.com) ignore it.
     """
     if max_iterations <= 0:
         raise ValueError(f"max_iterations must be positive; got {max_iterations}")
     if max_tokens <= 0:
         raise ValueError(f"max_tokens must be positive; got {max_tokens}")
+    if ollama_num_ctx is not None and ollama_num_ctx <= 0:
+        raise ValueError(
+            f"ollama_num_ctx must be positive when set; got {ollama_num_ctx}"
+        )
 
     tools = kernel_tool_definitions_openai()
     messages: list[dict[str, Any]] = [
@@ -602,6 +616,10 @@ async def run_agent_turn_openai(
     last_stop_reason = "max_iterations"
     last_text = ""
 
+    create_extra: dict[str, Any] = {}
+    if ollama_num_ctx is not None:
+        create_extra["extra_body"] = {"options": {"num_ctx": ollama_num_ctx}}
+
     for _ in range(max_iterations):
         iterations += 1
         acc = _OpenAIStreamAccumulator(collector=collector, model=model)
@@ -614,6 +632,7 @@ async def run_agent_turn_openai(
             tool_choice="auto",
             stream=True,
             stream_options={"include_usage": True},
+            **create_extra,
         )
         async for chunk in stream:
             acc.on_chunk(chunk)
