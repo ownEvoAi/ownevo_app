@@ -163,7 +163,7 @@ correctly classifying the resulting failure.
 On the same run that verified B4.1, the model wrote `---` at line 1
 of its proposed `model_trainer.py` — frontmatter without the
 surrounding Python docstring wrapper that
-`apps/kernel/docs/SKILL_FORMAT.md` requires. With Anthropic-streaming
+`docs/SKILL_FORMAT.md` requires. With Anthropic-streaming
 context (157K), the gold-standard run produced valid SKILL_FORMAT;
 with OpenAI-runner context (21K), the same model didn't.
 
