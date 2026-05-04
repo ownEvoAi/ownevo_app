@@ -591,9 +591,30 @@ def _shape_exception(exc: BaseException) -> ToolDispatchResult:
     )
 
 
+def kernel_tool_definitions_openai() -> list[dict[str, Any]]:
+    """Return the 5 kernel tools in OpenAI function-calling format.
+
+    Converts from Anthropic's `input_schema` shape to OpenAI's
+    `parameters` shape so the same tool surfaces work with any
+    OpenAI-compatible backend (Ollama, LM Studio, LiteLLM proxy).
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in kernel_tool_definitions()
+    ]
+
+
 __all__ = [
     "KernelContext",
     "ToolDispatchResult",
     "dispatch_tool",
     "kernel_tool_definitions",
+    "kernel_tool_definitions_openai",
 ]

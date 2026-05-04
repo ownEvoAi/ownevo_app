@@ -43,6 +43,27 @@ Use (don't build): Langfuse, ClickHouse, OTel collector, LiteLLM, Inspect AI.
 - `startup2026/mvp5-playground/` — schema reference for tracing + approval models (will diverge once multi-tenant requirements firm up).
 - `startup2026/core/src/agentos_harness/store/` — SQLite + sqlite-vec memory store. Defer lifting until trace + clustering pipelines exist.
 
+## Local LLM backend (dev / dogfooding)
+
+The improvement loop (`scripts/run_improvement_loop.py`) supports two API formats via `--api-format`:
+
+- `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
+- `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
+
+**Confirmed working model (2026-05-04):** `devstral-small-2:latest` on Ollama. Calls tools reliably, generates clean Python, gate-pass confirmed.
+
+```bash
+uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
+  --api-format openai \
+  --llm-model devstral-small-2:latest \
+  --no-seed
+```
+
+Models tested and **not** working well:
+- `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError
+- `qwen3-coder:30b` — thinking mode causes it to skip tool calls on first turn
+- `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`
+
 ## Out of scope for MVP (don't build unless asked)
 
 Multiple framework integrations beyond Claude Agent SDK, self-evolving harness, custom Rust gateway, knowledge ingestion connectors, mobile UI, skills marketplace. See `ownEvo_MVP.md` § Out of Scope for the full list.

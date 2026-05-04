@@ -54,13 +54,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
+from uuid import uuid4
 
-from .event_router import FinalizedToolCall, StreamEventRouter
+from .event_router import FinalizedBlock, FinalizedToolCall, StreamEventRouter, _OpenAIStreamAccumulator
 from .tool_definitions import (
     KernelContext,
     ToolDispatchResult,
     dispatch_tool,
     kernel_tool_definitions,
+    kernel_tool_definitions_openai,
 )
 
 if TYPE_CHECKING:
@@ -75,6 +77,13 @@ DEFAULT_MAX_TOKENS = 64000
 """Streaming-required default for Opus 4.7. The skill notes >16K
 needs streaming to avoid SDK HTTP timeouts; we always stream so the
 trace events surface live."""
+
+DEFAULT_MAX_TOKENS_OPENAI = 16384
+"""Per-turn output cap for OpenAI-compatible backends (Ollama, vLLM,
+LM Studio). 16K fits within a 32K-65K context window after several
+turns of accumulated history. Each agent turn is typically <4K tokens
+(tool call JSON + brief reasoning); 16K leaves headroom for extended
+chain-of-thought models (e.g. qwen3 thinking mode)."""
 
 DEFAULT_MAX_ITERATIONS = 25
 """Maximum number of model-turn → tool-dispatch cycles per run.
@@ -118,6 +127,18 @@ class _MessagesAPI(Protocol):
         thinking: dict[str, Any] | None = None,
         output_config: dict[str, Any] | None = None,
     ) -> _StreamCtx: ...
+
+    async def create(
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        messages: Sequence[dict[str, Any]],
+        system: str | None = None,
+        tools: Sequence[dict[str, Any]] | None = None,
+        thinking: dict[str, Any] | None = None,
+        output_config: dict[str, Any] | None = None,
+    ) -> Any: ...
 
 
 class AnthropicClientProtocol(Protocol):
@@ -193,6 +214,7 @@ async def run_agent_turn(
     effort: str | None = None,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     short_circuit_on_sandbox_error: bool = True,
+    no_stream: bool = False,
 ) -> AgentTurnResult:
     """Drive one agent run and emit AgentEvents into `collector`.
 
@@ -211,6 +233,11 @@ async def run_agent_turn(
     retrying a Timeout in-agent would be the kernel hiding the failure
     from the gate. Set False for exploratory benchmarks where retry is
     OK.
+
+    `no_stream` calls `messages.create()` instead of `messages.stream()`.
+    Trace events are coarser (no per-token content_delta) but tool
+    dispatch is identical. Useful for backends where streaming breaks
+    tool-call translation (e.g., Ollama via LiteLLM proxy).
     """
     if max_iterations <= 0:
         raise ValueError(f"max_iterations must be positive; got {max_iterations}")
@@ -242,7 +269,7 @@ async def run_agent_turn(
         iterations += 1
         router = StreamEventRouter(collector=collector, model=model)
 
-        stream_kwargs: dict[str, Any] = {
+        call_kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
             "messages": messages,
@@ -250,14 +277,21 @@ async def run_agent_turn(
             "tools": tools,
         }
         if thinking is not None:
-            stream_kwargs["thinking"] = thinking
+            call_kwargs["thinking"] = thinking
         if output_config is not None:
-            stream_kwargs["output_config"] = output_config
+            call_kwargs["output_config"] = output_config
 
-        async with client.messages.stream(**stream_kwargs) as stream:
-            async for event in stream:
-                router.on_event(event)
-            final_message = await stream.get_final_message()
+        if no_stream:
+            final_message, assistant_blocks, finished_tools = (
+                await _run_turn_no_stream(client, call_kwargs, collector, model)
+            )
+        else:
+            async with client.messages.stream(**call_kwargs) as stream:
+                async for event in stream:
+                    router.on_event(event)
+                final_message = await stream.get_final_message()
+            assistant_blocks = router.finalize_blocks_in_order()
+            finished_tools = router.pop_finished_tool_calls()
 
         # Accumulate usage from this turn into the run-level totals.
         usage = getattr(final_message, "usage", None)
@@ -265,19 +299,6 @@ async def run_agent_turn(
             for key in token_usage:
                 value = getattr(usage, key, 0) or 0
                 token_usage[key] += int(value)
-
-        # Gather the assistant's content blocks in stream order. We use
-        # the router's view (carries assembled tool_input dicts), not
-        # the SDK's content list, because the dispatch site needs the
-        # parsed inputs anyway and round-tripping through Anthropic's
-        # `ToolUseBlock.input` would lose nothing but adds a branch.
-        assistant_blocks = router.finalize_blocks_in_order()
-
-        # The runner records the tool_call_start events (via the
-        # router's on_event); now drain the closed tool_uses and
-        # dispatch them. Order matches stream order so trace event
-        # ordering is preserved.
-        finished_tools = router.pop_finished_tool_calls()
 
         last_stop_reason = (
             getattr(final_message, "stop_reason", None) or "unknown"
@@ -468,11 +489,226 @@ def _stringify_output(output: Any) -> str:
     return _json_stringify(output)
 
 
+# ---------------------------------------------------------------------------
+# Non-streaming Anthropic turn helper
+# ---------------------------------------------------------------------------
+
+
+async def _run_turn_no_stream(
+    client: AnthropicClientProtocol,
+    kwargs: dict[str, Any],
+    collector: TraceCollector,
+    model: str,
+) -> tuple[Any, list[FinalizedBlock], list[FinalizedToolCall]]:
+    """Call messages.create() and parse the complete Message into blocks.
+
+    Produces the same (final_message, assistant_blocks, finished_tools)
+    triple that the streaming path does, so the rest of run_agent_turn
+    is format-agnostic. No per-token content_delta events are emitted —
+    only tool_call_start (at parse time) and tool_call_result (after
+    dispatch, via the caller).
+    """
+    message = await client.messages.create(**kwargs)  # type: ignore[attr-defined]
+    blocks: list[FinalizedBlock] = []
+    finished: list[FinalizedToolCall] = []
+
+    for cb in message.content:
+        kind = getattr(cb, "type", None)
+        if kind == "text":
+            blocks.append(FinalizedBlock(kind="text", text=cb.text))
+        elif kind == "tool_use":
+            span_id = uuid4()
+            input_obj = cb.input if isinstance(cb.input, dict) else {}
+            blocks.append(
+                FinalizedBlock(
+                    kind="tool_use",
+                    tool_call_id=cb.id,
+                    tool_name=cb.name,
+                    tool_input=input_obj,
+                )
+            )
+            collector.record(
+                collector.make_event(
+                    type="tool_call_start",
+                    call_id=cb.id,
+                    name=cb.name,
+                    args=input_obj,
+                    parent_span_id=span_id,
+                )
+            )
+            finished.append(
+                FinalizedToolCall(
+                    call_id=cb.id,
+                    name=cb.name,
+                    input=input_obj,
+                    span_id=span_id,
+                )
+            )
+
+    return message, blocks, finished
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible runner
+# ---------------------------------------------------------------------------
+
+
+async def run_agent_turn_openai(
+    client: Any,
+    *,
+    system: str,
+    user_message: str,
+    kernel_context: KernelContext,
+    collector: TraceCollector,
+    model: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS_OPENAI,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    short_circuit_on_sandbox_error: bool = True,
+) -> AgentTurnResult:
+    """Drive one agent run using an OpenAI-compatible client (e.g. Ollama).
+
+    Drop-in replacement for `run_agent_turn` when the backend speaks
+    OpenAI's `/v1/chat/completions` format instead of Anthropic's
+    `/v1/messages`. Accepts any `AsyncOpenAI`-compatible client.
+
+    Key differences from `run_agent_turn`:
+    - System prompt lives inside the messages array ({"role": "system"}).
+    - Tool definitions use OpenAI function format (parameters, not input_schema).
+    - Tool results are separate {"role": "tool"} messages per call, not
+      batched in a single user message.
+    - Assistant messages carry {"tool_calls": [...]} instead of content blocks.
+    - Always streams (OpenAI streaming is well-supported by Ollama directly).
+    """
+    if max_iterations <= 0:
+        raise ValueError(f"max_iterations must be positive; got {max_iterations}")
+    if max_tokens <= 0:
+        raise ValueError(f"max_tokens must be positive; got {max_tokens}")
+
+    tools = kernel_tool_definitions_openai()
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_message},
+    ]
+
+    iterations = 0
+    tool_call_count = 0
+    tool_error_count = 0
+    token_usage: dict[str, int] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+    last_stop_reason = "max_iterations"
+    last_text = ""
+
+    for _ in range(max_iterations):
+        iterations += 1
+        acc = _OpenAIStreamAccumulator(collector=collector, model=model)
+
+        stream = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        async for chunk in stream:
+            acc.on_chunk(chunk)
+
+        # Accumulate usage
+        for ant_key, val in acc.get_token_usage().items():
+            token_usage[ant_key] = token_usage.get(ant_key, 0) + val
+
+        assistant_blocks = acc.finalize_blocks_in_order()
+        finished_tools = acc.pop_finished_tool_calls()
+
+        finish_reason = acc.finish_reason or "stop"
+        last_stop_reason = _openai_finish_to_stop_reason(finish_reason)
+        last_text = _concatenate_text_blocks(assistant_blocks)
+
+        if not finished_tools:
+            return AgentTurnResult(
+                stop_reason=last_stop_reason,
+                iterations=iterations,
+                final_text=last_text,
+                tool_call_count=tool_call_count,
+                tool_error_count=tool_error_count,
+                token_usage=token_usage,
+            )
+
+        # Build the assistant message in OpenAI format
+        tool_calls_oai = acc.assistant_tool_calls_for_history()
+        assistant_msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": last_text or None,
+        }
+        if tool_calls_oai:
+            assistant_msg["tool_calls"] = tool_calls_oai
+        messages.append(assistant_msg)
+
+        # Dispatch tools and collect results
+        tool_results = await _dispatch_tools(finished_tools, kernel_context, acc)
+        tool_call_count += len(tool_results)
+        tool_error_count += sum(1 for r in tool_results if r.get("is_error"))
+
+        if short_circuit_on_sandbox_error:
+            sandbox_error = next(
+                (r for r in tool_results if r.get("_error_class") is not None),
+                None,
+            )
+            if sandbox_error is not None:
+                return AgentTurnResult(
+                    stop_reason="sandbox_error_propagated",
+                    iterations=iterations,
+                    final_text=last_text,
+                    tool_call_count=tool_call_count,
+                    tool_error_count=tool_error_count,
+                    token_usage=token_usage,
+                )
+
+        # Tool results in OpenAI format: one {"role":"tool"} message per call
+        for r in tool_results:
+            content = r.get("content", "")
+            if not isinstance(content, str):
+                content = _json_stringify(content)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": r["tool_use_id"],
+                    "content": content,
+                }
+            )
+
+    return AgentTurnResult(
+        stop_reason="max_iterations",
+        iterations=iterations,
+        final_text=last_text,
+        tool_call_count=tool_call_count,
+        tool_error_count=tool_error_count,
+        token_usage=token_usage,
+    )
+
+
+def _openai_finish_to_stop_reason(finish_reason: str) -> str:
+    """Map OpenAI finish_reason → the AgentTurnResult stop_reason vocabulary."""
+    return {
+        "stop": "end_turn",
+        "tool_calls": "end_turn",  # turned into tool dispatch; only terminal if no tools
+        "length": "max_tokens",
+        "content_filter": "refusal",
+    }.get(finish_reason, finish_reason)
+
+
 __all__ = [
     "AgentTurnResult",
     "AnthropicClientProtocol",
     "DEFAULT_MAX_ITERATIONS",
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOKENS_OPENAI",
     "DEFAULT_MODEL",
     "run_agent_turn",
+    "run_agent_turn_openai",
 ]
