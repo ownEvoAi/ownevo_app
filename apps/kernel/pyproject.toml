@@ -29,6 +29,7 @@ baselines-m5 = [
 # install. The W4 agent-loop entrypoint uses `pip install ownevo-kernel[agent]`.
 agent = [
     "anthropic>=0.95,<1",
+    "openai>=1.30,<2",
 ]
 # REST API service for the W2.5 approval queue UI. Optional so the
 # kernel library install stays HTTP-server-free; only the API process

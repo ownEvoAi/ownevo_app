@@ -35,7 +35,9 @@ from ownevo_kernel.middleware.claude_sdk import (
     StreamEventRouter,
     ToolDispatchResult,
     run_agent_turn,
+    run_agent_turn_openai,
 )
+from ownevo_kernel.middleware.claude_sdk.event_router import _OpenAIStreamAccumulator
 from ownevo_kernel.middleware.claude_sdk import runner as runner_mod
 from ownevo_kernel.middleware.claude_sdk import tool_definitions as tooldefs
 from ownevo_kernel.traces.collector import TraceCollector
@@ -158,8 +160,6 @@ class _FakeMessagesAPI:
         self.calls: list[dict[str, Any]] = []
 
     def stream(self, **kwargs: Any) -> _FakeStream:
-        # Capture each call so tests can assert system / tools / messages
-        # got threaded correctly.
         self.calls.append(kwargs)
         if self._index >= len(self._turns):
             raise AssertionError(
@@ -169,6 +169,19 @@ class _FakeMessagesAPI:
         turn = self._turns[self._index]
         self._index += 1
         return _FakeStream(turn)
+
+    async def create(self, **kwargs: Any) -> Any:
+        """Non-streaming path — returns the scripted turn's final_message
+        as a complete Message (content list on the message, not a stream)."""
+        self.calls.append(kwargs)
+        if self._index >= len(self._turns):
+            raise AssertionError(
+                f"Fake client exhausted: runner asked for turn "
+                f"{self._index + 1} but only {len(self._turns)} were scripted",
+            )
+        turn = self._turns[self._index]
+        self._index += 1
+        return turn.final_message
 
 
 class _FakeClient:
@@ -192,6 +205,38 @@ def _final_message(
             cache_creation_input_tokens=cache_creation,
             cache_read_input_tokens=cache_read,
         ),
+        content=[],
+    )
+
+
+def _no_stream_message(
+    *,
+    stop_reason: str = "end_turn",
+    text: str | None = None,
+    tool_uses: list[tuple[str, str, dict[str, Any]]] | None = None,
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+) -> SimpleNamespace:
+    """Build a non-streaming Message-like object for `_run_turn_no_stream`.
+
+    `tool_uses` is a list of (id, name, input_dict) tuples.
+    """
+    content = []
+    if text:
+        content.append(SimpleNamespace(type="text", text=text))
+    for tool_id, name, input_dict in tool_uses or []:
+        content.append(
+            SimpleNamespace(type="tool_use", id=tool_id, name=name, input=input_dict)
+        )
+    return SimpleNamespace(
+        stop_reason=stop_reason,
+        usage=SimpleNamespace(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        ),
+        content=content,
     )
 
 
@@ -351,6 +396,29 @@ class TestStreamEventRouter:
         assert ev.error_class == "Timeout"
         assert ev.duration_ms == 42
         assert ev.parent_span_id == span
+
+
+# ---------------------------------------------------------------------------
+# kernel_tool_definitions_openai — structural sanity
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_tool_definitions_openai_shape() -> None:
+    """All 5 kernel tools must be present in OpenAI function-calling format."""
+    from ownevo_kernel.middleware.claude_sdk.tool_definitions import (
+        kernel_tool_definitions,
+        kernel_tool_definitions_openai,
+    )
+
+    ant_defs = kernel_tool_definitions()
+    oai_defs = kernel_tool_definitions_openai()
+    assert len(oai_defs) == len(ant_defs)
+    ant_names = {t["name"] for t in ant_defs}
+    for tool in oai_defs:
+        assert tool["type"] == "function"
+        assert "parameters" in tool["function"], "must use 'parameters', not 'input_schema'"
+        assert "input_schema" not in tool["function"]
+        assert tool["function"]["name"] in ant_names
 
 
 # ---------------------------------------------------------------------------
@@ -908,3 +976,440 @@ class TestRunAgentTurn:
         assert len(results_evs) == 2
         oom_ev = next(e for e in results_evs if e.error_class == "OOM")
         assert oom_ev.status == "error"
+
+
+# ---------------------------------------------------------------------------
+# no_stream=True — messages.create() path
+# ---------------------------------------------------------------------------
+
+
+class TestRunAgentTurnNoStream:
+    async def test_no_tool_calls_terminates(self) -> None:
+        """Non-streaming path: text-only response, no tools."""
+        msg = _no_stream_message(stop_reason="end_turn", text="Hello from create()")
+        client = _FakeClient([_ScriptedTurn(events=[], final_message=msg)])
+        collector = _new_collector()
+        result = await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="...",
+            user_message="say hi",
+            kernel_context=_kernel_ctx(),
+            collector=collector,
+            no_stream=True,
+        )
+        assert result.stop_reason == "end_turn"
+        assert result.final_text == "Hello from create()"
+        assert result.tool_call_count == 0
+        assert result.succeeded is True
+        # `create` was called, not `stream` — verified indirectly: the streaming
+        # fake returns empty text (no events scripted), so a non-empty final_text
+        # above proves the create() path was taken.
+        assert len(client.messages.calls) == 1
+
+    async def test_tool_use_dispatches_and_loops(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        """Non-streaming tool call: tool_call_start is emitted at parse time."""
+        patch_dispatch.canned.append(
+            ToolDispatchResult(
+                output={"found": True, "skill_id": "x"},
+                is_error=False,
+                error_class=None,
+                duration_ms=5,
+            )
+        )
+        turn1 = _no_stream_message(
+            stop_reason="tool_use",
+            text="I'll read it.",
+            tool_uses=[("toolu_ns1", "read_skill", {"skill_id": "x"})],
+        )
+        turn2 = _no_stream_message(stop_reason="end_turn", text="Done.")
+        client = _FakeClient(
+            [
+                _ScriptedTurn(events=[], final_message=turn1),
+                _ScriptedTurn(events=[], final_message=turn2),
+            ]
+        )
+        collector = _new_collector()
+        result = await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="...",
+            user_message="read it",
+            kernel_context=_kernel_ctx(),
+            collector=collector,
+            no_stream=True,
+        )
+        assert result.stop_reason == "end_turn"
+        assert result.iterations == 2
+        assert result.tool_call_count == 1
+        assert result.final_text == "Done."
+        # ToolCallStart and ToolCallResult both in the trace.
+        starts = _events_of(collector, "tool_call_start")
+        results_evs = _events_of(collector, "tool_call_result")
+        assert len(starts) == 1
+        assert starts[0].name == "read_skill"
+        assert starts[0].args == {"skill_id": "x"}
+        assert len(results_evs) == 1
+        assert results_evs[0].status == "ok"
+
+
+# ---------------------------------------------------------------------------
+# _OpenAIStreamAccumulator — unit tests
+# ---------------------------------------------------------------------------
+
+
+def _oai_chunk(
+    *,
+    text: str | None = None,
+    tool_calls: list[SimpleNamespace] | None = None,
+    finish_reason: str | None = None,
+    usage: SimpleNamespace | None = None,
+) -> SimpleNamespace:
+    """Build a fake OpenAI streaming chunk."""
+    delta = SimpleNamespace(
+        content=text,
+        tool_calls=tool_calls or [],
+    )
+    choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
+    return SimpleNamespace(choices=[choice], usage=usage)
+
+
+def _tc_delta(
+    index: int,
+    *,
+    id: str | None = None,
+    name: str | None = None,
+    arguments: str | None = None,
+) -> SimpleNamespace:
+    """Build a fake tool call delta."""
+    fn = SimpleNamespace(name=name, arguments=arguments) if (name or arguments) else None
+    return SimpleNamespace(index=index, id=id, function=fn)
+
+
+class Test_OpenAIStreamAccumulator:
+    def test_text_chunks_accumulate(self) -> None:
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        acc.on_chunk(_oai_chunk(text="Hello"))
+        acc.on_chunk(_oai_chunk(text=" world"))
+        acc.on_chunk(_oai_chunk(finish_reason="stop"))
+        deltas = _events_of(collector, "content_delta")
+        assert [d.text for d in deltas] == ["Hello", " world"]
+        blocks = acc.finalize_blocks_in_order()
+        assert len(blocks) == 1
+        assert blocks[0].kind == "text"
+        assert blocks[0].text == "Hello world"
+
+    def test_tool_call_assembled_from_fragments(self) -> None:
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        # First chunk: id + name
+        acc.on_chunk(_oai_chunk(tool_calls=[
+            _tc_delta(0, id="call_abc", name="read_skill"),
+        ]))
+        # Subsequent chunks: arguments fragments
+        acc.on_chunk(_oai_chunk(tool_calls=[
+            _tc_delta(0, arguments='{"skill_'),
+        ]))
+        acc.on_chunk(_oai_chunk(tool_calls=[
+            _tc_delta(0, arguments='id":"m5.v1"}'),
+        ]))
+        # No ToolCallStart yet
+        assert _events_of(collector, "tool_call_start") == []
+        # finish_reason=tool_calls fires finalization
+        acc.on_chunk(_oai_chunk(finish_reason="tool_calls"))
+        starts = _events_of(collector, "tool_call_start")
+        assert len(starts) == 1
+        assert starts[0].name == "read_skill"
+        assert starts[0].args == {"skill_id": "m5.v1"}
+        assert starts[0].call_id == "call_abc"
+        finished = acc.pop_finished_tool_calls()
+        assert len(finished) == 1
+        assert finished[0].call_id == "call_abc"
+        assert finished[0].input == {"skill_id": "m5.v1"}
+        assert acc.finish_reason == "tool_calls"
+
+    def test_usage_recorded(self) -> None:
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50)
+        acc.on_chunk(_oai_chunk(finish_reason="stop", usage=usage))
+        tok = acc.get_token_usage()
+        assert tok["input_tokens"] == 100
+        assert tok["output_tokens"] == 50
+
+    def test_assistant_tool_calls_for_history(self) -> None:
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        acc.on_chunk(_oai_chunk(tool_calls=[
+            _tc_delta(0, id="call_1", name="read_skill"),
+        ]))
+        acc.on_chunk(_oai_chunk(tool_calls=[
+            _tc_delta(0, arguments='{"skill_id":"x"}'),
+        ]))
+        acc.on_chunk(_oai_chunk(finish_reason="tool_calls"))
+        history = acc.assistant_tool_calls_for_history()
+        assert len(history) == 1
+        assert history[0]["id"] == "call_1"
+        assert history[0]["type"] == "function"
+        assert history[0]["function"]["name"] == "read_skill"
+
+    def test_malformed_json_args_fall_back_to_empty_dict(self) -> None:
+        """Bad JSON from the model silently falls back to {} and history uses {}."""
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        acc.on_chunk(_oai_chunk(tool_calls=[_tc_delta(0, id="c1", name="read_skill")]))
+        acc.on_chunk(_oai_chunk(tool_calls=[_tc_delta(0, arguments="{bad json")]))
+        acc.on_chunk(_oai_chunk(finish_reason="tool_calls"))
+        finished = acc.pop_finished_tool_calls()
+        assert len(finished) == 1
+        assert finished[0].input == {}
+        history = acc.assistant_tool_calls_for_history()
+        # history must use validated JSON, not the raw malformed fragment
+        import json as _json
+        parsed = _json.loads(history[0]["function"]["arguments"])
+        assert parsed == {}
+
+    def test_finish_reason_stop_with_tool_calls_still_finalizes(self) -> None:
+        """Regression: Ollama emits finish_reason='stop' even for tool-call turns.
+        Tool states must be finalized regardless of which finish_reason arrives."""
+        collector = _new_collector()
+        acc = _OpenAIStreamAccumulator(collector=collector, model="llama3")
+        acc.on_chunk(_oai_chunk(tool_calls=[_tc_delta(0, id="c1", name="read_skill")]))
+        acc.on_chunk(_oai_chunk(tool_calls=[_tc_delta(0, arguments='{"skill_id":"x"}')]))
+        # Ollama sends "stop" instead of "tool_calls"
+        acc.on_chunk(_oai_chunk(finish_reason="stop"))
+        finished = acc.pop_finished_tool_calls()
+        assert len(finished) == 1
+        assert finished[0].name == "read_skill"
+        assert finished[0].input == {"skill_id": "x"}
+        # trace event must be recorded
+        starts = _events_of(collector, "tool_call_start")
+        assert len(starts) == 1
+
+
+# ---------------------------------------------------------------------------
+# _openai_finish_to_stop_reason — mapping unit tests
+# ---------------------------------------------------------------------------
+
+
+from ownevo_kernel.middleware.claude_sdk.runner import _openai_finish_to_stop_reason
+
+
+def test_finish_reason_stop_maps_to_end_turn() -> None:
+    assert _openai_finish_to_stop_reason("stop") == "end_turn"
+
+
+def test_finish_reason_tool_calls_maps_to_end_turn() -> None:
+    assert _openai_finish_to_stop_reason("tool_calls") == "end_turn"
+
+
+def test_finish_reason_length_maps_to_max_tokens() -> None:
+    assert _openai_finish_to_stop_reason("length") == "max_tokens"
+
+
+def test_finish_reason_content_filter_maps_to_refusal() -> None:
+    assert _openai_finish_to_stop_reason("content_filter") == "refusal"
+
+
+def test_finish_reason_unknown_passthrough() -> None:
+    assert _openai_finish_to_stop_reason("function_call") == "function_call"
+
+
+# ---------------------------------------------------------------------------
+# run_agent_turn_openai — loop tests with fake OpenAI client
+# ---------------------------------------------------------------------------
+
+
+class _FakeOpenAIStream:
+    def __init__(self, chunks: list[SimpleNamespace]) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self) -> _FakeOpenAIStream:
+        self._iter = iter(self._chunks)
+        return self
+
+    async def __anext__(self) -> SimpleNamespace:
+        try:
+            return next(self._iter)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+class _FakeOpenAICompletions:
+    def __init__(self, chunk_sequences: list[list[SimpleNamespace]]) -> None:
+        self._sequences = chunk_sequences
+        self._index = 0
+        self.calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> _FakeOpenAIStream:
+        self.calls.append(kwargs)
+        if self._index >= len(self._sequences):
+            raise AssertionError(
+                f"Fake OpenAI client exhausted at call {self._index + 1}"
+            )
+        chunks = self._sequences[self._index]
+        self._index += 1
+        return _FakeOpenAIStream(chunks)
+
+
+class _FakeOpenAIClient:
+    def __init__(self, chunk_sequences: list[list[SimpleNamespace]]) -> None:
+        self._completions = _FakeOpenAICompletions(chunk_sequences)
+
+    @property
+    def chat(self) -> SimpleNamespace:
+        return SimpleNamespace(completions=self._completions)
+
+
+class TestRunAgentTurnOpenAI:
+    async def test_no_tool_calls_terminates(self) -> None:
+        chunks = [
+            _oai_chunk(text="Hello from Ollama."),
+            _oai_chunk(finish_reason="stop"),
+        ]
+        client = _FakeOpenAIClient([chunks])
+        collector = _new_collector()
+        result = await run_agent_turn_openai(
+            client,
+            system="You are a test agent.",
+            user_message="Say hi",
+            kernel_context=_kernel_ctx(),
+            collector=collector,
+            model="llama3",
+        )
+        assert isinstance(result, AgentTurnResult)
+        assert result.stop_reason == "end_turn"
+        assert result.iterations == 1
+        assert result.final_text == "Hello from Ollama."
+        assert result.tool_call_count == 0
+        assert result.succeeded is True
+
+    async def test_system_in_messages_array(self) -> None:
+        chunks = [_oai_chunk(text="ok"), _oai_chunk(finish_reason="stop")]
+        client = _FakeOpenAIClient([chunks])
+        await run_agent_turn_openai(
+            client,
+            system="You are a test agent.",
+            user_message="hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="llama3",
+        )
+        call_kwargs = client._completions.calls[0]
+        msgs = call_kwargs["messages"]
+        assert msgs[0] == {"role": "system", "content": "You are a test agent."}
+        assert msgs[1] == {"role": "user", "content": "hi"}
+
+    async def test_tool_use_two_turns(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        patch_dispatch.canned.append(
+            ToolDispatchResult(
+                output={"found": True, "skill_id": "x"},
+                is_error=False,
+                error_class=None,
+                duration_ms=3,
+            )
+        )
+        turn1_chunks = [
+            _oai_chunk(tool_calls=[_tc_delta(0, id="oai_1", name="read_skill")]),
+            _oai_chunk(tool_calls=[_tc_delta(0, arguments='{"skill_id":"x"}')]),
+            _oai_chunk(finish_reason="tool_calls"),
+        ]
+        turn2_chunks = [
+            _oai_chunk(text="Got it."),
+            _oai_chunk(finish_reason="stop"),
+        ]
+        client = _FakeOpenAIClient([turn1_chunks, turn2_chunks])
+        collector = _new_collector()
+        result = await run_agent_turn_openai(
+            client,
+            system="...",
+            user_message="read it",
+            kernel_context=_kernel_ctx(),
+            collector=collector,
+            model="llama3",
+        )
+        assert result.stop_reason == "end_turn"
+        assert result.iterations == 2
+        assert result.tool_call_count == 1
+        assert result.final_text == "Got it."
+        # Tool result appended as {"role": "tool"} message on turn 2.
+        turn2_msgs = client._completions.calls[1]["messages"]
+        tool_msg = next(m for m in turn2_msgs if m.get("role") == "tool")
+        assert tool_msg["tool_call_id"] == "oai_1"
+        # Assistant message carries tool_calls in OpenAI format.
+        asst_msg = next(m for m in turn2_msgs if m.get("role") == "assistant")
+        assert asst_msg["tool_calls"][0]["id"] == "oai_1"
+        assert asst_msg["tool_calls"][0]["function"]["name"] == "read_skill"
+
+    async def test_sandbox_error_short_circuits(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        patch_dispatch.canned.append(
+            ToolDispatchResult(
+                output={"status": "error", "error_class": "Timeout"},
+                is_error=True,
+                error_class="Timeout",
+                duration_ms=60_000,
+            )
+        )
+        chunks = [
+            _oai_chunk(tool_calls=[_tc_delta(0, id="oai_t", name="run_pipeline")]),
+            _oai_chunk(tool_calls=[_tc_delta(0, arguments='{"skill_content":"x"}')]),
+            _oai_chunk(finish_reason="tool_calls"),
+        ]
+        client = _FakeOpenAIClient([chunks])
+        result = await run_agent_turn_openai(
+            client,
+            system="...",
+            user_message="...",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="llama3",
+        )
+        assert result.stop_reason == "sandbox_error_propagated"
+        assert result.tool_call_count == 1
+        assert result.tool_error_count == 1
+        # Only one turn — short-circuit fired.
+        assert len(client._completions.calls) == 1
+
+    async def test_invalid_max_iterations_raises(self) -> None:
+        client = _FakeOpenAIClient([])
+        with pytest.raises(ValueError, match="max_iterations"):
+            await run_agent_turn_openai(
+                client,
+                system="...",
+                user_message="...",
+                kernel_context=_kernel_ctx(),
+                collector=_new_collector(),
+                model="llama3",
+                max_iterations=0,
+            )
+
+    async def test_max_iterations_exhaustion(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        """Loop hits max_iterations when every turn returns a tool call."""
+        patch_dispatch.canned.extend([
+            ToolDispatchResult(output={}, is_error=False, error_class=None, duration_ms=1),
+            ToolDispatchResult(output={}, is_error=False, error_class=None, duration_ms=1),
+        ])
+        tool_turn = [
+            _oai_chunk(tool_calls=[_tc_delta(0, id="c1", name="read_skill")]),
+            _oai_chunk(tool_calls=[_tc_delta(0, arguments='{"skill_id":"x"}')]),
+            _oai_chunk(finish_reason="tool_calls"),
+        ]
+        client = _FakeOpenAIClient([tool_turn, tool_turn])
+        result = await run_agent_turn_openai(
+            client,
+            system="...",
+            user_message="...",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="llama3",
+            max_iterations=2,
+        )
+        assert result.stop_reason == "max_iterations"
+        assert result.iterations == 2

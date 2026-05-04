@@ -24,7 +24,10 @@ _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
-from scripts.run_improvement_loop import _extract_latest_write_skill  # noqa: E402
+from scripts.run_improvement_loop import (  # noqa: E402
+    _extract_latest_write_skill,
+    parse_args,
+)
 
 _TRACE_ID = uuid4()
 _NOW = datetime.now(UTC)
@@ -252,3 +255,48 @@ def test_returns_none_on_malformed_result_output():
         ),
     ]
     assert _extract_latest_write_skill(events) is None
+
+
+# ---------------------------------------------------------------------------
+# parse_args — new --api-format and --no-stream flags
+# ---------------------------------------------------------------------------
+
+
+def test_parse_args_defaults():
+    args = parse_args([])
+    assert args.api_format == "anthropic"
+    assert args.no_stream is False
+    # Default base URL for anthropic format
+    assert ":1234" in args.llm_base_url
+
+
+def test_parse_args_openai_format_uses_ollama_default():
+    args = parse_args(["--api-format", "openai"])
+    assert args.api_format == "openai"
+    assert "11434" in args.llm_base_url  # Ollama default port
+
+
+def test_parse_args_openai_format_explicit_url():
+    args = parse_args(["--api-format", "openai", "--llm-base-url", "http://myhost:8080/v1"])
+    assert args.api_format == "openai"
+    assert args.llm_base_url == "http://myhost:8080/v1"
+
+
+def test_parse_args_no_stream_flag():
+    args = parse_args(["--no-stream"])
+    assert args.no_stream is True
+    assert args.api_format == "anthropic"  # default still anthropic
+
+
+def test_parse_args_anthropic_explicit_url_not_overridden_by_format():
+    args = parse_args(["--llm-base-url", "http://myproxy:4000"])
+    assert args.llm_base_url == "http://myproxy:4000"
+    assert args.api_format == "anthropic"
+
+
+def test_parse_args_env_var_api_format(monkeypatch):
+    """ENV_LLM_API_FORMAT env var should set the default api_format."""
+    monkeypatch.setenv("OWNEVO_LLM_API_FORMAT", "openai")
+    args = parse_args([])
+    assert args.api_format == "openai"
+    assert "11434" in args.llm_base_url  # Ollama default when format=openai
