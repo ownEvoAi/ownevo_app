@@ -520,6 +520,96 @@ the 80% headline reduction). The main benefit is latency — iter 1's 95s
 wall vs iter 0's 150s was partly from shorter output (gate-blocked early),
 partly from cache serving the system prompt.
 
+### F11 — First compound lift on real M5: Stage C, F9 prompt fix validated, two gate-passes in 7 iters
+
+**Setup:** Stage C — 7 sequential iterations against a fresh DB
+(`ownevo_phase3_realm5_stagec_v1`, workflow `m5-stagec-v1`),
+`claude-sonnet-4-6` via Anthropic cloud, prompt caching auto-enabled
+(PR #33), F9-mitigation prompt fix in place (PR #35). All 7 iters
+shared the workflow_id so `best_ever_score` accumulated.
+
+**Results:**
+
+| iter | decision | val_score | best_ever_after | cache_read | output_tok | wall | cost |
+|---|---|---|---|---|---|---|---|
+| 0 | **gate-pass** | **0.3859** | 0.3859 | 30,586 | 9,049 | 193s | $0.23 |
+| 1 | gate-blocked-no-improvement | 0.3313 | 0.3859 | 36,408 | 3,092 | 95s | $0.11 |
+| 2 | **gate-pass (compound)** | **0.3988** | **0.3988** | 49,592 | 12,363 | 217s | $0.33 |
+| 3 | gate-blocked-no-improvement | 0.3302 | 0.3988 | 97,823 | 5,039 | 134s | $0.22 |
+| 4 | sandbox-error | null | 0.3988 | 69,819 | 14,687 | 253s | $0.38 |
+| 5 | gate-blocked-no-improvement | 0.3301 | 0.3988 | 47,107 | 4,555 | 171s | $0.18 |
+| 6 | sandbox-error (OOM) | null | 0.3988 | 58,920 | 15,354 | 270s | $0.42 |
+
+**Total: $1.86, ~22 min wall.**
+
+**Outcomes:**
+
+1. **First compound lift on real M5.** iter 0 (val_score 0.3859, +16.6% vs
+   static baseline 0.3310) followed by iter 2 (val_score 0.3988, +20.5% vs
+   baseline; +3.4% vs iter 0). The gate held best_ever between them
+   (correctly rejecting iter 1's near-baseline 0.3313). This is the
+   strongest "loop produces compounding improvement" empirical signal
+   we have.
+
+2. **F9 fix VALIDATED.** Stage C iter 0 successfully integrated the
+   `month` feature (diff_summary: *"Add lag_7, rolling_mean_7,
+   rolling_mean_28, month, and is_weekend features..."*). No
+   `DateParseError`. Compare to Stage B where iters 2–6 all failed at
+   `pd.Timestamp("d_1858").month`. The single-paragraph prompt addition
+   (`_M5_ORIGIN + Timedelta(days=int(d[2:])-1)`) unblocked the
+   month-seasonality branch.
+
+3. **Gate held under sustained adversarial pressure.** 7 iterations,
+   2 promotions, 5 rejections (3× gate-blocked-no-improvement,
+   2× sandbox-error). Zero false promotions. Audit chain has 14 entries
+   (2 per iteration). Same gate semantics as Stage B; with the F9 fix
+   in place, productive iterations now happen alongside rejections.
+
+4. **Iter 4 + iter 6 OOMed at the 512 MB sandbox default.** Stage C used
+   the default; future replays should pass `--sandbox-mem-mb 1024` (added
+   in PR #35) to give the agent's diffs more headroom on the 30,490-series
+   real-M5 fold. The OOMs do NOT reach `best_ever` (gate correctly handles
+   them as `error_class=OOM` → no advance), so the lift signal is
+   preserved — but they are wasted iterations.
+
+**Implication for the YC narrative:** B4.2 (first lift) and B4.3
+(gate-blocked regression) were both already established before Stage C.
+Stage C adds **the lift curve** — proof that the loop can produce more
+than one improvement on the same problem. The single 2-step compound
+demonstrates the loop's headline behavior (improve → gate-rejects-bad
+→ improve again). 7 iterations, 2 promotions is consistent with what
+we'd expect: most agent ideas don't improve, but the gate enforces
+monotonicity and the agent eventually finds another winner.
+
+### F12 — Cross-iteration failure memory is the binding constraint (Stage C + Stage B + TODO-20 + TODO-21 v2)
+
+Across the 4 multi-iter runs we now have evidence that the missing piece
+isn't model capability — it's **agent memory of prior failures within the
+workflow**.
+
+| Run | Model | Pattern |
+|---|---|---|
+| Stage B (Sonnet) | iters 2–6 | All 5 independently tried `pd.Timestamp("d_1858")` → DateParseError. No memory of the earlier failure. F9 fix patched the prompt. |
+| Stage C (Sonnet) | iter 4 + iter 6 | Both OOMed at 512 MB default. No memory of prior OOM patterns. |
+| Stage C (Sonnet) | iter 5 | Returned val_score 0.3301 — essentially the static baseline. No memory of which features iter 0 / iter 2 already promoted; agent re-explored a known-bad direction. |
+| TODO-20 (qwen3-coder-30b) | iter 0 | Same `_long_frame` length-mismatch as the prior 13 attempts. The F6 prompt warning paragraph wasn't enough to overcome the model's deterministic codegen prior. |
+| TODO-21 v2 (devstral) | 13 iter / 9 errors | Multiple run_pipeline failures, no successful write_skill. No memory of which approaches it had already tried. |
+
+**Pattern:** every multi-iter run is bottlenecked on the agent
+re-exploring known-bad directions. Prompt fixes (F6 warning, F9 day-ID
+note) work *when the same kind of bug happens to be addressed*, but they
+scale linearly with bug types — we'd need a hand-written paragraph for
+every failure mode the agent might re-discover.
+
+The architectural fix is **`analyze_failures` returning recent
+`sandbox-error` rationale strings as a structured failure signature**,
+so the agent reads "iter 4 OOMed adding feature X — try lighter alternatives"
+on iter 5+. This is captured as **TODO-23** (graduated from TODO-22
+option (b)).
+
+The substrate works correctly across all of this — it's the agent's
+context that's missing the prior-failure signal.
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
