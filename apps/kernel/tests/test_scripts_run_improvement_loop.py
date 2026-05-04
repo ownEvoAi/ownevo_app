@@ -267,7 +267,7 @@ def test_parse_args_defaults():
     assert args.api_format == "anthropic"
     assert args.no_stream is False
     # Default base URL for anthropic format
-    assert "192.168.1.50:1234" in args.llm_base_url
+    assert ":1234" in args.llm_base_url
 
 
 def test_parse_args_openai_format_uses_ollama_default():

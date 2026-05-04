@@ -45,12 +45,14 @@ gate score.
 
 LLM backend
 -----------
-Defaults to LM Studio at `http://192.168.1.50:1234` with model
+Defaults to LM Studio at `http://<OWNEVO_LLM_HOST>:1234` with model
 `qwen/qwen3-coder-30b` (LM Studio exposes a native Anthropic
 `/v1/messages` endpoint, so `AsyncAnthropic` works unchanged).
 Override via env:
-  * `OWNEVO_LLM_BASE_URL`  — e.g. `http://localhost:4000` for LiteLLM
-                             proxy-fronting Ollama
+  * `OWNEVO_LLM_HOST`      — hostname/IP of the local LLM server
+                             (default: `192.168.1.50`)
+  * `OWNEVO_LLM_BASE_URL`  — full base URL, overrides OWNEVO_LLM_HOST;
+                             e.g. `http://localhost:4000` for LiteLLM
   * `OWNEVO_LLM_MODEL`     — any tool-calling-capable model id
   * `OWNEVO_LLM_API_KEY`   — usually ignored by local backends; defaults
                              to the literal `"lm-studio"`
@@ -106,10 +108,14 @@ ENV_LLM_MODEL = "OWNEVO_LLM_MODEL"
 ENV_LLM_API_KEY = "OWNEVO_LLM_API_KEY"
 ENV_MAX_ITERATIONS = "OWNEVO_AGENT_MAX_ITERATIONS"
 ENV_LLM_API_FORMAT = "OWNEVO_LLM_API_FORMAT"
+ENV_LLM_HOST = "OWNEVO_LLM_HOST"
+
+_DEFAULT_LLM_HOST = "192.168.1.50"
+_llm_host = os.environ.get(ENV_LLM_HOST, _DEFAULT_LLM_HOST)
 
 DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-m5:0.1.0"
-DEFAULT_LLM_BASE_URL = "http://192.168.1.50:1234"
-DEFAULT_LLM_BASE_URL_OPENAI = "http://192.168.1.50:11434/v1"
+DEFAULT_LLM_BASE_URL = f"http://{_llm_host}:1234"
+DEFAULT_LLM_BASE_URL_OPENAI = f"http://{_llm_host}:11434/v1"
 DEFAULT_LLM_MODEL = "qwen/qwen3-coder-30b"
 DEFAULT_LLM_API_KEY = "lm-studio"
 DEFAULT_MAX_ITERATIONS = 25

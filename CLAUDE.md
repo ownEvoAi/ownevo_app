@@ -48,9 +48,9 @@ Use (don't build): Langfuse, ClickHouse, OTel collector, LiteLLM, Inspect AI.
 The improvement loop (`scripts/run_improvement_loop.py`) supports two API formats via `--api-format`:
 
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
-- `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://192.168.1.50:11434/v1`.
+- `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
 
-**Confirmed working model (2026-05-04):** `devstral-small-2:latest` on Ollama at `192.168.1.50:11434`. Calls tools reliably, generates clean Python, gate-pass confirmed.
+**Confirmed working model (2026-05-04):** `devstral-small-2:latest` on Ollama. Calls tools reliably, generates clean Python, gate-pass confirmed.
 
 ```bash
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
