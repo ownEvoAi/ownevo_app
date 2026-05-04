@@ -199,6 +199,59 @@ def _split(content: str) -> tuple[str, str]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Canonical content builder — inverse of parse_skill
+# ---------------------------------------------------------------------------
+
+
+def build_skill_content(
+    *,
+    skill_id: str,
+    kind: str,
+    body: str,
+    capability_tags: list[str] | None = None,
+    retention: dict[str, Any] | None = None,
+    created_by: str,
+) -> str:
+    """Construct canonical skill text from structured fields.
+
+    The agent's `write_skill` tool takes structured fields rather than a
+    pre-serialized YAML+body string — the kernel constructs the canonical
+    file here. Output round-trips through `parse_skill` (validation is
+    still single-source-of-truth in the parser).
+
+    For ``kind="python"`` returns the canonical docstring shape:
+
+        \"\"\"
+        ---
+        id: ...
+        kind: python
+        ...
+        ---
+        \"\"\"
+
+        <body>
+
+    For ``kind="instruction"`` / ``"composite"`` returns the canonical
+    Markdown shape with a leading `---` fence.
+    """
+    fm: dict[str, Any] = {
+        "id": skill_id,
+        "kind": kind,
+        "created_by": created_by,
+    }
+    if capability_tags:
+        fm["capability_tags"] = list(capability_tags)
+    fm["retention"] = retention if retention is not None else {"stateless": True}
+
+    yaml_text = yaml.safe_dump(fm, sort_keys=False, default_flow_style=False)
+    body_text = body.rstrip("\n") + "\n"
+
+    if kind == "python":
+        return f'"""\n---\n{yaml_text}---\n"""\n\n{body_text}'
+    return f"---\n{yaml_text}---\n\n{body_text}"
+
+
 def _looks_like_skill_frontmatter(text: str) -> bool:
     """Cheap pre-check: does ``text`` parse as a YAML mapping with
     at least ``id`` and ``kind`` keys? Used by the bare-frontmatter

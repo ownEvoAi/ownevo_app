@@ -62,22 +62,37 @@ over them.
    Bad first diffs: rewriting the orchestrator, swapping the model class
    wholesale, restructuring the inter-skill data contracts.
 
-2. **Read the current skill.** Use `read_skill` to get the v1 body.
-   Note the YAML frontmatter at the top — your new version must keep
-   the same `id` and `kind`. `created_by` will be set automatically;
-   don't try to override it.
+2. **Read the current skill.** Use `read_skill` to get the v1 source.
+   The returned `content` includes the YAML frontmatter (id, kind,
+   retention) wrapped in the module docstring — that's the *canonical
+   on-disk shape* the kernel produces. You don't write that shape; you
+   pass structured fields and the kernel constructs it. The body you
+   work with is everything *after* the closing `---` / `"""`.
 
-3. **Validate before committing.** Construct the proposed body as a
-   string, then call `run_pipeline` with that body. Confirm `status =
-   "ok"` and that the pipeline produced the expected outputs. If it
-   errored, inspect `raw_stderr` + `error_class` and revise.
-   `error_class` of `Timeout` / `OOM` / `Crash` means the sandbox
-   killed the run — do NOT trust any partial output in that case.
+3. **Validate before committing.** Build the proposed body as a string
+   (Python source only — imports, functions, module code), then call
+   `run_pipeline` with that body. Confirm `status = "ok"` and that the
+   pipeline produced the expected outputs. If it errored, inspect
+   `raw_stderr` + `error_class` and revise. `error_class` of `Timeout`
+   / `OOM` / `Crash` means the sandbox killed the run — do NOT trust
+   any partial output in that case.
 
 4. **Register the new version.** Once `run_pipeline` validates the
-   change, call `write_skill` with the same `skill_id` and the validated
-   content. The frontmatter `id` inside the content must match the
-   `skill_id` argument; mismatches are rejected.
+   change, call `write_skill` with structured fields:
+
+   - `skill_id`: same id you read with `read_skill`
+   - `kind`: usually `"python"` for the M5 baseline skills
+   - `body`: the executable Python source (no `"""`, no `---`, no
+     YAML — just code)
+   - `capability_tags`: optional list of strings (e.g. `["m5",
+     "feature-engineering"]`)
+   - `retention`: object — for the M5 baseline skills use
+     `{"stateless": true}`
+   - `diff_summary` (optional): one-line description for the audit log
+
+   The kernel builds the canonical YAML+docstring file and registers
+   it. `created_by` is stamped from the runtime — don't try to
+   override it.
 
 5. **One change per iteration.** Don't bundle two unrelated diffs into
    one proposal. The improvement loop scores per-iteration; if you
