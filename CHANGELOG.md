@@ -17,6 +17,164 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+- `apps/kernel/scripts/probe_tool_calling.py` + `probe_skill_quality.py`
+  (PR #29) — Phase-0 pre-flight probes for the local-model evaluation
+  funnel. `probe_tool_calling` is a single-turn tool-call sanity check
+  (~30s/model): catches API-level rejection (gemma3 "doesn't support
+  tools"), models that text-respond instead of calling, and transport
+  errors. `probe_skill_quality` (~60s/model) sends `predictor.py` with a
+  focused 1-line modification request and validates: AST parses (catches
+  em-dashes / smart-quotes in code positions), YAML frontmatter `id:`
+  intact, `def predict(...)` signature intact, modification present.
+  Both probes mirror `run_improvement_loop.py`'s env vars + flags
+  (`--api-format`, `--ollama-num-ctx`, etc.), output one JSON line on
+  stdout, exit 0/1/2 (pass/fail/error) for shell-loop friendliness.
+  Default LLM host is `localhost` (override via `OWNEVO_LLM_HOST`).
+  Module docstrings explicitly disclaim what they CAN'T catch — F4
+  stragglers (8B models that pass simple probes but stall in the
+  multi-turn read-loop) only show up at full-loop scale.
+- `apps/kernel/scripts/sweep_probes.py` (PR #31) — drives both probes
+  across many models from a `<backend> <model>` candidate list,
+  capturing structured JSONL + a markdown summary. Triages the ~33
+  untested local-model candidates in 2-4 hours instead of 5+ hours of
+  full Phase 1 runs. Resumable via `--skip-completed`. Per-probe
+  timeouts (120s tool-calling, 240s skill-quality) bound a hung model;
+  best-effort Ollama unload via `keep_alive=0` chat between models;
+  LMS unload not attempted via the v0 endpoints (see Changed below).
+  Ships with `sweep_candidates_smoke.txt` (2 known-good rows) and
+  `sweep_candidates_full.txt` (48 rows: 32 Ollama + 16 LMS,
+  intersected with the testing-guide candidate tables).
+- `apps/kernel/src/ownevo_kernel/skills/format.py` — `build_skill_content()`
+  helper (PR #30), inverse of `parse_skill`. Constructs canonical
+  skill text (YAML frontmatter + Python docstring or Markdown fence)
+  from structured fields: `skill_id`, `kind`, `body`, `capability_tags`,
+  `retention`, `created_by`. The `write_skill` tool now accepts these
+  fields directly — kernel does the canonical serialization, agent
+  never emits `"""`, `---`, or YAML. 6 new round-trip tests verify
+  `build_skill_content` → `parse_skill` is an identity on canonical
+  output, including the M5 baseline skills.
+- `apps/kernel/src/ownevo_kernel/benchmark/m5_sandbox.py` —
+  `SandboxedM5BenchmarkRunner` gains `skill_override_dir: Path | None`
+  (PR #21, B4.1). When set, the runner adds a `--volume
+  <override>:/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1:ro`
+  bind-mount so the sandbox imports the agent's proposed skill version
+  (materialized to disk by `run_improvement_loop.py`) instead of the
+  baseline baked into the image. Closes the W4 gap noted in BL.3's
+  prior CHANGELOG entry — `val_score` now reflects the agent's diff,
+  not the baseline. Pinned by 5 unit tests for `_materialize_skill_override`
+  covering valid skills, unknown-skill rejection, empty / trailing-dot
+  / path-separator-poisoned `skill_id` rejection. **First end-to-end
+  lift recorded 2026-05-04**: agent (Sonnet 4.6) proposed adding
+  `lag_7` + `rolling_mean_28` + `is_weekend` + `dept_id_code` features
+  (`feature_engineer.py` v1 → v2); gate ran the override in the
+  sandbox, scored `val_score=0.3951` vs static-baseline `0.3310` =
+  **+19% relative lift**. Multi-iter replay (v12) confirmed gate's
+  regression-blocking path: a follow-up Sonnet diff scored 0.3851 and
+  was correctly rejected (`gate-blocked-no-improvement`). B4.2 ✅,
+  B4.3 ✅.
+- `apps/kernel/scripts/run_improvement_loop.py` — `--ollama-num-ctx`
+  CLI flag (PR #24) plumbed through to AsyncOpenAI as
+  `extra_body={"options": {"num_ctx": N}}`. Closes F1 from the local-model
+  testing guide: without the flag, Ollama's `/v1/chat/completions`
+  uses a default smaller than the daemon-level `OLLAMA_CONTEXT_LENGTH`
+  even with `OLLAMA_NUM_PARALLEL=1`, silently truncating mid-loop.
+- `docs/local-model-testing.md` (PR #25) — sweep methodology guide
+  (4-tier: Phase 0 probes → Phase 1 synthetic compat → Phase 2 real-M5
+  baseline → Phase 3 lift), backend overview (Ollama vs LMS), F1-F6
+  findings, candidate model lists (Ollama 8B-40B + LM Studio 8B-40B),
+  per-run summary schema, VRAM pre-flight assertion. Living document —
+  PR #32 added F6 (qwen3-coder-30b deterministic feature_engineer
+  fail) + F6a (LMS JIT-load context cap) + F6b (Anthropic-strict-
+  validation recovery in runner.py).
+- `docs/PLAN.md` §"Pre-W3 (cont.) — Local-model sweep methodology"
+  (`19f526e`) — promotes the four-tier funnel into the load-bearing
+  plan + locks Phase 2 baseline at `val_score=0.330988`.
+- `TODOS.md` TODO-19 (`19f526e`) — tracks the local-model sweep
+  effort under "Substrate quality" with current status, methodology
+  reference, and next-moves checklist. Priority P1 — directly feeds
+  B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
+
+### Changed
+- `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/tool_definitions.py`
+  — `write_skill` tool schema is now structured fields (`skill_id`,
+  `kind`, `body`, `capability_tags`, `retention`, `diff_summary`)
+  instead of a single serialized `content` string (PR #30). The
+  dispatcher constructs the canonical YAML+docstring file via
+  `build_skill_content()` and passes through to the existing kernel
+  `write_skill()` for parse+register. Eliminates the YAML-serialization
+  variance that plagued local-model agents (3 distinct format failure
+  modes hit across qwen3-coder-30b's Phase 3 attempts; see PRs #27,
+  #28). Result is also echoed in the `tool_call_result` `content`
+  field so the gate's bind-mount path reads the persisted canonical
+  text rather than the raw structured args. `_extract_latest_write_skill`
+  in `run_improvement_loop.py` updated accordingly. Postel's-law
+  parser fallbacks (PRs #27, #28) stay in place as belt+suspenders
+  for human-authored files.
+- `apps/kernel/src/ownevo_kernel/skills/format.py` — `parse_skill`
+  gains two Postel's-law fallbacks for shapes the agent emits when
+  the docstring wrapper goes wrong: `_PY_BARE_RE` accepts YAML
+  frontmatter at the top with no `"""..."""` wrapper at all (PR #27,
+  v1+v2 failure mode); `_PY_HALFWRAP_RE` accepts opening `"""` with
+  no closing `"""` (PR #28, v3 failure mode). Both gated on
+  `_looks_like_skill_frontmatter` (id+kind YAML mapping check) so
+  arbitrary `---`-delimited content can't slip through. Order in
+  `_split`: canonical PY → canonical MD → half-wrap PY → bare PY.
+  Strict shapes win without re-parsing; fallbacks always validate. 9
+  new tests + all prior regressions pass.
+- `apps/kernel/scripts/m5_agent_prompt.md` (PR #30) — rewrote step 4
+  ("Register the new version") to describe the structured `write_skill`
+  surface: pass `skill_id`, `kind`, `body` (executable Python only,
+  no `"""` / `---` / YAML), `capability_tags`, `retention` as
+  `{"stateless": true}`. Kernel constructs the canonical file.
+- `apps/kernel/scripts/run_improvement_loop.py` — `_kickoff_message`
+  rewritten (PR #30) to describe the structured tool surface; the
+  earlier YAML/docstring scaffold (PR #26) is removed. `--no-stream`
+  flag added (works only with `--api-format anthropic`) for proxying
+  Ollama through LiteLLM in OpenAI-format-only mode. `_DEFAULT_LLM_HOST`
+  changed from `localhost` to `localhost` (PR #29);
+  `OWNEVO_LLM_HOST` env var overrides for remote-desktop / LAN-box
+  setups. `_extract_latest_write_skill` now reads `content` from the
+  `tool_call_result` output (built by the dispatcher from structured
+  args) instead of the start event's `args.content`.
+- `docs/local-model-testing.md` — F5 sample size bumped from 10 to 12
+  (PR #32) with two new qwen3-coder-30b runs added; F6 + F6a + F6b
+  added documenting the deterministic feature_engineer bug and LMS
+  strict-validation recovery.
+- `.gitignore` — added `temp/` and `.temp/` (already present) explicit
+  entries for ad-hoc benchmark scratch (PR #29).
+
+### Fixed
+- `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py` —
+  recover from LM Studio's by-design Anthropic-strict-validation
+  abort (PR #32, F6b). LMS's `/v1/messages` shim aborts streams with
+  `APIStatusError: Failed to generate a valid tool call` when the
+  model emits malformed tool-use output, expecting clients to recover
+  (per LMS changelog; Claude Code does). Runner was propagating it
+  as an unhandled exception. Now substring-matches `str(exc)` for the
+  validation-error message (keeps `runner.py` SDK-agnostic via the
+  existing duck-typing pattern), injects a synthetic
+  `[assistant placeholder, user retry]` pair to keep message
+  alternation valid, sets a recovery `stop_reason` marker, and
+  continues the loop. The retry costs one iteration toward
+  `max_iterations` so repeated failures terminate naturally rather
+  than looping forever. 3 new tests pin the behavior:
+  validation-error recovery with synthetic retry; non-validation
+  exception still propagates (e.g., `connection refused`); 5 scripted
+  failures bounded by `max_iterations=3`.
+- `apps/kernel/baselines/m5_lightgbm/skill_v1/outlier_handler.py`
+  (PR #23) — sparse-demand SKUs were being zeroed out by an
+  unconditional 99th-percentile clip when `cap == 0`. Replaced with
+  conditional clip (skip when `cap <= 0`) + post-clip `scale > 0`
+  filter. Unblocked Phase 2 real-M5 baseline (now produces
+  `val_score=0.330988` with 30490 series surviving).
+- `apps/kernel/scripts/run_improvement_loop.py` — gate now correctly
+  scores the agent's proposal (was scoring the baseline) once
+  `--skill-override-dir` is wired into `SandboxedM5BenchmarkRunner`
+  (PR #21). Uses `_extract_latest_write_skill` + `_materialize_skill_override`
+  to write the agent's diff to a tempdir, bind-mount it, run the
+  gate against it.
+
 ## [0.1.0] — 2026-05-04
 
 ### Added

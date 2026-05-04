@@ -62,18 +62,66 @@ backed by a sweep that's reproducible from this file.
   (`APIStatusError: Failed to generate a valid tool call.`). Affects
   Mistral-family models with `[TOOL_CALLS]` native format and some
   Qwen variants. Workaround: route via direct Ollama instead.
-- **Unload via REST does not work** in current versions: `keep_alive=0`,
-  `/v1/internal/model/unload`, `/api/v0/models/<id>/unload`, and
-  `/v0/models/unload` all return success but do nothing. The local
-  `lms unload <id>` CLI works; webui works. Sweep accepts that LMS
-  may keep multiple models loaded across runs (LRU eviction handles
-  VRAM exhaustion).
+- **Unload via REST IS supported, just not via the v0 endpoints we
+  initially tried** (verified 2026-05-04). Working paths:
+  - `POST /api/v1/models/unload` with body `{"instance_id": "<id>"}`
+    (LMS 0.4.0+; v1, not v0). [Source](https://lmstudio.ai/docs/developer/rest/unload).
+  - `lmstudio-python` SDK with remote `baseUrl=http://<host>:1234`:
+    `client.llm.unload()` + `config={"contextLength": 65536}` at load.
+    [Source](https://lmstudio.ai/docs/python/llm-prediction/parameters).
+  - CLI: `lms load <model> --context-length 65536` (run on the LMS
+    host directly).
+  - Default context length falls back to per-model `lms.json`. The
+    OpenAI-compat endpoints DON'T expose context-length config; load-
+    time SDK or CLI is required.
+  - The previously-tried `keep_alive=0`, `/v1/internal/model/unload`,
+    `/api/v0/models/<id>/unload`, `/v0/models/unload` all 404 or
+    no-op silently — the v0 surface predates the working v1 endpoint.
+  - **Follow-up:** wire `lmstudio-python` into a small `lms_remote.py`
+    helper to drive proper unload + context-length-on-load before the
+    real Phase 1 sweep.
 
 ---
 
 ## Sweep methodology
 
-Three phases. **All runs sequential, only one model active at a time.**
+Four phases (a Phase 0 pre-flight tier was added 2026-05-04 once the
+probe scripts shipped). **All runs sequential, only one model active
+at a time.**
+
+### Phase 0 — Pre-flight probes (PR #29, PR #31)
+
+**Purpose:** triage the candidate list before paying for a full Phase
+1 sandboxed-loop run. Catches API-level rejection, models that don't
+emit tool calls, em-dash / smart-quote / signature regressions in
+codegen — all in ~90s/model wall instead of 5-15 min/model for Phase 1.
+
+**Tools:**
+
+- `apps/kernel/scripts/probe_tool_calling.py` — single-turn `read_skill`
+  call. Exit 0 (pass) / 1 (fail-no-tool) / 2 (transport error). ~30s.
+- `apps/kernel/scripts/probe_skill_quality.py` — sends `predictor.py`
+  with a 1-line modification request. Validates: AST parses, frontmatter
+  `id:` intact, `def predict(model, features, fold)` signature intact,
+  modification present, no em-dashes / smart-quotes / NBSP in code
+  positions. ~60s.
+- `apps/kernel/scripts/sweep_probes.py` — batch driver over a
+  `<backend> <model>` list. JSONL + markdown summary, resumable via
+  `--skip-completed`. Per-probe timeouts (120s tool-calling, 240s
+  skill-quality) bound a hung model.
+
+**Pass criterion:** both probes exit 0. Records as `overall=pass`.
+
+**What probes CANNOT tell you (don't over-read it):**
+
+- F4 stragglers — 8B models pass simple probes but stall in the M5
+  multi-turn read-loop. Probe-passers still need Phase 1 confirmation.
+- Skill-quality probe is a "rewrite the file" prompt that bypasses the
+  agent's tool surface. Codegen quality proxy, not the real workflow.
+
+**Empirical (2026-05-04 partial sweep, 25/48 candidates done):** 60%
+Ollama probe-pass rate (15/25). LMS half not yet attempted (sweep
+paused; resume planned with the `lms_remote.py` helper).
 
 ### Phase 1 — Synthetic-fixture compatibility scan
 
@@ -319,6 +367,71 @@ on this model alone won't produce lift** until either:
   same conversation (which #21 already enables — but the model needs
   to actually pivot rather than trying the same approach twice in a
   row).
+
+### F7 — Anthropic-cloud benchmark: Sonnet 4.6 first gate-PASS on real M5; Haiku hits same F6 bug
+
+After PR #30 + #32 landed, three additional Phase-3 runs on real M5,
+same kickoff + substrate, same `feature_engineer.py` target:
+
+| Run | Model | Backend | Decision | val_score | iter | Cost |
+|---|---|---|---|---|---|---|
+| v9  | `claude-haiku-4-5-20251001` | Anthropic cloud | sandbox-error | – | 10 | $0.17 |
+| **v10** | **`claude-sonnet-4-6`** | **Anthropic cloud** | **gate-PASS (bootstrap)** | **0.395143** | **6** | **$0.31** |
+| v11 | `qwen/qwen3-coder-30b` | LMS Anthropic + #32 recovery | sandbox-error | – | 10 | local |
+
+- **Sonnet 4.6 produced runnable code** — the first model to do so on
+  this task, after qwen3-coder-30b (×3 prior runs in F6) and Haiku 4.5
+  both deterministically hit the F6 length-mismatch bug.
+- Sonnet committed in 6 iterations / 6 tool calls / 1 error — far
+  more efficient than Haiku (10 iter / 4 errors) or qwen (10-11 iter /
+  3-4 errors). Smaller / cheaper models retried more without
+  recovering.
+- `val_score = 0.3951` is a **+19% lift over the static Phase 2
+  baseline `0.3310`** (val_score is mean reward, higher is better
+  per the gate's `FAIL_NO_IMPROVEMENT` semantics). Bootstrap-mode
+  `iteration_index=0` so `best_ever_score` advances `null → 0.3951`.
+
+A multi-iteration replay (v12, 2026-05-04) confirmed the gate
+correctly enforces improvement on iteration 2:
+
+| Run | val_score | best_ever_before | gate decision |
+|---|---|---|---|
+| v12 (Sonnet, same model + workflow) | 0.3851 | 0.3951 | **gate-blocked-no-improvement** |
+
+v12's rationale: *"val_score 0.3851 did not beat best_ever 0.3951
+(epsilon 0)"* — confirms direction (higher = better) and demonstrates
+the regression-blocking path. **B4.2 (First lift on M5)** ✅ achieved
+at v10; **B4.3 (First gate-blocked regression)** ✅ achieved at v12.
+
+**Takeaway:** the F6 bug pattern is **task-shape-specific**, not
+model-class-specific. Both qwen3-coder-30b (open-weight, local) and
+Haiku 4.5 (frontier, hosted) hit it; Sonnet 4.6 does not. The substrate
+itself works correctly across all three (gate ran, audit chain logged,
+override bind-mount delivered the agent's diff).
+
+### F8 — LMS local prompt-caching is real but modest (~20% speedup), not Anthropic-cloud-equivalent
+
+LMS reports `cache_read_input_tokens` in Anthropic-streaming responses
+(typical 80-90% of input on long conversations). **The reported number
+is real KV cache reuse, but the speedup is much smaller than Anthropic
+cloud's marketing.** Empirical measurement (2026-05-04, 3 successive
+runs of `probe_skill_quality.py` on `qwen/qwen3-coder-30b` LMS Anthropic):
+
+| Run | elapsed | Δ from cold |
+|---|---|---|
+| #1 (cold) | 4.3s | — |
+| #2 (warm, ≤60s after #1) | 3.4s | **−21%** |
+| #3 (warm) | 3.3s | **−23%** |
+
+Compare to Anthropic cloud, where `cache_read` typically delivers
+3-5× faster TTFT. LMS appears to cache the system prompt prefix only;
+full-prefix cache reuse may not be implemented.
+
+**Operational implication:** treat `cache_read` as a **soft progress
+signal** (high cache_read = same prefix being reused = not getting
+truncated mid-run, useful F1-territory diagnostic), not a perf
+optimization. Pick backend on agent quality + recovery support
+(F6b runner fix favors LMS Anthropic), not on cache_read.
 
 ---
 
