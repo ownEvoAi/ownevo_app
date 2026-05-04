@@ -173,6 +173,114 @@ def test_no_frontmatter_raises():
         parse_skill("# Just a markdown body, no frontmatter\n")
 
 
+# ---------------------------------------------------------------------------
+# Bare-Python-frontmatter Postel's-law fallback (Phase-3 agent failure mode)
+# ---------------------------------------------------------------------------
+
+
+# Reproduction of the qwen3-coder-30b output that bounced 5x in Phase 3:
+# YAML frontmatter at the top, trailing `---` separator, then code body.
+# Missing the `"""` docstring wrapper and the leading `---` marker.
+_BARE_PY_FRONTMATTER = """\
+id: m5.baseline.v1.feature_engineer
+kind: python
+created_by: agent:qwen3-coder-30b
+capability_tags:
+  - m5
+  - baseline
+  - feature_engineer
+retention:
+  stateless: true
+---
+
+from __future__ import annotations
+
+import pandas as pd
+
+def engineer(raw, fold):
+    return pd.DataFrame({"y": [1, 2, 3]})
+"""
+
+
+def test_parse_skill_accepts_bare_python_frontmatter():
+    """The Phase-3 agent failure mode: YAML at the top + trailing `---`
+    but no docstring wrapper. Parser auto-accepts when the leading text
+    is a valid YAML mapping with `id` + `kind`."""
+    rec = parse_skill(_BARE_PY_FRONTMATTER)
+    assert rec.frontmatter.id == "m5.baseline.v1.feature_engineer"
+    assert rec.frontmatter.kind == "python"
+    assert rec.frontmatter.retention.stateless is True
+    # Body keeps everything after the `---\n` separator.
+    assert "from __future__ import annotations" in rec.body
+    assert "def engineer" in rec.body
+
+
+def test_parse_skill_bare_frontmatter_with_leading_blank_lines():
+    """Leading whitespace before the bare frontmatter still parses."""
+    rec = parse_skill("\n\n\n" + _BARE_PY_FRONTMATTER)
+    assert rec.frontmatter.id == "m5.baseline.v1.feature_engineer"
+
+
+def test_parse_skill_bare_fallback_rejects_arbitrary_leading_text():
+    """The fallback ONLY accepts text that loads as a YAML mapping with
+    `id` + `kind`. Random comments / banners followed by a `---` don't
+    match — they fall through to the canonical "No frontmatter" error."""
+    bad = """\
+# Random module banner
+# Some commentary
+---
+
+def something(): pass
+"""
+    with pytest.raises(SkillFormatError, match="No frontmatter"):
+        parse_skill(bad)
+
+
+def test_parse_skill_bare_fallback_rejects_yaml_without_id_or_kind():
+    """If the YAML at the top is missing `id` OR `kind`, the fallback
+    refuses to claim the content — the canonical error fires instead.
+    Avoids swallowing files where the leading YAML-looking block is
+    actually unrelated configuration."""
+    no_kind = """\
+id: foo
+created_by: x
+retention:
+  stateless: true
+---
+
+body
+"""
+    with pytest.raises(SkillFormatError, match="No frontmatter"):
+        parse_skill(no_kind)
+
+    no_id = """\
+kind: python
+created_by: x
+retention:
+  stateless: true
+---
+
+body
+"""
+    with pytest.raises(SkillFormatError, match="No frontmatter"):
+        parse_skill(no_id)
+
+
+def test_parse_skill_canonical_python_still_works():
+    # Regression — the canonical Python-docstring frontmatter shape must
+    # still parse identically to before the Postel's-law fallback was added.
+    rec = parse_skill(M5_FEATURE_PY)
+    assert rec.frontmatter.id == "m5-feature-engineer"
+    assert rec.body.lstrip().startswith("import lightgbm")
+
+
+def test_parse_skill_canonical_markdown_still_works():
+    """Regression — canonical Markdown frontmatter unchanged."""
+    rec = parse_skill(STATELESS_SKILL)
+    assert rec.frontmatter.id == "pure-formatter"
+    assert rec.frontmatter.kind == "instruction"
+
+
 def test_unknown_kind_rejected():
     bad = """\
 ---
