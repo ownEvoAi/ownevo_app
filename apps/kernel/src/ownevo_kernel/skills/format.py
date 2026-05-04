@@ -96,6 +96,26 @@ _PY_RE = re.compile(
     re.DOTALL,
 )
 
+# Postel's-law fallback: agents (qwen3-coder-30b on the M5 loop, three
+# Phase-3 attempts as of 2026-05-04) routinely emit Python skill bodies
+# with the YAML frontmatter at the top but **no docstring wrapper** —
+# the canonical PY shape is `"""\n---\n<yaml>\n---\n"""\n<code>` and
+# the model strips the outer `"""` and the leading `---`, leaving:
+#
+#     id: m5.baseline.v1.feature_engineer
+#     kind: python
+#     ...
+#     ---
+#
+#     <code>
+#
+# This regex captures that shape: the leading run up to the first
+# `\n---\n` is the candidate frontmatter, the rest is the body. The
+# parser still validates that the captured text loads as a YAML mapping
+# with `id` + `kind` keys before accepting (so e.g. `# random comment\n
+# foo bar\n---\nbody` doesn't sneak through).
+_PY_BARE_RE = re.compile(r"\A\s*(\S.*?)\n---\s*\n(.*)\Z", re.DOTALL)
+
 
 def parse_skill(content: str) -> SkillRecord:
     """Parse a skill file into validated frontmatter + body.
@@ -127,14 +147,38 @@ def parse_skill(content: str) -> SkillRecord:
 
 
 def _split(content: str) -> tuple[str, str]:
-    """Return `(frontmatter_text, body)` or raise."""
+    """Return `(frontmatter_text, body)` or raise.
+
+    Order matters: the canonical Python-docstring and Markdown-fence
+    shapes are tried first and accepted strictly. Only when both miss
+    does the bare-frontmatter fallback engage, and it only accepts
+    text that parses as a YAML mapping with at least `id` + `kind`.
+    """
     m = _PY_RE.match(content)
     if m is not None:
         return m.group(1), m.group(2)
     m = _MD_RE.match(content)
     if m is not None:
         return m.group(1), m.group(2)
+    m = _PY_BARE_RE.match(content)
+    if m is not None:
+        candidate, body = m.group(1), m.group(2)
+        if _looks_like_skill_frontmatter(candidate):
+            return candidate, body
     raise SkillFormatError(
         "No frontmatter found. Expected leading `---` block (markdown) or "
         "`\"\"\"\\n---\\n...\\n---\\n\"\"\"` docstring (python).",
     )
+
+
+def _looks_like_skill_frontmatter(text: str) -> bool:
+    """Cheap pre-check: does ``text`` parse as a YAML mapping with
+    at least ``id`` and ``kind`` keys? Used by the bare-frontmatter
+    fallback to avoid swallowing arbitrary leading text that happens
+    to sit before a `\\n---\\n` separator.
+    """
+    try:
+        parsed = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(parsed, dict) and "id" in parsed and "kind" in parsed
