@@ -129,11 +129,31 @@ _PROMPT_PATH = Path(__file__).parent / "m5_agent_prompt.md"
 
 def _kickoff_message(workflow_id: str) -> str:
     return (
-        "You're picking up the M5 demand-prediction workflow at the v1 LightGBM "
-        "baseline. Start by reading one of the six skills, propose one focused "
-        "improvement, validate it via run_pipeline, and register the new "
-        f"version with write_skill. End your turn after the new version is "
-        f"registered.\n\nworkflow_id: {workflow_id}"
+        "You're picking up the M5 demand-prediction workflow at the v1 "
+        "LightGBM baseline. Read one skill, propose one focused improvement, "
+        "validate via run_pipeline, register with write_skill, then end your "
+        "turn.\n"
+        "\n"
+        "**Format requirement (write_skill rejects content without this):** "
+        "every Python skill MUST begin with a YAML frontmatter block wrapped "
+        "in a Python triple-quoted docstring. The first lines look exactly "
+        "like:\n"
+        "\n"
+        "```\n"
+        '"""\n'
+        "---\n"
+        "id: m5.baseline.v1.<name>\n"
+        "kind: python\n"
+        "...\n"
+        "---\n"
+        '"""\n'
+        "```\n"
+        "\n"
+        "The v1 body that read_skill returns shows the exact shape — keep "
+        "that docstring wrapper intact in your new version, and ensure the "
+        "frontmatter `id` matches the `skill_id` you pass to write_skill.\n"
+        "\n"
+        f"workflow_id: {workflow_id}"
     )
 
 
