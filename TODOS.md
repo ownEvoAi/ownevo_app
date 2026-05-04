@@ -152,6 +152,41 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S-M (CC ~half day to debug crash + run; ~1 hour for the probe-sweep follow-up).
 - **Priority:** P1 — directly feeds B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
 - **Depends on:** none — substrate is in place.
+- **Status update (2026-05-04):** Phase 3 closed on Sonnet 4.6 via Anthropic cloud — v10 produced `val_score=0.395143` (+19% over baseline 0.331), v12 demonstrated the gate-blocked regression at 0.385126. B4.2 + B4.3 both achieved on real M5 for ~$0.78. Stage B 7-iter replay (also 2026-05-04) confirmed the gate held `best_ever=0.3958` through 6 consecutive non-pass iterations ($1.84 cost). Local-model lift on real M5 is NOT yet achieved — captured in TODO-20 + TODO-21.
+
+### TODO-20: F6 mitigation effectiveness retest on qwen3-coder-30b
+
+- **What:** Re-run the Phase 3 loop (real M5, LMS Anthropic backend) on `qwen3-coder-30b` with the F6-mitigation prompt warning that shipped in PR #33. Measure whether the 13-attempt-100%-deterministic `_long_frame` length-mismatch bug is reduced or eliminated. Target: at least one gate-pass or a clean sandbox-error that's NOT the F6 pattern.
+- **Why:** The F6 mitigation in PR #33 is a hypothesis: "warning the agent about long-format reshape NaN handling will stop it from indexing 1-D `dow` as 2-D." Without retest, the prompt change is untested. PR #33's tests cover the prompt-caching path, not F6 mitigation effectiveness.
+- **Pros / Cons:** Cheap (local model, free, ~5 min wall). If it works, qwen3-coder-30b becomes a viable local-model end-to-end driver for Phase 3, restoring the cost-control + single-vendor-risk story. If it doesn't work, we know the F6 bug is not promptable away on this model and we move to a different local model (TODO-21).
+- **Context:** Background in `apps/kernel/docs/local-model-testing.md` § F6. Prompt change in `apps/kernel/scripts/m5_agent_prompt.md` (PR #33 diff). Last 3 attempts (v7/v8/v11) all hit the same bug — pre-mitigation.
+- **Effort:** XS (CC ~30 min — single run + post-mortem).
+- **Priority:** P2 — strengthens the local-model story; doesn't gate the YC narrative (Sonnet already proved the loop).
+- **Depends on:** none. Self-contained.
+
+### TODO-21: Devstral OOM headroom — bump sandbox memory or constrain agent prompt
+
+- **What:** Resolve v13b's `error_class=OOM` outcome: either (a) bump the M5 sandbox `mem_mb` from 512 → 1024 MB (or higher) and retest devstral-small-2 on real M5, or (b) add a "memory-conscious code" instruction to `m5_agent_prompt.md` (avoid duplicating series matrices, prefer in-place ops), or (c) accept that 30,490-series long-format DataFrames just need >512 MB.
+- **Why:** v13b is the strongest local-model signal we have on real M5 (devstral wrote runnable code, did NOT trigger F6's `_long_frame` bug, but the resulting pipeline OOM'd). Without resolving the OOM, we can't measure devstral's val_score and can't confirm it as a local-model end-to-end driver.
+- **Pros / Cons:** (a) is one CLI flag change in the runner + a re-run (~5 min) but increases sandbox blast radius; (b) is a prompt change that may or may not work on devstral's coding style; (c) closes the avenue. (a) preferred — 512 MB is a defensible-but-tight default; 1 GB is still bounded. Update `docs/local-model-testing.md` with the new finding regardless.
+- **Context:** v13b runlog at `.temp/runlogs/20260504-140903-phase3-v13b-devstral-retry/loop.log`. 15 iterations, 14 tool calls, 4 tool errors. Final iteration hit `M5SandboxError: Sandboxed M5 pipeline did not return ok: status=error, error_class=OOM, error='Sandbox memory limit exceeded (OOM-killed)'`. Sandbox config at `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py`.
+- **Status update (2026-05-04):** PR — `--sandbox-mem-mb` CLI flag added to `run_improvement_loop.py` (commit on `feat/f9-fix-and-sandbox-mem` branch). Retest with `--sandbox-mem-mb 1024` cleared the OOM but devstral wrote a different bug (`'dict' object has no attribute 'train'` — agent returned a dict instead of `FeatureMatrix` from `engineer()`). OOM portion ✅; devstral codegen quality is a separate concern.
+- **Effort:** XS (CC ~30 min for option (a); ~1 h for option (b)).
+- **Priority:** P2 — same reasoning as TODO-20: strengthens local-model story; not on YC critical path.
+- **Depends on:** none. Self-contained.
+
+### TODO-22: F9 mitigation — M5 date format in prompt + cross-iteration failure memory
+
+- **What:** Fix the repeated `pd.Timestamp("d_1858")` sandbox crash that blocked iters 2–6 of Stage B. Two mitigations, one cheap and one correct:
+  - **(a) Prompt fix (immediate):** Add to `apps/kernel/scripts/m5_agent_prompt.md` a note that `fold.validation` / `fold.test` are lists of M5 day-ID strings like `"d_1858"`, NOT calendar dates. To derive month: `_M5_ORIGIN + pd.Timedelta(days=int(d[2:]) - 1)` where `_M5_ORIGIN = pd.Timestamp("2011-01-29")`.
+  - **(b) Cross-iteration failure memory (proper):** Populate `failure_clusters` from `sandbox-error` iterations with `error_class=None` so `analyze_failures` returns the F9 pattern in subsequent agent turns. Each new agent would read the cluster and avoid the same approach.
+- **Why:** Stage B showed 5/7 iterations hitting the same bug independently. The gate held `best_ever=0.3958` throughout, but the loop made no forward progress. Without mitigation, any future multi-iteration run against a best_ever-constrained DB will cycle on the same error.
+- **Pros / Cons:** (a) is 30 min and unblocks the lift curve immediately. (b) is the architecturally correct answer but requires wiring `analyze_failures` to read live cluster data + failure-cluster creation from sandbox runs (currently clusters are created from eval runs, not sandbox crashes). Do (a) now, track (b) as a separate item.
+- **Context:** Stage B runlog `.temp/runlogs/20260504-143146-stageb-sonnet-7iter/`. Full analysis in `docs/local-model-testing.md` § F9. DB: `ownevo_phase3_realm5_stageb_v1`.
+- **Status update (2026-05-04):** Option (a) prompt fix is in this same PR (`feat/f9-fix-and-sandbox-mem` branch) — `_M5_ORIGIN` constant + day-ID arithmetic helper added to `apps/kernel/scripts/m5_agent_prompt.md`. Option (b) cross-iteration failure memory remains open as P2 follow-up.
+- **Effort:** XS for (a) (CC ~30 min); M for (b) (CC ~half day).
+- **Priority:** P1 — blocks Stage B from producing a lift curve beyond iter 0. Prompt fix is the unblock; failure-memory is P2.
+- **Depends on:** none for (a).
 
 ---
 
