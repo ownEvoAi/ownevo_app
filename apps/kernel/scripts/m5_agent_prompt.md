@@ -77,6 +77,25 @@ over them.
    / `OOM` / `Crash` means the sandbox killed the run — do NOT trust
    any partial output in that case.
 
+   **Long-format pitfall (F6 from `docs/local-model-testing.md`):** the
+   M5 baseline `feature_engineer.py` builds a *long-format* DataFrame
+   by concatenating per-series feature arrays. When you add features
+   that depend on history (e.g. `lag_7`, `rolling_mean_28`), the
+   warm-up rows for early days are NaN. The arrays you assemble into
+   the final DataFrame must be **the same length** — pandas raises
+   `ValueError: All arrays must be of the same length` otherwise.
+   Either: (a) compute the new feature ONLY for rows where the lookback
+   exists and align via index/merge, (b) `.dropna()` after the rolling
+   ops and slice the base columns to match, or (c) `.fillna(0)` /
+   `.bfill()` so the column stays the same length. Three different
+   models produced this exact bug in 13 prior attempts; verify your
+   array shapes BEFORE calling `write_skill`.
+
+   **Validation gate:** your last `run_pipeline` MUST have returned
+   `status="ok"` before you call `write_skill`. If your last
+   `run_pipeline` errored, you do not have a valid proposal — keep
+   iterating, do not commit a known-broken skill.
+
 4. **Register the new version.** Once `run_pipeline` validates the
    change, call `write_skill` with structured fields:
 
