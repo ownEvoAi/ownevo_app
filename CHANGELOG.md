@@ -18,6 +18,49 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/approvals/` +
+  `apps/kernel/src/ownevo_kernel/api/` +
+  `apps/web/` — W2.5 approval queue scaffold. **Approval service**
+  (`approve_proposal` + `reject_proposal`) drives the
+  `gate-passed → approved-awaiting-deploy` and
+  `gate-passed → rejected` transitions locked in
+  `docs/STATE_MACHINES.md`: row-locks the proposal, validates state,
+  inserts `approvals`, advances `proposals.state`, appends an audit
+  entry; on reject + non-empty comment also seeds an eval_case
+  (`provenance=rejected-feedback`) and links it via
+  `approvals.became_eval_case_id`. **REST API** (FastAPI under new
+  `api` extra: `fastapi`, `uvicorn[standard]`, `httpx`) exposes
+  `GET /api/proposals` (state + workflow filter, total count), `GET
+  /api/proposals/:id` (joined detail with iteration, workflow, audit
+  chain, approval, parent skill version for diff), `POST
+  /api/proposals/:id/approve`, `POST /api/proposals/:id/reject`, and
+  `GET /api/health`. CORS allows `http://localhost:3000` by default
+  for the Next.js dev server. Errors map cleanly: 404 on missing
+  proposal, 409 on illegal state (`ApprovalStateError`), 422 on
+  validation. **Web app** (Next.js 15, App Router, TypeScript,
+  Server Components for reads + Server Actions for mutations) ships
+  two routes: `/inbox` (proposal queue with pending vs decided
+  groupings + state pills) and `/proposals/[id]` (header, line-level
+  skill diff via in-process LCS, gate-result sidebar, expected-impact
+  grid, reviewer panel with Approve/Reject + comment textarea, audit
+  chain). CSS lifted verbatim from `www/preview/s26-rk7p3/`
+  (`shell.css` + `primitives.css` + dark-mode toggle). Make targets:
+  `make api`, `make web-dev`, `make web-build`, `make
+  seed-approval-demo`. The seed script writes one workflow + skill +
+  iteration + `gate-passed` proposal mirroring the
+  `07-proposal-detail.html` mock so the manual click-through has
+  realistic copy. Tests: 13 DB-backed integration tests on the
+  approval service (`test_approvals.py`) covering every transition,
+  state-validation, comment-to-eval-case linkage, and double-decide
+  protection; 15 in-process FastAPI tests
+  (`test_api_proposals.py` via `httpx.ASGITransport`) covering
+  endpoints + status codes + filter combinations. Manual E2E
+  verified end-to-end: seed → list → approve → state advances to
+  `approved-awaiting-deploy` → audit entry written; second approve →
+  409 with helpful detail. Out of scope until W4-W5: SSE streaming,
+  audit chain page, multi-workflow nav, authentication, Playwright
+  smoke (single CI sandbox-test job lands once more sandbox-backed
+  tests need it).
 - `apps/kernel/baselines/labour_v1/skill.py` +
   `apps/kernel/src/ownevo_kernel/benchmark/labour.py` +
   `apps/kernel/tests/test_substrate_non_m5.py` — Phase 1 substrate

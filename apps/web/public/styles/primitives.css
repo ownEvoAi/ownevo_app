@@ -1,0 +1,139 @@
+/* ════════════════════════════════════════════════════════════════════
+   ownEvo workflow render primitives.
+
+   These are the components a workflow's `ui` spec composes from.
+   The natural-language generator picks from this set at workflow
+   creation time. Custom components (escape hatch) follow the same
+   visual conventions but are emitted per workflow.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── MetricCards ─────────────────────────────────────────────── */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.metric { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+.metric-value { font-size: 26px; font-weight: 500; color: var(--text); margin-top: 6px; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metric-unit { font-size: 14px; color: var(--text-muted); font-weight: 400; margin-left: 2px; }
+.metric-delta { font-size: 12px; margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; }
+.metric-delta.up { color: var(--green); }
+.metric-delta.down { color: var(--red); }
+.metric-delta.flat { color: var(--text-muted); }
+.metric-spark { margin-top: 8px; height: 28px; }
+
+/* ── TimeSeriesChart ─────────────────────────────────────────── */
+.chart { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 16px 12px; box-shadow: var(--shadow-sm); }
+.chart-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; }
+.chart-title { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.chart-subtitle { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-axis line, .chart-axis path { stroke: var(--border); stroke-width: 1; }
+.chart-axis text { fill: var(--text-muted); font-size: 10.5px; font-family: 'Outfit', sans-serif; }
+.chart-grid line { stroke: var(--border); stroke-dasharray: 2 3; opacity: 0.7; }
+.chart-line { fill: none; stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.chart-line.baseline { stroke: var(--text-faint); stroke-dasharray: 4 3; }
+.chart-line.actual { stroke: var(--accent); }
+.chart-line.forecast { stroke: var(--green); }
+.chart-area { fill: var(--accent); opacity: 0.08; }
+.chart-marker { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.chart-annotation-line { stroke: var(--text-faint); stroke-dasharray: 2 3; stroke-width: 1; }
+.chart-annotation-label { fill: var(--text-muted); font-size: 10px; }
+.chart-legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--text-3); margin-top: 8px; }
+.chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend-dot { width: 10px; height: 2px; border-radius: 1px; }
+
+/* ── TableView ───────────────────────────────────────────────── */
+.table-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table thead { background: var(--surface); }
+.table th { text-align: left; font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.table td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text-2); }
+.table tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover { background: var(--surface); }
+.table .num { font-variant-numeric: tabular-nums; text-align: right; }
+.table .strong { font-weight: 500; color: var(--text); }
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+
+/* ── AlertList ───────────────────────────────────────────────── */
+.alerts { display: flex; flex-direction: column; gap: 6px; }
+.alert { display: flex; gap: 10px; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--text-muted); border-radius: 6px; box-shadow: var(--shadow-sm); }
+.alert.high { border-left-color: var(--red); }
+.alert.medium { border-left-color: var(--amber); }
+.alert.low { border-left-color: var(--accent); }
+.alert-icon { width: 14px; height: 14px; stroke-width: 2; flex-shrink: 0; margin-top: 3px; color: var(--text-muted); fill: none; stroke: currentColor; }
+.alert.high .alert-icon { color: var(--red); }
+.alert.medium .alert-icon { color: var(--amber); }
+.alert.low .alert-icon { color: var(--accent); }
+.alert-body { flex: 1; min-width: 0; }
+.alert-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.alert-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── KanbanBoard ─────────────────────────────────────────────── */
+.kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: 200px; }
+.kanban-col-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 0 4px; }
+.kanban-col-title { font-size: 11.5px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.kanban-col-count { font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 1px 7px; border-radius: 8px; border: 1px solid var(--border); }
+.kanban-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; box-shadow: var(--shadow-sm); cursor: pointer; transition: border-color 0.12s; }
+.kanban-card:hover { border-color: var(--border-light); }
+.kanban-card-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.kanban-card-body { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+.kanban-card-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+.kanban-card-tags { display: flex; gap: 4px; }
+
+/* ── ConversationView ────────────────────────────────────────── */
+.convo { display: flex; flex-direction: column; gap: 14px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.convo-msg { display: flex; gap: 10px; align-items: flex-start; }
+.convo-msg.agent { flex-direction: row; }
+.convo-msg.user { flex-direction: row-reverse; }
+.convo-avatar { width: 26px; height: 26px; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: white; }
+.convo-avatar.agent { background: var(--accent); }
+.convo-avatar.user { background: var(--text-3); }
+.convo-bubble-wrap { max-width: 76%; display: flex; flex-direction: column; gap: 3px; }
+.convo-msg.user .convo-bubble-wrap { align-items: flex-end; }
+.convo-bubble { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 13px; line-height: 1.55; color: var(--text-2); }
+.convo-msg.user .convo-bubble { background: var(--accent-muted); border-color: transparent; color: var(--text); }
+.convo-meta { font-size: 11px; color: var(--text-muted); padding: 0 4px; }
+.convo-citation { display: inline-flex; vertical-align: super; font-size: 9px; font-weight: 600; background: var(--accent-muted); color: var(--accent); padding: 0 4px; border-radius: 4px; margin-left: 2px; cursor: pointer; }
+
+/* ── SideBySideView ──────────────────────────────────────────── */
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.side { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.side-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.side-body { padding: 14px 16px; font-size: 13px; line-height: 1.65; color: var(--text-2); font-family: 'Outfit', sans-serif; }
+.side-body.code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.diff-line { display: block; padding: 1px 8px; margin: 0 -8px; border-radius: 3px; }
+.diff-add { background: var(--green-soft); color: var(--green); }
+.diff-add::before { content: '+ '; opacity: 0.5; }
+.diff-del { background: var(--red-soft); color: var(--red); }
+.diff-del::before { content: '− '; opacity: 0.5; }
+.diff-context { color: var(--text-muted); }
+
+/* ── DocumentReader ──────────────────────────────────────────── */
+.doc-reader { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; display: grid; grid-template-columns: 1fr 260px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.doc-body { padding: 24px 32px; font-size: 14px; line-height: 1.75; color: var(--text-2); }
+.doc-body h3 { font-size: 14px; font-weight: 600; color: var(--text); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.doc-body p { margin: 0 0 12px; }
+.doc-body .clause { background: var(--amber-soft); border-left: 2px solid var(--amber); padding: 8px 12px; margin: 8px 0; border-radius: 0 4px 4px 0; cursor: pointer; }
+.doc-body .clause-flagged { background: var(--red-soft); border-left-color: var(--red); }
+.doc-margin { background: var(--surface); border-left: 1px solid var(--border); padding: 16px; }
+.doc-margin-title { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+.doc-annotation { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; margin-bottom: 8px; }
+.doc-annotation-title { font-size: 12px; font-weight: 500; color: var(--text); }
+.doc-annotation-body { color: var(--text-muted); font-size: 11.5px; margin-top: 3px; line-height: 1.45; }
+.doc-annotation .pill { margin-top: 6px; }
+
+/* ── Lift chart (ownEvo platform primitive — used inside workflows) ── */
+.lift-chart { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; box-shadow: var(--shadow-sm); }
+.lift-marker { fill: var(--accent); stroke: var(--bg); stroke-width: 2; cursor: pointer; }
+.lift-marker-label { fill: var(--text-muted); font-size: 10.5px; }
+
+/* ── Failure cluster card (ownEvo platform primitive) ── */
+.cluster-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 8px; }
+.cluster-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.cluster-card-title { font-size: 13.5px; font-weight: 500; color: var(--text); }
+.cluster-card-meta { display: flex; gap: 10px; font-size: 11.5px; color: var(--text-muted); }
+.cluster-card-excerpt { font-size: 12px; color: var(--text-3); background: var(--surface); border-radius: 4px; padding: 8px 10px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; line-height: 1.5; }
+
+/* ── Sparkline (used in tables/cards) ── */
+.spark { display: inline-block; width: 80px; height: 20px; vertical-align: middle; }
+.spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.spark .spark-area { fill: var(--accent); opacity: 0.12; stroke: none; }
