@@ -102,6 +102,53 @@ _KILL_GRACE_SECONDS = 5.0
 on `proc.communicate()`."""
 
 
+def _validate_extra_volumes(
+    volumes: dict[str, str] | None,
+) -> list[tuple[str, str]]:
+    """Reject obviously-wrong inputs before they hit `docker run`.
+
+    The agent-facing surface (`run_pipeline`) does not expose this
+    parameter, so the only callers are kernel-internal. The validation
+    here protects against silly mistakes (relative container paths,
+    `/sandbox` collisions, missing host dirs) — not against a hostile
+    caller. A determined kernel-internal caller can still mount
+    anywhere they have read access to.
+    """
+    if volumes is None:
+        return []
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for host_path, container_path in volumes.items():
+        if not host_path or not container_path:
+            raise ValueError("extra_volumes entries must be non-empty strings")
+        host = Path(host_path)
+        if not host.is_absolute():
+            raise ValueError(
+                f"extra_volumes host path must be absolute; got {host_path!r}"
+            )
+        if not host.exists():
+            raise ValueError(
+                f"extra_volumes host path does not exist: {host_path}"
+            )
+        if not container_path.startswith("/"):
+            raise ValueError(
+                f"extra_volumes container path must be absolute; got {container_path!r}"
+            )
+        if container_path == "/sandbox" or container_path.startswith("/sandbox/"):
+            raise ValueError(
+                f"extra_volumes cannot mount under /sandbox (reserved); "
+                f"got {container_path!r}"
+            )
+        if container_path in seen:
+            raise ValueError(
+                f"extra_volumes container path collides: {container_path!r} "
+                "appears twice"
+            )
+        seen.add(container_path)
+        out.append((str(host.resolve()), container_path))
+    return out
+
+
 class LocalDockerSandbox:
     """Hardened-Docker implementation of `SandboxRuntime`.
 
@@ -129,9 +176,22 @@ class LocalDockerSandbox:
         *,
         timeout_seconds: float,
         memory_mb: int,
+        extra_volumes: dict[str, str] | None = None,
     ) -> SandboxResult:
+        """Execute `code` in a hardened container.
+
+        `extra_volumes` is privileged kernel surface — `{host_path:
+        container_path}` adds a read-only bind-mount per entry. The
+        agent-facing `run_pipeline` does **not** thread this through;
+        only kernel-internal callers (the M5 benchmark runner needs
+        the data dir; future provider runners may need a model cache)
+        should pass it. Container paths must be absolute and cannot
+        collide with `/sandbox` or its subpaths — `/sandbox` is reserved
+        for the runner + user-code mount.
+        """
         if memory_mb <= 0:
             raise ValueError(f"memory_mb must be positive, got {memory_mb}")
+        validated_extras = _validate_extra_volumes(extra_volumes)
         container_name = f"ownevo-sb-{uuid.uuid4().hex[:12]}"
         host_dir = Path(tempfile.mkdtemp(prefix="ownevo-sandbox-"))
         try:
@@ -147,7 +207,10 @@ class LocalDockerSandbox:
             os.chmod(runner, 0o644)
             os.chmod(user, 0o644)
 
-            cmd = self._build_command(container_name, host_dir, memory_mb)
+            cmd = self._build_command(
+                container_name, host_dir, memory_mb,
+                extra_volumes=validated_extras,
+            )
 
             start = time.monotonic()
             proc = await asyncio.create_subprocess_exec(
@@ -210,8 +273,10 @@ class LocalDockerSandbox:
         container_name: str,
         host_dir: Path,
         memory_mb: int,
+        *,
+        extra_volumes: list[tuple[str, str]] | None = None,
     ) -> list[str]:
-        return [
+        cmd: list[str] = [
             "docker",
             "run",
             "--name",
@@ -235,12 +300,17 @@ class LocalDockerSandbox:
             str(self.pids_limit),
             "--volume",
             f"{host_dir}:/sandbox:ro",
+        ]
+        for host_path, container_path in extra_volumes or ():
+            cmd.extend(["--volume", f"{host_path}:{container_path}:ro"])
+        cmd.extend([
             "--workdir",
             "/sandbox",
             self.image,
             "python",
             "/sandbox/runner.py",
-        ]
+        ])
+        return cmd
 
     async def _kill_container(self, name: str) -> None:
         proc = await asyncio.create_subprocess_exec(

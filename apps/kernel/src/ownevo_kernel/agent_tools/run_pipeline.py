@@ -62,6 +62,7 @@ async def run_pipeline(
     timeout_seconds: float = 60.0,
     memory_mb: int = 512,
     task_timeout_seconds: float | None = None,
+    extra_volumes: dict[str, str] | None = None,
 ) -> PipelineResult:
     """Execute `skill_content` in the sandbox with `input_data` injected
     as a Python global. Returns parsed stdout as `outputs`.
@@ -69,6 +70,12 @@ async def run_pipeline(
     `task_timeout_seconds`, when set, bounds the whole call. Defaults to
     `timeout_seconds + 30.0` so caller-side stalls (e.g., docker exec
     daemon delays) don't keep the iteration alive indefinitely.
+
+    `extra_volumes` is **privileged kernel surface** — passes through to
+    `LocalDockerSandbox.run` for read-only bind-mounts. Agents calling
+    `run_pipeline` should never set it; only kernel-internal benchmark
+    runners (e.g., `SandboxedM5BenchmarkRunner` mounting the M5 catalog)
+    do. See `LocalDockerSandbox.run` for the validation contract.
     """
     try:
         payload = json.dumps(input_data if input_data is not None else {})
@@ -95,6 +102,7 @@ async def run_pipeline(
                 code,
                 timeout_seconds=timeout_seconds,
                 memory_mb=memory_mb,
+                extra_volumes=extra_volumes,
             ),
             timeout=task_timeout,
         )

@@ -145,7 +145,8 @@ async def test_per_task_timeout_fires_independently():
     a fake that just sleeps; per-task timeout must fire."""
 
     class _SlowSandbox:
-        async def run(self, code, *, timeout_seconds, memory_mb):
+        async def run(self, code, *, timeout_seconds, memory_mb, extra_volumes=None):
+            del extra_volumes
             await asyncio.sleep(timeout_seconds + 5)
             raise AssertionError("should have been cancelled by per-task timeout")
 

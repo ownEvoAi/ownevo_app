@@ -258,6 +258,81 @@ async def test_user_os_exit_one_is_user_exception_documented_limit(
     assert result.error_class is None  # known limit, not a guarantee
 
 
+async def test_extra_volumes_mount_read_only(sandbox: LocalDockerSandbox, tmp_path):
+    """A bind-mount under extra_volumes is visible inside the container,
+    readable, and read-only (matching the sandbox `--read-only` posture).
+
+    Note: the container's uid 0 (root) drops CAP_DAC_OVERRIDE, so
+    bind-mount paths must be world-readable for the sandbox to read
+    them. This is the same constraint LocalDockerSandbox handles for
+    its own /sandbox host dir (chmod 0o755) — extra_volumes callers
+    must ensure their host paths satisfy it. Documented in the M5
+    sandbox runner."""
+    import os
+    os.chmod(tmp_path, 0o755)
+    payload = tmp_path / "payload.txt"
+    payload.write_text("hello-from-host")
+    os.chmod(payload, 0o644)
+
+    code = (
+        "import pathlib\n"
+        "p = pathlib.Path('/data/payload.txt')\n"
+        "print('content:', p.read_text())\n"
+        "try:\n"
+        "    p.write_text('mutation')\n"
+        "    print('UNEXPECTED WRITE')\n"
+        "except OSError as e:\n"
+        "    print(f'blocked: {type(e).__name__}')\n"
+    )
+    result = await sandbox.run(
+        code,
+        timeout_seconds=15,
+        memory_mb=128,
+        extra_volumes={str(tmp_path): "/data"},
+    )
+    assert result.status == "ok", result.stderr
+    assert "content: hello-from-host" in result.output
+    assert "UNEXPECTED WRITE" not in result.output
+    assert "blocked:" in result.output
+
+
+def test_extra_volumes_validation_no_docker(tmp_path):
+    """extra_volumes validation runs before any Docker call — no daemon needed."""
+    from ownevo_kernel.sandbox.local_docker import _validate_extra_volumes
+
+    # Happy path
+    out = _validate_extra_volumes({str(tmp_path): "/data"})
+    assert len(out) == 1
+    assert out[0][1] == "/data"
+
+    # None → empty list
+    assert _validate_extra_volumes(None) == []
+
+    # Relative host path
+    with pytest.raises(ValueError, match="must be absolute"):
+        _validate_extra_volumes({"relative/path": "/data"})
+
+    # Missing host path
+    with pytest.raises(ValueError, match="does not exist"):
+        _validate_extra_volumes({"/this/does/not/exist/anywhere": "/data"})
+
+    # Relative container path
+    with pytest.raises(ValueError, match="container path must be absolute"):
+        _validate_extra_volumes({str(tmp_path): "relative"})
+
+    # /sandbox collision (reserved for runner.py + user_code.py)
+    with pytest.raises(ValueError, match="cannot mount under /sandbox"):
+        _validate_extra_volumes({str(tmp_path): "/sandbox"})
+    with pytest.raises(ValueError, match="cannot mount under /sandbox"):
+        _validate_extra_volumes({str(tmp_path): "/sandbox/data"})
+
+    # Duplicate container path
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(ValueError, match="collides"):
+        _validate_extra_volumes({str(tmp_path): "/data", str(other): "/data"})
+
+
 def test_sandbox_result_invariants_match_tool_call_result():
     """Defensive: SandboxResult mirrors the AgentEvent.ToolCallResult
     error-field invariants so a caller can pass them straight through."""
