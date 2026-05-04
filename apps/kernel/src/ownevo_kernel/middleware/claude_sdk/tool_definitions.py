@@ -295,6 +295,13 @@ class ToolDispatchResult:
 
 _DEFAULT_PIPELINE_TIMEOUT_SECONDS = 60.0
 _DEFAULT_PIPELINE_MEMORY_MB = 512
+_MAX_PIPELINE_TIMEOUT_SECONDS = 300.0
+"""Hard cap on agent-requested timeout_seconds. Bounds runaway coroutines
+when a model requests an unreasonably long timeout. Higher values need
+explicit kernel-level override, not agent args."""
+_MAX_PIPELINE_MEMORY_MB = 8192
+"""Hard cap on agent-requested memory_mb. 8 GiB is generous for any
+skill we ship; prevents accidental or adversarial container OOM on the host."""
 _MAX_ANALYZE_FAILURES_K = 100
 """Hard cap on `analyze_failures.k` so a "k=100000" call doesn't dump
 the whole trace table into the agent's context."""
@@ -331,6 +338,11 @@ async def dispatch_tool(
         TypeError,
         json.JSONDecodeError,
     ) as exc:
+        return _shape_exception(exc)
+    except Exception as exc:
+        # Catch-all: asyncpg.PostgresError, RuntimeError, AttributeError,
+        # ConnectionError, etc. The tool-use protocol requires every call to
+        # return a tool_result — raising here would break the agent loop.
         return _shape_exception(exc)
     return ToolDispatchResult(
         output=f"Unknown tool: {name!r}",
@@ -403,11 +415,6 @@ async def _dispatch_write_skill(
             "skill_id": register_result.skill_id,
             "version_id": str(register_result.version_id),
             "version_seq": register_result.version_seq,
-            "parent_version_id": (
-                str(register_result.parent_version_id)
-                if register_result.parent_version_id is not None
-                else None
-            ),
         },
         is_error=False,
         error_class=None,
@@ -432,6 +439,8 @@ async def _dispatch_run_pipeline(
         raise ValueError(f"timeout_seconds must be positive; got {timeout_seconds}")
     if memory_mb <= 0:
         raise ValueError(f"memory_mb must be positive; got {memory_mb}")
+    timeout_seconds = min(timeout_seconds, _MAX_PIPELINE_TIMEOUT_SECONDS)
+    memory_mb = min(memory_mb, _MAX_PIPELINE_MEMORY_MB)
 
     result: PipelineResult = await run_pipeline(
         ctx.sandbox,
@@ -555,7 +564,13 @@ def _required_str(args: dict[str, Any], key: str) -> str:
     return value
 
 
-def _tail(text: str | None, *, max_chars: int = 4000) -> str:
+_STDOUT_TAIL_MAX_CHARS = 4000
+"""Max chars returned from skill stdout/stderr tails. Separate from
+_ERROR_MESSAGE_MAX_CHARS (exception messages to the model) — stdout
+tails are structural output, error messages are exception strings."""
+
+
+def _tail(text: str | None, *, max_chars: int = _STDOUT_TAIL_MAX_CHARS) -> str:
     """Return the last `max_chars` of `text` to bound tool-result size."""
     if text is None:
         return ""

@@ -318,7 +318,7 @@ async def run_agent_turn(
             sandbox_error = next(
                 (
                     r for r in tool_results
-                    if (r.get("_error_class") or None) is not None
+                    if r.get("_error_class") is not None
                 ),
                 None,
             )

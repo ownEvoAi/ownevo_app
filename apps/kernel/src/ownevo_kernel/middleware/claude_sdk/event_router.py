@@ -22,7 +22,7 @@ the caller's `TraceCollector`:
   text_delta             → ContentDelta(text=…, model=…)
   thinking_delta         → ReasoningDelta(text=…, model=…)
   tool_use block start   → ToolCallStart(call_id=…, name=…, args=…)*
-                           *args populated by the runner once dispatch fires
+                           *args assembled from input_json_delta chunks at content_block_stop
   tool dispatch result   → ToolCallResult(call_id=…, name=…, status=…, output=…,
                                           duration_ms=…, error=…, error_class=…)
 
@@ -34,8 +34,8 @@ events, so the router needs to track per-index buffers until
 on the block, not per delta). One router instance per `messages.stream`
 context — do not reuse across iterations.
 
-`finish_block(index)` returns the assembled block dict so the runner
-can slot it into the assistant message it appends to the next
+`finalize_blocks_in_order()` returns the assembled blocks so the runner
+can slot them into the assistant message it appends to the next
 `messages.create` request.
 """
 
@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -72,13 +71,14 @@ class _BlockState:
     tool_call_id: str | None = None
     tool_name: str | None = None
     tool_input_json_chunks: list[str] = field(default_factory=list)
+    tool_input_parsed: dict[str, Any] | None = None  # cached after first parse
     # Common: trace-event correlation (set when the block opens)
     span_id: UUID | None = None
 
 
 @dataclass
 class FinalizedBlock:
-    """What `StreamEventRouter.finish_block` returns — the same shape the
+    """What `StreamEventRouter.finalize_blocks_in_order` yields — the same shape the
     runner needs to splice into the assistant message it appends to the
     next request. Mirrors Anthropic's content-block dict with one
     addition: `parsed_input` (already json.loads'd for tool_use)."""
@@ -233,10 +233,13 @@ class StreamEventRouter:
         if state is None:
             return
         if state.kind == "tool_use":
-            assert state.tool_call_id is not None
-            assert state.tool_name is not None
-            assert state.span_id is not None
+            if state.tool_call_id is None or state.tool_name is None or state.span_id is None:
+                # Malformed block from SDK (no id/name). Skip silently — safe
+                # under Python -O (bare asserts are stripped) and defensive
+                # against future SDK variants that omit these fields.
+                return
             input_obj = self._parse_tool_input(state)
+            state.tool_input_parsed = input_obj  # cache for finalize_blocks_in_order
             # Emit ToolCallStart now that args are assembled. The
             # matching ToolCallResult fires from `record_tool_result`
             # after dispatch — paired by call_id.
@@ -338,7 +341,9 @@ class StreamEventRouter:
                         kind="tool_use",
                         tool_call_id=state.tool_call_id,
                         tool_name=state.tool_name,
-                        tool_input=self._parse_tool_input(state),
+                        # Reuse the cached parse from _on_block_stop — avoids
+                        # re-parsing the same JSON for the same block.
+                        tool_input=state.tool_input_parsed or self._parse_tool_input(state),
                     )
                 )
         return out
@@ -360,18 +365,6 @@ class StreamEventRouter:
             # than crashing the agent loop.
             return {}
         return obj if isinstance(obj, dict) else {}
-
-
-# ---------------------------------------------------------------------------
-# Convenience: build an AgentEvent timestamp without leaking the field
-# everywhere — kept so tests can compare against `_now()`.
-# ---------------------------------------------------------------------------
-
-
-def _now() -> datetime:
-    """UTC-aware now(). Tests can monkey-patch via `event_router._now = ...`
-    for deterministic timestamps."""
-    return datetime.now(UTC)
 
 
 __all__ = [

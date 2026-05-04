@@ -506,6 +506,8 @@ class TestRunAgentTurn:
         tool_result_block = client.messages.calls[1]["messages"][-1]["content"][0]
         assert tool_result_block["type"] == "tool_result"
         assert tool_result_block["tool_use_id"] == "toolu_r1"
+        assert tool_result_block["is_error"] is False
+        assert isinstance(tool_result_block["content"], str)
         # Internal `_error_class` key was stripped before sending.
         assert "_error_class" not in tool_result_block
 
@@ -603,6 +605,11 @@ class TestRunAgentTurn:
         assert result.stop_reason == "end_turn"
         assert result.iterations == 2
         assert result.tool_error_count == 1
+        # The tool_result forwarded to Anthropic must carry is_error=True so
+        # the model sees the sandbox failure and can react to it.
+        tool_result_fwd = client.messages.calls[1]["messages"][-1]["content"][0]
+        assert tool_result_fwd["is_error"] is True
+        assert "_error_class" not in tool_result_fwd
 
     async def test_max_iterations_cap(self, patch_dispatch: SimpleNamespace) -> None:
         """Agent that just keeps emitting tool_use forever hits the cap
@@ -844,3 +851,60 @@ class TestRunAgentTurn:
                 collector=_new_collector(),
                 max_tokens=0,
             )
+
+    async def test_multi_tool_turn_with_second_sandbox_error(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        """Two tools in one turn; the second has error_class='OOM'. The
+        short-circuit fires after _dispatch_tools returns both results:
+        stop_reason='sandbox_error_propagated', tool_call_count=2,
+        tool_error_count=1. The runner must not ask for a second turn."""
+        patch_dispatch.canned.extend(
+            [
+                ToolDispatchResult(
+                    output={"found": True, "skill_id": "x"},
+                    is_error=False,
+                    error_class=None,
+                    duration_ms=5,
+                ),
+                ToolDispatchResult(
+                    output={"status": "error", "error_class": "OOM"},
+                    is_error=True,
+                    error_class="OOM",
+                    duration_ms=1000,
+                ),
+            ]
+        )
+        client = _FakeClient(
+            [
+                _ScriptedTurn(
+                    events=[
+                        _block_start_tool_use(0, tool_id="toolu_a", name="read_skill"),
+                        _delta_tool_json(0, '{"skill_id":"x"}'),
+                        _block_stop(0),
+                        _block_start_tool_use(1, tool_id="toolu_b", name="run_pipeline"),
+                        _delta_tool_json(1, '{"skill_content":"print(1)"}'),
+                        _block_stop(1),
+                    ],
+                    final_message=_final_message(stop_reason="tool_use"),
+                ),
+            ]
+        )
+        collector = _new_collector()
+        result = await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="...",
+            user_message="...",
+            kernel_context=_kernel_ctx(),
+            collector=collector,
+        )
+        assert result.stop_reason == "sandbox_error_propagated"
+        assert result.tool_call_count == 2
+        assert result.tool_error_count == 1
+        # Only one turn consumed — short-circuit prevented a second request.
+        assert len(client.messages.calls) == 1
+        # Both tool_call_result events in the trace.
+        results_evs = _events_of(collector, "tool_call_result")
+        assert len(results_evs) == 2
+        oom_ev = next(e for e in results_evs if e.error_class == "OOM")
+        assert oom_ev.status == "error"
