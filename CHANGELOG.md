@@ -180,6 +180,27 @@ PRs: #21, #23, #24, #25, #27, #28, #29, #30, #31, #32 + the
   effort under "Substrate quality" with current status, methodology
   reference, and next-moves checklist. Priority P1 — directly feeds
   B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
+- `apps/kernel/src/ownevo_kernel/nl_gen/` — A3.1: NL → WorkflowSpec
+  via Anthropic tool-use. `spec.py` — frozen-schema `WorkflowSpec`
+  Pydantic discriminated-union: `Provenance` on every artifact,
+  `WorkflowEnvironment` × {entities, data_sources, env_generators,
+  personas, seasonality}, `tools`, `known_past_misses`, `reviewer`,
+  `success_criterion` stub, `ui` block of `UIPrimitive`s;
+  `extra="forbid"` everywhere; `schema_version="0.1"` until A3.4
+  freeze. `workflow_spec_generator.py` — single-turn Anthropic
+  tool-use; `tool_choice` forces structured output;
+  `WorkflowSpec.model_json_schema()` becomes the tool's
+  `input_schema`; raises `NoToolUseError` / `WorkflowSpecValidationError`.
+  3 hand-authored fixtures at
+  `nl_gen/fixtures/{demand_prediction,credit_risk,contract_review}.py`.
+  39 schema-only tests in `test_nl_gen_spec.py`; 8 generator tests in
+  `test_nl_gen_generator.py` (fake AsyncAnthropic); 3 live-API
+  snapshot tests gated by `OWNEVO_ANTHROPIC_LIVE=1`.
+- `packages/trace-format/src/ownevo_format/ui_primitives.py` — 8 UI
+  primitives (MetricCards, TimeSeriesChart, TableView, AlertList,
+  KanbanBoard, ConversationView, SideBySideView, DocumentReader) as a
+  frozen discriminated union with `UIPrimitiveAdapter` TypeAdapter.
+  11 tests in `test_ui_primitives.py`.
 
 ### Changed
 - `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/tool_definitions.py`
