@@ -48,6 +48,10 @@ on:
       - "apps/kernel/src/ownevo_kernel/datasets/m5*.py"
       - "apps/kernel/src/ownevo_kernel/agent_tools/run_pipeline.py"
       - "apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py"
+      - "apps/kernel/tests/test_baselines_m5_lightgbm.py"
+      - "apps/kernel/tests/test_benchmark_m5.py"
+      - "uv.lock"
+      - "apps/kernel/pyproject.toml"
       - ".github/workflows/m5-replay-nightly.yml"
 
 # Cancel an in-flight run when the same branch retriggers — saves
@@ -62,16 +66,18 @@ permissions:
 jobs:
   replay:
     runs-on: ubuntu-latest
+    env:
+      SANDBOX_IMAGE: ownevo-sandbox-m5:0.1.0
     # 30 min is the W4 reproducibility CI budget per docs/PLAN.md
     # § B3.4. The synthetic-fixture run is seconds; the budget exists
     # so a future cache-miss cold image build doesn't silently hang.
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
         with:
           # Cache uv's package downloads across runs keyed on uv.lock.
           enable-cache: true
@@ -93,14 +99,14 @@ jobs:
         # Buildx enables the gha cache backend, which trades a layer
         # cache hit for ~80% of the wall-clock on cache hit. Without
         # this, every run pays apt + pip download time (~1 min).
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca  # v3.9.0
 
       - name: Build M5 sandbox image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75  # v6.9.0
         with:
           context: .
           file: apps/kernel/sandbox/Dockerfile.m5
-          tags: ownevo-sandbox-m5:0.1.0
+          tags: ${{ env.SANDBOX_IMAGE }}
           # `load: true` makes the image visible to the local Docker
           # daemon (so `docker image inspect` finds it). Without it
           # buildx keeps the result in its build cache only and the
@@ -115,7 +121,7 @@ jobs:
         # fail — and a green nightly on skip is the failure mode this
         # whole workflow exists to catch. Exit non-zero now if the
         # image is missing.
-        run: docker image inspect ownevo-sandbox-m5:0.1.0 >/dev/null
+        run: docker image inspect "$SANDBOX_IMAGE" >/dev/null
 
       - name: Run sandboxed M5 baseline tests
         # The 4-test integration suite pins:
@@ -126,11 +132,21 @@ jobs:
         # If parity breaks, the most likely cause is the in-process
         # (uv.lock) versions drifting from the Dockerfile pins —
         # bump them in lockstep.
-        run: uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py -v
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          set -o pipefail
+          uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py -v 2>&1 | tee /tmp/pytest-sandboxed.txt
+          grep -qE '4 passed' /tmp/pytest-sandboxed.txt || {
+            echo "FATAL: sandboxed suite did not report '4 passed' — tests may have been skipped (check Docker daemon + sandbox image)"
+            exit 1
+          }
 
       - name: Run in-process M5 baseline tests
         # Belt-and-suspenders: if a refactor breaks the in-process
         # path, the parity test above can't tell us where the
         # divergence started. Run them separately so the failure
         # bisects cleanly.
+        env:
+          PYTHONHASHSEED: "0"
         run: uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm.py apps/kernel/tests/test_benchmark_m5.py -v
