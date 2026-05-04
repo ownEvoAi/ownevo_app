@@ -18,6 +18,22 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `.github/workflows/m5-replay-nightly.yml` — first GitHub Actions
+  workflow for the project (W2.6 #11d). Runs `pytest
+  test_baselines_m5_lightgbm_sandboxed.py` + the in-process M5
+  suite on cron (04:00 UTC daily), `workflow_dispatch`, and pushes
+  to main that touch the sandbox / baseline / M5 paths. Builds
+  `ownevo-sandbox-m5:0.1.0` via Docker Buildx with `cache-from /
+  cache-to: type=gha,scope=m5-sandbox` so the apt + pip layers hit
+  cache on every run after the first; `uv` install cached on
+  `uv.lock` hash. Concurrency cancels in-flight runs on retrigger;
+  30-min timeout matches the B3.4 reproducibility budget. The job
+  fails (rather than silently skips) when the sandbox image isn't
+  locally available — guards against the "green nightly because
+  the tests skipped" failure mode. First cache layer of TODO-7's
+  four-layer reproducibility CI strategy lands here; (a) LLM
+  responses, (c) Postgres data volume, (d) LightGBM artifacts
+  remain deferred to W4/W6.
 - `apps/kernel/sandbox/Dockerfile.m5` + `make sandbox-image-m5` —
   M5 sandbox image (W2.6 #11c). `python:3.11-slim` + `libgomp1` +
   pinned `numpy==2.4.4` / `pandas==2.3.3` / `lightgbm==4.6.0` +
