@@ -49,16 +49,23 @@ from baselines.m5_lightgbm import (  # noqa: E402
     run_baseline,
     skill_files_dir,
 )
-from ownevo_kernel.benchmark import M5BenchmarkRunner  # noqa: E402
+from ownevo_kernel.benchmark import (  # noqa: E402
+    M5BenchmarkRunner,
+    SandboxedM5BenchmarkRunner,
+)
 from ownevo_kernel.datasets import (  # noqa: E402
     M5DatasetError,
     load_m5,
     make_held_out_fold,
 )
+from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
+ENV_M5_SANDBOX = "OWNEVO_M5_SANDBOX"
+ENV_M5_SANDBOX_IMAGE = "OWNEVO_M5_SANDBOX_IMAGE"
 DEFAULT_WORKFLOW_ID = "m5-demand-prediction"
+DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-m5:0.1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +80,8 @@ class CliArgs:
     test_days: int
     workflow_id: str
     no_db: bool
+    sandbox: bool
+    sandbox_image: str
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -94,6 +103,24 @@ def parse_args(argv: list[str]) -> CliArgs:
         action="store_true",
         help="Skip DB writes even if OWNEVO_DATABASE_URL is set.",
     )
+    parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        default=os.environ.get(ENV_M5_SANDBOX, "0") == "1",
+        help=(
+            f"Run the baseline through LocalDockerSandbox (W2.6 #11c). "
+            f"Requires the sandbox image to be built (`make sandbox-image-m5`). "
+            f"Defaults to ${ENV_M5_SANDBOX}=1."
+        ),
+    )
+    parser.add_argument(
+        "--sandbox-image",
+        default=os.environ.get(ENV_M5_SANDBOX_IMAGE, DEFAULT_SANDBOX_IMAGE),
+        help=(
+            f"Docker image to run the sandbox in. Default: ${ENV_M5_SANDBOX_IMAGE} "
+            f"or {DEFAULT_SANDBOX_IMAGE}. Only used when --sandbox is set."
+        ),
+    )
     ns = parser.parse_args(argv)
     return CliArgs(
         m5_dir=ns.m5_dir,
@@ -101,6 +128,8 @@ def parse_args(argv: list[str]) -> CliArgs:
         test_days=ns.test_days,
         workflow_id=ns.workflow_id,
         no_db=ns.no_db,
+        sandbox=ns.sandbox,
+        sandbox_image=ns.sandbox_image,
     )
 
 
@@ -126,11 +155,29 @@ async def main_async(args: CliArgs) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 3
 
-    runner = M5BenchmarkRunner(catalog=catalog, fold=fold, pipeline_fn=run_baseline)
-    result = await runner.run()
-    arts = runner.last_artifacts
+    if args.sandbox:
+        sandbox = LocalDockerSandbox(
+            image=args.sandbox_image,
+            # Real M5 frames need >64MB tmpfs for pandas intermediates;
+            # the synthetic test fixture is small but bumping here
+            # avoids a separate tunable for the sandbox path.
+            tmpfs_size_mb=512,
+        )
+        sandboxed_runner: SandboxedM5BenchmarkRunner = SandboxedM5BenchmarkRunner(
+            catalog_dir=args.m5_dir,
+            fold=fold,
+            sandbox=sandbox,
+        )
+        result = await sandboxed_runner.run()
+        arts = sandboxed_runner.last_artifacts
+    else:
+        in_process_runner = M5BenchmarkRunner(
+            catalog=catalog, fold=fold, pipeline_fn=run_baseline,
+        )
+        result = await in_process_runner.run()
+        arts = in_process_runner.last_artifacts
     if arts is None:
-        raise RuntimeError("M5BenchmarkRunner.run() did not populate last_artifacts")
+        raise RuntimeError("Baseline runner did not populate last_artifacts")
 
     summary = {
         "val_score": round(result.val_score, 6),
