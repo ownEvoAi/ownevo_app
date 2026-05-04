@@ -169,7 +169,7 @@ async def main_async(args: CliArgs) -> int:
 
     try:
         conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresConnectionFailureError, OSError) as exc:
+    except (asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
 

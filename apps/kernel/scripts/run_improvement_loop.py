@@ -74,6 +74,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse as _urlparse
 from uuid import UUID
 
 # `apps/kernel/baselines/` lives outside `src/` — same trick m5_baseline.py uses.
@@ -94,6 +95,7 @@ from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
 )
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
+from scripts.seed_m5_baseline import DEFAULT_WORKFLOW_ID  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -103,21 +105,24 @@ ENV_LLM_MODEL = "OWNEVO_LLM_MODEL"
 ENV_LLM_API_KEY = "OWNEVO_LLM_API_KEY"
 ENV_MAX_ITERATIONS = "OWNEVO_AGENT_MAX_ITERATIONS"
 
-DEFAULT_WORKFLOW_ID = "m5-demand-prediction"
 DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-m5:0.1.0"
 DEFAULT_LLM_BASE_URL = "http://192.168.1.50:1234"
 DEFAULT_LLM_MODEL = "qwen/qwen3-coder-30b"
 DEFAULT_LLM_API_KEY = "lm-studio"
 DEFAULT_MAX_ITERATIONS = 25
+_DEFAULT_TMPFS_MB = 512
+_MAX_SUMMARY_CHARS = 280
 
 _PROMPT_PATH = Path(__file__).parent / "m5_agent_prompt.md"
-_KICKOFF_USER_MESSAGE = (
-    "You're picking up the M5 demand-prediction workflow at the v1 LightGBM "
-    "baseline. Start by reading one of the six skills, propose one focused "
-    "improvement, validate it via run_pipeline, and register the new "
-    "version with write_skill. End your turn after the new version is "
-    "registered.\n\nworkflow_id: m5-demand-prediction"
-)
+
+def _kickoff_message(workflow_id: str) -> str:
+    return (
+        "You're picking up the M5 demand-prediction workflow at the v1 LightGBM "
+        "baseline. Start by reading one of the six skills, propose one focused "
+        "improvement, validate it via run_pipeline, and register the new "
+        f"version with write_skill. End your turn after the new version is "
+        f"registered.\n\nworkflow_id: {workflow_id}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +254,7 @@ async def main_async(args: CliArgs) -> int:
 
     try:
         conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresConnectionFailureError, OSError) as exc:
+    except (asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
 
@@ -265,7 +270,7 @@ async def main_async(args: CliArgs) -> int:
 
         sandbox = LocalDockerSandbox(
             image=args.sandbox_image,
-            tmpfs_size_mb=512,
+            tmpfs_size_mb=_DEFAULT_TMPFS_MB,
         )
         runner = SandboxedM5BenchmarkRunner(
             catalog_dir=args.m5_dir,
@@ -288,8 +293,10 @@ async def main_async(args: CliArgs) -> int:
 
         system_prompt = _PROMPT_PATH.read_text()
 
+        _p = _urlparse(args.llm_base_url)
+        _safe_url = f"{_p.scheme}://{_p.hostname}:{_p.port or ''}"
         print(
-            f"agent: model={args.llm_model} base_url={args.llm_base_url} "
+            f"agent: model={args.llm_model} base_url={_safe_url} "
             f"max_iterations={args.max_iterations}",
         )
 
@@ -297,7 +304,7 @@ async def main_async(args: CliArgs) -> int:
             agent_result = await run_agent_turn(
                 client,
                 system=system_prompt,
-                user_message=_KICKOFF_USER_MESSAGE,
+                user_message=_kickoff_message(args.workflow_id),
                 kernel_context=kernel_context,
                 collector=collector,
                 model=args.llm_model,
@@ -321,6 +328,14 @@ async def main_async(args: CliArgs) -> int:
                 f"(stop_reason={agent_result.stop_reason}); skipping gate run.",
                 file=sys.stderr,
             )
+            if proposal is not None:
+                # skill_version row exists in DB but no gate record — log so the
+                # audit trail shows why version_id was never gated.
+                print(
+                    f"warning: orphaned skill version not gated: "
+                    f"skill_id={proposal.skill_id} version_id={proposal.version_id}",
+                    file=sys.stderr,
+                )
             return 5
 
         if proposal is None:
@@ -344,7 +359,7 @@ async def main_async(args: CliArgs) -> int:
             skill_id=proposal.skill_id,
             proposed_content=proposal.content,
             plain_language_summary=proposal.diff_summary
-                or agent_result.final_text[:280]
+                or agent_result.final_text[:_MAX_SUMMARY_CHARS]
                 or f"agent-proposed change to {proposal.skill_id}",
             actor=actor,
             proposed_skill_version_id=proposal.version_id,
@@ -387,8 +402,8 @@ class _AgentProposal:
 
 
 def _extract_latest_write_skill(events) -> _AgentProposal | None:
-    """Walk the trace events backward and return the most recent successful
-    write_skill call.
+    """Walk the trace events forward, collect successful write_skill pairs, and
+    return the last one (most recent successful write_skill call).
 
     The agent's input dict (skill_id, content, optional diff_summary) is on
     the paired ToolCallStart; the registered version_id/version_seq are on
