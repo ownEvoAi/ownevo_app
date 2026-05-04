@@ -96,11 +96,33 @@ _PY_RE = re.compile(
     re.DOTALL,
 )
 
-# Postel's-law fallback: agents (qwen3-coder-30b on the M5 loop, three
-# Phase-3 attempts as of 2026-05-04) routinely emit Python skill bodies
-# with the YAML frontmatter at the top but **no docstring wrapper** —
-# the canonical PY shape is `"""\n---\n<yaml>\n---\n"""\n<code>` and
-# the model strips the outer `"""` and the leading `---`, leaving:
+# Postel's-law fallback #1 — half-wrapped Python frontmatter.
+# Phase-3 v3 (2026-05-04) on qwen3-coder-30b: with a kickoff prompt
+# carrying the canonical `"""\n---\n...\n---\n"""` example explicit-
+# ly, the agent **adds the opening `"""` but forgets the closing
+# one** in 8/8 write_skill calls. Shape:
+#
+#     """
+#     ---
+#     id: ...
+#     kind: python
+#     ---
+#
+#     <code>
+#
+# Same as the canonical `_PY_RE` minus the trailing `"""` requirement.
+# The captured frontmatter still goes through `_looks_like_skill_-
+# frontmatter` for safety.
+_PY_HALFWRAP_RE = re.compile(
+    r'\A\s*(?:"""|\'\'\')\s*\n---\s*\n(.*?)\n---\s*\n(.*)\Z',
+    re.DOTALL,
+)
+
+# Postel's-law fallback #2 — bare Python frontmatter.
+# Phase-3 v1+v2 (2026-05-04) on qwen3-coder-30b: agents routinely
+# emit Python skill bodies with the YAML frontmatter at the top but
+# **no docstring wrapper at all** — the model strips both the `"""`
+# and the leading `---`, leaving:
 #
 #     id: m5.baseline.v1.feature_engineer
 #     kind: python
@@ -151,8 +173,9 @@ def _split(content: str) -> tuple[str, str]:
 
     Order matters: the canonical Python-docstring and Markdown-fence
     shapes are tried first and accepted strictly. Only when both miss
-    does the bare-frontmatter fallback engage, and it only accepts
-    text that parses as a YAML mapping with at least `id` + `kind`.
+    do the Postel's-law fallbacks engage (half-wrapped Python first,
+    then bare Python), and they only accept text whose candidate
+    frontmatter parses as a YAML mapping with at least `id` + `kind`.
     """
     m = _PY_RE.match(content)
     if m is not None:
@@ -160,6 +183,11 @@ def _split(content: str) -> tuple[str, str]:
     m = _MD_RE.match(content)
     if m is not None:
         return m.group(1), m.group(2)
+    m = _PY_HALFWRAP_RE.match(content)
+    if m is not None:
+        candidate, body = m.group(1), m.group(2)
+        if _looks_like_skill_frontmatter(candidate):
+            return candidate, body
     m = _PY_BARE_RE.match(content)
     if m is not None:
         candidate, body = m.group(1), m.group(2)
