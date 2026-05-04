@@ -168,6 +168,7 @@ class CliArgs:
     api_format: str  # "anthropic" | "openai"
     no_stream: bool  # only meaningful when api_format="anthropic"
     ollama_num_ctx: int | None  # only meaningful when api_format="openai" (Ollama)
+    sandbox_mem_mb: int
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -241,6 +242,12 @@ def parse_args(argv: list[str]) -> CliArgs:
         ),
     )
     parser.add_argument(
+        "--sandbox-mem-mb",
+        type=int,
+        default=_DEFAULT_TMPFS_MB,
+        help=f"Sandbox tmpfs + memory limit in MB (default: {_DEFAULT_TMPFS_MB}).",
+    )
+    parser.add_argument(
         "--no-seed",
         action="store_true",
         help=(
@@ -289,6 +296,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         api_format=ns.api_format,
         no_stream=ns.no_stream,
         ollama_num_ctx=ns.ollama_num_ctx,
+        sandbox_mem_mb=ns.sandbox_mem_mb,
     )
 
 
@@ -345,7 +353,7 @@ async def main_async(args: CliArgs) -> int:
 
         sandbox = LocalDockerSandbox(
             image=args.sandbox_image,
-            tmpfs_size_mb=_DEFAULT_TMPFS_MB,
+            tmpfs_size_mb=args.sandbox_mem_mb,
         )
 
         actor = f"agent:{args.llm_model}"

@@ -54,7 +54,8 @@ over them.
 
 1. **Pick one focused change.** Examples of good first diffs:
    - Add `lag_7` and a 7-day rolling mean to `feature_engineer`
-   - Add `month` and `is_weekend` to `feature_engineer`
+   - Add `month` (use day-ID arithmetic — see M5 date-format note below,
+     NOT `pd.Timestamp`) and `is_weekend` to `feature_engineer`
    - Tune `model_trainer`'s `num_leaves` / `max_depth` / `num_iterations`
    - Add SNAP / weekly-price features (these need the calendar's
      `wm_yr_wk` join — non-trivial but high-leverage)
@@ -90,6 +91,22 @@ over them.
    `.bfill()` so the column stays the same length. Three different
    models produced this exact bug in 13 prior attempts; verify your
    array shapes BEFORE calling `write_skill`.
+
+   **M5 date-format pitfall (F9):** `fold.validation` and `fold.test`
+   are lists of M5 day-ID strings like `"d_1858"` — they are **NOT
+   calendar dates** and `pd.Timestamp("d_1858")` raises `DateParseError`.
+   To derive calendar features (month, year, week):
+
+   ```python
+   _M5_ORIGIN = pd.Timestamp("2011-01-29")  # d_1 in the M5 dataset
+
+   def _day_ids_to_dates(day_ids):
+       return [_M5_ORIGIN + pd.Timedelta(days=int(d[2:]) - 1) for d in day_ids]
+   ```
+
+   Then use `ts.month`, `ts.week`, etc. on the resulting `Timestamp`
+   objects. Five independent agent runs hit this exact bug in prior
+   iterations — verify your date handling with `run_pipeline` first.
 
    **Validation gate:** your last `run_pipeline` MUST have returned
    `status="ok"` before you call `write_skill`. If your last
