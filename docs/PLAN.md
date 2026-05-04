@@ -415,6 +415,7 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 - Multiple framework integrations beyond Claude Agent SDK — Wave 2 (post-MVP)
 - SWE-Bench Verified — Phase 2 (post-MVP); reuses the same substrate ~1 week
 - OpsAgent-Bench (custom benchmark we publish) — post-Series-A
+- **Post-MVP benchmark pipeline** (SkillsBench, Claw-Eval Pass^3, MCPMark, Tool Decathlon, VITA-Bench) — see [`ownevo_docs/benchmarks/README.md` § Post-MVP Benchmark Pipeline](../../ownevo_docs/benchmarks/README.md). Sequence after the 30-day M5 replay result is published. SkillsBench is the most ready to promote to a full plan (the "self-generated skills don't help" published finding is the cleanest rebuttal to the main product objection).
 - Self-evolving the harness itself (we evolve skills/prompts/code only)
 - Custom Rust gateway (LiteLLM is enough; revisit if local-model latency becomes a problem)
 - **Multi-tenant scaffolding** (D4) — `workspace_id` columns, RLS policies, audit triggers, workspace-scoped query helpers, workspace switcher, billing UI, org admin. Single-tenant for MVP; full retrofit before customer #2.
