@@ -18,6 +18,64 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/sandbox/Dockerfile.m5` + `make sandbox-image-m5` —
+  M5 sandbox image (W2.6 #11c). `python:3.11-slim` + `libgomp1` +
+  pinned `numpy==2.4.4` / `pandas==2.3.3` / `lightgbm==4.6.0` +
+  the `ownevo-kernel` and `ownevo-trace-format` packages + the
+  `baselines.m5_lightgbm` orchestrator, tagged
+  `ownevo-sandbox-m5:0.1.0`. Versions match `uv.lock` so a
+  sandboxed run produces bit-identical predictions to the
+  in-process path under the same skill bodies. Determinism env
+  vars (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`,
+  `MKL_NUM_THREADS=1`, `PYTHONHASHSEED=0`) belt-and-suspenders
+  the LightGBM `num_threads=1` + `deterministic=True` already
+  set in the skill body. Image is a passive runtime (no
+  ENTRYPOINT/CMD); the sandbox provides `python /sandbox/runner.py`.
+- `apps/kernel/src/ownevo_kernel/benchmark/m5_sandbox.py` —
+  `SandboxedM5BenchmarkRunner` drives the M5 baseline through
+  `LocalDockerSandbox` (W2.6 #11c). Constructor takes
+  `(catalog_dir, fold, sandbox)`; `run(task_ids=None)` builds an
+  entrypoint script that imports `baselines.m5_lightgbm.run_baseline`,
+  marshals the fold + optional series subset via
+  `run_pipeline`'s `input_data` JSON-global, and parses the
+  pipeline output back from stdout's last line. Catalog
+  bind-mounts read-only at `/data/m5`. Implements the
+  `BenchmarkRunner` Protocol so the gate runner can pick either
+  this or the in-process `M5BenchmarkRunner`. Surfaces
+  `M5SandboxError` when the run completes but the caller cannot
+  reconstruct an `M5PipelineOutput` (missing keys, wrong shapes,
+  non-finite values). `last_artifacts` mirrors the in-process
+  runner's shape so post-processing (RMSE / WRMSSE / per-series
+  rewards) lives in the same code path.
+- `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py` —
+  `LocalDockerSandbox.run` and `run_pipeline` gain a privileged
+  `extra_volumes: dict[str, str] | None` kwarg (W2.6 #11c).
+  Each entry adds a `--volume host:container:ro` to the
+  `docker run` command. Validation rejects relative host or
+  container paths, missing host paths, `/sandbox` collisions
+  (reserved for runner.py + user_code.py), and duplicate
+  container paths. **Privileged kernel surface** — agents
+  calling `run_pipeline` should not set it; only kernel-internal
+  benchmark runners (`SandboxedM5BenchmarkRunner` mounting the
+  M5 catalog) do.
+- `apps/kernel/scripts/m5_baseline.py` — `--sandbox` flag (and
+  `OWNEVO_M5_SANDBOX=1` env var) routes the baseline through
+  `SandboxedM5BenchmarkRunner` against
+  `--sandbox-image=ownevo-sandbox-m5:0.1.0` (W2.6 #11c).
+  Default stays in-process so CI without Docker stays green;
+  the cache strategy + nightly that flip the default lands in
+  PR #11d.
+- `apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py` —
+  4 integration tests for the sandboxed M5 path (W2.6 #11c):
+  finite val_score end-to-end, deterministic across two
+  sandbox runs, parity with the in-process baseline
+  (bit-identical predictions), subset scoping. Skipped when
+  Docker isn't reachable or the M5 sandbox image isn't built;
+  `_image_present` checks via `docker image inspect`.
+  `tests/test_sandbox.py` adds an `extra_volumes` mount-and-read
+  integration test and a no-Docker validation unit test
+  (relative paths, missing hosts, `/sandbox` collisions,
+  duplicate container paths).
 - `apps/kernel/src/ownevo_kernel/observability/` — loop-stuck Slack
   alerter + learnings writer (W2.4a). `write_learning(conn, kind=,
   content=, iteration_id=)` appends one row to the `learnings` table

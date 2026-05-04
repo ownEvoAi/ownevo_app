@@ -1,0 +1,94 @@
+# M5 sandbox image — W2.6 #11c.
+#
+# Bakes lightgbm/pandas/numpy + the ownevo-kernel + ownevo-trace-format
+# packages + the baselines.m5_lightgbm orchestrator into a hardened
+# python:3.11-slim base. The image is what `LocalDockerSandbox` runs
+# when `M5BenchmarkRunner` is in sandboxed mode (#11c).
+#
+# Versions pinned to the same resolution recorded in uv.lock so the
+# sandboxed RMSE matches the in-process baseline (W2.6 reproducibility
+# bar). Bump pins here in lockstep with `apps/kernel/pyproject.toml`'s
+# `baselines-m5` extra; the test suite's parity check (sandboxed vs
+# in-process predictions, bit-identical) catches mismatches before they
+# silently shift val_score.
+#
+# Build context = repo root (so we can COPY both packages/trace-format
+# and apps/kernel/ in one image). Build with the helper:
+#
+#     make sandbox-image-m5
+#
+# which resolves to:
+#
+#     docker build \
+#       -f apps/kernel/sandbox/Dockerfile.m5 \
+#       -t ownevo-sandbox-m5:0.1.0 \
+#       .
+#
+# The image is a sandbox runtime — it is `--read-only`, `--network=none`,
+# `--cap-drop=ALL` at run time. Anything written at image-build time goes
+# in /opt/ownevo (read-only at runtime); /tmp is the only writable path
+# at runtime (tmpfs, size-capped by the sandbox).
+
+FROM python:3.11-slim
+
+# 1a. LightGBM links against libgomp (OpenMP runtime). python:3.11-slim
+#     ships without it; without this the wheel imports but the C lib
+#     fails to dlopen at runtime. This is the only system package the
+#     sandbox image needs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 1b. Pinned scientific stack. The exact versions match uv.lock so a
+#     sandboxed run produces bit-identical predictions to the in-process
+#     path under the same skill bodies.
+RUN pip install --no-cache-dir --no-compile \
+        "numpy==2.4.4" \
+        "pandas==2.3.3" \
+        "lightgbm==4.6.0" \
+    && rm -rf /root/.cache
+
+# 2. ownEvo packages. Trace-format first (dep of kernel), then kernel
+#    itself. Baselines live under apps/kernel/ but outside src/, so we
+#    add the kernel root to PYTHONPATH instead of vendoring an extra
+#    install entry. Layout matches the source tree so error messages
+#    point at the same paths a developer sees locally.
+WORKDIR /opt/ownevo
+COPY packages/trace-format /opt/ownevo/packages/trace-format
+COPY apps/kernel/pyproject.toml /opt/ownevo/apps/kernel/pyproject.toml
+COPY apps/kernel/src /opt/ownevo/apps/kernel/src
+COPY apps/kernel/baselines /opt/ownevo/apps/kernel/baselines
+COPY apps/kernel/README.md /opt/ownevo/apps/kernel/README.md
+
+RUN pip install --no-cache-dir --no-compile --no-deps \
+        /opt/ownevo/packages/trace-format \
+        /opt/ownevo/apps/kernel \
+    && rm -rf /root/.cache
+
+# Kernel deps the `--no-deps` install above skipped — install explicitly
+# at known-good versions. asyncpg is unused inside the sandbox (no DB
+# connections — `--network=none`) so we skip it.
+RUN pip install --no-cache-dir --no-compile \
+        "pydantic>=2.7,<3" \
+        "pyyaml>=6" \
+    && rm -rf /root/.cache
+
+# 3. Make the out-of-src `baselines` package importable as a top-level
+#    `baselines.m5_lightgbm` — same shape as `scripts/m5_baseline.py`
+#    achieves with a sys.path.insert at runtime.
+ENV PYTHONPATH=/opt/ownevo/apps/kernel
+
+# 4. Determinism nudges that affect numpy/lightgbm thread scheduling.
+#    LightGBM itself sets `num_threads=1` + `deterministic=True` from the
+#    skill body; these belt-and-suspenders env vars stop OpenMP/BLAS
+#    from forking child threads that would otherwise add reduction-order
+#    nondeterminism.
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    PYTHONHASHSEED=0 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Sandbox provides the entry command (python /sandbox/runner.py) at
+# runtime. No CMD/ENTRYPOINT here — keeps the image a passive runtime,
+# not a service.
