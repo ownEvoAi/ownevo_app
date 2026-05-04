@@ -433,6 +433,93 @@ truncated mid-run, useful F1-territory diagnostic), not a perf
 optimization. Pick backend on agent quality + recovery support
 (F6b runner fix favors LMS Anthropic), not on cache_read.
 
+### F9 — Sonnet 4.6 hits a repeated month-feature bug when best_ever is set (Stage B 7-iter replay, 2026-05-04)
+
+**Setup:** Stage B replay — 7 sequential iterations against a fresh DB
+(`ownevo_phase3_realm5_stageb_v1`, workflow `m5-stageb-v1`),
+`claude-sonnet-4-6` via Anthropic cloud, prompt caching auto-enabled (PR #33).
+All 7 iterations used the same workflow_id so `best_ever_score`
+accumulated across runs.
+
+**Results:**
+
+| iter | decision | val_score | best_ever | cache_read | output_tok | wall | cost |
+|---|---|---|---|---|---|---|---|
+| 0 | **gate-pass** | **0.3958** | 0.3958 | 37,020 | 10,485 | 150s | $0.28 |
+| 1 | gate-blocked-no-improvement | 0.3317 | 0.3958 (held) | 33,893 | 3,233 | 95s | $0.11 |
+| 2 | sandbox-error | null | 0.3958 (held) | 32,846 | 8,060 | 119s | $0.23 |
+| 3 | sandbox-error | null | 0.3958 (held) | 70,924 | 11,529 | 151s | $0.34 |
+| 4 | sandbox-error | null | 0.3958 (held) | 47,536 | 9,947 | 142s | $0.27 |
+| 5 | sandbox-error | null | 0.3958 (held) | 35,950 | 9,942 | 133s | $0.28 |
+| 6 | sandbox-error | null | 0.3958 (held) | 56,954 | 12,345 | 158s | $0.33 |
+
+**Total: $1.84. Wall: ~16 min.**
+
+**Observations:**
+
+1. **Gate held `best_ever=0.3958` across all 6 non-pass iterations.** No
+   regression was ever adopted. The audit chain has 14 entries (2 per
+   iteration: gate-run-started + gate-run-completed). This is the
+   regression-gate working correctly under sustained adversarial pressure.
+
+2. **Caching engaged from iter 0.** `cache_read=37,020` even in iter 0 —
+   the system prompt is cached within the multi-turn agent conversation.
+   Iter 1 started with `cache_read=33,893` (cross-iteration cache hit;
+   system prompt TTL > time between runs).
+
+3. **Iters 2–6: deterministic month-feature bug (F9).** Each independently
+   attempted to add a `month` seasonality feature via
+   `pd.Timestamp(d).month` where `d` is an M5 date string in `d_NNNN`
+   format (e.g., `d_1858`). This raises
+   `pandas.DateParseError: Unknown datetime string format, unable to parse: d_1858`.
+   The agents correctly identified that month seasonality would help M5
+   forecasting — but all five independently made the wrong assumption that
+   `fold.validation` dates are calendar-parseable. No cross-iteration
+   memory exists to break the pattern.
+
+**Why iters 2–6 all try `month` instead of something else:**
+The winning skill from iter 0 has lag features but no calendar-based
+seasonality. Sonnet consistently identifies month as the next best feature
+to add. Because each iteration is a fresh conversation with no memory of
+prior sandbox failures, the same reasoning path is taken every time.
+
+**Implication — two possible mitigations:**
+
+- **Prompt fix (low cost, shipped on `feat/f9-fix-and-sandbox-mem`):**
+  Add to `m5_agent_prompt.md`:
+  `fold.validation` and `fold.test` are lists of M5 day-ID strings like
+  `"d_1858"`. They are NOT calendar dates. Do not pass them to
+  `pd.Timestamp()`. To derive month: use
+  `pd.Timestamp("2011-01-29") + pd.Timedelta(days=int(d[2:]) - 1)`.
+- **Cross-iteration failure memory (bigger):** Populate the
+  `failure_clusters` table from sandbox-error iterations so
+  `analyze_failures` returns the F9 pattern. The agent can then read it
+  and avoid the same approach. This is the correct long-term solution —
+  the prompt fix is a workaround.
+
+**Captured as TODO-22 (see `TODOS.md`).**
+
+### F10 — Anthropic prompt-caching works cross-iteration at Sonnet latency (confirmed Stage B)
+
+PR #33 added `cache_control: {"type": "ephemeral"}` on the system prompt
+and the last tool definition. Stage B confirms it works end-to-end:
+
+- Iter 0 had `cache_read_input_tokens=37,020` within its own multi-turn
+  conversation.
+- Iter 1 had `cache_read_input_tokens=33,893` at the *start* of a fresh
+  invocation, confirming the cache survived across the ~2.5 min gap
+  between runs (within the 5-minute Anthropic cache TTL).
+- Subsequent iters all show substantial cache reads, with iter 3 peaking
+  at 70,924 (its conversation accumulated more tool-result context than
+  others before the cache was written).
+
+**Cost structure validated:** non-cached input + output tokens dominate
+on gate-pass iterations; cache savings are real but not dramatic on
+7-iteration M5 scale (output cost is too high relative to input to see
+the 80% headline reduction). The main benefit is latency — iter 1's 95s
+wall vs iter 0's 150s was partly from shorter output (gate-blocked early),
+partly from cache serving the system prompt.
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
