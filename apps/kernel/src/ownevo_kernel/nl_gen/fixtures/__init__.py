@@ -1,0 +1,43 @@
+"""Hand-authored WorkflowSpec fixtures for the 3 PLAN.md A3.1 workflows.
+
+Used by:
+  * Schema-only round-trip + structural-shape tests (no LLM, no API)
+  * Snapshot tests for `workflow_spec_generator` (live API): the generated
+    output is compared against these structurally — we don't expect Claude
+    to match field-for-field, but we expect the same shape (≥3 tools, ≥1
+    persona, ui block exercises domain-appropriate primitives).
+
+Demand-prediction `description` is verbatim from
+`www/preview/s26-rk7p3/03-new-workflow-step1.html` — the textarea content the
+mock ships with. The other two are fresh prose written in the same voice.
+
+The taxonomy in `ownevo_docs/ownEvo_MVP_mocks.md` § "Failure-mode taxonomy"
+informs `known_past_misses` ground-truth.
+"""
+
+from .contract_review import CONTRACT_REVIEW_DESCRIPTION, CONTRACT_REVIEW_SPEC
+from .credit_risk import CREDIT_RISK_DESCRIPTION, CREDIT_RISK_SPEC
+from .demand_prediction import DEMAND_PREDICTION_DESCRIPTION, DEMAND_PREDICTION_SPEC
+
+FIXTURES = {
+    "demand-prediction": DEMAND_PREDICTION_SPEC,
+    "credit-risk": CREDIT_RISK_SPEC,
+    "contract-review": CONTRACT_REVIEW_SPEC,
+}
+
+DESCRIPTIONS = {
+    "demand-prediction": DEMAND_PREDICTION_DESCRIPTION,
+    "credit-risk": CREDIT_RISK_DESCRIPTION,
+    "contract-review": CONTRACT_REVIEW_DESCRIPTION,
+}
+
+__all__ = [
+    "DEMAND_PREDICTION_SPEC",
+    "CREDIT_RISK_SPEC",
+    "CONTRACT_REVIEW_SPEC",
+    "DEMAND_PREDICTION_DESCRIPTION",
+    "CREDIT_RISK_DESCRIPTION",
+    "CONTRACT_REVIEW_DESCRIPTION",
+    "FIXTURES",
+    "DESCRIPTIONS",
+]
