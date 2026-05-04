@@ -1,0 +1,152 @@
+# M5 sandboxed replay — W2.6 #11d.
+#
+# Runs the M5 baseline through `LocalDockerSandbox` on a schedule and
+# fails if predictions drift. The two load-bearing assertions, pinned by
+# `apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py`:
+#
+#   1. Sandboxed predictions == in-process predictions, bit-identical.
+#   2. Two sandboxed runs return bit-identical predictions.
+#
+# Why nightly: the sandbox image's pinned versions
+# (`numpy==2.4.4` / `pandas==2.3.3` / `lightgbm==4.6.0`) match `uv.lock`
+# at build time. Pip / wheel cache or PyPI yanks could silently shift
+# the build; this job catches the drift before W4 unattended replay
+# trusts the val_score.
+#
+# Reproducibility CI cache strategy (TODO-7 / B3.4)
+# -------------------------------------------------
+# This is the first cache layer to land:
+#   (b) **pre-built sandbox Docker image cached** — the image is built
+#       once per (Dockerfile + uv.lock) hash via Buildx + GHA cache;
+#       subsequent runs hit cache and skip the apt + pip layers.
+#
+# Future layers (deferred to W4 / W6):
+#   (a) cached LLM responses — wires in once the agent loop hits LLMs.
+#   (c) M5 data pre-loaded into a Postgres volume — wires in when real
+#       M5 is on disk; current synthetic fixture is in-test only.
+#   (d) cached LightGBM training artifacts — premature; baseline
+#       reruns from scratch are ~seconds on the synthetic fixture.
+
+name: m5-replay-nightly
+
+on:
+  schedule:
+    # 04:00 UTC daily — early enough that drift is caught before US
+    # business hours. cron uses UTC; no DST surprises.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    # Manual re-run for paranoia after touching the sandbox surface.
+  push:
+    branches: [main]
+    paths:
+      # Only re-run on push when the sandbox or M5 path actually
+      # changed — avoids burning a CI minute on a docs commit.
+      - "apps/kernel/sandbox/**"
+      - "apps/kernel/baselines/m5_lightgbm/**"
+      - "apps/kernel/src/ownevo_kernel/sandbox/**"
+      - "apps/kernel/src/ownevo_kernel/benchmark/m5*.py"
+      - "apps/kernel/src/ownevo_kernel/datasets/m5*.py"
+      - "apps/kernel/src/ownevo_kernel/agent_tools/run_pipeline.py"
+      - "apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py"
+      - "apps/kernel/tests/test_baselines_m5_lightgbm.py"
+      - "apps/kernel/tests/test_benchmark_m5.py"
+      - "uv.lock"
+      - "apps/kernel/pyproject.toml"
+      - ".github/workflows/m5-replay-nightly.yml"
+
+# Cancel an in-flight run when the same branch retriggers — saves
+# minutes when a force-push lands while a previous run is still going.
+concurrency:
+  group: m5-replay-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    env:
+      SANDBOX_IMAGE: ownevo-sandbox-m5:0.1.0
+    # 30 min is the W4 reproducibility CI budget per docs/PLAN.md
+    # § B3.4. The synthetic-fixture run is seconds; the budget exists
+    # so a future cache-miss cold image build doesn't silently hang.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
+        with:
+          # Cache uv's package downloads across runs keyed on uv.lock.
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        # uv reads .python-version / pyproject.toml; this just ensures
+        # the interpreter is ready before `uv sync`.
+        run: uv python install 3.13
+
+      - name: Install workspace
+        # `--all-extras` brings in the kernel + trace-format + dev deps.
+        # The `baselines-m5` extra is NOT needed for the sandboxed test
+        # path (the image carries lightgbm/pandas), but the in-process
+        # parity comparison runs in-process — so include it.
+        run: uv sync --all-extras
+
+      - name: Set up Docker Buildx
+        # Buildx enables the gha cache backend, which trades a layer
+        # cache hit for ~80% of the wall-clock on cache hit. Without
+        # this, every run pays apt + pip download time (~1 min).
+        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca  # v3.9.0
+
+      - name: Build M5 sandbox image
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75  # v6.9.0
+        with:
+          context: .
+          file: apps/kernel/sandbox/Dockerfile.m5
+          tags: ${{ env.SANDBOX_IMAGE }}
+          # `load: true` makes the image visible to the local Docker
+          # daemon (so `docker image inspect` finds it). Without it
+          # buildx keeps the result in its build cache only and the
+          # sandboxed tests skip with "image not present."
+          load: true
+          cache-from: type=gha,scope=m5-sandbox
+          cache-to: type=gha,scope=m5-sandbox,mode=max
+
+      - name: Verify sandbox image is locally available
+        # Defensive: if the image build silently no-op'd (e.g., upstream
+        # action quirk), the sandboxed pytest will skip rather than
+        # fail — and a green nightly on skip is the failure mode this
+        # whole workflow exists to catch. Exit non-zero now if the
+        # image is missing.
+        run: docker image inspect "$SANDBOX_IMAGE" >/dev/null
+
+      - name: Run sandboxed M5 baseline tests
+        # The 4-test integration suite pins:
+        #   * Finite val_score end-to-end through the sandbox.
+        #   * Bit-identical parity vs in-process baseline.
+        #   * Determinism across two sandbox runs.
+        #   * Subset scoping (gate's regression-suite step).
+        # If parity breaks, the most likely cause is the in-process
+        # (uv.lock) versions drifting from the Dockerfile pins —
+        # bump them in lockstep.
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          set -o pipefail
+          uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py -v 2>&1 | tee /tmp/pytest-sandboxed.txt
+          grep -qE '4 passed' /tmp/pytest-sandboxed.txt || {
+            echo "FATAL: sandboxed suite did not report '4 passed' — tests may have been skipped (check Docker daemon + sandbox image)"
+            exit 1
+          }
+
+      - name: Run in-process M5 baseline tests
+        # Belt-and-suspenders: if a refactor breaks the in-process
+        # path, the parity test above can't tell us where the
+        # divergence started. Run them separately so the failure
+        # bisects cleanly.
+        env:
+          PYTHONHASHSEED: "0"
+        run: uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm.py apps/kernel/tests/test_benchmark_m5.py -v
