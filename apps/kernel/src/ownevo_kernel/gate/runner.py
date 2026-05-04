@@ -77,7 +77,7 @@ async def run_gate(
 
     try:
         full_run = await runner.run(None)
-    except BaseException as exc:
+    except Exception as exc:
         return GateResult(
             decision=GateDecision.SANDBOX_ERROR,
             rationale=f"Runner raised {type(exc).__name__}: {exc}",

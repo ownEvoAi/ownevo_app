@@ -30,9 +30,9 @@ fresh `[Unreleased]` block above it.
   the iteration, appends a `gate-run-started` audit entry, runs the
   gate, finalizes the iteration with the gate's decision (state +
   val_score + best_ever_score_after + sandbox_error_class +
-  ended_at), finalizes the proposal (gate-passed / gate-failed; for
-  SANDBOX_ERROR the proposal stays in `in-gate` so a retry path is
-  valid — the agent didn't cause this), and appends a
+  ended_at), finalizes the proposal (gate-passed / rejected for logical
+  gate failures; gate-failed for sandbox infrastructure errors per
+  STATE_MACHINES.md), and appends a
   `gate-run-completed` audit entry carrying the full gate evidence
   (rationale, val_score, failed_prior_task_ids, promotable_task_ids).
   Returns a `PersistedGateRun` with the gate result + the inserted

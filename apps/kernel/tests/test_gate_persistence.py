@@ -11,13 +11,17 @@ in-process except for the DB.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import pytest
 from ownevo_kernel.benchmark import SyntheticBenchmarkRunner, SyntheticTask
+from ownevo_kernel.benchmark.types import BenchmarkResult
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.gate import GateDecision, persist_gate_run
 from ownevo_kernel.types import (
@@ -133,7 +137,8 @@ async def test_pass_writes_iteration_proposal_and_two_audits(db: asyncpg.Connect
     # by seq. seq is bigserial — strictly increasing.
     audit_rows = await db.fetch(
         "SELECT seq, kind::text AS kind, payload, related_id FROM audit_entries "
-        "ORDER BY seq",
+        "WHERE related_id = $1 ORDER BY seq",
+        it.id,
     )
     started_kinds = [r["kind"] for r in audit_rows]
     assert started_kinds == [
@@ -145,7 +150,6 @@ async def test_pass_writes_iteration_proposal_and_two_audits(db: asyncpg.Connect
     # to render the rationale without re-running the gate.
     completed_payload = audit_rows[1]["payload"]
     if isinstance(completed_payload, str):
-        import json
         completed_payload = json.loads(completed_payload)
     assert completed_payload["decision"] == GateDecision.PASS.value
     assert completed_payload["val_score"] == pytest.approx(1.0)
@@ -187,7 +191,7 @@ async def test_fail_regression_blocks_advance_and_records_failed_priors(
     assert it.best_ever_score_after == pytest.approx(0.6)
 
     p = persisted.proposal
-    assert p.state == ProposalState.GATE_FAILED
+    assert p.state == ProposalState.REJECTED
     assert "regressed" in (p.eval_rationale or "").lower()
 
 
@@ -213,15 +217,15 @@ async def test_fail_no_improvement_keeps_best_ever(db: asyncpg.Connection):
     assert persisted.gate_result.decision == GateDecision.FAIL_NO_IMPROVEMENT
     assert persisted.iteration.state == IterationState.GATE_BLOCKED_NO_IMPROVEMENT
     assert persisted.iteration.best_ever_score_after == pytest.approx(1.0)
-    assert persisted.proposal.state == ProposalState.GATE_FAILED
+    assert persisted.proposal.state == ProposalState.REJECTED
 
 
-async def test_sandbox_error_marks_iteration_and_keeps_proposal_in_gate(
+async def test_sandbox_error_marks_iteration_and_moves_proposal_to_gate_failed(
     db: asyncpg.Connection,
 ):
-    """SANDBOX_ERROR: any None reward → state=sandbox-error; proposal
-    stays in `in-gate` (the agent didn't cause this; retry path is
-    correct). best_ever_score_after preserved."""
+    """SANDBOX_ERROR: any None reward → iteration state=sandbox-error; proposal
+    moves to `gate-failed` (technical failure, not the agent's fault, per
+    STATE_MACHINES.md). best_ever_score_after preserved."""
     workflow_id = "wf-sandbox-error"
     await _seed(db, workflow_id=workflow_id, skill_id="m5.skill")
 
@@ -236,7 +240,6 @@ async def test_sandbox_error_marks_iteration_and_keeps_proposal_in_gate(
             res = await super().run(task_ids)
             # Mutate the result rewards to drop in a None — same shape
             # the real M5 sandbox produces on Timeout/OOM/Crash.
-            from ownevo_kernel.benchmark.types import BenchmarkResult
             new_rewards = dict(res.rewards)
             new_rewards["t2"] = None
             return BenchmarkResult(rewards=new_rewards)
@@ -260,9 +263,9 @@ async def test_sandbox_error_marks_iteration_and_keeps_proposal_in_gate(
     assert it.best_ever_score_after == pytest.approx(0.5)
     assert it.val_score is None
 
-    # Proposal stays in in-gate so a retry path is valid; it's
-    # specifically NOT gate-failed (the agent didn't cause this).
-    assert persisted.proposal.state == ProposalState.IN_GATE
+    # Proposal moves to gate-failed (technical failure; agent can retry
+    # against the same proposal once infra recovers).
+    assert persisted.proposal.state == ProposalState.GATE_FAILED
 
 
 async def test_sandbox_error_class_inferred_from_runner_exception(
@@ -336,9 +339,10 @@ async def test_unknown_workflow_raises_before_any_writes(db: asyncpg.Connection)
 
     counts = await db.fetchrow(
         "SELECT "
-        "(SELECT COUNT(*) FROM iterations)::int AS i, "
+        "(SELECT COUNT(*) FROM iterations WHERE workflow_id = $1)::int AS i, "
         "(SELECT COUNT(*) FROM proposals)::int AS p, "
-        "(SELECT COUNT(*) FROM audit_entries)::int AS a"
+        "(SELECT COUNT(*) FROM audit_entries)::int AS a",
+        "wf-does-not-exist",
     )
     assert (counts["i"], counts["p"], counts["a"]) == (0, 0, 0)
 
@@ -402,3 +406,143 @@ async def test_promotable_task_ids_surface_for_caller(db: asyncpg.Connection):
     # No new eval_cases rows — promotion is caller's responsibility.
     n_eval_cases = await db.fetchval("SELECT COUNT(*)::int FROM eval_cases")
     assert n_eval_cases == 0
+
+
+# ---------------------------------------------------------------------------
+# Input validation — fires before the transaction opens
+# ---------------------------------------------------------------------------
+
+
+async def test_regression_tolerance_out_of_range_raises(db: asyncpg.Connection):
+    """regression_tolerance outside [0,1] raises ValueError before any DB work."""
+    with pytest.raises(ValueError, match="regression_tolerance"):
+        await persist_gate_run(
+            db,
+            _doubler_runner(lambda x: x * 2),
+            workflow_id="wf-any",
+            skill_id="m5.skill",
+            proposed_content="...",
+            plain_language_summary="...",
+            actor="test:validation",
+            regression_tolerance=1.1,
+        )
+
+
+async def test_improvement_epsilon_non_finite_raises(db: asyncpg.Connection):
+    """improvement_epsilon that is non-finite raises ValueError before any DB work."""
+    with pytest.raises(ValueError, match="improvement_epsilon"):
+        await persist_gate_run(
+            db,
+            _doubler_runner(lambda x: x * 2),
+            workflow_id="wf-any",
+            skill_id="m5.skill",
+            proposed_content="...",
+            plain_language_summary="...",
+            actor="test:validation",
+            improvement_epsilon=float("inf"),
+        )
+
+
+async def test_non_serializable_expected_impact_raises(db: asyncpg.Connection):
+    """expected_impact that can't be JSON-serialized raises TypeError before any DB work."""
+    with pytest.raises(TypeError, match="not JSON-serializable"):
+        await persist_gate_run(
+            db,
+            _doubler_runner(lambda x: x * 2),
+            workflow_id="wf-any",
+            skill_id="m5.skill",
+            proposed_content="...",
+            plain_language_summary="...",
+            actor="test:validation",
+            expected_impact={"k": object()},
+        )
+
+
+# ---------------------------------------------------------------------------
+# sandbox_error_class inference — all 4 branches
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc_class", "exc_message", "expected_class"),
+    [
+        (MemoryError, "OOM limit exceeded", SandboxErrorClass.OOM),
+        (RuntimeError, "crash: container exited with code 139", SandboxErrorClass.CRASH),
+        (ValueError, "invalid pipeline output", None),
+    ],
+    ids=["oom", "crash", "none-fallback"],
+)
+async def test_sandbox_error_class_inferred_for_all_branches(
+    db: asyncpg.Connection,
+    exc_class: type[BaseException],
+    exc_message: str,
+    expected_class: SandboxErrorClass | None,
+):
+    """_infer_sandbox_error_class: OOM, CRASH, and None fallback (unrecognized rationale).
+    TIMEOUT is covered by test_sandbox_error_class_inferred_from_runner_exception."""
+    workflow_id = "wf-inference"
+    await _seed(db, workflow_id=workflow_id, skill_id="m5.skill")
+
+    class _RaisingRunner:
+        async def run(self, task_ids=None):  # type: ignore[override]
+            raise exc_class(exc_message)
+
+    persisted = await persist_gate_run(
+        db,
+        _RaisingRunner(),  # type: ignore[arg-type]
+        workflow_id=workflow_id,
+        skill_id="m5.skill",
+        proposed_content="...",
+        plain_language_summary="...",
+        actor="test:inference",
+    )
+
+    assert persisted.gate_result.decision == GateDecision.SANDBOX_ERROR
+    assert persisted.iteration.sandbox_error_class == expected_class
+
+
+# ---------------------------------------------------------------------------
+# Concurrency — FOR UPDATE serialization under actual parallelism
+# ---------------------------------------------------------------------------
+
+
+async def test_concurrent_persist_gate_run_produces_unique_indices(
+    db: asyncpg.Connection,
+):
+    """Two concurrent persist_gate_run calls on the same workflow via asyncio.gather
+    produce iteration_index {0, 1} with no duplicates. Validates that the
+    SELECT ... FOR UPDATE on the workflow row serializes the MAX+1 allocation
+    under actual concurrency (not just sequential calls)."""
+    workflow_id = "wf-concurrent"
+    await _seed(db, workflow_id=workflow_id, skill_id="m5.skill")
+
+    # Open a second connection to the same per-test database.
+    dbname = await db.fetchval("SELECT current_database()")
+    test_url = urlunparse(urlparse(os.environ[ENV_VAR])._replace(path=f"/{dbname}"))
+    conn2 = await asyncpg.connect(test_url)
+    try:
+        results = await asyncio.gather(
+            persist_gate_run(
+                db,
+                _doubler_runner(lambda x: x * 2),
+                workflow_id=workflow_id,
+                skill_id="m5.skill",
+                proposed_content="v1",
+                plain_language_summary="concurrent run 1",
+                actor="test:concurrent",
+            ),
+            persist_gate_run(
+                conn2,
+                _doubler_runner(lambda x: x * 2),
+                workflow_id=workflow_id,
+                skill_id="m5.skill",
+                proposed_content="v2",
+                plain_language_summary="concurrent run 2",
+                actor="test:concurrent",
+            ),
+        )
+    finally:
+        await conn2.close()
+
+    indices = {r.iteration.iteration_index for r in results}
+    assert indices == {0, 1}, f"Expected unique indices {{0, 1}}, got {indices}"

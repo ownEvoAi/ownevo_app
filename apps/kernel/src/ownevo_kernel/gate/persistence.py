@@ -81,13 +81,14 @@ _DECISION_TO_ITERATION_STATE: dict[GateDecision, IterationState] = {
 
 _DECISION_TO_PROPOSAL_STATE: dict[GateDecision, ProposalState] = {
     GateDecision.PASS: ProposalState.GATE_PASSED,
-    GateDecision.FAIL_REGRESSION: ProposalState.GATE_FAILED,
-    GateDecision.FAIL_NO_IMPROVEMENT: ProposalState.GATE_FAILED,
-    # Sandbox-error proposals stay in `in-gate` — neither passed nor
-    # failed; the agent didn't cause this. A retry path (re-run the
-    # gate against the same proposal) is correct; promoting to
-    # `gate-failed` would lock out the proposal incorrectly.
-    GateDecision.SANDBOX_ERROR: ProposalState.IN_GATE,
+    # Logical rejections → `rejected` (agent caused this; counts toward
+    # "3 failures on the same hypothesis → abandon" per STATE_MACHINES.md).
+    GateDecision.FAIL_REGRESSION: ProposalState.REJECTED,
+    GateDecision.FAIL_NO_IMPROVEMENT: ProposalState.REJECTED,
+    # Technical failure → `gate-failed` (sandbox, not the agent). The
+    # state machine designates `gate-failed` as the retry-allowing state
+    # for infrastructure errors, distinct from `rejected` (logical).
+    GateDecision.SANDBOX_ERROR: ProposalState.GATE_FAILED,
 }
 
 
@@ -161,8 +162,13 @@ async def persist_gate_run(
         expected_impact: agent-supplied JSON describing
             `{improves: [...eval_case_ids], regresses: [...]}`.
             Optional; surfaces on the proposal row for the UI.
-        prior_eval_task_ids / best_ever_score / regression_tolerance /
-            improvement_epsilon: passed straight through to `run_gate`.
+        best_ever_score: used as the bootstrap fallback when no prior
+            iterations exist for this workflow. For subsequent iterations the
+            authoritative value is derived from ``MAX(best_ever_score_after)``
+            inside the locked transaction, overriding this parameter, so
+            concurrent callers always gate against the latest committed score.
+        prior_eval_task_ids / regression_tolerance / improvement_epsilon:
+            passed straight through to `run_gate`.
 
     Returns:
         `PersistedGateRun` with the gate result, the inserted /
@@ -183,10 +189,28 @@ async def persist_gate_run(
         raise ValueError(
             f"improvement_epsilon must be finite and >= 0; got {improvement_epsilon}",
         )
+    if best_ever_score is not None and not (0.0 <= best_ever_score <= 1.0):
+        raise ValueError(
+            f"best_ever_score must be in [0,1] or None; got {best_ever_score} "
+            "(relax this guard if a future runner produces val_score > 1.0)",
+        )
+    # Serialize expected_impact before opening the transaction so a
+    # non-serializable value raises TypeError without any DB writes.
+    try:
+        expected_impact_json = (
+            json.dumps(expected_impact) if expected_impact is not None else None
+        )
+    except TypeError as exc:
+        raise TypeError(
+            f"expected_impact is not JSON-serializable: {exc}",
+        ) from exc
 
     async with conn.transaction():
         # 1. Lock workflow row — serializes concurrent runs so the
         # iteration_index allocation below is collision-free.
+        # 30-second lock_timeout prevents a stuck gate run from
+        # holding the lock indefinitely and starving the connection pool.
+        await conn.execute("SET LOCAL lock_timeout = '30s'")
         workflow_locked = await conn.fetchrow(
             "SELECT id FROM workflows WHERE id = $1 FOR UPDATE",
             workflow_id,
@@ -201,6 +225,19 @@ async def persist_gate_run(
             "SELECT COALESCE(MAX(iteration_index), -1) + 1 "
             "FROM iterations WHERE workflow_id = $1",
             workflow_id,
+        )
+
+        # Derive the authoritative best_ever_score from the DB under lock so
+        # concurrent callers always gate against the latest committed score, not
+        # a snapshot that could be stale. Fall back to the caller-provided value
+        # for the bootstrap iteration (no prior rows yet).
+        db_best_ever = await conn.fetchval(
+            "SELECT MAX(best_ever_score_after) FROM iterations "
+            "WHERE workflow_id = $1 AND best_ever_score_after IS NOT NULL",
+            workflow_id,
+        )
+        effective_best_ever = (
+            _to_float(db_best_ever) if db_best_ever is not None else best_ever_score
         )
 
         # 2. Insert iteration in running state.
@@ -219,21 +256,13 @@ async def persist_gate_run(
             next_idx,
             proposed_skill_version_id,
             parent_version_id,
-            best_ever_score,
+            effective_best_ever,
             cluster_id,
             deployment_id,
         )
         iteration_id: UUID = iteration_row["id"]
 
         # 3. Insert proposal in in-gate state, linked to the iteration.
-        try:
-            expected_impact_json = (
-                json.dumps(expected_impact) if expected_impact is not None else None
-            )
-        except TypeError as exc:
-            raise TypeError(
-                f"expected_impact is not JSON-serializable: {exc}",
-            ) from exc
         proposal_row = await conn.fetchrow(
             """
             INSERT INTO proposals (
@@ -264,7 +293,7 @@ async def persist_gate_run(
                 "proposal_id": str(proposal_id),
                 "skill_id": skill_id,
                 "prior_eval_task_ids": list(prior_eval_task_ids),
-                "best_ever_score": best_ever_score,
+                "best_ever_score": effective_best_ever,
                 "regression_tolerance": regression_tolerance,
                 "improvement_epsilon": improvement_epsilon,
             },
@@ -272,12 +301,15 @@ async def persist_gate_run(
             related_id=iteration_id,
         )
 
-        # 5. Run the gate. Any exception here triggers transaction
-        # rollback — no partial iteration / proposal rows survive.
+        # 5. Run the gate. Any exception triggers transaction rollback —
+        # no partial iteration / proposal rows survive.
+        # NOTE(W4): connection held open for full benchmark duration.
+        # For synthetic M5 (~5s) this is fine. For τ³ (tens of minutes),
+        # split into begin_iteration + finalize_iteration. See module docstring.
         gate_result = await run_gate(
             runner,
             prior_eval_task_ids=prior_eval_task_ids,
-            best_ever_score=best_ever_score,
+            best_ever_score=effective_best_ever,
             regression_tolerance=regression_tolerance,
             improvement_epsilon=improvement_epsilon,
         )
@@ -378,11 +410,11 @@ def _infer_sandbox_error_class(result: GateResult) -> SandboxErrorClass | None:
     today's gate trust contract since the gate already short-circuits
     correctly on any None reward)."""
     rationale = (result.rationale or "").lower()
-    if "timeout" in rationale:
+    if SandboxErrorClass.TIMEOUT.value.lower() in rationale:
         return SandboxErrorClass.TIMEOUT
-    if "oom" in rationale:
+    if SandboxErrorClass.OOM.value.lower() in rationale:
         return SandboxErrorClass.OOM
-    if "crash" in rationale:
+    if SandboxErrorClass.CRASH.value.lower() in rationale:
         return SandboxErrorClass.CRASH
     return None
 
@@ -447,8 +479,6 @@ def _to_float(value: Any) -> float | None:
     return float(value)
 
 
-# Re-export for tests that want to assert on datetime columns directly
-# without re-importing the stdlib type. Keeps test imports clean.
 __all__ = [
     "PersistedGateRun",
     "persist_gate_run",
