@@ -266,6 +266,77 @@ body
         parse_skill(no_id)
 
 
+# ---------------------------------------------------------------------------
+# Half-wrapped Python frontmatter (Phase-3 v3 agent failure mode)
+# ---------------------------------------------------------------------------
+
+
+# Reproduction of the qwen3-coder-30b output from Phase 3 v3 (2026-05-04):
+# with PR #26's kickoff prompt carrying the explicit `"""..."""` example,
+# the agent now adds the OPENING docstring marker but consistently forgets
+# the CLOSING one — 8/8 calls in run v3.
+_HALFWRAP_PY_FRONTMATTER = '''\
+"""
+---
+id: m5.baseline.v1.model_trainer
+kind: python
+created_by: agent:qwen3-coder-30b
+capability_tags:
+  - m5
+  - baseline
+  - model_trainer
+retention:
+  stateless: true
+---
+
+from __future__ import annotations
+
+import lightgbm as lgb
+
+def train(features, raw, fold):
+    return None
+'''
+
+
+def test_parse_skill_accepts_half_wrapped_python_frontmatter():
+    """The Phase-3 v3 agent failure mode: opening `\"\"\"` present,
+    closing `\"\"\"` missing. Parser auto-accepts when the YAML between
+    the two `---` markers is a valid mapping with `id` + `kind`."""
+    rec = parse_skill(_HALFWRAP_PY_FRONTMATTER)
+    assert rec.frontmatter.id == "m5.baseline.v1.model_trainer"
+    assert rec.frontmatter.kind == "python"
+    assert rec.frontmatter.retention.stateless is True
+    # Body keeps everything after the closing `---\n`, never the
+    # leading `"""`.
+    assert "from __future__ import annotations" in rec.body
+    assert "def train" in rec.body
+    assert '"""' not in rec.body
+
+
+def test_parse_skill_half_wrap_with_single_quotes():
+    """Single-quote docstring marker (`'''`) handled identically to `\"\"\"`."""
+    text = _HALFWRAP_PY_FRONTMATTER.replace('"""', "'''")
+    rec = parse_skill(text)
+    assert rec.frontmatter.id == "m5.baseline.v1.model_trainer"
+
+
+def test_parse_skill_half_wrap_rejects_yaml_without_id_or_kind():
+    """Half-wrap fallback also gates on `id` + `kind`. A docstring opener
+    followed by a `---`-delimited block that *doesn't* parse as a skill
+    frontmatter falls through — the canonical "No frontmatter" error fires."""
+    bad = '''\
+"""
+---
+foo: bar
+baz: qux
+---
+
+body
+'''
+    with pytest.raises(SkillFormatError, match="No frontmatter"):
+        parse_skill(bad)
+
+
 def test_parse_skill_canonical_python_still_works():
     # Regression — the canonical Python-docstring frontmatter shape must
     # still parse identically to before the Postel's-law fallback was added.
