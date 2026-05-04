@@ -18,6 +18,36 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/gate/persistence.py` —
+  `persist_gate_run(conn, runner, *, workflow_id, skill_id,
+  proposed_content, plain_language_summary, actor, ...)` is the
+  DB-writing wrapper around `run_gate` (W2.2 follow-up). Inside one
+  transaction: locks the workflow row (`SELECT … FOR UPDATE`) so
+  concurrent runs don't collide on
+  `UNIQUE(workflow_id, iteration_index)`, allocates the next
+  `iteration_index` via `MAX+1`, INSERTs `iterations`
+  (state='running'), INSERTs `proposals` (state='in-gate') linked to
+  the iteration, appends a `gate-run-started` audit entry, runs the
+  gate, finalizes the iteration with the gate's decision (state +
+  val_score + best_ever_score_after + sandbox_error_class +
+  ended_at), finalizes the proposal (gate-passed / rejected for logical
+  gate failures; gate-failed for sandbox infrastructure errors per
+  STATE_MACHINES.md), and appends a
+  `gate-run-completed` audit entry carrying the full gate evidence
+  (rationale, val_score, failed_prior_task_ids, promotable_task_ids).
+  Returns a `PersistedGateRun` with the gate result + the inserted
+  rows refetched as Pydantic models. `GateDecision` →
+  `IterationState` mapping is explicit (decision values are
+  wire-compatible per W2.2 PR #8 but the wrapper uses an explicit
+  table so a future divergence is observed). Promotable eval cases
+  are surfaced for the caller to wire into `add_eval_case` — the
+  wrapper does not auto-promote since the gate has no opinion on
+  what `input` / `expected_behavior` to seed for a new case (that's
+  cluster-derived, W3 work). Pinned by 9 DB-backed integration tests
+  in `apps/kernel/tests/test_gate_persistence.py` covering each
+  `GateDecision` path, transaction rollback on missing workflow,
+  iteration_index advancement across sequential runs, and exception
+  surface semantics.
 - `.github/workflows/m5-replay-nightly.yml` — first GitHub Actions
   workflow for the project (W2.6 #11d). Runs `pytest
   test_baselines_m5_lightgbm_sandboxed.py` + the in-process M5

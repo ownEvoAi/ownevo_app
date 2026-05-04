@@ -7,16 +7,20 @@ self-test (W2.2a) validates this contract against synthetic skills so
 that "approved improvement" actually means improvement.
 
 `run_gate` is a pure async function over the `BenchmarkRunner`
-Protocol — no DB writes, no audit log. The DB-writing wrapper that
-creates iterations + proposals + audit entries lives in PR #8 (M5
-Day-1 baseline) once the iteration table is being driven end-to-end.
+Protocol — no DB writes, no audit log. `persist_gate_run` is the
+DB-writing wrapper: same call but threads the decision into
+`iterations` + `proposals` + `audit_entries` atomically (W2.2 follow-up,
+unblocks W4 unattended replay).
 """
 
+from .persistence import PersistedGateRun, persist_gate_run
 from .result import GateDecision, GateResult
 from .runner import run_gate
 
 __all__ = [
     "GateDecision",
     "GateResult",
+    "PersistedGateRun",
+    "persist_gate_run",
     "run_gate",
 ]
