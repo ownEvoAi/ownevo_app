@@ -49,7 +49,8 @@ Defaults to LM Studio at `http://<OWNEVO_LLM_HOST>:1234` with model
 `/v1/messages` endpoint, so `AsyncAnthropic` works unchanged).
 Override via env:
   * `OWNEVO_LLM_HOST`      — hostname/IP of the local LLM server
-                             (default: `localhost`)
+                             (default: `localhost`; set this when running
+                             against a remote desktop / LAN box)
   * `OWNEVO_LLM_BASE_URL`  — full base URL, overrides OWNEVO_LLM_HOST;
                              e.g. `http://localhost:4000` for LiteLLM
   * `OWNEVO_LLM_MODEL`     — any tool-calling-capable model id
