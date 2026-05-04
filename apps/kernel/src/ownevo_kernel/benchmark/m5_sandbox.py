@@ -61,14 +61,6 @@ if TYPE_CHECKING:
 # breaking the wire contract.
 _CATALOG_MOUNT = "/data/m5"
 
-# Container path the M5 skill files live at inside the sandbox image.
-# Mirrors the layout produced by `apps/kernel/sandbox/Dockerfile.m5`
-# (which copies `apps/kernel/baselines` to `/opt/ownevo/apps/kernel/baselines`).
-# A `skill_override_dir` bind-mount lands here read-only and shadows the
-# baked-in v1 skill bodies, so the gate can score whatever the agent
-# proposed instead of the on-disk baseline (B4.1).
-_SKILL_V1_MOUNT = "/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1"
-
 _ENTRYPOINT_SCRIPT = '''\
 import json
 import sys
@@ -132,14 +124,6 @@ class SandboxedM5BenchmarkRunner:
             run on cold image fits.
         memory_mb: Per-call cgroup memory cap. Defaults to 4 GiB so a
             full-catalog LightGBM fit doesn't OOM on first try.
-        skill_override_dir: Optional host directory bind-mounted over
-            the baked-in `skill_v1/` package inside the container. Must
-            contain `__init__.py` plus the 6 baseline skill modules so
-            the orchestrator's `from .skill_v1 import ...` resolves.
-            When set, the container imports the override instead of the
-            image's v1 bodies — this is how the loop scores the agent's
-            proposed skill content (B4.1). When `None`, the runner falls
-            back to whatever shipped in the image.
     """
 
     catalog_dir: Path
@@ -147,7 +131,6 @@ class SandboxedM5BenchmarkRunner:
     sandbox: LocalDockerSandbox
     timeout_seconds: float = 600.0
     memory_mb: int = 4096
-    skill_override_dir: Path | None = None
     last_artifacts: M5RunArtifacts | None = field(default=None, init=False, repr=False)
     last_pipeline_result: PipelineResult | None = field(default=None, init=False, repr=False)
 
@@ -158,14 +141,6 @@ class SandboxedM5BenchmarkRunner:
                 f"catalog_dir must be an existing directory; got {self.catalog_dir!r}"
             )
         self.catalog_dir = catalog
-        if self.skill_override_dir is not None:
-            override = Path(self.skill_override_dir).resolve()
-            if not override.is_dir():
-                raise ValueError(
-                    f"skill_override_dir must be an existing directory; "
-                    f"got {self.skill_override_dir!r}"
-                )
-            self.skill_override_dir = override
 
     async def run(
         self,
@@ -184,17 +159,13 @@ class SandboxedM5BenchmarkRunner:
         if task_ids is not None:
             input_data["series_ids"] = list(task_ids)
 
-        extra_volumes: dict[str, str] = {str(self.catalog_dir): _CATALOG_MOUNT}
-        if self.skill_override_dir is not None:
-            extra_volumes[str(self.skill_override_dir)] = _SKILL_V1_MOUNT
-
         result = await run_pipeline(
             self.sandbox,
             skill_content=_ENTRYPOINT_SCRIPT,
             input_data=input_data,
             timeout_seconds=self.timeout_seconds,
             memory_mb=self.memory_mb,
-            extra_volumes=extra_volumes,
+            extra_volumes={str(self.catalog_dir): _CATALOG_MOUNT},
         )
         self.last_pipeline_result = result
 
