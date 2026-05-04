@@ -7,6 +7,7 @@ from .format import (
     SkillFormatError,
     SkillFrontmatter,
     SkillRecord,
+    build_skill_content,
     parse_skill,
 )
 from .registry import RegisterResult, SkillHead, get_head, list_versions, register_skill
@@ -22,6 +23,7 @@ __all__ = [
     "SkillFrontmatter",
     "SkillHead",
     "SkillRecord",
+    "build_skill_content",
     "get_head",
     "list_versions",
     "parse_skill",

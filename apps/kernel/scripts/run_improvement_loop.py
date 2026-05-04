@@ -134,24 +134,14 @@ def _kickoff_message(workflow_id: str) -> str:
         "validate via run_pipeline, register with write_skill, then end your "
         "turn.\n"
         "\n"
-        "**Format requirement (write_skill rejects content without this):** "
-        "every Python skill MUST begin with a YAML frontmatter block wrapped "
-        "in a Python triple-quoted docstring. The first lines look exactly "
-        "like:\n"
-        "\n"
-        "```\n"
-        '"""\n'
-        "---\n"
-        "id: m5.baseline.v1.<name>\n"
-        "kind: python\n"
-        "...\n"
-        "---\n"
-        '"""\n'
-        "```\n"
-        "\n"
-        "The v1 body that read_skill returns shows the exact shape — keep "
-        "that docstring wrapper intact in your new version, and ensure the "
-        "frontmatter `id` matches the `skill_id` you pass to write_skill.\n"
+        "**write_skill takes structured fields, not a serialized file.** "
+        "Pass `skill_id`, `kind` (e.g. `python`), `body` (the executable "
+        "Python source ONLY — no `\"\"\"`, no `---`, no YAML), "
+        "`capability_tags` (optional list of strings), and `retention` "
+        "(an object — for the M5 baseline skills use `{\"stateless\": true}`). "
+        "The kernel constructs the canonical file with frontmatter and "
+        "docstring wrapper. read_skill still returns the full canonical "
+        "file so you can see the shape, but you don't re-emit it.\n"
         "\n"
         f"workflow_id: {workflow_id}"
     )
@@ -580,19 +570,23 @@ def _extract_latest_write_skill(events) -> _AgentProposal | None:
     """Walk the trace events forward, collect successful write_skill pairs, and
     return the last one (most recent successful write_skill call).
 
-    The agent's input dict (skill_id, content, optional diff_summary) is on
-    the paired ToolCallStart; the registered version_id/version_seq are on
-    the ToolCallResult. We pair them by `call_id`.
+    The agent's input dict (skill_id, kind, body, retention, optional
+    diff_summary) is on the paired ToolCallStart; the canonical
+    constructed content + registered version_id/version_seq are on the
+    ToolCallResult. We pair by `call_id` and read `content` from the
+    result so the bind-mount path always sees what the registry actually
+    persisted (post-construction by `build_skill_content`), not whatever
+    the agent's structured args were.
 
     Returns None if the agent never called write_skill or every call errored.
     """
     starts: dict[str, dict] = {}
     pairs: list[tuple[dict, dict]] = []
     for event in events:
-        kind = getattr(event, "type", None)
-        if kind == "tool_call_start" and getattr(event, "name", None) == "write_skill":
+        ev_type = getattr(event, "type", None)
+        if ev_type == "tool_call_start" and getattr(event, "name", None) == "write_skill":
             starts[event.call_id] = event.args
-        elif kind == "tool_call_result" and getattr(event, "name", None) == "write_skill":
+        elif ev_type == "tool_call_result" and getattr(event, "name", None) == "write_skill":
             args = starts.pop(event.call_id, None)
             if args is None:
                 continue
@@ -605,8 +599,8 @@ def _extract_latest_write_skill(events) -> _AgentProposal | None:
         return None
 
     args, output = pairs[-1]
-    skill_id = args.get("skill_id")
-    content = args.get("content")
+    skill_id = output.get("skill_id") or args.get("skill_id")
+    content = output.get("content")
     if not isinstance(skill_id, str) or not isinstance(content, str):
         return None
     version_id_raw = output.get("version_id")
