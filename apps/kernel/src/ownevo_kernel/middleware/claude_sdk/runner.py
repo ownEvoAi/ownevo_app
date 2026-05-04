@@ -241,6 +241,7 @@ async def run_agent_turn(
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     short_circuit_on_sandbox_error: bool = True,
     no_stream: bool = False,
+    enable_prompt_caching: bool = False,
 ) -> AgentTurnResult:
     """Drive one agent run and emit AgentEvents into `collector`.
 
@@ -272,6 +273,15 @@ async def run_agent_turn(
     append a synthetic [assistant, user] retry pair to the message
     history, and continue the loop. The retry costs one iteration.
     Other exceptions propagate. See docs/local-model-testing.md F6b.
+
+    `enable_prompt_caching` (default False) wraps the system prompt
+    and the last tool definition in `cache_control: {type: "ephemeral"}`
+    markers. On Anthropic cloud, this enables prompt caching: cache_read
+    tokens cost ~10% of cache_creation tokens with 5-minute TTL, cutting
+    multi-iteration cost ~80%. LMS Anthropic shim caches automatically
+    without markers (per F8 in docs/local-model-testing.md), so this
+    flag is a no-op for LMS but a major saving on cloud. Defaults False
+    so existing tests' `system="..."` string assertions don't change.
     """
     if max_iterations <= 0:
         raise ValueError(f"max_iterations must be positive; got {max_iterations}")
@@ -282,6 +292,26 @@ async def run_agent_turn(
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": user_message},
     ]
+
+    # When prompt caching is on, wrap the system prompt as a single
+    # text block with a cache_control marker (5-min ephemeral cache),
+    # and tag the LAST tool definition with cache_control (Anthropic
+    # caches everything from the start of `tools` up to and including
+    # the marked block). Up to 4 cache_control breakpoints are
+    # supported per request; we use 2 here (system + tools), leaving
+    # 2 for callers that want to mark message history.
+    system_for_call: str | list[dict[str, Any]] = system
+    tools_for_call: list[dict[str, Any]] = tools
+    if enable_prompt_caching:
+        system_for_call = [
+            {
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        if tools_for_call:
+            tools_for_call = [*tools_for_call[:-1], {**tools_for_call[-1], "cache_control": {"type": "ephemeral"}}]
 
     output_config: dict[str, Any] | None = (
         {"effort": effort} if effort is not None else None
@@ -307,8 +337,8 @@ async def run_agent_turn(
             "model": model,
             "max_tokens": max_tokens,
             "messages": messages,
-            "system": system,
-            "tools": tools,
+            "system": system_for_call,
+            "tools": tools_for_call,
         }
         if thinking is not None:
             call_kwargs["thinking"] = thinking
