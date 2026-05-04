@@ -152,7 +152,7 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S-M (CC ~half day to debug crash + run; ~1 hour for the probe-sweep follow-up).
 - **Priority:** P1 — directly feeds B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
 - **Depends on:** none — substrate is in place.
-- **Status update (2026-05-04):** Phase 3 closed on Sonnet 4.6 via Anthropic cloud — v10 produced `val_score=0.395143` (+19% over baseline 0.331), v12 demonstrated the gate-blocked regression at 0.385126. B4.2 + B4.3 both achieved on real M5 for ~$0.78. Stage B 7-iter replay (also 2026-05-04) confirmed the gate held `best_ever=0.3958` through 6 consecutive non-pass iterations ($1.84 cost). Local-model lift on real M5 is NOT yet achieved — captured in TODO-20 + TODO-21.
+- **Status update (2026-05-04):** Phase 3 closed on Sonnet 4.6 via Anthropic cloud — v10 produced `val_score=0.395143` (+19% over baseline 0.331), v12 demonstrated the gate-blocked regression at 0.385126. B4.2 + B4.3 both achieved on real M5 for ~$0.78. Stage B 7-iter replay (also 2026-05-04) confirmed the gate held `best_ever=0.3958` through 6 consecutive non-pass iterations ($1.84 cost). **Stage C 7-iter replay with F9 fix produced first compound lift: iter 0 0.3859 → iter 2 0.3988, gate held best_ever across 5 non-pass iters, $1.86 cost.** Local-model lift on real M5 is NOT yet achieved — TODO-20/21/23 cover the gaps.
 
 ### TODO-20: F6 mitigation effectiveness retest on qwen3-coder-30b
 
@@ -160,8 +160,9 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** The F6 mitigation in PR #33 is a hypothesis: "warning the agent about long-format reshape NaN handling will stop it from indexing 1-D `dow` as 2-D." Without retest, the prompt change is untested. PR #33's tests cover the prompt-caching path, not F6 mitigation effectiveness.
 - **Pros / Cons:** Cheap (local model, free, ~5 min wall). If it works, qwen3-coder-30b becomes a viable local-model end-to-end driver for Phase 3, restoring the cost-control + single-vendor-risk story. If it doesn't work, we know the F6 bug is not promptable away on this model and we move to a different local model (TODO-21).
 - **Context:** Background in `apps/kernel/docs/local-model-testing.md` § F6. Prompt change in `apps/kernel/scripts/m5_agent_prompt.md` (PR #33 diff). Last 3 attempts (v7/v8/v11) all hit the same bug — pre-mitigation.
-- **Effort:** XS (CC ~30 min — single run + post-mortem).
-- **Priority:** P2 — strengthens the local-model story; doesn't gate the YC narrative (Sonnet already proved the loop).
+- **Status update (2026-05-04, retest after PR #35 merged):** ❌ F6 prompt warning did NOT prevent the bug. Retest on `qwen3-coder-30b` (LMS Anthropic, fresh DB `ownevo_phase3_realm5_v20_f6retest`) hit the same `_long_frame: ValueError: All arrays must be of the same length` at iter 0. **14 attempts now, 100% deterministic on this model.** Mitigation route (a) is exhausted. Path forward: (b) cross-iteration failure memory (TODO-22 option b), or (c) try a different local model entirely (TODO-23 below). Closing TODO-20 as "tested, did not fix."
+- **Effort:** XS (CC ~30 min — single run + post-mortem). DONE.
+- **Priority:** ~~P2~~ → closed.
 - **Depends on:** none. Self-contained.
 
 ### TODO-21: Devstral OOM headroom — bump sandbox memory or constrain agent prompt
@@ -170,7 +171,10 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** v13b is the strongest local-model signal we have on real M5 (devstral wrote runnable code, did NOT trigger F6's `_long_frame` bug, but the resulting pipeline OOM'd). Without resolving the OOM, we can't measure devstral's val_score and can't confirm it as a local-model end-to-end driver.
 - **Pros / Cons:** (a) is one CLI flag change in the runner + a re-run (~5 min) but increases sandbox blast radius; (b) is a prompt change that may or may not work on devstral's coding style; (c) closes the avenue. (a) preferred — 512 MB is a defensible-but-tight default; 1 GB is still bounded. Update `docs/local-model-testing.md` with the new finding regardless.
 - **Context:** v13b runlog at `.temp/runlogs/20260504-140903-phase3-v13b-devstral-retry/loop.log`. 15 iterations, 14 tool calls, 4 tool errors. Final iteration hit `M5SandboxError: Sandboxed M5 pipeline did not return ok: status=error, error_class=OOM, error='Sandbox memory limit exceeded (OOM-killed)'`. Sandbox config at `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py`.
-- **Status update (2026-05-04):** PR — `--sandbox-mem-mb` CLI flag added to `run_improvement_loop.py` (commit on `feat/f9-fix-and-sandbox-mem` branch). Retest with `--sandbox-mem-mb 1024` cleared the OOM but devstral wrote a different bug (`'dict' object has no attribute 'train'` — agent returned a dict instead of `FeatureMatrix` from `engineer()`). OOM portion ✅; devstral codegen quality is a separate concern.
+- **Status update (2026-05-04, post-PR-#35):** PR #35 merged. `--sandbox-mem-mb` flag now on main. Two retests:
+  - First retest (DB `_v21_devstral_1gb`): exit=`sandbox-error` with `'dict' object has no attribute 'train'` (agent returned dict not FeatureMatrix from `engineer()`). OOM ✅ cleared.
+  - Second retest (DB `_v21_devstral_1gb_v2`, with F9-mitigation prompt): exit=6 ("agent did not register any skill change"). 13 iter / 12 tool calls / **9 tool errors**. OOM ✅ cleared again, but devstral writes runnable-looking code that fails `run_pipeline` validation each time and never produces a clean candidate to commit.
+  - **TODO-21's primary ask (clear OOM) is DONE; devstral codegen quality is the bottleneck, not memory. Closing TODO-21.** Devstral on real M5 is not viable as a local-model lift driver.
 - **Effort:** XS (CC ~30 min for option (a); ~1 h for option (b)).
 - **Priority:** P2 — same reasoning as TODO-20: strengthens local-model story; not on YC critical path.
 - **Depends on:** none. Self-contained.
@@ -183,10 +187,20 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** Stage B showed 5/7 iterations hitting the same bug independently. The gate held `best_ever=0.3958` throughout, but the loop made no forward progress. Without mitigation, any future multi-iteration run against a best_ever-constrained DB will cycle on the same error.
 - **Pros / Cons:** (a) is 30 min and unblocks the lift curve immediately. (b) is the architecturally correct answer but requires wiring `analyze_failures` to read live cluster data + failure-cluster creation from sandbox runs (currently clusters are created from eval runs, not sandbox crashes). Do (a) now, track (b) as a separate item.
 - **Context:** Stage B runlog `.temp/runlogs/20260504-143146-stageb-sonnet-7iter/`. Full analysis in `docs/local-model-testing.md` § F9. DB: `ownevo_phase3_realm5_stageb_v1`.
-- **Status update (2026-05-04):** Option (a) prompt fix is in this same PR (`feat/f9-fix-and-sandbox-mem` branch) — `_M5_ORIGIN` constant + day-ID arithmetic helper added to `apps/kernel/scripts/m5_agent_prompt.md`. Option (b) cross-iteration failure memory remains open as P2 follow-up.
-- **Effort:** XS for (a) (CC ~30 min); M for (b) (CC ~half day).
-- **Priority:** P1 — blocks Stage B from producing a lift curve beyond iter 0. Prompt fix is the unblock; failure-memory is P2.
-- **Depends on:** none for (a).
+- **Status update (2026-05-04, post-PR-#35):** ✅ Option (a) prompt fix MERGED (PR #35) and EMPIRICALLY VALIDATED. Stage C's iter 0 successfully integrated the `month` feature using day-ID arithmetic (no `DateParseError`). First compound lift on real M5 followed: iter 0 0.3859 → iter 2 0.3988 (gate-passed twice). **Option (a) closed.** Option (b) cross-iteration failure memory remains open — Stage C still showed iter 4 + iter 6 hitting OOM patterns and iter 5 hitting a near-baseline regression, all with the same lack of memory of prior failures. Captured separately under TODO-23 below since this is a P1 substrate gap, not a workaround.
+- **Effort:** ~~XS for (a)~~ DONE; M for (b) (CC ~half day).
+- **Priority:** ~~P1 — blocks Stage B from producing a lift curve beyond iter 0. Prompt fix is the unblock; failure-memory is P2.~~ → (a) closed; (b) graduates to TODO-23.
+- **Depends on:** ~~none for (a)~~ DONE.
+
+### TODO-23: Cross-iteration failure memory (graduated from TODO-22 (b))
+
+- **What:** Populate `failure_clusters` from `sandbox-error` iterations with `error_class=None` so `analyze_failures` returns prior failure patterns to subsequent agent turns. Currently `analyze_failures` returns workflow-level *eval-task* clusters; we need it to surface recent sandbox-crash signatures from `iterations.state='sandbox-error'`.
+- **Why:** Stage C showed the gate working (5 correct rejections, 0 false promotions) but no cross-iteration learning. Each new agent invocation reads the latest skill, can't see *why* prior diffs were rejected. With 7 iterations against the same DB, we still got only 2 gate-passes — half the iterations were rediscovering rejected ideas. With memory, the agent could try genuinely new directions and the lift curve would be steeper.
+- **Pros / Cons:** Architectural fix that touches `analyze_failures` + a new pattern-extraction routine. ~half-day. Returns dividends on every multi-iter run going forward (Stage D, customer agents, OpsAgent-Bench).
+- **Context:** TODO-22 description. Stage C runlog `.temp/runlogs/20260504-151449-stagec-sonnet-7iter/`. Sandbox-error rationale strings already contain the failure signature (e.g., the OOM trace, the F9 DateParseError, the `dict has no attribute` AttributeError) — just need to surface them to the agent.
+- **Effort:** M (CC ~half day).
+- **Priority:** P1 — pattern is now the binding constraint on Stage D and beyond.
+- **Depends on:** none. Self-contained. Touches `apps/kernel/src/ownevo_kernel/observability/learnings.py` and the `analyze_failures` tool definition.
 
 ---
 

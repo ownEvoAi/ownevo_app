@@ -293,6 +293,12 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 - Phase 0 / 1 sweep across 14 models surfaced F1-F5 (full text in `docs/local-model-testing.md`). qwen3-coder-30b on LMS Anthropic streaming is the only end-to-end driver across 10 candidates 8B-32B. ~37 candidates still untested.
 - Phase 2 baseline locked: `val_score = 0.330988`.
 - Phase 3 v1-v3 burned iteration budget on `SkillFormatError` variants (PR #26-#28 fixed; PR #30 eliminated the format surface entirely via structured `write_skill` tool args). v5 was the first run where `write_skill` succeeded on the structured surface; LMS server-side rejected a later tool call (`anthropic.APIStatusError: Failed to generate a valid tool call`) before the gate could run. Mid-debug.
+- **Phase 3 closed on Sonnet 4.6 / Anthropic cloud (2026-05-04):**
+  - v10 produced the first lift: `val_score=0.395143` (+19% over baseline 0.331). **B4.2 ✅.**
+  - v12 (same workflow + DB) showed the regression-blocking path: `val_score=0.385126`, gate-blocked-no-improvement. **B4.3 ✅.**
+  - **Stage C 7-iter replay** (post F9 prompt fix, PR #35) produced **first compound lift**: iter 0 `0.3859` → iter 2 `0.3988`, with iter 1 / iter 3 / iter 5 correctly gate-blocked and iter 4 / iter 6 gate-rejected (sandbox-error). 2 gate-passes, 5 correct rejections, 0 false promotions across 7 iterations on real M5. Total cost $1.86 with caching (PR #33).
+  - Total Phase-3 spend on Sonnet across all replays: ~$4.50.
+- **Local-model lift on real M5 remains open.** TODO-20 (qwen3-coder-30b retest with F6 mitigation prompt) — bug deterministic at 14/14 attempts. TODO-21 (devstral OOM bump) — OOM cleared at 1024MB but devstral codegen still doesn't produce a clean candidate. Gemma-4-26B-A4B retest — F4 read-loop stall (96% cache_read, 31 tok/turn).
 
 This methodology compresses to ~1 hour for a fresh ~37-model probe sweep + ~5 hours of Phase 1 on the ~5 probe-passers, and informs which model to put through Phase 3 when budget is tight.
 
