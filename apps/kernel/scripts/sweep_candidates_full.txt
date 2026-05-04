@@ -1,0 +1,70 @@
+# Full candidate list for the local-model probe sweep (2026-05-04).
+#
+# Sourced from docs/local-model-testing.md "Candidate models — Ollama"
+# and "Candidate models — LM Studio" tables; intersected with what's
+# actually pulled / catalogued on the LAN box at OWNEVO_LLM_HOST.
+# Re-snapshot before each fresh sweep — both catalogs change frequently.
+#
+# Format: '<backend> <model>' per line. Comments via '#'. Blank lines OK.
+#
+# Skipped from the testing-guide tables (not pulled / catalog-missing):
+#   - ollama: qwen3:8b (not in catalog), gemma4:12b (not in catalog),
+#             gpt-oss:120b (too large for VRAM ceiling)
+#   - lms: granite-4.1-8b (already smoked F4), ibm/granite-3.2-8b
+#          (already smoked F4), gemma-4-31b-it (catalog now lists
+#          google/gemma-4-31b — using that), qwen2.5-coder-32b-instruct
+#          (catalog now under that exact name — included)
+
+# === Ollama backend (8B-40B class, sorted ascending) ===
+
+ollama llama3.1:8b
+ollama qwen3:8b
+ollama granite4.1:8b
+ollama ministral-3:8b
+ollama qwen3.5:9b
+ollama gemma3:12b
+ollama phi4-reasoning:latest
+ollama qwen3:14b
+ollama qwen2.5:14b
+ollama mychen76/qwen3_cline_roocode:14b
+ollama tom_himanen/deepseek-r1-roo-cline-tools:14b
+ollama gpt-oss:20b
+ollama lfm2:latest
+ollama fomenks/devstral-small_cline_roocode-64k:latest
+ollama devstral-small-2:latest
+ollama gemma4:26b
+ollama kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF:latest
+ollama qwen3.5:27b
+ollama qwen3.6:27b
+ollama gemma3:27b
+ollama granite4.1:30b
+ollama glm-4.7-flash:latest
+ollama qwen3-coder:30b
+ollama qwen3:30b-instruct
+ollama qwen3:30b-a3b
+ollama gemma4:31b
+ollama nemotron-cascade-2:latest
+ollama qwen3:32b
+ollama Qwq:32b
+ollama qwen2.5-coder:32b
+ollama qwen3.5:35b-a3b
+ollama qwen3.6:35b-a3b
+
+# === LM Studio backend (priority: not yet smoked, plus retry candidates) ===
+
+lms google/gemma-4-26b-a4b
+lms google/gemma-4-31b
+lms google/gemma-4-e4b
+lms microsoft/phi-4
+lms qwen/qwen2.5-coder-14b
+lms qwen2.5-coder-32b-instruct
+lms qwopus3.5-27b-v3
+lms qwen/qwen3-30b-a3b-2507
+lms qwen/qwen3-30b-a3b
+lms qwen/qwen3-32b
+lms qwen/qwen3-coder-30b
+lms qwen/qwen3.6-27b
+lms qwen/qwen3.6-35b-a3b
+lms openai/gpt-oss-20b
+lms zai-org/glm-4.7-flash
+lms mistralai/devstral-small-2-2512
