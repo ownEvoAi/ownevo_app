@@ -17,7 +17,7 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
-## [0.1.0-w2] — 2026-05-04
+## [0.1.0] — 2026-05-04
 
 ### Added
 - `apps/kernel/src/ownevo_kernel/approvals/` +
