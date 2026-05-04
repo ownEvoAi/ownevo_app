@@ -19,7 +19,9 @@ local dev runs need to build it once.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -33,7 +35,10 @@ _REPO_KERNEL = Path(__file__).resolve().parents[1]
 if str(_REPO_KERNEL) not in sys.path:
     sys.path.insert(0, str(_REPO_KERNEL))
 
-from baselines.m5_lightgbm import run_baseline  # noqa: E402
+from baselines.m5_lightgbm import (  # noqa: E402
+    materialize_skill_v1_dir,
+    run_baseline,
+)
 from ownevo_kernel.benchmark import (  # noqa: E402
     M5BenchmarkRunner,
     SandboxedM5BenchmarkRunner,
@@ -111,8 +116,6 @@ def m5_dir(tmp_path: Path) -> Path:
     _build_synthetic_m5(tmp_path)
     # Sandbox container drops CAP_DAC_OVERRIDE — its uid 0 cannot read
     # files unless DAC permits. tmp_path defaults to 0700 on most systems.
-    import os
-    import stat
     os.chmod(tmp_path, 0o755)
     for f in tmp_path.iterdir():
         os.chmod(f, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
@@ -241,3 +244,84 @@ async def test_sandboxed_runner_supports_subset(
     arts = runner.last_artifacts
     assert arts is not None
     assert arts.predictions.shape == (1, 28)
+
+
+# ---------------------------------------------------------------------------
+# B4.1 regression: skill_override_dir actually overrides the baked-in skill
+# ---------------------------------------------------------------------------
+
+
+# Override body for `ensemble.py`. Multiplies the single-input passthrough by
+# 2.0 — predictions stay finite and shape-compatible, but values diverge from
+# the baseline by a verifiable factor. If the bind-mount silently failed, the
+# image's identity ensemble would run instead and predictions would match.
+_OVERRIDE_ENSEMBLE_BODY = '''\
+"""
+---
+id: m5.baseline.v1.ensemble
+kind: python
+created_by: test-skill-override
+capability_tags:
+  - m5
+  - test-override
+retention:
+  stateless: true
+---
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+
+def ensemble(predictions_list: list[np.ndarray]) -> np.ndarray:
+    """Test override: scale the lone v1 prediction by 2.0."""
+    if not predictions_list:
+        raise ValueError("ensemble requires at least one prediction array")
+    return 2.0 * predictions_list[0].astype(np.float64, copy=True)
+'''
+
+
+async def test_skill_override_dir_actually_overrides_baked_in_skill(
+    m5_dir: Path,
+    sandbox: LocalDockerSandbox,
+    tmp_path: Path,
+):
+    """Bind-mounting a host dir over `/opt/ownevo/.../skill_v1/` must make
+    the orchestrator import the override instead of the image's v1 body.
+
+    Proof shape: run baseline, run with an override that scales final
+    predictions by 2.0, assert the override predictions are exactly 2x.
+    Anything else (equal arrays, untouched values) means the bind-mount
+    silently failed and we'd be back in the B4.1 gap state.
+    """
+    catalog = load_m5(m5_dir)
+    fold = make_held_out_fold(catalog)
+
+    baseline_runner = SandboxedM5BenchmarkRunner(
+        catalog_dir=m5_dir, fold=fold, sandbox=sandbox,
+    )
+    await baseline_runner.run()
+    baseline_arts = baseline_runner.last_artifacts
+    assert baseline_arts is not None
+
+    override_dir = tmp_path / "skill_override"
+    override_dir.mkdir()
+    materialize_skill_v1_dir(override_dir)
+    (override_dir / "ensemble.py").write_text(_OVERRIDE_ENSEMBLE_BODY, encoding="utf-8")
+    os.chmod(override_dir / "ensemble.py", 0o644)
+
+    override_runner = SandboxedM5BenchmarkRunner(
+        catalog_dir=m5_dir,
+        fold=fold,
+        sandbox=sandbox,
+        skill_override_dir=override_dir,
+    )
+    await override_runner.run()
+    override_arts = override_runner.last_artifacts
+    assert override_arts is not None
+
+    np.testing.assert_array_equal(
+        override_arts.predictions,
+        2.0 * baseline_arts.predictions,
+    )

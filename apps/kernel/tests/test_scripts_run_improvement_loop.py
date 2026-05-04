@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from ownevo_format import ToolCallResult, ToolCallStart
 
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +27,10 @@ if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
 from scripts.run_improvement_loop import (  # noqa: E402
+    _AgentProposal,
     _extract_latest_write_skill,
+    _materialize_skill_override,
+    UnknownProposedSkillError,
     parse_args,
 )
 
@@ -300,3 +305,50 @@ def test_parse_args_env_var_api_format(monkeypatch):
     args = parse_args([])
     assert args.api_format == "openai"
     assert "11434" in args.llm_base_url  # Ollama default when format=openai
+
+
+# ---------------------------------------------------------------------------
+# B4.1: _materialize_skill_override unit tests (no Docker required)
+# ---------------------------------------------------------------------------
+
+
+def _proposal(skill_id: str, content: str = "# body") -> _AgentProposal:
+    return _AgentProposal(
+        skill_id=skill_id,
+        content=content,
+        diff_summary=None,
+        version_id=uuid4(),
+        version_seq=2,
+    )
+
+
+def test_materialize_valid_skill_writes_override_and_init(tmp_path: Path) -> None:
+    _materialize_skill_override(tmp_path, _proposal("m5.baseline.v1.ensemble", content="# ok"))
+    assert (tmp_path / "ensemble.py").read_text(encoding="utf-8") == "# ok"
+    assert (tmp_path / "__init__.py").exists()
+
+
+def test_materialize_raises_for_unknown_skill(tmp_path: Path) -> None:
+    with pytest.raises(UnknownProposedSkillError):
+        _materialize_skill_override(tmp_path, _proposal("x.y.z.totally_new"))
+
+
+def test_materialize_raises_for_empty_skill_id(tmp_path: Path) -> None:
+    with pytest.raises(UnknownProposedSkillError):
+        _materialize_skill_override(tmp_path, _proposal(""))
+
+
+def test_materialize_raises_for_trailing_dot(tmp_path: Path) -> None:
+    with pytest.raises(UnknownProposedSkillError):
+        _materialize_skill_override(tmp_path, _proposal("m5.baseline.v1."))
+
+
+def test_materialize_raises_for_path_separator_in_skill_id(tmp_path: Path) -> None:
+    with pytest.raises(UnknownProposedSkillError, match="illegal path character"):
+        _materialize_skill_override(tmp_path, _proposal("m5.baseline.v1/ensemble"))
+
+
+def test_unknown_proposed_skill_error_is_value_error() -> None:
+    exc = UnknownProposedSkillError("bad skill")
+    assert isinstance(exc, ValueError)
+    assert "bad skill" in str(exc)
