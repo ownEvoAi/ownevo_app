@@ -283,21 +283,19 @@ tool call, enabling Claude Code to recover gracefully"*. The shim
 expects the client to catch the error, inject a synthetic
 "that tool call was malformed; retry" turn, and continue.
 
-Our runner currently propagates the `APIStatusError` as an unhandled
-exception (exit 1, not the regular agent_loop_failed exit 5). Two
-workarounds today:
+**Recovery is now implemented** in `run_agent_turn`
+(`apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py`):
+catches the `"Failed to generate a valid tool call"` substring,
+injects a synthetic `[assistant, user]` retry pair to keep message
+alternation valid, and continues the loop. The rejected turn costs
+one iteration toward `max_iterations` so recovery is automatically
+bounded. Anthropic streaming remains the default.
 
-- **Use LMS OpenAI endpoint instead** (`--api-format openai
-  --llm-base-url http://$OWNEVO_LLM_HOST:1234/v1`). More permissive —
-  passes through whatever the model emits, the client decides what
-  to do. Tradeoff: no `cache_read`, so per-turn cost is higher.
-- **Add Anthropic-error recovery to `run_agent_turn`** (~30 LOC): catch
-  `APIStatusError` of type `api_error` with the
-  `"Failed to generate a valid tool call"` message, emit a synthetic
-  `tool_call_result` (`error_class="ValidationError"`) so the trace
-  records the malformed turn, and continue the loop. Mirrors what
-  Claude Code does. Future PR; keeps Anthropic streaming as the
-  productive default.
+The LMS OpenAI endpoint (`--api-format openai
+--llm-base-url http://$OWNEVO_LLM_HOST:1234/v1`) is still a valid
+alternative — it passes through whatever the model emits without
+strict validation — but trades away `cache_read` tokens, raising
+per-turn cost.
 
 The qwen3-coder ↔ LMS tool-call mismatch is a known upstream issue:
 [lmstudio-bug-tracker #825](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/825)
