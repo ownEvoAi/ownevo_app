@@ -47,7 +47,7 @@ from ..types import (
 )
 
 
-class ApprovalStateError(ValueError):
+class ApprovalStateError(Exception):
     """Proposal exists but is not in a state that admits approve/reject.
 
     Raised when `proposals.state != 'gate-passed'`. Common causes:

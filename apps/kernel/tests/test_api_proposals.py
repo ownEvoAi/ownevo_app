@@ -389,3 +389,34 @@ async def test_reject_without_comment_no_eval_case(
     assert resp.status_code == 200
     body = resp.json()
     assert body["approval"]["became_eval_case_id"] is None
+
+
+async def test_reject_404_on_unknown(api_client: httpx.AsyncClient):
+    resp = await api_client.post(
+        f"/api/proposals/{uuid4()}/reject",
+        json={"decided_by": "human:jit"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_reject_409_on_wrong_state(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db, state=ProposalState.IN_GATE)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/reject",
+        json={"decided_by": "human:jit"},
+    )
+    assert resp.status_code == 409
+    assert "gate-passed" in resp.json()["detail"]
+
+
+async def test_reject_422_on_empty_decided_by(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/reject",
+        json={"decided_by": "   "},
+    )
+    assert resp.status_code == 422

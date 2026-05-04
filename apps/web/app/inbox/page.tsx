@@ -12,9 +12,14 @@ import { formatScore, relativeTime } from '@/lib/format'
 // chips + per-workflow tabs.
 
 export default async function InboxPage() {
-  let data
+  let pendingData, allData
   try {
-    data = await listProposals({ limit: 50 })
+    // Two parallel calls: one for the actionable queue (accurate count even
+    // when total proposals > 50), one for the history / total count.
+    ;[pendingData, allData] = await Promise.all([
+      listProposals({ state: 'gate-passed', limit: 200 }),
+      listProposals({ limit: 50 }),
+    ])
   } catch (err) {
     return (
       <div>
@@ -34,8 +39,8 @@ export default async function InboxPage() {
     )
   }
 
-  const pending = data.items.filter((p) => p.state === 'gate-passed')
-  const decided = data.items.filter(
+  const pending = pendingData.items
+  const decided = allData.items.filter(
     (p) => p.state !== 'gate-passed' && p.state !== 'in-gate',
   )
 
@@ -45,17 +50,17 @@ export default async function InboxPage() {
         <div>
           <h1 className="page-title">Inbox</h1>
           <p className="page-subtitle">
-            {pending.length} pending · {data.total} total · refreshed just now
+            {pendingData.total} pending · {allData.total} total · refreshed just now
           </p>
         </div>
       </header>
 
       <div className="filters">
         <button className="filter-chip active" type="button">
-          Pending<span className="count">{pending.length}</span>
+          Pending<span className="count">{pendingData.total}</span>
         </button>
         <button className="filter-chip" type="button">
-          All<span className="count">{data.total}</span>
+          All<span className="count">{allData.total}</span>
         </button>
       </div>
 

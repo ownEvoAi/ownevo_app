@@ -63,6 +63,7 @@ async def list_proposals(
     state: str | None = Query(
         default=None,
         description="Filter by proposal state (e.g., 'gate-passed').",
+        pattern=r"^(pending|in-gate|gate-failed|gate-passed|approved-awaiting-deploy|deployed|rejected|rolled-back)$",
     ),
     workflow_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
@@ -191,6 +192,7 @@ async def get_proposal(
         FROM audit_entries
         WHERE related_id = $1 OR related_id = $2
         ORDER BY seq ASC
+        LIMIT 500
         """,
         proposal_row["iter_id"],
         proposal_id,
@@ -331,10 +333,7 @@ async def _decide(
             detail=str(exc),
         ) from exc
 
-    new_state = await conn.fetchval(
-        "SELECT state::text FROM proposals WHERE id = $1",
-        proposal_id,
-    )
+    new_state = "approved-awaiting-deploy" if decision == "approve" else "rejected"
     return ApproveResponse(
         proposal_id=proposal_id,
         state=new_state,
