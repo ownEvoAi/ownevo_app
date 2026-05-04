@@ -253,6 +253,9 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
     ns = parser.parse_args(argv)
 
+    if ns.ollama_num_ctx is not None and ns.ollama_num_ctx <= 0:
+        parser.error(f"--ollama-num-ctx must be a positive integer; got {ns.ollama_num_ctx}")
+
     # Resolve base URL default per api_format when not explicitly supplied
     if ns.llm_base_url is not None:
         base_url = ns.llm_base_url
