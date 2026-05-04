@@ -300,6 +300,18 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
   - Total Phase-3 spend on Sonnet across all replays: ~$4.50.
 - **Local-model lift on real M5 remains open.** TODO-20 (qwen3-coder-30b retest with F6 mitigation prompt) — bug deterministic at 14/14 attempts. TODO-21 (devstral OOM bump) — OOM cleared at 1024MB but devstral codegen still doesn't produce a clean candidate. Gemma-4-26B-A4B retest — F4 read-loop stall (96% cache_read, 31 tok/turn).
 
+**M5 performance reference points (from the 2020 competition, for honest framing):**
+
+| Reference | WRMSSE | Source |
+|---|---|---|
+| M5 winning team | ~0.520 (22.4% better than top benchmark) | [M5 results paper](https://www.sciencedirect.com/science/article/pii/S0169207021001874) |
+| Top 50 cutoff | ~0.55–0.65 (>14% better than top benchmark) | M5 results paper |
+| Top benchmark (CRO / classical) | ~0.67 | M5 results paper |
+| Naive baseline (prev month + prev year) | **0.939** | participant report |
+| **Our static Phase-2 baseline** | **1.300** | `m5_baseline.py --sandbox` (3 features: lag_28 + dow + cat_id; 100 LightGBM rounds; default hyperparams) |
+
+**What this means honestly:** our static baseline (WRMSSE 1.30) is *below the naive baseline* — by design. The agent needs room to improve, so we deliberately use a minimal baseline. The lift the loop produces (val_score 0.331 → 0.399, +20.5% relative on our val_score metric) is measurable and reproducible, but is not competitive with the M5 leaderboard. **The claim is loop semantics (promote / reject / compound), not absolute M5 performance.** A future Stage D run with `--sandbox-mem-mb 1024` + cross-iteration failure memory (TODO-23) + a stronger starting baseline + more iterations is the path toward absolute-WRMSSE numbers a domain expert would call competitive — but that's not the YC-application bar; the loop itself is.
+
 This methodology compresses to ~1 hour for a fresh ~37-model probe sweep + ~5 hours of Phase 1 on the ~5 probe-passers, and informs which model to put through Phase 3 when budget is tight.
 
 #### Week 4 — First end-to-end M5 loop cycle (Track B)
