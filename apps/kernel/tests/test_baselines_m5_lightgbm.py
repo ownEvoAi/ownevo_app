@@ -155,7 +155,12 @@ def test_subset_scope_passes_through(m5_dir: Path):
 
 
 def test_outlier_handler_drops_zero_movement_series():
-    """Constant series get filtered so WRMSSE doesn't divide by zero."""
+    """Constant series get filtered so WRMSSE doesn't divide by zero.
+
+    Metadata + DOW arrays are filtered in lockstep — feature engineering
+    downstream relies on the kept-mask staying consistent across all
+    per-series fields.
+    """
     from baselines.m5_lightgbm.skill_v1 import outlier_handler
 
     raw = RawSeriesData(
@@ -168,7 +173,17 @@ def test_outlier_handler_drops_zero_movement_series():
         validation_actuals=np.zeros((3, 2)),
         test_actuals=np.zeros((3, 2)),
         dollar_volume=None,
+        metadata=[
+            {"cat_id": "FOODS"},
+            {"cat_id": "HOBBIES"},
+            {"cat_id": "HOUSEHOLD"},
+        ],
+        val_dow=np.array([0, 1]),
+        test_dow=np.array([2, 3]),
     )
     cleaned = outlier_handler.handle(raw)
     assert cleaned.series_ids == ["b"]
     assert cleaned.train_actuals.shape == (1, 4)
+    assert cleaned.metadata == [{"cat_id": "HOBBIES"}]
+    np.testing.assert_array_equal(cleaned.val_dow, raw.val_dow)
+    np.testing.assert_array_equal(cleaned.test_dow, raw.test_dow)

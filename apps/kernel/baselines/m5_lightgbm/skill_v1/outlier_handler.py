@@ -32,17 +32,22 @@ _CLIP_PERCENTILE = 99.0
 def handle(raw: RawSeriesData) -> RawSeriesData:
     """Clip per-series training spikes; drop zero-movement series.
 
-    The validation/test arrays are NOT modified — only training-time data
-    is cleaned. Held-out evaluation sees the raw actuals.
+    Validation and test arrays are NOT modified — only training-time
+    data is cleaned. Held-out evaluation sees the raw actuals. Metadata
+    + dollar_volume are filtered in lockstep so downstream
+    feature-engineering aligns with the kept rows.
     """
     if raw.train_actuals.size == 0:
         return raw
 
     keep_mask = np.std(raw.train_actuals, axis=1) > _MIN_TRAIN_STD
+    kept_indices = np.where(keep_mask)[0].tolist()
+
     train = raw.train_actuals[keep_mask]
     val = raw.validation_actuals[keep_mask]
     test = raw.test_actuals[keep_mask]
-    series_ids = [sid for sid, k in zip(raw.series_ids, keep_mask, strict=True) if k]
+    series_ids = [raw.series_ids[i] for i in kept_indices]
+    metadata = [raw.metadata[i] for i in kept_indices]
     dollar_volume = (
         raw.dollar_volume[keep_mask] if raw.dollar_volume is not None else None
     )
@@ -54,6 +59,9 @@ def handle(raw: RawSeriesData) -> RawSeriesData:
             validation_actuals=val,
             test_actuals=test,
             dollar_volume=dollar_volume,
+            metadata=metadata,
+            val_dow=raw.val_dow,
+            test_dow=raw.test_dow,
         )
 
     clip_caps = np.percentile(train, _CLIP_PERCENTILE, axis=1, keepdims=True)
@@ -65,4 +73,7 @@ def handle(raw: RawSeriesData) -> RawSeriesData:
         validation_actuals=val,
         test_actuals=test,
         dollar_volume=dollar_volume,
+        metadata=metadata,
+        val_dow=raw.val_dow,
+        test_dow=raw.test_dow,
     )

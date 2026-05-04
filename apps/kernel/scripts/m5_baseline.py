@@ -5,7 +5,7 @@ What this does
 1. Loads the M5 catalog (path from `--m5-dir` or `OWNEVO_M5_DIR`, default
    `./data/m5`).
 2. Builds the held-out fold per Phase 0 lock (28-day val + 28-day test).
-3. Runs the v1 seasonal-naive baseline pipeline through
+3. Runs the v1 LightGBM baseline pipeline through
    `M5BenchmarkRunner` and prints RMSE / WRMSSE / val_score.
 4. If `OWNEVO_DATABASE_URL` is set (and `--no-db` is not passed):
      * Idempotently upserts the `m5-demand-prediction` workflow row.
@@ -78,7 +78,7 @@ class CliArgs:
 def parse_args(argv: list[str]) -> CliArgs:
     parser = argparse.ArgumentParser(
         prog="m5_baseline",
-        description="Day-1 M5 seasonal-naive baseline (W2.6).",
+        description="Day-1 M5 LightGBM baseline (W2.6).",
     )
     parser.add_argument(
         "--m5-dir",
@@ -242,7 +242,7 @@ async def _ensure_workflow_row(conn, workflow_id: str) -> None:
         ON CONFLICT (id) DO NOTHING
         """,
         workflow_id,
-        "M5 demand prediction (Day-1 seasonal-naive baseline)",
+        "M5 demand prediction (Day-1 LightGBM baseline)",
     )
 
 

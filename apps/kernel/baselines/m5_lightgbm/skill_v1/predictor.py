@@ -26,20 +26,25 @@ def predict(
     features: FeatureMatrix,
     fold: M5Fold,
 ) -> np.ndarray:
-    """Forecast 28 days per series.
+    """Forecast 28 days per series with the fitted LightGBM booster.
 
-    Seasonal-naive v1 returns the last-N training cells as the forecast.
-    Shape: (n_series, len(fold.test)).
-
-    LightGBM v2 will replace this with recursive prediction using the
-    fitted booster from `model.params`.
+    The test frame is already in long format with one row per
+    (series, test_day); we predict, clip negatives to zero (sales are
+    non-negative — letting LightGBM emit small negatives skews WRMSSE),
+    and reshape back to (n_series, n_test_days). Series order is
+    preserved because `feature_engineer` builds the long frame in
+    series-major order.
     """
-    del model
-    horizon = len(fold.test)
-    template = features.features["last_n_train"]
-    if template.shape[1] != horizon:
+    test_df = features.test
+    test_X = test_df[model.feature_cols]
+    raw_preds = model.booster.predict(test_X)
+    clipped = np.clip(np.asarray(raw_preds, dtype=np.float64), 0.0, None)
+
+    n_test = len(fold.test)
+    n_series = len(features.series_ids)
+    if clipped.shape != (n_series * n_test,):
         raise ValueError(
-            "feature template column count does not match test horizon: "
-            f"template={template.shape[1]}, horizon={horizon}",
+            "predictor row count mismatch: "
+            f"booster returned {clipped.shape}, expected {(n_series * n_test,)}",
         )
-    return np.asarray(template, dtype=np.float64).copy()
+    return clipped.reshape((n_series, n_test))
