@@ -292,3 +292,11 @@ def test_parse_args_anthropic_explicit_url_not_overridden_by_format():
     args = parse_args(["--llm-base-url", "http://myproxy:4000"])
     assert args.llm_base_url == "http://myproxy:4000"
     assert args.api_format == "anthropic"
+
+
+def test_parse_args_env_var_api_format(monkeypatch):
+    """ENV_LLM_API_FORMAT env var should set the default api_format."""
+    monkeypatch.setenv("OWNEVO_LLM_API_FORMAT", "openai")
+    args = parse_args([])
+    assert args.api_format == "openai"
+    assert "11434" in args.llm_base_url  # Ollama default when format=openai

@@ -367,7 +367,7 @@ class StreamEventRouter:
         return obj if isinstance(obj, dict) else {}
 
 
-class OpenAIStreamAccumulator:
+class _OpenAIStreamAccumulator:
     """Accumulates OpenAI streaming chunks and emits AgentEvents.
 
     OpenAI streams tool calls as delta fragments across many chunks:
@@ -444,7 +444,10 @@ class OpenAIStreamAccumulator:
         # --- finish ---
         if choice.finish_reason:
             self._finish_reason = choice.finish_reason
-            if choice.finish_reason == "tool_calls":
+            # Finalize on "tool_calls" (standard) or on any finish when tool
+            # states are pending — some Ollama builds emit "stop" instead of
+            # "tool_calls" even when the response contains tool call deltas.
+            if self._tool_states:
                 self._finalize_tool_calls()
 
         self._maybe_record_usage(chunk)
@@ -461,7 +464,6 @@ class OpenAIStreamAccumulator:
             if not isinstance(input_obj, dict):
                 input_obj = {}
             state.tool_input_parsed = input_obj
-            assert state.span_id is not None
             self._collector.record(
                 self._collector.make_event(
                     type="tool_call_start",
@@ -564,7 +566,10 @@ class OpenAIStreamAccumulator:
                 "type": "function",
                 "function": {
                     "name": state.tool_name,
-                    "arguments": "".join(state.tool_input_json_chunks),
+                    # Use the validated+parsed dict serialized back to JSON so
+                    # that malformed raw fragments (caught in _finalize_tool_calls)
+                    # are not forwarded to the next turn as invalid JSON strings.
+                    "arguments": json.dumps(state.tool_input_parsed or {}),
                 },
             }
             for state in sorted(self._tool_states.values(), key=lambda s: s.index)
@@ -575,6 +580,5 @@ class OpenAIStreamAccumulator:
 __all__ = [
     "FinalizedBlock",
     "FinalizedToolCall",
-    "OpenAIStreamAccumulator",
     "StreamEventRouter",
 ]

@@ -25,12 +25,12 @@ those submodules in caller code; use this package's namespace.
 from .event_router import (
     FinalizedBlock,
     FinalizedToolCall,
-    OpenAIStreamAccumulator,
     StreamEventRouter,
 )
 from .runner import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_MAX_TOKENS_OPENAI,
     DEFAULT_MODEL,
     AgentTurnResult,
     AnthropicClientProtocol,
@@ -48,13 +48,13 @@ from .tool_definitions import (
 __all__ = [
     "DEFAULT_MAX_ITERATIONS",
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOKENS_OPENAI",
     "DEFAULT_MODEL",
     "AgentTurnResult",
     "AnthropicClientProtocol",
     "FinalizedBlock",
     "FinalizedToolCall",
     "KernelContext",
-    "OpenAIStreamAccumulator",
     "StreamEventRouter",
     "ToolDispatchResult",
     "dispatch_tool",

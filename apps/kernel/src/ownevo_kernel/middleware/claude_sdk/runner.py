@@ -54,8 +54,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
+from uuid import uuid4
 
-from .event_router import FinalizedBlock, FinalizedToolCall, OpenAIStreamAccumulator, StreamEventRouter
+from .event_router import FinalizedBlock, FinalizedToolCall, StreamEventRouter, _OpenAIStreamAccumulator
 from .tool_definitions import (
     KernelContext,
     ToolDispatchResult,
@@ -76,6 +77,13 @@ DEFAULT_MAX_TOKENS = 64000
 """Streaming-required default for Opus 4.7. The skill notes >16K
 needs streaming to avoid SDK HTTP timeouts; we always stream so the
 trace events surface live."""
+
+DEFAULT_MAX_TOKENS_OPENAI = 16384
+"""Per-turn output cap for OpenAI-compatible backends (Ollama, vLLM,
+LM Studio). 16K fits within a 32K-65K context window after several
+turns of accumulated history. Each agent turn is typically <4K tokens
+(tool call JSON + brief reasoning); 16K leaves headroom for extended
+chain-of-thought models (e.g. qwen3 thinking mode)."""
 
 DEFAULT_MAX_ITERATIONS = 25
 """Maximum number of model-turn → tool-dispatch cycles per run.
@@ -500,8 +508,6 @@ async def _run_turn_no_stream(
     only tool_call_start (at parse time) and tool_call_result (after
     dispatch, via the caller).
     """
-    from uuid import uuid4 as _uuid4
-
     message = await client.messages.create(**kwargs)  # type: ignore[attr-defined]
     blocks: list[FinalizedBlock] = []
     finished: list[FinalizedToolCall] = []
@@ -511,7 +517,7 @@ async def _run_turn_no_stream(
         if kind == "text":
             blocks.append(FinalizedBlock(kind="text", text=cb.text))
         elif kind == "tool_use":
-            span_id = _uuid4()
+            span_id = uuid4()
             input_obj = cb.input if isinstance(cb.input, dict) else {}
             blocks.append(
                 FinalizedBlock(
@@ -555,7 +561,7 @@ async def run_agent_turn_openai(
     kernel_context: KernelContext,
     collector: TraceCollector,
     model: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int = DEFAULT_MAX_TOKENS_OPENAI,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     short_circuit_on_sandbox_error: bool = True,
 ) -> AgentTurnResult:
@@ -598,7 +604,7 @@ async def run_agent_turn_openai(
 
     for _ in range(max_iterations):
         iterations += 1
-        acc = OpenAIStreamAccumulator(collector=collector, model=model)
+        acc = _OpenAIStreamAccumulator(collector=collector, model=model)
 
         stream = await client.chat.completions.create(
             model=model,
@@ -701,6 +707,7 @@ __all__ = [
     "AnthropicClientProtocol",
     "DEFAULT_MAX_ITERATIONS",
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOKENS_OPENAI",
     "DEFAULT_MODEL",
     "run_agent_turn",
     "run_agent_turn_openai",

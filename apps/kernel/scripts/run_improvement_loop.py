@@ -347,6 +347,12 @@ async def main_async(args: CliArgs) -> int:
             f"api_format={args.api_format}{_stream_flag} "
             f"max_iterations={args.max_iterations}",
         )
+        if args.no_stream and args.api_format == "openai":
+            print(
+                "warning: --no-stream has no effect with --api-format=openai "
+                "(the OpenAI path always streams via /v1/chat/completions)",
+                file=sys.stderr,
+            )
 
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
             if args.api_format == "openai":
