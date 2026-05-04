@@ -17,6 +17,92 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-04
+
+### Added
+- **Phase 3 closed on real M5 — compound lift achieved.** Three
+  multi-iter Sonnet 4.6 replays against the held-out 28-day fold of the
+  M5 Forecasting Accuracy benchmark (30,490 series):
+  - **v10** — first agent-driven gate-pass: agent rewrote
+    `feature_engineer.py` v1 (3 features: `lag_28` + DOW + `cat_id`) →
+    v2 (7 features: + `lag_7`, `rolling_mean_28`, `is_weekend`,
+    `dept_id_code`). `val_score=0.395143` vs static baseline `0.331`
+    = **+19% relative lift**. **B4.2 ✅.**
+  - **v12** — first gate-blocked regression: same workflow + DB; agent
+    retry scored 0.385126; gate held best_ever at 0.3951 with
+    `gate-blocked-no-improvement`. **B4.3 ✅.**
+  - **Stage B** (post PR #33 caching) — 7-iter replay; gate held
+    best_ever=0.3958 across 6 consecutive non-pass iterations
+    (1× gate-blocked + 5× sandbox-error from a `pd.Timestamp("d_1858")`
+    DateParseError pattern that hit 5 independent Sonnet runs — **F9**).
+    No false promotions. $1.84 total.
+  - **Stage C** (post PR #35 F9 prompt fix) — 7-iter replay; **first
+    compound 2-step lift on real M5**: iter 0 `0.3859` → iter 2 `0.3988`
+    (+20.5% vs static baseline; +3.4% relative on top of iter 0). Iter 1,
+    3, 5 correctly gate-blocked, iter 4+6 sandbox-error. 2 gate-passes,
+    5 correct rejections, 0 false promotions. $1.86 total.
+- `apps/kernel/scripts/run_improvement_loop.py` — Anthropic prompt
+  caching auto-enabled for `api.anthropic.com` (PR #33). Adds
+  `cache_control: {"type": "ephemeral"}` to system prompt + last tool
+  definition. Cross-iteration cache hits confirmed in Stage B + C
+  (cache_read 33K-71K tokens per iter; reads survive the ~2.5min
+  inter-run gap within Anthropic's 5-min cache TTL). Captured as **F10**.
+- `apps/kernel/scripts/run_improvement_loop.py` — `--sandbox-mem-mb` CLI
+  flag (PR #35), default 512 MB. Bumps the M5 sandbox tmpfs+memory
+  limit; needed when the agent's diff allocates more than the default
+  (devstral on real M5 OOM'd at 512 MB; Stage C iters 4 + 6 also
+  OOM'd at default).
+- `apps/kernel/scripts/m5_agent_prompt.md` — F9 mitigation prompt fix
+  (PR #35): notes that `fold.validation` / `fold.test` are M5 day-ID
+  strings (`"d_1858"`), not calendar dates, with helper formula
+  `_M5_ORIGIN + Timedelta(days=int(d[2:]) - 1)` where `_M5_ORIGIN =
+  pd.Timestamp("2011-01-29")`. Empirically validated by Stage C iter 0
+  successfully integrating `month` feature without DateParseError.
+- `apps/kernel/scripts/m5_agent_prompt.md` — F6 mitigation paragraph
+  (PR #33) warning the agent about the deterministic `_long_frame`
+  length-mismatch bug (1-D `dow` indexed as 2-D). Tested empirically
+  in TODO-20 retest — **did NOT prevent the bug** on qwen3-coder-30b
+  (14/14 attempts hit the same failure). Mitigation route closed;
+  cross-iter failure memory (TODO-23) is the architectural fix.
+- `docs/local-model-testing.md` — **F7** Anthropic-cloud benchmark
+  (Sonnet 4.6 first gate-PASS on real M5; Haiku 4.5 hits same F6 bug
+  as qwen3-coder-30b — bug is task-shape-specific, not model-class).
+  **F8** LMS local prompt-caching empirical (~20% speedup, not
+  Anthropic-cloud-equivalent). **F9** Sonnet's repeated month-feature
+  bug across 5 independent iterations (Stage B). **F10** Anthropic
+  prompt caching cross-iteration validation (Stage B + C). **F11**
+  First compound lift on real M5 (Stage C). **F12** Cross-iteration
+  failure memory is the binding constraint — pattern across Stage B,
+  Stage C, TODO-20, and TODO-21 v2 confirms each new iteration
+  re-explores known-bad directions because there is no mechanism for
+  prior-failure context to reach subsequent agent turns. (PR #36 + the
+  `e80c539` docs commit.)
+- `TODOS.md` — **TODO-20** (F6 mitigation retest), **TODO-21** (devstral
+  OOM headroom), **TODO-22** (F9 mitigation), and **TODO-23** (graduated
+  from TODO-22 (b): cross-iter failure memory via `analyze_failures`
+  surfacing recent sandbox-error rationale strings — P1 substrate fix).
+  TODO-19 status appends Stage C + TODO-20/21/22 closures.
+- `docs/PLAN.md` — Phase-3 status block lists v10/v12/Stage B/Stage C
+  with cumulative ~$4.50 Sonnet spend. M5 performance reference points
+  (M5 winner ~0.520 WRMSSE, naive 0.939, our static baseline 1.300)
+  with honest "where we stand" framing — the lift is loop semantics,
+  not absolute M5 ranking.
+
+### Changed
+- Phase 3 status updated across `BL3_MODEL_SMOKE_TODO.md` (untracked
+  session log), `TODOS.md`, `docs/PLAN.md`, `docs/local-model-testing.md`,
+  and the YC docs (`yc/yc-application-draft.md`,
+  `yc/m5-lift-proof-details.md`) to reflect compound-lift evidence and
+  honest framing against the M5 leaderboard reference points.
+
+## [0.1.1] — 2026-05-04
+
+Substrate-hardening pass between BL.1-3 (0.1.0) and Phase-3 closure
+(0.2.0): probes, structured `write_skill` tool, Postel's-law parser
+fallbacks, F1-F6 documented, B4.1 (sandbox skill override) shipped.
+PRs: #21, #23, #24, #25, #27, #28, #29, #30, #31, #32 + the
+`19f526e` and `e80c539` docs commits.
+
 ### Added
 - `apps/kernel/scripts/probe_tool_calling.py` + `probe_skill_quality.py`
   (PR #29) — Phase-0 pre-flight probes for the local-model evaluation
