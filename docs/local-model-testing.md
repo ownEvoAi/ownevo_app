@@ -195,7 +195,7 @@ turn, essentially mechanical tool-calling with no reasoning trace.
 capability gap, but the gap doesn't close at 14B or 32B either —
 size alone is not the issue. See F5.
 
-### F5 — qwen3-coder-30b is the only LMS-Anthropic model that reliably drives the loop (10 runs, 1 PASS)
+### F5 — qwen3-coder-30b is the only LMS-Anthropic model that reliably drives the loop (12 runs, 1 PASS)
 
 After 10 LMS-Anthropic-streaming runs spanning 8B → 32B, the only
 PASS is `qwen/qwen3-coder-30b` (val_score 0.4642 on synthetic, 19
@@ -233,6 +233,92 @@ agentic recovery — produces the "drive the loop end-to-end" stack.
   consistent. Future sweeps should jump straight to 27B+ class with
   fine-tunes that target tool-use (qwen3-coder, devstral coder
   variants, future qwen3.6-coder when released).
+
+### F6 — qwen3-coder-30b's feature_engineer fail is deterministic; LMS strict-validation needs runtime workarounds
+
+**Two new synthetic-fixture runs (post #21/#23/#24) on the same model and
+substrate, same kickoff, both gate-failed with the same conceptual bug:**
+
+| Endpoint | iter | tool_calls | tool_errors | input | cache_read | output | Outcome |
+|---|---|---|---|---|---|---|---|
+| LMS Anthropic streaming | 8 | 7 | 1 | 89,800 | 73,220 (82%) | 9,484 | gate-failed (sandbox-error) |
+| LMS OpenAI compat | 10 | 9 | 3 | 118,615 | 0 | 11,354 | gate-failed (sandbox-error) |
+
+Both runs proposed a `feature_engineer.py` rewrite that indexes the
+1-D `dow` array as 2-D — `IndexError: too many indices for array`.
+Different rewrite paths (line 193 vs 243) but **the same conceptual
+misunderstanding** about array shape. This is reproducible model
+behavior, not run-to-run noise. **Score didn't move** (B4.1 + F2
+working as designed: gate refused to bless `0.99513` as a new "best
+ever" because the proposal crashed).
+
+**Two operational findings on top:**
+
+#### F6a — LMS per-model context cap is separate from `OLLAMA_CONTEXT_LENGTH`
+
+A first attempt at this run hit
+`anthropic.APIStatusError: 'Model reloaded.'` mid-stream around
+iteration 25. Root cause: LMS's per-model **JIT-load context** was at
+the default (12k for this model). Conversation grew past 12k, LMS
+silently evicted and reloaded the model, the streaming connection
+broke. Bumping the JIT context to 64k in the LMS UI fixed it on the
+retry. **Pre-load explicitly** before long runs:
+
+```bash
+lms unload --all
+lms load qwen/qwen3-coder-30b --context-length 65536
+```
+
+This is orthogonal to the Ollama `--ollama-num-ctx` issue (F1) — LMS
+has its own per-model cap that defaults low and isn't exposed via
+the API request.
+
+#### F6b — LMS `/v1/messages` strict validation is by-design, not a bug
+
+The "adapter rejection" failure mode in F5 (and also a transient mid-run
+`APIStatusError: Failed to generate a valid tool call` we hit) is
+**intentional** per the LMS changelog: *"the Anthropic-compatible
+`/v1/messages` API surfaces errors when the model generates an invalid
+tool call, enabling Claude Code to recover gracefully"*. The shim
+expects the client to catch the error, inject a synthetic
+"that tool call was malformed; retry" turn, and continue.
+
+**Recovery is now implemented** in `run_agent_turn`
+(`apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py`):
+catches the `"Failed to generate a valid tool call"` substring,
+injects a synthetic `[assistant, user]` retry pair to keep message
+alternation valid, and continues the loop. The rejected turn costs
+one iteration toward `max_iterations` so recovery is automatically
+bounded. Anthropic streaming remains the default.
+
+The LMS OpenAI endpoint (`--api-format openai
+--llm-base-url http://$OWNEVO_LLM_HOST:1234/v1`) is still a valid
+alternative — it passes through whatever the model emits without
+strict validation — but trades away `cache_read` tokens, raising
+per-turn cost.
+
+The qwen3-coder ↔ LMS tool-call mismatch is a known upstream issue:
+[lmstudio-bug-tracker #825](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/825)
+(non-OpenAI-compatible custom format),
+[#1071](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1071)
+(streaming XML tags),
+[#827](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/827)
+(parser confused by `<think>` blocks). Fixes ship piecemeal upstream;
+adapter rejection will keep happening on subsets of runs until they
+all land.
+
+#### Implication for Phase 3
+
+The model can drive the loop end-to-end on the M5 task, but the
+proposal it converges on is buggy in a deterministic way. **Phase 3
+on this model alone won't produce lift** until either:
+- the kickoff message includes shape-contract hints for skills the
+  model is likely to rewrite (e.g., "feature_engineer's `dow` is
+  shape `(n_train_days,)`, broadcast series-major"), OR
+- the model is given >1 attempt + an error-trace round-trip in the
+  same conversation (which #21 already enables — but the model needs
+  to actually pivot rather than trying the same approach twice in a
+  row).
 
 ---
 

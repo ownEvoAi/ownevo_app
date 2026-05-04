@@ -23,6 +23,7 @@ against the real API lives behind an env-var gate elsewhere (see
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -121,10 +122,15 @@ class _ScriptedTurn:
     is what `get_final_message()` returns. Tests build a list of these
     and feed them to `_FakeClient` in the order the runner will see
     them.
+
+    `raise_error` overrides both: if set, the stream raises this
+    exception on the first `__anext__` call (used to test the
+    LMS-Anthropic strict-validation recovery path).
     """
 
     events: list[SimpleNamespace]
     final_message: SimpleNamespace
+    raise_error: BaseException | None = None
 
 
 class _FakeStream:
@@ -143,6 +149,8 @@ class _FakeStream:
         return self
 
     async def __anext__(self) -> SimpleNamespace:
+        if self._turn.raise_error is not None:
+            raise self._turn.raise_error
         try:
             assert self._iter is not None
             return next(self._iter)  # type: ignore[arg-type]
@@ -160,7 +168,10 @@ class _FakeMessagesAPI:
         self.calls: list[dict[str, Any]] = []
 
     def stream(self, **kwargs: Any) -> _FakeStream:
-        self.calls.append(kwargs)
+        # Deep-copy the kwargs (specifically the `messages` list, which
+        # the runner mutates between turns) so each captured entry
+        # reflects the state at call time, not the final state.
+        self.calls.append(copy.deepcopy(kwargs))
         if self._index >= len(self._turns):
             raise AssertionError(
                 f"Fake client exhausted: runner asked for turn "
@@ -173,7 +184,7 @@ class _FakeMessagesAPI:
     async def create(self, **kwargs: Any) -> Any:
         """Non-streaming path — returns the scripted turn's final_message
         as a complete Message (content list on the message, not a stream)."""
-        self.calls.append(kwargs)
+        self.calls.append(copy.deepcopy(kwargs))
         if self._index >= len(self._turns):
             raise AssertionError(
                 f"Fake client exhausted: runner asked for turn "
@@ -976,6 +987,137 @@ class TestRunAgentTurn:
         assert len(results_evs) == 2
         oom_ev = next(e for e in results_evs if e.error_class == "OOM")
         assert oom_ev.status == "error"
+
+    async def test_lms_validation_error_recovers_with_synthetic_retry(
+        self, patch_dispatch: SimpleNamespace,
+    ) -> None:
+        """LMS Anthropic strict-validation rejection mid-stream is caught
+        and surfaced as a synthetic [assistant, user] retry pair on the
+        next turn (see docs/local-model-testing.md F6b)."""
+        # The runner detects this exception class by substring match on
+        # str(exc). Any exception type works as long as the message
+        # matches — we don't have to import anthropic.
+        validation_error = RuntimeError(
+            "{'type': 'error', 'error': {'type': 'api_error', "
+            "'message': 'Failed to generate a valid tool call.'}}"
+        )
+        patch_dispatch.canned.append(
+            ToolDispatchResult(
+                output={"found": True, "skill_id": "x"},
+                is_error=False, error_class=None, duration_ms=1,
+            )
+        )
+        client = _FakeClient(
+            [
+                # Turn 1: streaming raises mid-iteration with the LMS
+                # validation rejection. final_message irrelevant since
+                # the runner never reaches get_final_message.
+                _ScriptedTurn(
+                    events=[],
+                    final_message=_final_message(),
+                    raise_error=validation_error,
+                ),
+                # Turn 2: the model recovers, calls a tool, and ends.
+                _ScriptedTurn(
+                    events=[
+                        _block_start_tool_use(
+                            0, tool_id="toolu_recover", name="read_skill",
+                        ),
+                        _delta_tool_json(0, '{"skill_id":"x"}'),
+                        _block_stop(0),
+                    ],
+                    final_message=_final_message(stop_reason="tool_use"),
+                ),
+                _ScriptedTurn(
+                    events=[
+                        _block_start_text(0),
+                        _delta_text(0, "Recovered."),
+                        _block_stop(0),
+                    ],
+                    final_message=_final_message(stop_reason="end_turn"),
+                ),
+            ]
+        )
+        result = await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="...",
+            user_message="kickoff",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+        )
+        # Loop completed normally; recovery doesn't poison the result.
+        assert result.stop_reason == "end_turn"
+        assert result.iterations == 3  # turn 1 (rejected) + turn 2 + turn 3
+        assert result.tool_call_count == 1
+        assert result.final_text == "Recovered."
+
+        # Recovery turn injected a synthetic [assistant, user] pair so
+        # message alternation stays valid for the next request.
+        second_request = client.messages.calls[1]
+        msgs = second_request["messages"]
+        # original user kickoff + synthetic assistant placeholder + synthetic user retry
+        assert len(msgs) == 3
+        assert msgs[0]["role"] == "user"
+        assert msgs[1]["role"] == "assistant"
+        assert "rejected" in msgs[1]["content"][0]["text"].lower()
+        assert msgs[2]["role"] == "user"
+        assert "malformed" in msgs[2]["content"].lower()
+        assert "retry" in msgs[2]["content"].lower()
+
+    async def test_non_validation_exception_propagates(self) -> None:
+        """Errors that don't match the validation-recovery substring
+        propagate without being caught, so genuine bugs aren't swallowed."""
+        client = _FakeClient(
+            [
+                _ScriptedTurn(
+                    events=[],
+                    final_message=_final_message(),
+                    raise_error=RuntimeError("connection refused"),
+                ),
+            ]
+        )
+        with pytest.raises(RuntimeError, match="connection refused"):
+            await run_agent_turn(
+                client,  # type: ignore[arg-type]
+                system="...",
+                user_message="kickoff",
+                kernel_context=_kernel_ctx(),
+                collector=_new_collector(),
+            )
+
+    async def test_repeated_validation_errors_bounded_by_max_iterations(
+        self,
+    ) -> None:
+        """If the model keeps producing malformed output, recovery costs
+        an iteration each time and the run terminates at max_iterations
+        instead of looping forever."""
+        validation_error = RuntimeError(
+            "Failed to generate a valid tool call."
+        )
+        client = _FakeClient(
+            [
+                _ScriptedTurn(
+                    events=[],
+                    final_message=_final_message(),
+                    raise_error=validation_error,
+                )
+                for _ in range(5)
+            ]
+        )
+        result = await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="...",
+            user_message="kickoff",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            max_iterations=3,
+        )
+        assert result.stop_reason == "max_iterations"
+        assert result.iterations == 3
+        assert result.tool_call_count == 0
+        # Each rejected turn appended an [assistant, user] pair, so the
+        # final messages list grew accordingly.
+        assert len(client.messages.calls) == 3
 
 
 # ---------------------------------------------------------------------------
