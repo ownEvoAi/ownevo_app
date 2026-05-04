@@ -126,17 +126,22 @@ def _validate_extra_volumes(
             raise ValueError(
                 f"extra_volumes host path must be absolute; got {host_path!r}"
             )
-        if not host.exists():
+        if not host.is_dir():
             raise ValueError(
-                f"extra_volumes host path does not exist: {host_path}"
+                f"extra_volumes host path must be an existing directory: {host_path}"
             )
         if not container_path.startswith("/"):
             raise ValueError(
                 f"extra_volumes container path must be absolute; got {container_path!r}"
             )
-        if container_path == "/sandbox" or container_path.startswith("/sandbox/"):
+        if (
+            container_path == "/sandbox"
+            or container_path.startswith("/sandbox/")
+            or container_path == "/tmp"
+            or container_path.startswith("/tmp/")
+        ):
             raise ValueError(
-                f"extra_volumes cannot mount under /sandbox (reserved); "
+                f"extra_volumes cannot mount under /sandbox or /tmp (reserved); "
                 f"got {container_path!r}"
             )
         if container_path in seen:
@@ -237,14 +242,17 @@ class LocalDockerSandbox:
                     stdout_b, stderr_b = b"", b""
             except asyncio.CancelledError:
                 # Outer task was cancelled (e.g. run_pipeline's per-task
-                # timeout fired). Kill the container before propagating so
-                # it doesn't keep running until its own timeout expires.
+                # timeout fired). Kill and remove the container before
+                # propagating — stopped containers accumulate without --rm
+                # and drain Docker's metadata storage over repeated runs.
                 await self._kill_container(container_name)
                 with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                     await asyncio.wait_for(
                         proc.communicate(),
                         timeout=_KILL_GRACE_SECONDS,
                     )
+                with contextlib.suppress(Exception):
+                    await self._remove_container(container_name)
                 raise
 
             duration_ms = int((time.monotonic() - start) * 1000)

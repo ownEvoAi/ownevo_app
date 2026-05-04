@@ -86,7 +86,8 @@ ENV PYTHONPATH=/opt/ownevo/apps/kernel
 ENV OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
-    PYTHONHASHSEED=0
+    PYTHONHASHSEED=0 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Sandbox provides the entry command (python /sandbox/runner.py) at
 # runtime. No CMD/ENTRYPOINT here — keeps the image a passive runtime,

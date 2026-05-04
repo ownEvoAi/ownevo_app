@@ -312,19 +312,29 @@ def test_extra_volumes_validation_no_docker(tmp_path):
     with pytest.raises(ValueError, match="must be absolute"):
         _validate_extra_volumes({"relative/path": "/data"})
 
-    # Missing host path
-    with pytest.raises(ValueError, match="does not exist"):
+    # Non-existent or non-directory host path
+    with pytest.raises(ValueError, match="must be an existing directory"):
         _validate_extra_volumes({"/this/does/not/exist/anywhere": "/data"})
 
     # Relative container path
     with pytest.raises(ValueError, match="container path must be absolute"):
         _validate_extra_volumes({str(tmp_path): "relative"})
 
-    # /sandbox collision (reserved for runner.py + user_code.py)
-    with pytest.raises(ValueError, match="cannot mount under /sandbox"):
+    # /sandbox and /tmp collisions (reserved paths)
+    with pytest.raises(ValueError, match="cannot mount under /sandbox or /tmp"):
         _validate_extra_volumes({str(tmp_path): "/sandbox"})
-    with pytest.raises(ValueError, match="cannot mount under /sandbox"):
+    with pytest.raises(ValueError, match="cannot mount under /sandbox or /tmp"):
         _validate_extra_volumes({str(tmp_path): "/sandbox/data"})
+    with pytest.raises(ValueError, match="cannot mount under /sandbox or /tmp"):
+        _validate_extra_volumes({str(tmp_path): "/tmp"})
+    with pytest.raises(ValueError, match="cannot mount under /sandbox or /tmp"):
+        _validate_extra_volumes({str(tmp_path): "/tmp/subdir"})
+
+    # Host path must be a directory (not a file)
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("x")
+    with pytest.raises(ValueError, match="must be an existing directory"):
+        _validate_extra_volumes({str(file_path): "/data"})
 
     # Duplicate container path
     other = tmp_path / "other"
