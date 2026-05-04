@@ -1301,6 +1301,53 @@ class TestRunAgentTurnOpenAI:
         assert msgs[0] == {"role": "system", "content": "You are a test agent."}
         assert msgs[1] == {"role": "user", "content": "hi"}
 
+    async def test_ollama_num_ctx_forwards_extra_body(self) -> None:
+        """`ollama_num_ctx` must reach the backend as
+        ``extra_body={"options": {"num_ctx": N}}`` so Ollama's /v1
+        endpoint actually uses the requested context — AsyncOpenAI
+        doesn't pass `options.num_ctx` natively."""
+        chunks = [_oai_chunk(text="ok"), _oai_chunk(finish_reason="stop")]
+        client = _FakeOpenAIClient([chunks])
+        await run_agent_turn_openai(
+            client,
+            system="...",
+            user_message="hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="llama3",
+            ollama_num_ctx=65536,
+        )
+        call_kwargs = client._completions.calls[0]
+        assert call_kwargs["extra_body"] == {"options": {"num_ctx": 65536}}
+
+    async def test_ollama_num_ctx_omitted_by_default(self) -> None:
+        """When unset, do NOT add `extra_body` — keeps payloads clean
+        for backends that don't recognise the field (LMS, vLLM)."""
+        chunks = [_oai_chunk(text="ok"), _oai_chunk(finish_reason="stop")]
+        client = _FakeOpenAIClient([chunks])
+        await run_agent_turn_openai(
+            client,
+            system="...",
+            user_message="hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="llama3",
+        )
+        call_kwargs = client._completions.calls[0]
+        assert "extra_body" not in call_kwargs
+
+    async def test_ollama_num_ctx_rejects_non_positive(self) -> None:
+        with pytest.raises(ValueError, match="ollama_num_ctx"):
+            await run_agent_turn_openai(
+                _FakeOpenAIClient([]),
+                system="...",
+                user_message="hi",
+                kernel_context=_kernel_ctx(),
+                collector=_new_collector(),
+                model="llama3",
+                ollama_num_ctx=0,
+            )
+
     async def test_tool_use_two_turns(
         self, patch_dispatch: SimpleNamespace,
     ) -> None:

@@ -156,6 +156,7 @@ class CliArgs:
     seed_first: bool
     api_format: str  # "anthropic" | "openai"
     no_stream: bool  # only meaningful when api_format="anthropic"
+    ollama_num_ctx: int | None  # only meaningful when api_format="openai" (Ollama)
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -236,7 +237,24 @@ def parse_args(argv: list[str]) -> CliArgs:
             "when you've already run `make seed-m5-baseline`."
         ),
     )
+    parser.add_argument(
+        "--ollama-num-ctx",
+        type=int,
+        default=None,
+        help=(
+            "Per-request context length forwarded to the backend as "
+            "`extra_body={'options': {'num_ctx': N}}`. Required for Ollama "
+            "via /v1 because AsyncOpenAI doesn't pass `options.num_ctx` "
+            "natively, and Ollama's /v1 default is smaller than the "
+            "daemon-level OLLAMA_CONTEXT_LENGTH. Recommended: 65536. "
+            "Only meaningful with --api-format=openai; non-Ollama backends "
+            "(LMS, vLLM) ignore the field."
+        ),
+    )
     ns = parser.parse_args(argv)
+
+    if ns.ollama_num_ctx is not None and ns.ollama_num_ctx <= 0:
+        parser.error(f"--ollama-num-ctx must be a positive integer; got {ns.ollama_num_ctx}")
 
     # Resolve base URL default per api_format when not explicitly supplied
     if ns.llm_base_url is not None:
@@ -259,6 +277,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         seed_first=not ns.no_seed,
         api_format=ns.api_format,
         no_stream=ns.no_stream,
+        ollama_num_ctx=ns.ollama_num_ctx,
     )
 
 
@@ -368,6 +387,7 @@ async def main_async(args: CliArgs) -> int:
                     collector=collector,
                     model=args.llm_model,
                     max_iterations=args.max_iterations,
+                    ollama_num_ctx=args.ollama_num_ctx,
                 )
             else:
                 agent_result = await run_agent_turn(
