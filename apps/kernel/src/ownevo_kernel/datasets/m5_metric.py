@@ -157,6 +157,11 @@ def compute_wrmsse_weights_and_scales(
     training); caller must filter before passing to `wrmsse`.
     """
     train = np.asarray(train_actuals, dtype=np.float64)
+    if train.ndim == 2 and train.shape[0] == 0:
+        raise ValueError(
+            "No series remain — all were filtered before compute_wrmsse_weights_and_scales. "
+            "Check that outlier_handler is not dropping every series.",
+        )
     if train.ndim != 2 or train.shape[1] < 2:
         raise ValueError(
             f"train_actuals must be 2D with >=2 days; got shape {train.shape}",
