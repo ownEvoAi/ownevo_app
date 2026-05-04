@@ -50,7 +50,7 @@ ENV_LLM_API_KEY = "OWNEVO_LLM_API_KEY"
 ENV_LLM_API_FORMAT = "OWNEVO_LLM_API_FORMAT"
 ENV_LLM_HOST = "OWNEVO_LLM_HOST"
 
-_DEFAULT_LLM_HOST = "192.168.1.50"
+_DEFAULT_LLM_HOST = "localhost"
 
 # Default skill we ask the model to rewrite. Lives in this repo so the
 # probe is self-contained — no DB or workflow setup required.

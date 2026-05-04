@@ -18,7 +18,8 @@ URL resolution mirrors the loop runner:
   --llm-base-url               explicit override
   $OWNEVO_LLM_BASE_URL         per-call override
   $OWNEVO_LLM_HOST + format    host:1234 (lms) / host:11434/v1 (ollama)
-  default host:                192.168.1.50
+  default host:                localhost  (set $OWNEVO_LLM_HOST for a
+                               remote desktop / LAN box)
 
 Exit codes:
   0  pass — model emitted a tool_calls response
@@ -50,7 +51,7 @@ ENV_LLM_API_KEY = "OWNEVO_LLM_API_KEY"
 ENV_LLM_API_FORMAT = "OWNEVO_LLM_API_FORMAT"
 ENV_LLM_HOST = "OWNEVO_LLM_HOST"
 
-_DEFAULT_LLM_HOST = "192.168.1.50"
+_DEFAULT_LLM_HOST = "localhost"
 
 
 def _resolve_base_url(api_format: str, explicit: str | None) -> str:
