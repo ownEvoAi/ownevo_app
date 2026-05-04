@@ -276,6 +276,26 @@ The hardest phase to get right and the part most exposed to "demo cheats won't w
 
 **What bootstrap mode does and doesn't do:** gate always passes on the first run (no prior eval suite, no best-ever to beat). From the second run onward, `best_ever_score` is DB-authoritative and the gate enforces improvement. Regressions on specific tasks are NOT caught until B3.3 seeds `prior_eval_task_ids`. This is exactly auto-harness behavior before `suite.json` is populated.
 
+#### Pre-W3 (cont.) — Local-model sweep methodology (BL.3+ dogfood track)
+
+**Why:** BL.3 wires to `AsyncAnthropic` against any compatible endpoint. Running the loop end-to-end against local models (LM Studio Anthropic-compat / Ollama OpenAI-compat) lets us dogfood, control cost during the substrate-quality phase, and avoid single-vendor risk before customer #1. Source of truth: **[`docs/local-model-testing.md`](local-model-testing.md)** (methodology + findings + candidate model lists).
+
+**Four-tier funnel** — sequential, only one model active at a time (VRAM constraint):
+
+| Tier | What | Cost / model | Pass criterion |
+|---|---|---|---|
+| **Phase 0 — pre-flight probes** (added 2026-05-04) | `apps/kernel/scripts/probe_tool_calling.py` (single-turn `read_skill` call check) + `probe_skill_quality.py` (file-rewrite + AST parse + em-dash/smart-quote detection). Triages the ~37 untested candidates without paying for Postgres + Docker + sandbox image. | ~30s + ~60s | Both probes exit 0. |
+| **Phase 1 — synthetic-fixture compatibility scan** | Full `run_improvement_loop.py` against the synthetic M5 fixture (`/tmp/m5_synth_smoke/` — 5 series × 100 days). Catches multi-turn read-loop stalls (F4 in the testing guide — 8B models pass probes but never commit to `write_skill`). | ~2-15 min | ≥1 `iterations` row written + `val_score` recorded + no adapter-side rejection. |
+| **Phase 2 — single full-real-M5 baseline** | Model-irrelevant; baseline is fixed code. Run once, produces the real-M5 baseline `val_score` Phase 3 lifts against. | ~33s wall | val_score recorded. **DONE 2026-05-04: `val_score = 0.330988` (RMSE 2.57142, WRMSSE 1.300426, n_series 30490, 28 test days).** |
+| **Phase 3 — full improvement loop, top 1-2 models, real M5** | The load-bearing claim. Iterations cap 50, hard timeout 2h. Per-iter sandbox uses Phase-2 resource bumps (tmpfs 4GB, mem 16GB, timeout 1800s). | ~2-4 hours | Any iteration's `val_score < 0.330988`. |
+
+**Status (2026-05-04):**
+- Phase 0 / 1 sweep across 14 models surfaced F1-F5 (full text in `docs/local-model-testing.md`). qwen3-coder-30b on LMS Anthropic streaming is the only end-to-end driver across 10 candidates 8B-32B. ~37 candidates still untested.
+- Phase 2 baseline locked: `val_score = 0.330988`.
+- Phase 3 v1-v3 burned iteration budget on `SkillFormatError` variants (PR #26-#28 fixed; PR #30 eliminated the format surface entirely via structured `write_skill` tool args). v5 was the first run where `write_skill` succeeded on the structured surface; LMS server-side rejected a later tool call (`anthropic.APIStatusError: Failed to generate a valid tool call`) before the gate could run. Mid-debug.
+
+This methodology compresses to ~1 hour for a fresh ~37-model probe sweep + ~5 hours of Phase 1 on the ~5 probe-passers, and informs which model to put through Phase 3 when budget is tight.
+
 #### Week 4 — First end-to-end M5 loop cycle (Track B)
 
 | # | Deliverable | Files / location | Validation |

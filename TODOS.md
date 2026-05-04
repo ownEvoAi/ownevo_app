@@ -137,6 +137,22 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P3.
 - **Depends on:** none.
 
+### TODO-19: Local-model sweep — finish Phase 3 lift on real M5
+
+- **What:** Drive the BL.3+ improvement loop to a measured `val_score < 0.330988` (Phase-2 real-M5 baseline) on at least one local-model + backend combination. Ship the iteration row, agent diff, and lift number as the headline "loop produces real lift on real data" claim.
+- **Why:** Validates the full substrate (sandbox + skill registry + agent loop + gate) with a non-Anthropic-API LLM. Cost-control during W2-W4 substrate quality, single-vendor risk reduction, and a credibility signal independent of frontier-API capability.
+- **Methodology:** four-tier funnel — Phase 0 probes (`probe_tool_calling`, `probe_skill_quality`) → Phase 1 synthetic-fixture full-loop scan → Phase 2 real-M5 baseline (DONE) → Phase 3 full loop on real M5. See `docs/PLAN.md` §"Pre-W3 (cont.) — Local-model sweep methodology" + `docs/local-model-testing.md` (canonical methodology + findings).
+- **Status (2026-05-04):**
+  - ✅ Phase 0 probes shipped (PR #29).
+  - ✅ Phase 1 ran across 14 candidates; F5 conclusion: qwen3-coder-30b on LMS Anthropic streaming is the only end-to-end driver. ~37 candidates still untested by probes.
+  - ✅ Phase 2 baseline locked: `val_score = 0.330988`.
+  - ⚠️ Phase 3 v1-v3 burned iteration budget on `SkillFormatError` variants → fixed in PR #26-#28 (parser leniency) + PR #30 (structured-tool refactor — agent never serializes YAML).
+  - ⚠️ Phase 3 v5: `write_skill` succeeded on structured surface (`version_seq=2` registered, no SkillFormatError). LMS server-side rejected a later tool call (`anthropic.APIStatusError: Failed to generate a valid tool call`) before the gate could run. Mid-debug — likely a JSON-Schema strictness mismatch in the new `write_skill` schema (esp. nested `retention` object).
+- **Next moves:** (a) inspect content_delta tail to identify which tool call LMS rejected, (b) try a different backend (direct Anthropic Claude) as a sanity check, (c) once one backend reaches gate, probe-sweep the remaining ~37 candidates for redundancy.
+- **Effort:** S-M (CC ~half day to debug crash + run; ~1 hour for the probe-sweep follow-up).
+- **Priority:** P1 — directly feeds B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
+- **Depends on:** none — substrate is in place.
+
 ---
 
 ## Feature roadmap (Phase 2 / post-MVP)
