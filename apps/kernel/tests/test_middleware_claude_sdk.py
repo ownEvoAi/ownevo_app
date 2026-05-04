@@ -479,6 +479,76 @@ def patch_dispatch(monkeypatch: pytest.MonkeyPatch):
     return SimpleNamespace(canned=canned, seen=seen)
 
 
+class TestRunAgentTurnPromptCaching:
+    """Per F8 in docs/local-model-testing.md, Anthropic cloud responds to
+    cache_control markers with ~80% multi-iter cost savings. The runner
+    exposes `enable_prompt_caching` to opt into this on a per-call basis.
+    Default off so existing tests' string-`system` assertions don't change."""
+
+    async def test_caching_off_by_default_sends_string_system(self) -> None:
+        client = _FakeClient(
+            [
+                _ScriptedTurn(
+                    events=[
+                        _block_start_text(0),
+                        _delta_text(0, "ok"),
+                        _block_stop(0),
+                    ],
+                    final_message=_final_message(stop_reason="end_turn"),
+                ),
+            ]
+        )
+        await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="You are a test agent.",
+            user_message="Say hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+        )
+        assert len(client.messages.calls) == 1
+        kw = client.messages.calls[0]
+        assert kw["system"] == "You are a test agent."
+        # Tools should be plain dicts; no cache_control on the last tool.
+        assert all("cache_control" not in t for t in kw["tools"])
+
+    async def test_caching_on_wraps_system_and_marks_last_tool(self) -> None:
+        client = _FakeClient(
+            [
+                _ScriptedTurn(
+                    events=[
+                        _block_start_text(0),
+                        _delta_text(0, "ok"),
+                        _block_stop(0),
+                    ],
+                    final_message=_final_message(stop_reason="end_turn"),
+                ),
+            ]
+        )
+        await run_agent_turn(
+            client,  # type: ignore[arg-type]
+            system="You are a test agent.",
+            user_message="Say hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            enable_prompt_caching=True,
+        )
+        kw = client.messages.calls[0]
+        # System wrapped as list-with-cache_control text block.
+        assert kw["system"] == [
+            {
+                "type": "text",
+                "text": "You are a test agent.",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        # Cache_control on the LAST tool only (Anthropic caches everything
+        # from the start of `tools` up to the marked block; no need for
+        # per-tool markers and they'd waste breakpoint slots).
+        assert kw["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+        for t in kw["tools"][:-1]:
+            assert "cache_control" not in t
+
+
 class TestRunAgentTurn:
     async def test_no_tool_calls_terminates_in_one_turn(self) -> None:
         client = _FakeClient(

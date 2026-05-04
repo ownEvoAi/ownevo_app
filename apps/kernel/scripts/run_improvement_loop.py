@@ -401,6 +401,15 @@ async def main_async(args: CliArgs) -> int:
                     ollama_num_ctx=args.ollama_num_ctx,
                 )
             else:
+                # Enable Anthropic prompt caching only when talking to the
+                # real cloud API. LMS Anthropic shim caches automatically
+                # without cache_control markers (per F8 in
+                # docs/local-model-testing.md), and adding markers there is
+                # wasted bytes (and may not be honored by their compat
+                # layer). cloud Anthropic is where the savings are real:
+                # cache_read tokens cost ~10% of cache_creation, with
+                # 5-minute TTL — multi-iteration cost drops ~80%.
+                _is_cloud_anthropic = "api.anthropic.com" in args.llm_base_url
                 agent_result = await run_agent_turn(
                     client,
                     system=system_prompt,
@@ -410,6 +419,7 @@ async def main_async(args: CliArgs) -> int:
                     model=args.llm_model,
                     max_iterations=args.max_iterations,
                     no_stream=args.no_stream,
+                    enable_prompt_caching=_is_cloud_anthropic,
                 )
             collector.set_token_usage(dict(agent_result.token_usage))
 
