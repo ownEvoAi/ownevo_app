@@ -18,6 +18,28 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/baselines/labour_v1/skill.py` +
+  `apps/kernel/src/ownevo_kernel/benchmark/labour.py` +
+  `apps/kernel/tests/test_substrate_non_m5.py` — Phase 1 substrate
+  proof on a non-M5 workflow (W2.7). A hand-written shift-validator
+  skill (rule-based: weekly-hours cap and required-skill check, drawn
+  from the Labour management failure-mode taxonomy in
+  `ownEvo_MVP_mocks.md`) is registered through `register_skill`,
+  scored by `LabourBenchmarkRunner` over three hand-authored
+  `LabourCase`s inside `LocalDockerSandbox` running `python:3.11-slim`,
+  and driven through `persist_gate_run`. Three matching `eval_cases`
+  rows are persisted alongside (provenance=hand-authored) but are
+  write-only on this iteration — `prior_eval_task_ids=()` on
+  bootstrap, so the gate's regression step is skipped; the eval→gate
+  seam where stored cases drive a subsequent iteration is W3+ work.
+  The smoke test asserts gate `PASS` with `val_score=1.0`, three
+  `promotable_task_ids`, iteration in `gate-pass`, proposal in
+  `gate-passed`, and the two `gate-run-started` / `gate-run-completed`
+  audit entries linked to the iteration. Confirms the substrate is
+  domain-agnostic end-to-end on iteration 1 — same primitives that
+  drive M5 drive an unrelated workflow without modification, and a
+  stdlib-only skill needs no domain-specific Dockerfile to clear the
+  gate. Phase 1 exit gate.
 - `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/` — Claude
   Agent SDK middleware (W2.1 follow-on). Three pieces:
   `tool_definitions.py` exposes the 5 kernel tools (`read_skill`,
