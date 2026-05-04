@@ -94,12 +94,13 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — required for unattended M5 replay.
 - **Depends on:** LLM-judge stub operational (W5.2).
 
-### TODO-7: Reproducibility CI cache strategy (W3)
+### TODO-7: Reproducibility CI cache strategy (W3) — partial (b only)
 
 - **What:** Document and implement: (a) cached LLM responses replayed from a fixture file, (b) pre-built sandbox Docker image cached, (c) M5 data pre-loaded into a Postgres volume, (d) cached LightGBM training artifacts keyed by skill-version-hash.
 - **Why:** Replaying 30 days in <30 min requires all four cache layers. Without them, CI hits live APIs and misses the budget by 10x.
+- **Status (2026-05-03):** **Layer (b) shipped in PR #11d** — `.github/workflows/m5-replay-nightly.yml` builds `ownevo-sandbox-m5:0.1.0` via Buildx with `cache-from / cache-to: type=gha,scope=m5-sandbox`; cache hit skips apt + pip layers. (a) (c) (d) deferred — (a) wires when the agent loop hits LLMs (W4), (c) wires when real M5 data lands on disk, (d) is premature (synthetic-fixture LightGBM trains in seconds, the cache cost would exceed the savings).
 - **Effort:** M (human ~2-3 days / CC ~half day).
-- **Priority:** P1 — blocks reproducibility CI being green.
+- **Priority:** P1 — blocks reproducibility CI being green at full 30-day replay scale (current scope: synthetic fixture only).
 - **Depends on:** M5 pipeline operational (W2).
 
 ### TODO-8: Parallel τ³/M5 conditions strategy (W6/W8)
