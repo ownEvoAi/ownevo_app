@@ -1,9 +1,17 @@
 """LabourBenchmarkRunner — non-M5 substrate proof (W2.7).
 
 A second `BenchmarkRunner` implementation that exercises the same
-substrate primitives (skill registry → sandbox → eval cases → gate →
-audit) on a workflow distinct from M5. Confirms the kernel is
-domain-agnostic before Phase 2 starts.
+substrate primitives (skill registry → sandbox → gate → audit) on a
+workflow distinct from M5. Confirms the kernel is domain-agnostic
+before Phase 2 starts.
+
+The accompanying smoke test also writes hand-authored eval_cases to
+the DB alongside the iteration-1 gate run, but those rows are not
+consumed by the gate in this proof — `prior_eval_task_ids=()` on
+bootstrap, so the gate's regression-step skip means eval_cases are
+write-only here. The eval→gate seam (where stored eval_cases drive a
+subsequent regression check) is W3+ work; W2.7 proves only that the
+eval_cases CRUD path participates in the same composed flow.
 
 Domain shape
 ------------
@@ -30,7 +38,7 @@ non-M5 scoring shape.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..sandbox import LocalDockerSandbox
@@ -77,9 +85,10 @@ class LabourBenchmarkRunner:
         skill_content: The skill body (with frontmatter docstring) the
             sandbox should execute. Caller registers via
             `register_skill` before constructing the runner.
-        sandbox: A `LocalDockerSandbox`. Reuses the M5 image — the skill
-            is stdlib-only so any image with Python 3 works; M5 image is
-            already built by `make sandbox-image-m5`.
+        sandbox: A `LocalDockerSandbox`. The skill is stdlib-only, so
+            any Python 3 image works — `python:3.11-slim` (the sandbox's
+            DEFAULT_IMAGE) is sufficient. No domain-specific Dockerfile
+            required, which is part of the substrate-genericity proof.
         timeout_seconds / memory_mb: Per-call resource limits passed
             through to `run_pipeline`. Defaults are generous for a
             stdlib workload.
@@ -90,7 +99,6 @@ class LabourBenchmarkRunner:
     sandbox: LocalDockerSandbox
     timeout_seconds: float = 30.0
     memory_mb: int = 256
-    last_outputs: dict[str, Any] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if len({c.task_id for c in self.cases}) != len(self.cases):
@@ -136,21 +144,31 @@ class LabourBenchmarkRunner:
 
         outputs = result.outputs
         if outputs is None:
-            tail = (result.raw_stdout or "").rstrip().splitlines()[-1:] or ["<empty>"]
+            raw_stdout = result.raw_stdout or ""
+            tail = (
+                raw_stdout.rstrip().splitlines()[-1] if raw_stdout.strip() else "<empty>"
+            )
             raise LabourBenchmarkError(
                 "Sandboxed labour skill did not emit a JSON object on the last "
-                f"stdout line. Last line: {tail[0][:500]!r}",
+                f"stdout line. Last line: {tail[:500]!r}",
             )
-        self.last_outputs = outputs
 
         decisions = _index_decisions(outputs)
         rewards: dict[str, float | None] = {}
         for case in cases:
             decision = decisions.get(case.task_id)
             if decision is None:
-                # Skill silently dropped this task — score as 0.0 (skill
-                # crashed for this case), not None (which would poison the
-                # whole gate run via the SANDBOX_ERROR short-circuit).
+                # Skill produced a result for the run but not for this
+                # specific case (task_id absent from `results`). Score 0.0
+                # rather than None — None would poison the whole gate run
+                # via the SANDBOX_ERROR short-circuit (D3), and a skill
+                # that returned for some cases isn't a sandbox error.
+                # NOTE: the bundled w2.7 skill uses a fail-fast list
+                # comprehension, so any malformed case raises and the run
+                # surfaces as `not result.ok` above; this 0.0-drop branch
+                # is reachable only by a skill that defensively try/excepts
+                # per case (a pattern future agent-authored skills may
+                # adopt).
                 rewards[case.task_id] = 0.0
                 continue
             rewards[case.task_id] = 1.0 if decision == case.expected else 0.0
@@ -173,10 +191,16 @@ class LabourBenchmarkRunner:
 def _index_decisions(outputs: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Pull `{task_id: decision}` out of the skill's `{"results": [...]}`.
 
-    Tolerates malformed entries: rows missing `task_id` or `decision`
-    are dropped (the runner scores those cases as 0.0 above). Entirely
-    missing `results` raises — that's a wire-contract failure, not a
-    per-task miss.
+    Trust boundary: this helper trusts the skill's task_ids — it does
+    not validate them against the runner's case set. A skill that emits
+    a row with a `task_id` not in `cases` has its decision indexed but
+    never read (the runner only looks up `case.task_id` keys). A skill
+    that emits the wrong number of rows produces silent 0.0 scores for
+    the missing cases (see `LabourBenchmarkRunner.run`'s 0.0-drop
+    branch). Tolerates malformed entries: rows missing `task_id` or
+    `decision`, or with non-string/non-dict types, are dropped silently.
+    Entirely missing `results` raises — that's a wire-contract failure,
+    not a per-task miss.
     """
     rows = outputs.get("results")
     if not isinstance(rows, list):

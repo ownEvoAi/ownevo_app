@@ -1,26 +1,31 @@
 """End-to-end substrate proof on a non-M5 workflow (W2.7).
 
 PLAN.md § 2.7 — "Substrate proves itself on a non-M5 task. Hand-written
-sim + 3 eval cases + a hand-written skill that solves them. Run through
-the full pipeline (skill → sandbox → eval → gate → audit). Smoke test
-passes end-to-end. Confirms substrate is domain-agnostic before Phase 2
-starts."
+sim + 3 eval cases + a hand-written skill that solves them." This test
+drives the iteration-1 (bootstrap) substrate composition end-to-end on
+a workflow distinct from M5; the iteration-2+ regression loop where
+eval_cases drive `prior_eval_task_ids` is W3+ work and not in scope here.
 
 What this test exercises
 ------------------------
 A workflow distinct from M5 (`labour-shift-validation`) is driven through
-every primitive the gate run touches:
+every primitive the iteration-1 gate run touches:
 
-    register_skill   →  skills + skill_versions rows written
-    add_eval_case    →  eval_cases rows written (provenance=hand-authored)
-    LabourBench →
-      run_pipeline   →  LocalDockerSandbox executes the registered skill
-      score          →  per-case 1.0/0.0
-    persist_gate_run →  iterations + proposals + audit_entries (× 2)
+    register_skill          →  skills + skill_versions rows written
+    LabourBenchmarkRunner →
+      run_pipeline          →  LocalDockerSandbox executes the skill
+      score                 →  per-case 1.0/0.0
+    persist_gate_run        →  iterations + proposals + audit_entries (× 2)
+
+Alongside (write-only on bootstrap; consumed by the gate on W3+
+iterations):
+
+    add_eval_case           →  eval_cases rows written (provenance=hand-authored)
 
 A green test means the substrate is workflow-agnostic at the wiring
 level — the same primitives that drive M5 also drive an unrelated
-domain. This is the Phase 1 exit gate; Phase 2 cannot start without it.
+domain on iteration 1. This is the Phase 1 exit gate; Phase 2 cannot
+start without it.
 
 Skipped when DB or Docker is unavailable. The skill is stdlib-only, so
 the test uses the sandbox's default `python:3.11-slim` image — no
@@ -141,11 +146,13 @@ _CASES: tuple[LabourCase, ...] = (
 
 
 async def _seed_workflow(conn: asyncpg.Connection) -> None:
+    # Plain INSERT (no ON CONFLICT) — the `db` fixture provisions a fresh
+    # database per test, so a stale workflow row would itself be a bug
+    # signal worth surfacing as a UniqueViolationError rather than masking.
     await conn.execute(
         """
         INSERT INTO workflows (id, description, spec)
         VALUES ($1, $2, '{"benchmark": "labour-shift-validation"}'::jsonb)
-        ON CONFLICT (id) DO NOTHING
         """,
         _WORKFLOW_ID,
         "Labour management — shift assignment validator (W2.7 substrate proof)",
@@ -170,9 +177,14 @@ async def test_substrate_proves_itself_on_non_m5_workflow(db: asyncpg.Connection
     assert reg.version_seq == 1
 
     # 2. Eval cases — three hand-authored, mapped to the documented
-    # Labour failure modes. provenance=hand-authored matches the seam
-    # the gate's W3 cluster→eval-case lift will use later (different
-    # provenance, same shape).
+    # Labour failure modes. Persisted alongside the iteration-1 gate run
+    # but write-only on bootstrap: `prior_eval_task_ids=()` below means
+    # the gate's regression step is skipped, so the eval_cases rows
+    # don't drive scoring here. The eval→gate seam where these rows
+    # become `prior_eval_task_ids` for iteration 2+ is W3+ work.
+    # provenance=hand-authored matches the seam the gate's W3
+    # cluster→eval-case lift will use later (different provenance,
+    # same shape).
     for case in _CASES:
         await add_eval_case(
             db,
