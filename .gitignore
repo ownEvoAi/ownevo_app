@@ -55,3 +55,4 @@ data/
 *.sqlite3
 .temp
 data/m5/
+temp/
