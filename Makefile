@@ -5,7 +5,8 @@
 # of the logic stays Python-side and testable.
 
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
-        api web-dev web-build seed-approval-demo
+        api web-dev web-build seed-approval-demo \
+        seed-m5-baseline m5-bootstrap-loop
 
 help:
 	@printf 'targets:\n'
@@ -19,11 +20,16 @@ help:
 	@printf '  web-dev             run the Next.js dev server on :3000 (W2.5)\n'
 	@printf '  web-build           production build of the Next.js app (W2.5)\n'
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
+	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
+	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
 	@printf '  OWNEVO_M5_SANDBOX      set to 1 to run baseline through LocalDockerSandbox\n'
 	@printf '  OWNEVO_KERNEL_API_URL  override the kernel URL the web app talks to\n'
+	@printf '  OWNEVO_LLM_BASE_URL    Anthropic-compat LLM base URL (default LM Studio)\n'
+	@printf '  OWNEVO_LLM_MODEL       LLM model id (default qwen/qwen3-coder-30b)\n'
+	@printf '  OWNEVO_LLM_API_KEY     LLM API key (ignored by local backends)\n'
 
 test:
 	uv run pytest
@@ -78,3 +84,17 @@ web-build:
 
 seed-approval-demo:
 	uv run --package ownevo-kernel python apps/kernel/scripts/seed_approval_demo.py
+
+# ----------------------------------------------------------------------------
+# Bootstrap improvement loop (BL.1 + BL.3 — pre-W3, PLAN.md v3.8)
+# ----------------------------------------------------------------------------
+
+# `LOOP_ARGS=...` passes flags through to scripts/run_improvement_loop.py.
+# Common: `--llm-model`, `--llm-base-url`, `--max-iterations`, `--no-seed`.
+LOOP_ARGS ?=
+
+seed-m5-baseline:
+	cd apps/kernel && uv run python scripts/seed_m5_baseline.py
+
+m5-bootstrap-loop:
+	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)

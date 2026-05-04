@@ -20,71 +20,26 @@ fresh `[Unreleased]` block above it.
 ## [0.1.0] — 2026-05-04
 
 ### Added
-- `apps/kernel/src/ownevo_kernel/approvals/` +
-  `apps/kernel/src/ownevo_kernel/api/` +
-  `apps/web/` — W2.5 approval queue scaffold. **Approval service**
-  (`approve_proposal` + `reject_proposal`) drives the
-  `gate-passed → approved-awaiting-deploy` and
-  `gate-passed → rejected` transitions locked in
-  `docs/STATE_MACHINES.md`: row-locks the proposal, validates state,
-  inserts `approvals`, advances `proposals.state`, appends an audit
-  entry; on reject + non-empty comment also seeds an eval_case
-  (`provenance=rejected-feedback`) and links it via
-  `approvals.became_eval_case_id`. **REST API** (FastAPI under new
-  `api` extra: `fastapi`, `uvicorn[standard]`, `httpx`) exposes
-  `GET /api/proposals` (state + workflow filter, total count), `GET
-  /api/proposals/:id` (joined detail with iteration, workflow, audit
-  chain, approval, parent skill version for diff), `POST
-  /api/proposals/:id/approve`, `POST /api/proposals/:id/reject`, and
-  `GET /api/health`. CORS allows `http://localhost:3000` by default
-  for the Next.js dev server. Errors map cleanly: 404 on missing
-  proposal, 409 on illegal state (`ApprovalStateError`), 422 on
-  validation. **Web app** (Next.js 15, App Router, TypeScript,
-  Server Components for reads + Server Actions for mutations) ships
-  two routes: `/inbox` (proposal queue with pending vs decided
-  groupings + state pills) and `/proposals/[id]` (header, line-level
-  skill diff via in-process LCS, gate-result sidebar, expected-impact
-  grid, reviewer panel with Approve/Reject + comment textarea, audit
-  chain). CSS lifted verbatim from `www/preview/s26-rk7p3/`
-  (`shell.css` + `primitives.css` + dark-mode toggle). Make targets:
-  `make api`, `make web-dev`, `make web-build`, `make
-  seed-approval-demo`. The seed script writes one workflow + skill +
-  iteration + `gate-passed` proposal mirroring the
-  `07-proposal-detail.html` mock so the manual click-through has
-  realistic copy. Tests: 13 DB-backed integration tests on the
-  approval service (`test_approvals.py`) covering every transition,
-  state-validation, comment-to-eval-case linkage, and double-decide
-  protection; 15 in-process FastAPI tests
-  (`test_api_proposals.py` via `httpx.ASGITransport`) covering
-  endpoints + status codes + filter combinations. Manual E2E
-  verified end-to-end: seed → list → approve → state advances to
-  `approved-awaiting-deploy` → audit entry written; second approve →
-  409 with helpful detail. Out of scope until W4-W5: SSE streaming,
-  audit chain page, multi-workflow nav, authentication, Playwright
-  smoke (single CI sandbox-test job lands once more sandbox-backed
-  tests need it).
-- `apps/kernel/baselines/labour_v1/skill.py` +
-  `apps/kernel/src/ownevo_kernel/benchmark/labour.py` +
-  `apps/kernel/tests/test_substrate_non_m5.py` — Phase 1 substrate
-  proof on a non-M5 workflow (W2.7). A hand-written shift-validator
-  skill (rule-based: weekly-hours cap and required-skill check, drawn
-  from the Labour management failure-mode taxonomy in
-  `ownEvo_MVP_mocks.md`) is registered through `register_skill`,
-  scored by `LabourBenchmarkRunner` over three hand-authored
-  `LabourCase`s inside `LocalDockerSandbox` running `python:3.11-slim`,
-  and driven through `persist_gate_run`. Three matching `eval_cases`
-  rows are persisted alongside (provenance=hand-authored) but are
-  write-only on this iteration — `prior_eval_task_ids=()` on
-  bootstrap, so the gate's regression step is skipped; the eval→gate
-  seam where stored cases drive a subsequent iteration is W3+ work.
-  The smoke test asserts gate `PASS` with `val_score=1.0`, three
-  `promotable_task_ids`, iteration in `gate-pass`, proposal in
-  `gate-passed`, and the two `gate-run-started` / `gate-run-completed`
-  audit entries linked to the iteration. Confirms the substrate is
-  domain-agnostic end-to-end on iteration 1 — same primitives that
-  drive M5 drive an unrelated workflow without modification, and a
-  stdlib-only skill needs no domain-specific Dockerfile to clear the
-  gate. Phase 1 exit gate.
+- `apps/kernel/scripts/seed_m5_baseline.py` (BL.1) +
+  `apps/kernel/scripts/m5_agent_prompt.md` (BL.2) +
+  `apps/kernel/scripts/run_improvement_loop.py` (BL.3) — pre-W3
+  bootstrap improvement loop. `seed_m5_baseline.py` idempotently
+  registers the 6 v1 LightGBM skill files + the `m5-demand-prediction`
+  workflow row without writing an iterations row (so the first gate run
+  uses `best_ever_score=None`). `m5_agent_prompt.md` is the agent's
+  system prompt (6-file split, 5 kernel tools, one-change-per-iteration
+  discipline). `run_improvement_loop.py` wires `AsyncAnthropic` +
+  `KernelContext` + `run_agent_turn` + `persist_gate_run(SandboxedM5BenchmarkRunner)`;
+  defaults to LM Studio's `/v1/messages` adapter at
+  `http://192.168.1.50:1234` (env-overridable). After the agent turn,
+  scans trace events for the latest successful `write_skill` and gates
+  it. Bootstrap-mode: first run trivially passes; run 2+ enforces
+  DB-authoritative `MAX(best_ever_score_after)`. Known W4 gap (B4.1):
+  the sandbox runs baked-in baseline files, not the agent's proposed
+  code, so `val_score` reflects the baseline until B4.1 adds
+  disk-overlay materialization. `make seed-m5-baseline` / `make
+  m5-bootstrap-loop`. Unit tests for `_extract_latest_write_skill` (6
+  cases) + DB-backed integration tests for `seed_baseline` (3 cases).
 - `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/` — Claude
   Agent SDK middleware (W2.1 follow-on). Three pieces:
   `tool_definitions.py` exposes the 5 kernel tools (`read_skill`,
