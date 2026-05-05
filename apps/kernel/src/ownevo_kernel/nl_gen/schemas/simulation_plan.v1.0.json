@@ -39,7 +39,7 @@
   "description": "Plan for a deterministic, seedable simulator.\n\nRound-trip identity is the contract: a plan written by the generator\nmust JSON-serialize, store as JSONB, and round-trip back to an\nidentical Python object \u2014 same as `WorkflowSpec`.\n\nThe plan does not carry the full WorkflowSpec; it carries `workflow_spec_id`\nas a back-pointer. The generator and renderer both take the WorkflowSpec\nseparately so we don't risk drift between two stored copies.",
   "properties": {
     "description": {
-      "description": "One-line plain-English summary of what this simulator produces. Surfaces in the audit trail and the W7 UI.",
+      "description": "One-line plain-English summary of what this simulator produces. Surfaces in the audit trail and the W7 UI. Must not contain newlines (they would escape the rendered comment).",
       "minLength": 1,
       "title": "Description",
       "type": "string"

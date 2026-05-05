@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 from ownevo_format import AgentEventAdapter
+from ownevo_format.agent_event import SCHEMA_VERSION
 from ownevo_format.ui_primitives import UIPrimitive
 from pydantic import TypeAdapter
 
@@ -72,7 +73,7 @@ def test_agent_event_schema_matches_frozen_snapshot():
     _assert_matches(
         "AgentEventAdapter.json_schema()",
         AgentEventAdapter.json_schema(),
-        _SCHEMAS_DIR / "agent_event.v1.0.json",
+        _SCHEMAS_DIR / f"agent_event.v{SCHEMA_VERSION}.json",
     )
 
 
@@ -80,5 +81,5 @@ def test_ui_primitive_schema_matches_frozen_snapshot():
     _assert_matches(
         "TypeAdapter(UIPrimitive).json_schema()",
         TypeAdapter(UIPrimitive).json_schema(),
-        _SCHEMAS_DIR / "ui_primitives.v1.0.json",
+        _SCHEMAS_DIR / f"ui_primitives.v{SCHEMA_VERSION}.json",
     )

@@ -28,12 +28,8 @@ from pathlib import Path
 
 import pytest
 from ownevo_kernel.nl_gen import SimulationPlan, WorkflowSpec
-from ownevo_kernel.nl_gen.sim_plan import (
-    SCHEMA_VERSION as SIM_PLAN_SCHEMA_VERSION,
-)
-from ownevo_kernel.nl_gen.spec import (
-    SCHEMA_VERSION as WORKFLOW_SPEC_SCHEMA_VERSION,
-)
+from ownevo_kernel.nl_gen.sim_plan import SCHEMA_VERSION as SIM_PLAN_SCHEMA_VERSION
+from ownevo_kernel.nl_gen.spec import SCHEMA_VERSION as WORKFLOW_SPEC_SCHEMA_VERSION
 
 _SCHEMAS_DIR = (
     Path(__file__).resolve().parent.parent
@@ -100,12 +96,12 @@ def _assert_matches_snapshot(model_cls, snapshot_path: Path) -> None:
 
 
 def test_workflow_spec_schema_matches_frozen_snapshot():
-    _assert_matches_snapshot(WorkflowSpec, _SCHEMAS_DIR / "workflow_spec.v1.0.json")
+    _assert_matches_snapshot(WorkflowSpec, _SCHEMAS_DIR / f"workflow_spec.v{WORKFLOW_SPEC_SCHEMA_VERSION}.json")
 
 
 def test_simulation_plan_schema_matches_frozen_snapshot():
     _assert_matches_snapshot(
-        SimulationPlan, _SCHEMAS_DIR / "simulation_plan.v1.0.json"
+        SimulationPlan, _SCHEMAS_DIR / f"simulation_plan.v{SIM_PLAN_SCHEMA_VERSION}.json"
     )
 
 
@@ -120,6 +116,7 @@ def test_all_workflow_spec_fixtures_pin_v1_0():
     snapshot tests will silently encode old shape into the audit trail."""
     from ownevo_kernel.nl_gen.fixtures import FIXTURES
 
+    assert len(FIXTURES) >= 3, f"Expected ≥3 WorkflowSpec fixtures, got {len(FIXTURES)}"
     for fixture_id, spec in FIXTURES.items():
         assert spec.schema_version == "1.0", (
             f"fixture {fixture_id!r} schema_version is {spec.schema_version!r}, "
@@ -130,6 +127,7 @@ def test_all_workflow_spec_fixtures_pin_v1_0():
 def test_all_sim_plan_fixtures_pin_v1_0():
     from ownevo_kernel.nl_gen.fixtures import SIM_PLAN_FIXTURES
 
+    assert len(SIM_PLAN_FIXTURES) >= 3, f"Expected ≥3 SimulationPlan fixtures, got {len(SIM_PLAN_FIXTURES)}"
     for fixture_id, plan in SIM_PLAN_FIXTURES.items():
         assert plan.schema_version == "1.0", (
             f"sim plan fixture {fixture_id!r} schema_version is "

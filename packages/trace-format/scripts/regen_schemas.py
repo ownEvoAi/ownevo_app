@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from ownevo_format import AgentEventAdapter
+from ownevo_format.agent_event import SCHEMA_VERSION
 from ownevo_format.ui_primitives import UIPrimitive
 from pydantic import TypeAdapter
 
@@ -36,10 +37,10 @@ def _write(path: Path, schema: dict) -> None:
 
 def main() -> int:
     _SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Writing snapshots to {_SCHEMAS_DIR}/ …")
-    _write(_SCHEMAS_DIR / "agent_event.v1.0.json", AgentEventAdapter.json_schema())
+    print(f"Writing snapshots to {_SCHEMAS_DIR.relative_to(_SCHEMAS_DIR.parent)}/ …")
+    _write(_SCHEMAS_DIR / f"agent_event.v{SCHEMA_VERSION}.json", AgentEventAdapter.json_schema())
     _write(
-        _SCHEMAS_DIR / "ui_primitives.v1.0.json",
+        _SCHEMAS_DIR / f"ui_primitives.v{SCHEMA_VERSION}.json",
         TypeAdapter(UIPrimitive).json_schema(),
     )
     print("Done.")

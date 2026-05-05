@@ -28,6 +28,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
+SCHEMA_VERSION = "1.0"
+"""Frozen per A3.4 (2026-05-04). Bump SPEC.md + this constant + regenerate via
+`scripts/regen_schemas.py` before merging any structural change."""
+
 # ---------------------------------------------------------------------------
 # Common base
 # ---------------------------------------------------------------------------

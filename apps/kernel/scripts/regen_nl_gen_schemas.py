@@ -19,6 +19,15 @@ schema, do NOT regenerate — inspect what drifted (often a docstring edit
 that bled into a description field, or a default-value tweak) and roll
 back the model change instead.
 
+NOTE — cross-package dependency: `WorkflowSpec` inlines all `UIPrimitive`
+variants (from `packages/trace-format/`) into its JSON schema. A change to
+`ui_primitives.py` breaks BOTH `test_workflow_spec_schema_matches_frozen_snapshot`
+(here) AND `test_ui_primitive_schema_matches_frozen_snapshot` (trace-format).
+Run BOTH regen scripts when changing UIPrimitive:
+
+    cd packages/trace-format && uv run python scripts/regen_schemas.py
+    cd apps/kernel && uv run --extra agent python scripts/regen_nl_gen_schemas.py
+
 Invoke from `apps/kernel/`:
 
     uv run --extra agent python scripts/regen_nl_gen_schemas.py
@@ -34,6 +43,8 @@ import sys
 from pathlib import Path
 
 from ownevo_kernel.nl_gen import SimulationPlan, WorkflowSpec
+from ownevo_kernel.nl_gen.sim_plan import SCHEMA_VERSION as SIM_PLAN_VERSION
+from ownevo_kernel.nl_gen.spec import SCHEMA_VERSION as WORKFLOW_SPEC_VERSION
 
 _SCHEMAS_DIR = (
     Path(__file__).resolve().parent.parent
@@ -53,9 +64,9 @@ def _write(path: Path, schema: dict) -> None:
 
 def main() -> int:
     _SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Writing snapshots to {_SCHEMAS_DIR.relative_to(Path.cwd())}/ …")
-    _write(_SCHEMAS_DIR / "workflow_spec.v1.0.json", WorkflowSpec.model_json_schema())
-    _write(_SCHEMAS_DIR / "simulation_plan.v1.0.json", SimulationPlan.model_json_schema())
+    print(f"Writing snapshots to {_SCHEMAS_DIR.relative_to(_SCHEMAS_DIR.parent.parent.parent)}/ …")
+    _write(_SCHEMAS_DIR / f"workflow_spec.v{WORKFLOW_SPEC_VERSION}.json", WorkflowSpec.model_json_schema())
+    _write(_SCHEMAS_DIR / f"simulation_plan.v{SIM_PLAN_VERSION}.json", SimulationPlan.model_json_schema())
     print("Done.")
     return 0
 
