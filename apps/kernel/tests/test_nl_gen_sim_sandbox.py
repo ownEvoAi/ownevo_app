@@ -8,7 +8,7 @@ Validation gate per `docs/PLAN.md` line 231:
 
 The rendered sim is stdlib-only (random, math, statistics, datetime, json)
 so it runs unmodified in the default `LocalDockerSandbox` image
-(`python:3.11-slim`) — no domain-specific Dockerfile required, the same
+(pinned `python:3.11-slim` digest) — no domain-specific Dockerfile required, the same
 property exercised by the W2.7 non-M5 substrate proof.
 
 Skipped automatically when Docker isn't reachable, so unit-only CI stays
@@ -32,13 +32,13 @@ Three contracts asserted:
 
 from __future__ import annotations
 
-import asyncio
 import json
+import subprocess
 from typing import Any
 
 import pytest
 from ownevo_kernel.agent_tools.run_pipeline import run_pipeline
-from ownevo_kernel.nl_gen import render_simulation_module
+from ownevo_kernel.nl_gen import SCHEMA_VERSION, render_simulation_module
 from ownevo_kernel.nl_gen.fixtures import (
     CONTRACT_REVIEW_SIM_PLAN,
     CONTRACT_REVIEW_SPEC,
@@ -51,8 +51,15 @@ from ownevo_kernel.sandbox import LocalDockerSandbox, docker_available
 from ownevo_kernel.skills.format import parse_skill
 
 
+_SANDBOX_TIMEOUT_S = 30.0
+_SANDBOX_MEMORY_MB = 256
+
+
 def _docker_ok() -> bool:
-    return asyncio.run(docker_available())
+    # Synchronous check — avoids asyncio.run() at collection time, which raises
+    # RuntimeError if an event loop is already running (pytest-xdist workers,
+    # some CI setups).
+    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
 
 
 pytestmark = pytest.mark.skipif(
@@ -70,7 +77,7 @@ _FIXTURE_PAIRS = [
 
 @pytest.fixture
 def sandbox() -> LocalDockerSandbox:
-    """Default `python:3.11-slim` image — the sim is stdlib-only."""
+    """Pinned python:3.11-slim image — the sim is stdlib-only."""
     return LocalDockerSandbox()
 
 
@@ -101,8 +108,8 @@ async def _run_in_sandbox(
         sandbox,
         skill_content=skill_content,
         input_data={"seed": seed, "n_steps": n_steps},
-        timeout_seconds=30.0,
-        memory_mb=256,
+        timeout_seconds=_SANDBOX_TIMEOUT_S,
+        memory_mb=_SANDBOX_MEMORY_MB,
     )
     assert result.ok, (
         f"sandbox run failed: error={result.error!r} "
@@ -126,15 +133,16 @@ async def _run_in_sandbox(
 async def test_runs_end_to_end_in_sandbox(
     sandbox: LocalDockerSandbox, fixture_id, plan, spec
 ):
+    n_steps = 10
     outputs = await _run_in_sandbox(
-        sandbox, plan, spec, seed=plan.seed_default, n_steps=10
+        sandbox, plan, spec, seed=plan.seed_default, n_steps=n_steps
     )
     assert outputs["workflow_spec_id"] == spec.id
-    assert outputs["schema_version"] == "0.1"
+    assert outputs["schema_version"] == SCHEMA_VERSION
     assert outputs["seed"] == plan.seed_default
-    assert outputs["n_steps"] == 10
+    assert outputs["n_steps"] == n_steps
     assert isinstance(outputs["trajectory"], list)
-    assert len(outputs["trajectory"]) == 10
+    assert len(outputs["trajectory"]) == n_steps
 
     expected_keys = {f.name for f in plan.event_fields}
     for event in outputs["trajectory"]:
@@ -197,19 +205,19 @@ async def test_sandbox_matches_in_process_exec(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(("fixture_id", "plan", "spec"), _FIXTURE_PAIRS)
 async def test_sandbox_uses_plan_defaults_when_input_unset(
-    sandbox: LocalDockerSandbox,
+    sandbox: LocalDockerSandbox, fixture_id, plan, spec
 ):
     """`run_pipeline` injects `input_data = {}` when none provided —
     the entrypoint guard reads `SEED_DEFAULT` / `N_STEPS_DEFAULT`."""
-    plan, spec = DEMAND_PREDICTION_SIM_PLAN, DEMAND_PREDICTION_SPEC
     skill_content = render_simulation_module(plan, spec)
     result = await run_pipeline(
         sandbox,
         skill_content=skill_content,
         input_data=None,
-        timeout_seconds=30.0,
-        memory_mb=256,
+        timeout_seconds=_SANDBOX_TIMEOUT_S,
+        memory_mb=_SANDBOX_MEMORY_MB,
     )
     assert result.ok, f"unexpected error: {result.error!r}"
     assert result.outputs is not None
