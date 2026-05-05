@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SCHEMA_VERSION = "0.1"
 """Bumps to "1.0" at A3.4 (end of W3) per docs/PLAN.md schema-freeze."""
@@ -81,9 +81,20 @@ class SimulationPlan(_Base):
         min_length=1,
         description=(
             "One-line plain-English summary of what this simulator produces. "
-            "Surfaces in the audit trail and the W7 UI."
+            "Surfaces in the audit trail and the W7 UI. "
+            "Must not contain newlines (they would escape the rendered comment)."
         ),
     )
+
+    @field_validator("description")
+    @classmethod
+    def _description_no_newlines(cls, v: str) -> str:
+        if "\n" in v or "\r" in v:
+            raise ValueError(
+                "description must not contain newlines — it is interpolated "
+                "into a Python comment in the rendered module"
+            )
+        return v
 
     n_steps_default: int = Field(
         default=100,

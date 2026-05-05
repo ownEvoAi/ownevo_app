@@ -32,7 +32,6 @@ loudly here so iteration stays cheap.
 from __future__ import annotations
 
 import ast
-import textwrap
 from typing import Iterable
 
 from .sim_plan import ALLOWED_IMPORTS, SimulationPlan
@@ -63,15 +62,17 @@ _FORBIDDEN_CALL_NAMES = frozenset(
         "breakpoint",
         "exit",
         "quit",
+        # Blanket-banned: all four accept an arbitrary name string that the AST
+        # check cannot verify statically (a variable holding a dunder string
+        # bypasses the constant-check). Pure numeric/dict sim logic never needs
+        # them; the sandbox (A3.3) is the next barrier if something slips through.
+        "getattr",
+        "setattr",
+        "delattr",
+        "hasattr",
     }
 )
-"""Builtin call targets the sim is not allowed to invoke.
-
-`getattr`/`setattr`/`delattr`/`hasattr` aren't blanket-banned (`getattr` on
-a dict is reasonable) but their first argument is checked for dunder strings
-(`__class__`, `__bases__`, etc.) below."""
-
-_DUNDER_GUARDED_BUILTINS = frozenset({"getattr", "setattr", "delattr", "hasattr"})
+"""Builtin call targets the sim is not allowed to invoke."""
 
 
 def _ast_safety_check(source: str, *, where: str) -> None:
@@ -95,6 +96,11 @@ def _ast_safety_check(source: str, *, where: str) -> None:
             )
         if isinstance(node, ast.Call):
             target = node.func
+            if isinstance(target, ast.Subscript):
+                raise SimRenderError(
+                    f"{where}: subscript-based call blocked "
+                    f"(e.g. __builtins__['__import__']('os') bypasses name checks)"
+                )
             name = (
                 target.id if isinstance(target, ast.Name)
                 else target.attr if isinstance(target, ast.Attribute)
@@ -105,22 +111,6 @@ def _ast_safety_check(source: str, *, where: str) -> None:
                     f"{where}: forbidden call to {name!r} "
                     f"(rejected: {_FORBIDDEN_CALL_NAMES})"
                 )
-            if (
-                isinstance(target, ast.Name)
-                and target.id in _DUNDER_GUARDED_BUILTINS
-                and node.args
-            ):
-                first = node.args[1] if target.id != "delattr" and len(node.args) > 1 else (
-                    node.args[1] if len(node.args) > 1 else None
-                )
-                # getattr/setattr/delattr/hasattr take (obj, name, ...) —
-                # block dunder name strings to keep the safety net tight.
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    if first.value.startswith("__") and first.value.endswith("__"):
-                        raise SimRenderError(
-                            f"{where}: {target.id}(..., {first.value!r}, ...) "
-                            "blocked — dunder access via builtins is not allowed."
-                        )
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
                 # Allow `__name__` (module check) and `__doc__` reads — the

@@ -134,6 +134,20 @@ def test_contract_review_no_extra_imports():
 # ---------------------------------------------------------------------------
 
 
+def test_description_newline_rejected_by_pydantic():
+    """Newline in description would break the rendered comment — blocked at schema."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SimulationPlan(
+            workflow_spec_id="supply-chain-demand-forecast",
+            description="legit\nimport os",
+            init_state_code="return {}",
+            step_code="return {'step_index': step_index}",
+            event_fields=[EventField(name="step_index", type="int")],
+        )
+
+
 def test_workflow_id_mismatch_raises():
     with pytest.raises(ValueError, match="does not match"):
         render_simulation_module(DEMAND_PREDICTION_SIM_PLAN, CREDIT_RISK_SPEC)
@@ -225,23 +239,30 @@ def test_rejects_inline_import_statements():
 
 
 def test_rejects_getattr_to_dunder():
+    """getattr is blanket-banned; any call raises regardless of the name arg."""
     plan = _plan_with(
         step="x = getattr(rng, '__class__')\nreturn {'step_index': step_index}"
     )
-    with pytest.raises(SimRenderError, match="dunder access via builtins"):
+    with pytest.raises(SimRenderError, match="forbidden call to 'getattr'"):
         render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
 
 
-def test_allows_normal_getattr():
-    """Plain `getattr(obj, 'name')` with a non-dunder string is fine."""
+def test_rejects_getattr_with_dynamic_dunder():
+    """Dynamic dunder string via variable was the bypass; blanket ban closes it."""
     plan = _plan_with(
-        step=(
-            "v = getattr(state, 'get', dict.get)(state, 'k', 0)\n"
-            "return {'step_index': step_index}"
-        )
+        step="n = '__class__'\nx = getattr(rng, n)\nreturn {'step_index': step_index}"
     )
-    content = render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
-    assert "step(rng, state, step_index)" in content
+    with pytest.raises(SimRenderError, match="forbidden call to 'getattr'"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
+
+
+def test_rejects_subscript_based_call():
+    """__builtins__['__import__']('os') bypasses name checks — blocked at Subscript."""
+    plan = _plan_with(
+        step="x = __builtins__['__import__']('os')\nreturn {'step_index': step_index}"
+    )
+    with pytest.raises(SimRenderError, match="subscript-based call blocked"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
 
 
 def test_rejects_invalid_python():
