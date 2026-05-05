@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 from ownevo_kernel.nl_gen import render_simulation_module
+from ownevo_kernel.nl_gen.sim_plan import SCHEMA_VERSION as SIM_PLAN_SCHEMA_VERSION
 from ownevo_kernel.nl_gen.fixtures import (
     CONTRACT_REVIEW_SIM_PLAN,
     CONTRACT_REVIEW_SPEC,
@@ -136,7 +137,7 @@ def test_trajectory_envelope_shape(fixture_id, plan, spec):
     ns = _exec_skill_body(plan, spec)
     result = ns["run_simulation"](seed=plan.seed_default, n_steps=5)
     assert result["workflow_spec_id"] == spec.id
-    assert result["schema_version"] == "0.1"
+    assert result["schema_version"] == SIM_PLAN_SCHEMA_VERSION
     assert result["seed"] == plan.seed_default
     assert result["n_steps"] == 5
     assert isinstance(result["trajectory"], list)

@@ -4,8 +4,13 @@ Source-of-truth for what the natural-language workflow generator produces from
 a plain-English description. Stored as JSONB in `workflows.spec` (see
 `apps/kernel/migrations/0001_substrate.sql:94`).
 
-Frozen at `schema_version: "0.1"` until the A3.4 schema-freeze ritual at end
-of W3 stamps `"1.0"` and adds CI guards against structural drift.
+**Frozen at `schema_version: "1.0"` per the A3.4 ritual at end of W3
+(2026-05-04, tag `v1.0-frozen-2026-W3`).** Structural changes — adding /
+removing fields, narrowing or widening Literal unions, renaming, changing
+defaults — are caught by `tests/test_nl_gen_schema_freeze.py` against the
+snapshot at `nl_gen/schemas/workflow_spec.v1.0.json`. Any diff requires an
+explicit version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and
+a W7 UI re-test before the snapshot is regenerated.
 
 The mock at `www/preview/s26-rk7p3/04-new-workflow-step2.html` is the rendering
 target — every field here corresponds to a section the user sees on the
@@ -27,8 +32,14 @@ from typing import Literal
 from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "0.1"
-"""Bumps to "1.0" at A3.4 (end of W3) per docs/PLAN.md schema-freeze."""
+SCHEMA_VERSION = "1.0"
+"""Frozen at A3.4 (2026-05-04, end of W3) per docs/PLAN.md schema-freeze.
+
+Tag: `v1.0-frozen-2026-W3`. Structural drift is detected by
+`tests/test_nl_gen_schema_freeze.py` against the snapshot at
+`nl_gen/schemas/workflow_spec.v1.0.json`. To intentionally change the
+schema, bump this constant + regenerate the snapshot via
+`scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
 
 Domain = Literal[
     "supply-chain",
@@ -234,7 +245,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["0.1"] = SCHEMA_VERSION
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment

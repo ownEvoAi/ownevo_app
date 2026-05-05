@@ -1,8 +1,8 @@
 # AgentEvent — canonical spec
 
-**Version:** 0.1 (pre-W3 freeze; bumps to 1.0 at end of W3 per PLAN.md schema-freeze deliverable)
+**Version:** 1.0 (frozen 2026-05-04 per PLAN.md A3.4 schema-freeze deliverable; tag `v1.0-frozen-2026-W3`)
 **Status:** Locked 2026-05-03 by eng review. Implementations in W1 conform to this doc.
-**Stability:** schema can evolve until W3 freeze; after 1.0, structural changes require a W3-day-5 review.
+**Stability:** structural changes are caught by `tests/test_schema_freeze.py` against the snapshot at `schemas/agent_event.v1.0.json`. Any diff requires an explicit version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and a W7 UI re-test before the snapshot is regenerated via `scripts/regen_schemas.py`.
 
 ## Conventions
 
