@@ -186,3 +186,60 @@ async def test_analyze_failures_workflow_scoped(db: asyncpg.Connection):
 async def test_analyze_failures_empty_when_no_traces(db: asyncpg.Connection):
     snapshots = await analyze_failures(db, workflow_id="demo-wf")
     assert snapshots == []
+
+
+async def test_analyze_failures_surfaces_sandbox_error_metadata(
+    db: asyncpg.Connection,
+):
+    """Cross-iteration failure memory (TODO-23): a trace linked to a
+    sandbox-error iteration must surface `iteration_state`,
+    `sandbox_error_class`, and `eval_rationale`, and rank ahead of
+    higher-tool-error traces — the gate's failure signature is the
+    most actionable signal for the next iteration."""
+    # Trace A: high tool_errors, no linked iteration → ranked normally.
+    await _seed_trace(
+        db, workflow_id="demo-wf", n_tool_errors=5,
+        started_at=datetime(2025, 1, 1, 0, 0, 0),
+    )
+    # Trace B: linked to a sandbox-error iteration with eval_rationale.
+    trace_b = await _seed_trace(
+        db, workflow_id="demo-wf", n_tool_errors=0,
+        started_at=datetime(2025, 1, 1, 0, 0, 1),
+    )
+    iteration_id = await db.fetchval(
+        """
+        INSERT INTO iterations (workflow_id, iteration_index, state,
+                                sandbox_error_class, ended_at)
+        VALUES ('demo-wf', 0, 'sandbox-error'::iteration_state,
+                'OOM'::sandbox_error_class, now())
+        RETURNING id
+        """,
+    )
+    await db.execute(
+        "INSERT INTO skills (id, kind) VALUES ($1, 'python'::skill_kind) "
+        "ON CONFLICT (id) DO NOTHING",
+        "s.target",
+    )
+    await db.execute(
+        """
+        INSERT INTO proposals (iteration_id, skill_id, proposed_content,
+                               plain_language_summary, state, eval_rationale)
+        VALUES ($1, 's.target', 'body', 'feature add', 'gate-failed'::proposal_state,
+                'Runner raised MemoryError: matrix exceeded 512 MB')
+        """,
+        iteration_id,
+    )
+    await db.execute(
+        "UPDATE traces SET iteration_id = $1 WHERE id = $2",
+        iteration_id, trace_b,
+    )
+
+    snapshots = await analyze_failures(db, workflow_id="demo-wf")
+    # Sandbox-error trace surfaces first despite zero tool_errors.
+    assert snapshots[0].trace_id == trace_b
+    assert snapshots[0].iteration_state == "sandbox-error"
+    assert snapshots[0].sandbox_error_class == "OOM"
+    assert "MemoryError" in (snapshots[0].eval_rationale or "")
+    # Untainted trace still surfaces, just second.
+    assert snapshots[1].iteration_state is None
+    assert snapshots[1].sandbox_error_class is None
