@@ -4,6 +4,7 @@ Source of truth: SPEC.md. This module implements the spec.
 """
 
 from ownevo_format.agent_event import (
+    SCHEMA_VERSION,
     AgentEvent,
     AgentEventAdapter,
     AgentEventBase,
@@ -40,6 +41,7 @@ from ownevo_format.ui_primitives import (
 )
 
 __all__ = [
+    "SCHEMA_VERSION",
     "AgentEvent",
     "AgentEventAdapter",
     "AgentEventBase",

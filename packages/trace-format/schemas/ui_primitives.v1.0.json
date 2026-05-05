@@ -1,0 +1,291 @@
+{
+  "$defs": {
+    "AlertList": {
+      "additionalProperties": false,
+      "description": "Markdown alerts, escalations, clause flags.",
+      "properties": {
+        "severity_field": {
+          "default": "severity",
+          "title": "Severity Field",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "title_field": {
+          "default": "title",
+          "title": "Title Field",
+          "type": "string"
+        },
+        "type": {
+          "const": "AlertList",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "title": "AlertList",
+      "type": "object"
+    },
+    "ConversationView": {
+      "additionalProperties": false,
+      "description": "Multi-turn agent transcript with citations.",
+      "properties": {
+        "trace_source": {
+          "title": "Trace Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "ConversationView",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "trace_source"
+      ],
+      "title": "ConversationView",
+      "type": "object"
+    },
+    "DocumentReader": {
+      "additionalProperties": false,
+      "description": "Contracts, policies, runbooks with margin annotations.",
+      "properties": {
+        "annotations_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotations Source"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "DocumentReader",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "title": "DocumentReader",
+      "type": "object"
+    },
+    "KanbanBoard": {
+      "additionalProperties": false,
+      "description": "Tickets by status, deals by stage.",
+      "properties": {
+        "card_title_field": {
+          "title": "Card Title Field",
+          "type": "string"
+        },
+        "column_field": {
+          "title": "Column Field",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "KanbanBoard",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "column_field",
+        "card_title_field"
+      ],
+      "title": "KanbanBoard",
+      "type": "object"
+    },
+    "MetricCards": {
+      "additionalProperties": false,
+      "description": "KPI tiles. Used for forecast accuracy, CSAT, $ at risk, etc.",
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "type": {
+          "const": "MetricCards",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "fields"
+      ],
+      "title": "MetricCards",
+      "type": "object"
+    },
+    "SideBySideView": {
+      "additionalProperties": false,
+      "description": "Contract clause + redline, document diff.",
+      "properties": {
+        "diff_mode": {
+          "default": "text",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Diff Mode",
+          "type": "string"
+        },
+        "left_source": {
+          "title": "Left Source",
+          "type": "string"
+        },
+        "right_source": {
+          "title": "Right Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "SideBySideView",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "left_source",
+        "right_source"
+      ],
+      "title": "SideBySideView",
+      "type": "object"
+    },
+    "TableView": {
+      "additionalProperties": false,
+      "description": "Tabular list. SKU list, ticket queue, line items.",
+      "properties": {
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "TableView",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "columns"
+      ],
+      "title": "TableView",
+      "type": "object"
+    },
+    "TimeSeriesChart": {
+      "additionalProperties": false,
+      "description": "Time-series. Demand forecast, ticket volume, lift charts.",
+      "properties": {
+        "group_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group By"
+        },
+        "type": {
+          "const": "TimeSeriesChart",
+          "title": "Type",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "string"
+        },
+        "y": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Y",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "x",
+        "y"
+      ],
+      "title": "TimeSeriesChart",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "AlertList": "#/$defs/AlertList",
+      "ConversationView": "#/$defs/ConversationView",
+      "DocumentReader": "#/$defs/DocumentReader",
+      "KanbanBoard": "#/$defs/KanbanBoard",
+      "MetricCards": "#/$defs/MetricCards",
+      "SideBySideView": "#/$defs/SideBySideView",
+      "TableView": "#/$defs/TableView",
+      "TimeSeriesChart": "#/$defs/TimeSeriesChart"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MetricCards"
+    },
+    {
+      "$ref": "#/$defs/TimeSeriesChart"
+    },
+    {
+      "$ref": "#/$defs/TableView"
+    },
+    {
+      "$ref": "#/$defs/AlertList"
+    },
+    {
+      "$ref": "#/$defs/KanbanBoard"
+    },
+    {
+      "$ref": "#/$defs/ConversationView"
+    },
+    {
+      "$ref": "#/$defs/SideBySideView"
+    },
+    {
+      "$ref": "#/$defs/DocumentReader"
+    }
+  ]
+}

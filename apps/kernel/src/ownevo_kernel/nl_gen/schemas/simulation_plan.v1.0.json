@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "EventField": {
+      "additionalProperties": false,
+      "description": "One named field on the trajectory event the simulator emits per step.\n\nUsed by the renderer to emit a per-step shape assertion in the rendered\nmodule \u2014 if the LLM's `step` body forgets to populate a declared field,\nthe sim raises `KeyError` on the first step rather than silently emitting\ntruncated trajectories that downstream tests have to detect.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "int",
+            "float",
+            "str",
+            "bool",
+            "list",
+            "dict"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "EventField",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Plan for a deterministic, seedable simulator.\n\nRound-trip identity is the contract: a plan written by the generator\nmust JSON-serialize, store as JSONB, and round-trip back to an\nidentical Python object \u2014 same as `WorkflowSpec`.\n\nThe plan does not carry the full WorkflowSpec; it carries `workflow_spec_id`\nas a back-pointer. The generator and renderer both take the WorkflowSpec\nseparately so we don't risk drift between two stored copies.",
+  "properties": {
+    "description": {
+      "description": "One-line plain-English summary of what this simulator produces. Surfaces in the audit trail and the W7 UI. Must not contain newlines (they would escape the rendered comment).",
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "event_fields": {
+      "description": "Shape of the dict that `step` returns. The renderer emits a per-step shape check in the trajectory loop so violations fail fast and loud rather than producing malformed trajectories.",
+      "items": {
+        "$ref": "#/$defs/EventField"
+      },
+      "minItems": 1,
+      "title": "Event Fields",
+      "type": "array"
+    },
+    "imports": {
+      "description": "Stdlib modules the generated sim imports beyond the renderer's always-on `json` + `random`. Must be a subset of ALLOWED_IMPORTS.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Imports",
+      "type": "array"
+    },
+    "init_state_code": {
+      "description": "Body of `def init_state(rng): ...`. Must `return` the state dict. Receives a `random.Random` instance as `rng`. No leading indent \u2014 the renderer indents to 4 spaces. Must NOT import the `random` module itself; use the passed `rng`.",
+      "minLength": 1,
+      "title": "Init State Code",
+      "type": "string"
+    },
+    "n_steps_default": {
+      "default": 100,
+      "description": "Default trajectory length when input_data does not override. Capped at 10,000 to keep deterministic runs under the sandbox 60-second budget on commodity hardware.",
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "N Steps Default",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed_default": {
+      "default": 42,
+      "description": "Default RNG seed when input_data does not override.",
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Seed Default",
+      "type": "integer"
+    },
+    "step_code": {
+      "description": "Body of `def step(rng, state, step_index): ...`. Must `return` an event dict whose keys are the names of `event_fields`. Receives a `random.Random` instance as `rng`, the state dict from `init_state`, and a 0-based `step_index`. No leading indent.",
+      "minLength": 1,
+      "title": "Step Code",
+      "type": "string"
+    },
+    "workflow_spec_id": {
+      "description": "WorkflowSpec.id this plan was generated from.",
+      "minLength": 1,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "title": "Workflow Spec Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_spec_id",
+    "description",
+    "init_state_code",
+    "step_code",
+    "event_fields"
+  ],
+  "title": "SimulationPlan",
+  "type": "object"
+}

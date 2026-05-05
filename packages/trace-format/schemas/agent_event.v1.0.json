@@ -1,0 +1,634 @@
+{
+  "$defs": {
+    "Citation": {
+      "additionalProperties": false,
+      "description": "A source citation referenced in the agent's output.",
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        },
+        "ref": {
+          "minimum": 1,
+          "title": "Ref",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "citation",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "ref",
+        "source",
+        "quote"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "ContentDelta": {
+      "additionalProperties": false,
+      "description": "LLM streaming output token(s).\n\n`cumulative_text` is optional and populated when the streaming source\ncan supply it. Downstream readers should not rely on it.",
+      "properties": {
+        "cumulative_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cumulative Text"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "content_delta",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "text",
+        "model"
+      ],
+      "title": "ContentDelta",
+      "type": "object"
+    },
+    "MonitorSignal": {
+      "additionalProperties": false,
+      "description": "A programmatic monitor fired (loop detection, redundancy, context_near_limit).\n\nThe MVP set is fixed at 3 monitors. New monitors require extending the\n`MonitorName` literal and bumping the spec version.",
+      "properties": {
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "monitor": {
+          "enum": [
+            "loop_detection",
+            "redundancy",
+            "context_near_limit"
+          ],
+          "title": "Monitor",
+          "type": "string"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "monitor_signal",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "monitor",
+        "severity"
+      ],
+      "title": "MonitorSignal",
+      "type": "object"
+    },
+    "ReasoningDelta": {
+      "additionalProperties": false,
+      "description": "Reasoning tokens (Claude extended thinking, OpenAI reasoning).\n\nStored separately from `content_delta` because reasoning tokens don't\nsurface to customers and have different downstream uses (failure\nclustering may consume; the UI usually does not render).",
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "reasoning_delta",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "text",
+        "model"
+      ],
+      "title": "ReasoningDelta",
+      "type": "object"
+    },
+    "SandboxErrorClass": {
+      "description": "D3 \u2014 sandbox runtime failure classes for tool_call_result.error_class.\n\nDistinct from logical errors inside the tool. The gate runner does NOT\nadvance best_ever_score when any of these are present.\nCanonical definition lives here (trace-format); ownevo-kernel re-exports.",
+      "enum": [
+        "Timeout",
+        "OOM",
+        "Crash"
+      ],
+      "title": "SandboxErrorClass",
+      "type": "string"
+    },
+    "SkillLoaded": {
+      "additionalProperties": false,
+      "description": "A skill entered the agent's context.\n\n`retention_acknowledged` records whether the agent confirmed reading\nthe retention contract. Required for the retention-violation eval class\n(per SKILL_FORMAT.md).",
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "retention_acknowledged": {
+          "default": false,
+          "title": "Retention Acknowledged",
+          "type": "boolean"
+        },
+        "skill_id": {
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "skill_loaded",
+          "title": "Type",
+          "type": "string"
+        },
+        "version_seq": {
+          "minimum": 1,
+          "title": "Version Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "skill_id",
+        "version_seq"
+      ],
+      "title": "SkillLoaded",
+      "type": "object"
+    },
+    "ToolCallResult": {
+      "additionalProperties": false,
+      "description": "Tool call returned (success or failure).\n\nD3 enforcement (sandbox failure semantics):\n  - `status=\"ok\"` \u2192 `error` and `error_class` MUST be None.\n  - `status=\"error\"` AND logical error from inside the tool \u2192\n    `error` is non-null, `error_class` is None.\n  - `status=\"error\"` AND sandbox runtime killed the call (Timeout, OOM,\n    Crash) \u2192 both `error` and `error_class` are non-null.\n\nThe gate runner reads `error_class` to decide whether to advance\n`best_ever_score`. It does NOT advance on any sandbox-runtime error.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "error_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SandboxErrorClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "output": {
+          "title": "Output"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_call_result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "call_id",
+        "name",
+        "status",
+        "output",
+        "duration_ms"
+      ],
+      "title": "ToolCallResult",
+      "type": "object"
+    },
+    "ToolCallStart": {
+      "additionalProperties": false,
+      "description": "Agent invokes a tool.\n\n`call_id` is the provider's call id (e.g., Anthropic's `toolu_*`),\nused to match with the corresponding ToolCallResult.",
+      "properties": {
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "iteration_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteration Id"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_call_start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "trace_id",
+        "timestamp",
+        "type",
+        "call_id",
+        "name",
+        "args"
+      ],
+      "title": "ToolCallStart",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "citation": "#/$defs/Citation",
+      "content_delta": "#/$defs/ContentDelta",
+      "monitor_signal": "#/$defs/MonitorSignal",
+      "reasoning_delta": "#/$defs/ReasoningDelta",
+      "skill_loaded": "#/$defs/SkillLoaded",
+      "tool_call_result": "#/$defs/ToolCallResult",
+      "tool_call_start": "#/$defs/ToolCallStart"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ContentDelta"
+    },
+    {
+      "$ref": "#/$defs/ReasoningDelta"
+    },
+    {
+      "$ref": "#/$defs/ToolCallStart"
+    },
+    {
+      "$ref": "#/$defs/ToolCallResult"
+    },
+    {
+      "$ref": "#/$defs/SkillLoaded"
+    },
+    {
+      "$ref": "#/$defs/Citation"
+    },
+    {
+      "$ref": "#/$defs/MonitorSignal"
+    }
+  ]
+}

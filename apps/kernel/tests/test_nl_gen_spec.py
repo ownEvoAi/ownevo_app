@@ -48,12 +48,14 @@ from pydantic import ValidationError
 # ---------------------------------------------------------------------------
 
 
-def test_schema_version_is_pre_freeze_zero_one():
-    assert SCHEMA_VERSION == "0.1", (
-        "Pre-W3-freeze. A3.4 bumps to '1.0' and adds CI guards against drift."
+def test_schema_version_is_frozen_at_one_zero():
+    assert SCHEMA_VERSION == "1.0", (
+        "Frozen at A3.4 (2026-W3). Structural drift is caught by "
+        "test_nl_gen_schema_freeze.py against the snapshot at "
+        "src/ownevo_kernel/nl_gen/schemas/workflow_spec.v1.0.json."
     )
     for spec in FIXTURES.values():
-        assert spec.schema_version == "0.1"
+        assert spec.schema_version == "1.0"
 
 
 # ---------------------------------------------------------------------------
