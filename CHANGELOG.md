@@ -17,6 +17,62 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-05
+
+NL-gen pipeline closed (A3.2–A3.4) and cross-iteration failure memory shipped (TODO-23).
+PRs: #37, #38, #39, #40.
+
+### Added
+- `apps/kernel/src/ownevo_kernel/nl_gen/simulator.py` — A3.2: `WorkflowSpec → SimPlan →
+  rendered Python` via Anthropic tool-use (PR #37). `SimPlan` is a frozen Pydantic model
+  (agents, data sources, steps); `render_sim_plan` emits executable Python from the plan.
+  AST safety pass: forbidden calls (`exec`, `eval`, `__import__`, `os.system`, subscript-
+  style `__builtins__["__import__"]`) blocked before execution. F-string comment injection
+  hardened (newline validation at the schema layer on all fields rendered into generated
+  code — learned pitfall from /review). 3 bypass paths closed in the hardening pass
+  (bare-name, attribute, and subscript-style calls all gated). Post-review fixes shipped
+  on the same branch: ALLOWED_IMPORTS whitelist, pinned sandbox image, test hardening.
+- `apps/kernel/src/ownevo_kernel/nl_gen/sandbox_runner.py` — A3.3: generated sim code
+  runs unmodified in `LocalDockerSandbox` (PR #38). `SimRunner.run(plan)` renders the
+  plan, writes it to a tempdir, mounts read-only into the sandbox, captures
+  structured stdout. No mutation of generated code; the sandbox is the trust boundary.
+  Post-review fixes: `ALLOWED_IMPORTS` tightened, pinned `python:3.11-slim` image tag,
+  test matrix hardened.
+- `packages/trace-format/` + `apps/kernel/src/ownevo_kernel/nl_gen/` — A3.4: NL-gen
+  and trace-format schemas frozen at v1.0 (PR #39). `SPEC.md` bumped to 1.0;
+  `schema_version` field locked on `WorkflowSpec`, `SimPlan`, and all `AgentEvent`
+  variants. Pydantic + Zod implementations conform; `extra="forbid"` everywhere. Snapshot
+  tests pin the JSON Schema output so future drift is caught in CI.
+- `apps/kernel/src/ownevo_kernel/observability/past_attempts.py` — cross-iteration
+  failure memory, driver surface (PR #40, TODO-23 B). `fetch_past_attempts` / `format_past_attempts`
+  / `render_past_attempts_block`: pulls the most recent finalized iterations on the
+  workflow (LATERAL join — picks the single latest proposal per iteration; excludes
+  `running` state), renders a compact markdown block (iteration index, decision, sandbox
+  error class, val_score vs best_ever, skill_id, plain-language summary, eval_rationale
+  truncated to 320 chars). `run_improvement_loop.py` fetches before agent invocation and
+  prepends the block to the kickoff message. Cold workflow → empty string, no
+  special-casing. Post-review fixes: LATERAL replaces bare LEFT JOIN (no UNIQUE constraint
+  on `proposals.iteration_id`); exception guard on fetch so a DB hiccup degrades to
+  empty memory rather than crashing the loop; `\r`/`\r\n` stripping in `_truncate`.
+- `apps/kernel/src/ownevo_kernel/agent_tools/metrics.py` — cross-iteration failure
+  memory, query surface (PR #40, TODO-23 A). `FailureSnapshot` gains `iteration_state`,
+  `sandbox_error_class`, `eval_rationale` (all default None for back-compat). SQL LATERAL
+  join on `proposals` (latest proposal per iteration) replaces bare LEFT JOIN. Sandbox-error
+  iterations sort first regardless of tool-error count. Post-review fix: removed early
+  `break` from the fold-filter loop — the break-then-sort pattern silently excluded
+  sandbox-error traces whenever k+ newer non-sandbox traces filled the quota first,
+  defeating the feature's primary mechanism.
+
+### Changed
+- `apps/kernel/scripts/run_improvement_loop.py` — imports `fetch_past_attempts` +
+  `format_past_attempts` separately (replacing `render_past_attempts_block`) so
+  `len(attempts)` is used for the console counter instead of string-scanning the
+  formatted block (PR #40). Exception guard wraps only the DB fetch.
+- `apps/kernel/middleware/claude_sdk/tool_definitions.py` — `analyze_failures` tool
+  description updated to explain sandbox-error-first ranking and the new
+  `iteration_state` / `sandbox_error_class` / `eval_rationale` fields on each row
+  (PR #40). Dispatcher updated to surface the three new fields.
+
 ## [0.2.0] — 2026-05-04
 
 ### Added
