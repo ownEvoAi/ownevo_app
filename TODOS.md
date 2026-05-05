@@ -201,7 +201,7 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (CC ~half day).
 - **Priority:** P1 — pattern is now the binding constraint on Stage D and beyond.
 - **Depends on:** none. Self-contained. Touches `apps/kernel/src/ownevo_kernel/observability/learnings.py` and the `analyze_failures` tool definition.
-- **Status update (2026-05-04):** ✅ CLOSED. Implemented as **B+A** on `feat/cross-iter-failure-memory`:
+- **Status update (2026-05-04, shipped in PR #40):** ✅ CLOSED. Implemented as **B+A** on `feat/cross-iter-failure-memory`:
   - **B (driver-side prompt injection):** new `observability/past_attempts.py` (`fetch_past_attempts` / `format_past_attempts` / `render_past_attempts_block`); `run_improvement_loop.py` queries the most recent finalized iterations on the workflow and prepends a compact "Past attempts" block to the agent kickoff. Memory is in-context, not tool-gated.
   - **A (`analyze_failures` extension):** `FailureSnapshot` gains `iteration_state` / `sandbox_error_class` / `eval_rationale`. SQL LEFT JOINs `iterations` + `proposals`; sandbox-error iterations sort to top regardless of tool-error count. Tool description and dispatcher updated to surface and explain the new ranking.
   - Tests: new `test_observability_past_attempts.py` (8 tests) + `test_analyze_failures_surfaces_sandbox_error_metadata`. Full kernel suite 436/436 green.
