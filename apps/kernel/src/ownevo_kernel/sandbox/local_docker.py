@@ -40,9 +40,11 @@ from pathlib import Path
 
 from .types import SandboxResult
 
-DEFAULT_IMAGE = "python:3.11-slim"
-"""Small enough (~50MB compressed) for fast pulls; matches the kernel's
-target Python version."""
+DEFAULT_IMAGE = "python@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2"
+"""Pinned digest for python:3.11-slim — locks libm so Contract 3 of the
+A3.3 sim-sandbox parity tests holds across runs. Update with:
+  docker pull python:3.11-slim && docker inspect python:3.11-slim \\
+    --format '{{index .RepoDigests 0}}'"""
 
 _USER_EXCEPTION_EXIT_CODE = 100
 """Runner exit code that means 'user code raised a Python exception'.
