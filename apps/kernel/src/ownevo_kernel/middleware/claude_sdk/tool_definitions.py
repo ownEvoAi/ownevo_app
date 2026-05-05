@@ -281,10 +281,14 @@ def kernel_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "analyze_failures",
             "description": (
-                "Return up to `k` recent traces for a workflow ranked by how many "
-                "tool_call_result errors they contain (most failures first). The "
-                "workflow_id defaults to the agent run's workflow when present. "
-                "Train/test discipline: test-fold traces are filtered."
+                "Return up to `k` recent traces for a workflow. Sandbox-error "
+                "iterations rank first (their `eval_rationale` carries the "
+                "failure signature: stack-trace excerpt, OOM/Timeout reason); "
+                "then traces are ranked by tool_call_result error count. Each "
+                "row also carries `iteration_state` and `sandbox_error_class` "
+                "when linked to a finalized iteration — use these to avoid "
+                "repeating prior failures. Train/test discipline: test-fold "
+                "traces are filtered."
             ),
             "input_schema": {
                 "type": "object",
@@ -613,6 +617,9 @@ async def _dispatch_analyze_failures(
                     "tool_errors": s.tool_errors,
                     "metric_outputs": s.metric_outputs,
                     "fold": s.fold,
+                    "iteration_state": s.iteration_state,
+                    "sandbox_error_class": s.sandbox_error_class,
+                    "eval_rationale": s.eval_rationale,
                 }
                 for s in snapshots
             ],

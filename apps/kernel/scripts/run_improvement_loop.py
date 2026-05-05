@@ -100,6 +100,7 @@ from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
     run_agent_turn,
     run_agent_turn_openai,
 )
+from ownevo_kernel.observability import render_past_attempts_block  # noqa: E402
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
 from scripts.seed_m5_baseline import DEFAULT_WORKFLOW_ID  # noqa: E402
@@ -128,8 +129,8 @@ _MAX_SUMMARY_CHARS = 280
 
 _PROMPT_PATH = Path(__file__).parent / "m5_agent_prompt.md"
 
-def _kickoff_message(workflow_id: str) -> str:
-    return (
+def _kickoff_message(workflow_id: str, past_attempts_block: str = "") -> str:
+    base = (
         "You're picking up the M5 demand-prediction workflow at the v1 "
         "LightGBM baseline. Read one skill, propose one focused improvement, "
         "validate via run_pipeline, register with write_skill, then end your "
@@ -146,6 +147,11 @@ def _kickoff_message(workflow_id: str) -> str:
         "\n"
         f"workflow_id: {workflow_id}"
     )
+    if past_attempts_block:
+        # Past-attempts go *first* so the agent sees prior failures before
+        # framing its proposal. Cross-iteration failure memory (TODO-23).
+        return past_attempts_block + "\n" + base
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -396,12 +402,22 @@ async def main_async(args: CliArgs) -> int:
                 file=sys.stderr,
             )
 
+        # Cross-iteration failure memory (TODO-23): pull a compact summary of
+        # prior iterations on this workflow so the agent doesn't re-make the
+        # same mistakes. Empty string on a cold workflow.
+        past_attempts_block = await render_past_attempts_block(
+            conn, workflow_id=args.workflow_id,
+        )
+        if past_attempts_block:
+            n_attempts = past_attempts_block.count("\n- **iter ")
+            print(f"past-attempts: {n_attempts} prior iteration(s) prepended to kickoff")
+
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
             if args.api_format == "openai":
                 agent_result = await run_agent_turn_openai(
                     client,
                     system=system_prompt,
-                    user_message=_kickoff_message(args.workflow_id),
+                    user_message=_kickoff_message(args.workflow_id, past_attempts_block),
                     kernel_context=kernel_context,
                     collector=collector,
                     model=args.llm_model,
@@ -421,7 +437,7 @@ async def main_async(args: CliArgs) -> int:
                 agent_result = await run_agent_turn(
                     client,
                     system=system_prompt,
-                    user_message=_kickoff_message(args.workflow_id),
+                    user_message=_kickoff_message(args.workflow_id, past_attempts_block),
                     kernel_context=kernel_context,
                     collector=collector,
                     model=args.llm_model,
