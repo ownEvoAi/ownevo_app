@@ -18,6 +18,12 @@ informs `known_past_misses` ground-truth.
 from .contract_review import CONTRACT_REVIEW_DESCRIPTION, CONTRACT_REVIEW_SPEC
 from .credit_risk import CREDIT_RISK_DESCRIPTION, CREDIT_RISK_SPEC
 from .demand_prediction import DEMAND_PREDICTION_DESCRIPTION, DEMAND_PREDICTION_SPEC
+from .sim_plans import (
+    CONTRACT_REVIEW_SIM_PLAN,
+    CREDIT_RISK_SIM_PLAN,
+    DEMAND_PREDICTION_SIM_PLAN,
+    SIM_PLAN_FIXTURES,
+)
 
 FIXTURES = {
     "demand-prediction": DEMAND_PREDICTION_SPEC,
@@ -40,4 +46,8 @@ __all__ = [
     "CONTRACT_REVIEW_DESCRIPTION",
     "FIXTURES",
     "DESCRIPTIONS",
+    "DEMAND_PREDICTION_SIM_PLAN",
+    "CREDIT_RISK_SIM_PLAN",
+    "CONTRACT_REVIEW_SIM_PLAN",
+    "SIM_PLAN_FIXTURES",
 ]
