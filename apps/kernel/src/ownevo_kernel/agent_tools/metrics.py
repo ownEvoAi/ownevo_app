@@ -147,7 +147,13 @@ async def analyze_failures(
                p.eval_rationale             AS eval_rationale
         FROM traces t
         LEFT JOIN iterations i ON i.id = t.iteration_id
-        LEFT JOIN proposals  p ON p.iteration_id = t.iteration_id
+        LEFT JOIN LATERAL (
+            SELECT eval_rationale
+            FROM proposals
+            WHERE iteration_id = t.iteration_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) p ON true
         WHERE t.workflow_id = $1
         ORDER BY t.started_at DESC
         LIMIT $2
@@ -181,12 +187,11 @@ async def analyze_failures(
                 eval_rationale=row["eval_rationale"],
             ),
         )
-        if len(snapshots) >= k:
-            break
-
     # Sandbox-error iterations rank first regardless of tool-call counts —
     # the gate's failure rationale is exactly what the agent needs to read
-    # to avoid re-triggering the same crash.
+    # to avoid re-triggering the same crash. Collect all fold-filtered
+    # candidates before sorting so sandbox-error traces aren't crowded out
+    # by newer non-sandbox traces when there are k+ of them.
     snapshots.sort(
         key=lambda s: (
             0 if s.iteration_state == _SANDBOX_ERROR_STATE else 1,

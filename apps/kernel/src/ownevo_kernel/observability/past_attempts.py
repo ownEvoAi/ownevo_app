@@ -63,7 +63,13 @@ async def fetch_past_attempts(
                p.plain_language_summary,
                p.eval_rationale
         FROM iterations i
-        LEFT JOIN proposals p ON p.iteration_id = i.id
+        LEFT JOIN LATERAL (
+            SELECT skill_id, plain_language_summary, eval_rationale
+            FROM proposals
+            WHERE iteration_id = i.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) p ON true
         WHERE i.workflow_id = $1
           AND i.state <> 'running'
         ORDER BY i.iteration_index DESC
@@ -153,7 +159,7 @@ def _render_row(a: PastAttempt) -> str:
 
 
 def _truncate(s: str, n: int) -> str:
-    s = s.strip().replace("\n", " ")
+    s = s.strip().replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 

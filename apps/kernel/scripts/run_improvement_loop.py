@@ -100,7 +100,7 @@ from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
     run_agent_turn,
     run_agent_turn_openai,
 )
-from ownevo_kernel.observability import render_past_attempts_block  # noqa: E402
+from ownevo_kernel.observability import fetch_past_attempts, format_past_attempts  # noqa: E402
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
 from scripts.seed_m5_baseline import DEFAULT_WORKFLOW_ID  # noqa: E402
@@ -404,13 +404,16 @@ async def main_async(args: CliArgs) -> int:
 
         # Cross-iteration failure memory (TODO-23): pull a compact summary of
         # prior iterations on this workflow so the agent doesn't re-make the
-        # same mistakes. Empty string on a cold workflow.
-        past_attempts_block = await render_past_attempts_block(
-            conn, workflow_id=args.workflow_id,
-        )
+        # same mistakes. Empty string on a cold workflow. DB failure here is
+        # non-fatal — proceed without memory rather than crashing the loop.
+        try:
+            past_attempts = await fetch_past_attempts(conn, workflow_id=args.workflow_id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"past-attempts: skipped (DB error: {exc})", file=sys.stderr)
+            past_attempts = []
+        past_attempts_block = format_past_attempts(past_attempts)
         if past_attempts_block:
-            n_attempts = past_attempts_block.count("\n- **iter ")
-            print(f"past-attempts: {n_attempts} prior iteration(s) prepended to kickoff")
+            print(f"past-attempts: {len(past_attempts)} prior iteration(s) prepended to kickoff")
 
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
             if args.api_format == "openai":
