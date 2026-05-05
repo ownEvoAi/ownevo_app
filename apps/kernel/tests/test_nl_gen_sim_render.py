@@ -129,6 +129,18 @@ def test_contract_review_no_extra_imports():
     assert "\nimport random\n" in content
 
 
+def test_no_future_import_in_rendered_body():
+    """Rendered body must not contain `from __future__ import annotations`.
+
+    `run_pipeline` prepends a 2-line prologue before the skill body, so a
+    future-import would no longer be at file start and Python would reject
+    it with SyntaxError. Regression guard: any re-addition to the renderer
+    is caught here without needing Docker.
+    """
+    content = render_simulation_module(DEMAND_PREDICTION_SIM_PLAN, DEMAND_PREDICTION_SPEC)
+    assert "from __future__ import annotations" not in content
+
+
 # ---------------------------------------------------------------------------
 # Plan/spec mismatch
 # ---------------------------------------------------------------------------

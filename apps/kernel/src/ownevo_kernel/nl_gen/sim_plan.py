@@ -27,7 +27,7 @@ SCHEMA_VERSION = "0.1"
 """Bumps to "1.0" at A3.4 (end of W3) per docs/PLAN.md schema-freeze."""
 
 ALLOWED_IMPORTS = frozenset(
-    {"random", "math", "statistics", "datetime", "json", "__future__"}
+    {"random", "math", "statistics", "datetime", "json"}
 )
 """Stdlib modules the generated sim is allowed to import.
 
@@ -35,8 +35,12 @@ ALLOWED_IMPORTS = frozenset(
 through both `init_state` and `step` so determinism is structural, not a
 property the LLM has to maintain. `math` / `statistics` are needed for
 seasonality (sin / cos / mean), `datetime` for date-stamped events, `json`
-for the entrypoint that serializes the trajectory. `__future__` is allowed
-so generated modules can opt into `from __future__ import annotations`.
+for the entrypoint that serializes the trajectory.
+
+`__future__` is intentionally excluded: `run_pipeline` prepends a 2-line
+prologue before the skill body so a `from __future__` line would no longer be
+at file start and Python would reject it with SyntaxError.
+
 Everything else (os, sys, subprocess, urllib, socket, pathlib, requests,
 numpy, pandas, ...) is rejected by `sim_render._ast_safety_check`."""
 
