@@ -94,6 +94,12 @@ class FailureSnapshot:
     `status="error"` in the trace's events array — a cheap signal of
     "this run was rough." `metric_outputs` is included so the agent can
     see the actual scores, not just error counts.
+
+    `iteration_state`, `sandbox_error_class`, and `eval_rationale` are
+    populated when the trace is linked to a finalized iteration —
+    cross-iteration failure memory (TODO-23). For sandbox-error
+    iterations, `eval_rationale` carries the gate's failure signature
+    (e.g. "Runner raised TimeoutError: ...", OOM trace excerpt).
     """
 
     trace_id: UUID
@@ -104,6 +110,12 @@ class FailureSnapshot:
     metric_outputs: dict[str, Any] | None
     tool_errors: int
     fold: str | None
+    iteration_state: str | None = None
+    sandbox_error_class: str | None = None
+    eval_rationale: str | None = None
+
+
+_SANDBOX_ERROR_STATE = "sandbox-error"
 
 
 async def analyze_failures(
@@ -113,8 +125,14 @@ async def analyze_failures(
     k: int = 10,
     include_test_fold: bool = False,
 ) -> list[FailureSnapshot]:
-    """Return up to `k` recent traces for `workflow_id`, sorted by how
-    many tool_call_result errors they contain (most failures first).
+    """Return up to `k` recent traces for `workflow_id`, sorted with
+    sandbox-error iterations first, then by tool_call_result error count
+    (most failures first).
+
+    Each row LEFT JOINs the linked iteration + proposal so the snapshot
+    carries `iteration_state`, `sandbox_error_class`, and the gate's
+    `eval_rationale` — the human-readable failure signature the agent
+    needs to avoid repeating prior crashes (TODO-23).
 
     Train/test discipline: by default, traces stamped `fold == "test"`
     in metric_outputs are filtered out so the agent never sees them.
@@ -122,11 +140,22 @@ async def analyze_failures(
     """
     rows = await conn.fetch(
         """
-        SELECT id, iteration_id, skill_version_id, workflow_id,
-               started_at, events, metric_outputs
-        FROM traces
-        WHERE workflow_id = $1
-        ORDER BY started_at DESC
+        SELECT t.id, t.iteration_id, t.skill_version_id, t.workflow_id,
+               t.started_at, t.events, t.metric_outputs,
+               i.state::text                AS iteration_state,
+               i.sandbox_error_class::text  AS sandbox_error_class,
+               p.eval_rationale             AS eval_rationale
+        FROM traces t
+        LEFT JOIN iterations i ON i.id = t.iteration_id
+        LEFT JOIN LATERAL (
+            SELECT eval_rationale
+            FROM proposals
+            WHERE iteration_id = t.iteration_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) p ON true
+        WHERE t.workflow_id = $1
+        ORDER BY t.started_at DESC
         LIMIT $2
         """,
         workflow_id,
@@ -153,12 +182,23 @@ async def analyze_failures(
                 metric_outputs=metrics,
                 tool_errors=tool_errors,
                 fold=fold,
+                iteration_state=row["iteration_state"],
+                sandbox_error_class=row["sandbox_error_class"],
+                eval_rationale=row["eval_rationale"],
             ),
         )
-        if len(snapshots) >= k:
-            break
-
-    snapshots.sort(key=lambda s: (-s.tool_errors, -s.started_at.timestamp()))
+    # Sandbox-error iterations rank first regardless of tool-call counts —
+    # the gate's failure rationale is exactly what the agent needs to read
+    # to avoid re-triggering the same crash. Collect all fold-filtered
+    # candidates before sorting so sandbox-error traces aren't crowded out
+    # by newer non-sandbox traces when there are k+ of them.
+    snapshots.sort(
+        key=lambda s: (
+            0 if s.iteration_state == _SANDBOX_ERROR_STATE else 1,
+            -s.tool_errors,
+            -s.started_at.timestamp(),
+        ),
+    )
     return snapshots[:k]
 
 

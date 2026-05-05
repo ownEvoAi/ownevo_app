@@ -201,6 +201,12 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (CC ~half day).
 - **Priority:** P1 — pattern is now the binding constraint on Stage D and beyond.
 - **Depends on:** none. Self-contained. Touches `apps/kernel/src/ownevo_kernel/observability/learnings.py` and the `analyze_failures` tool definition.
+- **Status update (2026-05-04):** ✅ CLOSED. Implemented as **B+A** on `feat/cross-iter-failure-memory`:
+  - **B (driver-side prompt injection):** new `observability/past_attempts.py` (`fetch_past_attempts` / `format_past_attempts` / `render_past_attempts_block`); `run_improvement_loop.py` queries the most recent finalized iterations on the workflow and prepends a compact "Past attempts" block to the agent kickoff. Memory is in-context, not tool-gated.
+  - **A (`analyze_failures` extension):** `FailureSnapshot` gains `iteration_state` / `sandbox_error_class` / `eval_rationale`. SQL LEFT JOINs `iterations` + `proposals`; sandbox-error iterations sort to top regardless of tool-error count. Tool description and dispatcher updated to surface and explain the new ranking.
+  - Tests: new `test_observability_past_attempts.py` (8 tests) + `test_analyze_failures_surfaces_sandbox_error_metadata`. Full kernel suite 436/436 green.
+  - **Post-review fixes (2026-05-05):** LATERAL join replaces bare LEFT JOIN on `proposals` (no UNIQUE constraint on `iteration_id` — plain join would duplicate rows if an iteration ever gains a second proposal); `analyze_failures` sort-after-break bug fixed (early break prevented sandbox-error traces from reaching the sort when k+ newer non-sandbox traces were present — the exact scenario the feature was built for); `_truncate` extended to strip `\r`/`\r\n`; `render_past_attempts_block` call wrapped in exception guard so a DB hiccup degrades gracefully rather than crashing the loop.
+  - **Empirical validation pending:** Stage D run on real M5 to confirm the lift curve is steeper with memory in-context than Stage C's 2/7 gate-passes.
 
 ---
 
