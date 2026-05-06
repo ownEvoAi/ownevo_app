@@ -7,8 +7,14 @@ A3.2: WorkflowSpec → simulator — `sim_plan.SimulationPlan` (LLM artifact)
 A3.3: Sim runs in sandbox — exercised via tests over the rendered output.
 A3.4: Schema FROZEN at end of W3 — bumps `SCHEMA_VERSION` to "1.0".
 
-A4.1: NL → eval cases — `eval_case_set.EvalCaseSet` + `eval_generator.generate_eval_case_set` + `eval_replay` + `eval_persistence`.
-A4.2: NL → success metric (`metric_generator.py`, deferred).
+A4.1: NL → eval cases — `eval_case_set.EvalCaseSet` (frozen schema)
+      + `eval_generator.generate_eval_case_set` (Anthropic tool-use)
+      + `eval_replay.replay_set` (in-process replay) +
+      `eval_persistence.persist_eval_case_set` (DB write).
+A4.2: NL → success metric — `metric_def.MetricDefinition` (frozen
+      schema) + `metric_compute.compute_metric` (pure compute over
+      ReplayResults) + `metric_generator.generate_metric_definition`
+      (Anthropic tool-use).
 A4.6: meta-eval spec (`meta_eval/`, deferred to W4-W5).
 """
 
@@ -45,6 +51,39 @@ from .eval_replay import (
     ReplayResult,
     replay_case,
     replay_set,
+)
+from .metric_compute import (
+    MetricComputeError,
+    MetricResult,
+    compute_metric,
+)
+from .metric_def import (
+    SCHEMA_VERSION as METRIC_DEFINITION_SCHEMA_VERSION,
+)
+from .metric_def import (
+    MetricDefinition,
+    MetricFamily,
+)
+from .metric_generator import (
+    DEFAULT_MAX_TOKENS as METRIC_DEFAULT_MAX_TOKENS,
+)
+from .metric_generator import (
+    DEFAULT_MODEL as METRIC_DEFAULT_MODEL,
+)
+from .metric_generator import (
+    SYSTEM_PROMPT as METRIC_SYSTEM_PROMPT,
+)
+from .metric_generator import (
+    TOOL_DESCRIPTION as METRIC_TOOL_DESCRIPTION,
+)
+from .metric_generator import (
+    TOOL_NAME as METRIC_TOOL_NAME,
+)
+from .metric_generator import (
+    MetricDefinitionValidationError,
+    MetricDirectionMismatchError,
+    NoMetricToolUseError,
+    generate_metric_definition,
 )
 from .sim_generator import (
     DEFAULT_MAX_TOKENS as SIM_DEFAULT_MAX_TOKENS,
@@ -161,4 +200,20 @@ __all__ = [
     "replay_case",
     "replay_set",
     "persist_eval_case_set",
+    # A4.2
+    "METRIC_DEFINITION_SCHEMA_VERSION",
+    "MetricDefinition",
+    "MetricFamily",
+    "MetricComputeError",
+    "MetricResult",
+    "compute_metric",
+    "METRIC_DEFAULT_MODEL",
+    "METRIC_DEFAULT_MAX_TOKENS",
+    "METRIC_TOOL_NAME",
+    "METRIC_TOOL_DESCRIPTION",
+    "METRIC_SYSTEM_PROMPT",
+    "NoMetricToolUseError",
+    "MetricDefinitionValidationError",
+    "MetricDirectionMismatchError",
+    "generate_metric_definition",
 ]
