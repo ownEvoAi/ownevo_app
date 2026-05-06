@@ -610,6 +610,82 @@ option (b)).
 The substrate works correctly across all of this — it's the agent's
 context that's missing the prior-failure signal.
 
+### F13 — A4.4 single-turn classification gate: devstral-small-2 (24B) is the local reference, matches Sonnet 4.6 (2026-05-05)
+
+Different track from F4-F12 (which all measured *multi-turn agent loop*
+on M5). The A4.4 NL-gen smoketest is a **single-turn forced tool-use**
+gate: agent receives a workflow description + tool vocabulary +
+trajectory through `target_step_index` (target event's bool label
+redacted), emits `predict_label(value, rationale)` once. Score via the
+A4.2 metric. Lower bar than the multi-turn loop — should be easier for
+small models.
+
+Setup: LiteLLM proxy translates Anthropic `/v1/messages` →
+`ollama_chat/<model>` `/api/chat`. Config at
+`infra/litellm/ollama.yaml`; dogfood script at
+`apps/kernel/scripts/run_a4_4_local_smoke.sh`. Same metric-aware
+prompt the cloud agent gets (per-workflow gate-metric framing block
+naming family + target + dominant error mode).
+
+Verdict against the 3 NL-gen fixtures (haiku 4.5, sonnet 4.6, opus 4.7
+above the table for cloud comparison):
+
+| backend | model | demand-pred (recall ≥0.50) | credit-risk (balanced_acc ≥0.40) | contract-review (f1 ≥0.75) | wall | cost |
+|---|---|---:|---:|---:|---:|---:|
+| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 ✅ | ~60s | $0.10 |
+| Anthropic | **sonnet 4.6** (cloud reference) | **0.60 ✅** | **0.50 ✅** | 0.77 ✅ | ~128s | $0.50 |
+| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 ✅ (thin) | 1.00 ✅ | ~100s | $2 |
+| Ollama | qwen2.5-coder:32b | 1.00 ✅ (always-True) | 0.50 ✅ | 0.89 ✅ | ~117s | $0 |
+| Ollama | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 ✅ | ~90s | $0 |
+| Ollama | **devstral-small-2** (24B, local reference) | **0.80 ✅** | **0.42 ✅** | 0.89 ✅ | ~100s | $0 |
+| Ollama | gpt-oss:20b | err (max_tokens before tool-call) | — | — | — | $0 |
+
+**Findings:**
+
+1. **devstral-small-2 (24B, local) matches/beats Sonnet 4.6 on the
+   single-turn gate.** It catches `winter-boot-spike-week-47` (the
+   canonical past-miss Sonnet missed). Strongest local-model result
+   in any sweep we've done — the NL-gen gate is *not* frontier-only.
+2. **qwen3-coder:30b — F5's multi-turn gold standard — is weak at
+   single-turn classification under partial info.** Strong codegen
+   training distribution doesn't transfer to "predict the redacted
+   bool from past trajectory + rule inference." Capability is task-
+   shape-specific, not raw-capability-specific.
+3. **qwen2.5-coder:32b passes all 3 by exploiting the recall-target
+   framing — predicts True on every demand-prediction case.** Recall
+   = 1.0 by construction, zero specificity. The metric-aware prompt's
+   "lean True under uncertainty when recall is the gate" instruction
+   gets taken to the literal extreme. A future smoketest pass should
+   use a balanced-accuracy or f1 metric on demand-prediction to catch
+   this degenerate strategy. Captured here as a calibration note —
+   the single-recall-metric design has this exposure.
+4. **gpt-oss:20b — F5-confirmed token exhaustion.** Same pattern:
+   model hits `max_tokens` before committing to the tool call. Also
+   true on the simpler single-turn task. Deeply structural to this
+   model.
+
+**LiteLLM proxy gotchas (now in `infra/litellm/ollama.yaml`):**
+
+- Use `ollama_chat/<model>` provider strings, **not** `ollama/<model>`.
+  The `_chat` variant routes through Ollama's `/api/chat`, which is
+  the only path that exposes proper tool-call translation in LiteLLM
+  1.83.x. Plain `ollama/<model>` uses `/api/generate` and silently
+  drops tool definitions, causing the agent to "respond in text only"
+  and trip `NoPredictToolUseError`.
+- Set `num_ctx: 65536` per model (mitigates F1 — Ollama `/v1` and
+  `/api/chat` both default to the model's tokenizer-default ctx, which
+  can be lower than 32k on some quants).
+- Use `os.environ/OWNEVO_OLLAMA_HOST` for env-var substitution in the
+  LiteLLM YAML (not shell `${...}` — LiteLLM doesn't expand shell
+  syntax).
+
+**Implication for Phase 3 of the original M5 sweep:** the F4-F12
+findings on multi-turn loops still hold (qwen3-coder:30b is the only
+viable local M5 driver). The A4.4 single-turn gate uses different
+selection criteria — devstral-small-2 isn't on the F5 multi-turn
+shortlist but is the best on this lower-bar task. The two tracks
+have orthogonal model selection.
+
 ---
 
 ## Candidate models — Ollama (8B–40B)

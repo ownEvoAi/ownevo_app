@@ -6,7 +6,7 @@
 
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
-        seed-m5-baseline m5-bootstrap-loop eval-replay
+        seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest
 
 help:
 	@printf 'targets:\n'
@@ -24,6 +24,9 @@ help:
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
+	@printf '  nl-gen-smoketest    A4.4 quality gate: live NL-gen + agent solver per case\n'
+	@printf '                      WORKFLOW=...; SMOKE_ARGS supports --from-fixtures /\n'
+	@printf '                      --max-cases / --model / --include-outcomes / --pretty\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -115,3 +118,17 @@ EVAL_ARGS ?=
 eval-replay:
 	cd apps/kernel && uv run python scripts/eval_replay.py \
 	    --workflow $(WORKFLOW) $(EVAL_ARGS)
+
+# ----------------------------------------------------------------------------
+# NL-gen smoketest (A4.4 — Phase-2 quality gate)
+# ----------------------------------------------------------------------------
+
+# `WORKFLOW=...` selects the fixture trio. Default `all` runs every
+# workflow and exits 0 only if every one meets target.
+# `SMOKE_ARGS=...` passes flags through to scripts/nl_gen_smoketest.py
+# (e.g. SMOKE_ARGS='--from-fixtures --max-cases 3').
+SMOKE_ARGS ?=
+
+nl-gen-smoketest:
+	cd apps/kernel && uv run --extra agent python scripts/nl_gen_smoketest.py \
+	    --workflow $(WORKFLOW) $(SMOKE_ARGS)

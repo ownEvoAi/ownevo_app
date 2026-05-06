@@ -5,7 +5,7 @@
   1. Cross-check the trio agrees on `workflow_spec_id` (per
      `eval_replay.replay_set`).
   2. Cross-check `metric.workflow_spec_id` + `metric.direction`
-     against the spec via `metric_compute._check_against_spec`.
+     against the spec via `metric_compute.check_against_spec`.
   3. Replay every case against the rendered sim once
      (single exec'd namespace per `replay_set` semantics).
   4. Compute the metric over the result list.
@@ -22,7 +22,7 @@ to stdout and the audit chain can canonicalize without extra adapters.
 `EvalRunnerError` distinguishes orchestration failures from the typed
 exceptions the underlying primitives already raise. Cross-check
 failures bubble up as the underlying `ValueError` from `replay_set` /
-`_check_against_spec` — they're caller-bug surfaces, not gate signal.
+`check_against_spec` — they're caller-bug surfaces, not gate signal.
 Sim execution failures bubble up as `EvalReplayError` for the same
 reason.
 """
@@ -30,7 +30,7 @@ reason.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet
 from ownevo_kernel.nl_gen.eval_replay import ReplayResult, replay_set
@@ -42,6 +42,9 @@ from ownevo_kernel.nl_gen.metric_compute import (
 from ownevo_kernel.nl_gen.metric_def import MetricDefinition
 from ownevo_kernel.nl_gen.sim_plan import SimulationPlan
 from ownevo_kernel.nl_gen.spec import WorkflowSpec
+
+if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
+    from anthropic import AsyncAnthropic
 
 
 class EvalRunnerError(RuntimeError):
@@ -129,7 +132,7 @@ def run_replay(
     Raises:
         ValueError: cross-check failure between case_set / plan / spec
             (via `replay_set`), or between metric / spec (via
-            `_check_against_spec`).
+            `check_against_spec`).
         EvalReplayError: a case is structurally broken — non-bool
             label_field, label_field absent from plan, step_index past
             trajectory's end, or sim execution raised.
@@ -174,8 +177,76 @@ def _pack_report(
     )
 
 
+async def run_with_agent(
+    case_set: EvalCaseSet,
+    plan: SimulationPlan,
+    spec: WorkflowSpec,
+    metric: MetricDefinition,
+    *,
+    client: "AsyncAnthropic",
+    model: str | None = None,
+    max_tokens: int | None = None,
+) -> EvalRunReport:
+    """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
+
+    The A4.4 smoke-test entrypoint. The agent (single-turn forced
+    tool-use, see `agent_solver.solve_with_agent`) predicts the
+    redacted bool label per case; predictions feed `compute_metric`
+    via the same `ReplayResult` shape `replay_set` produces, so the
+    `EvalRunReport` is byte-equivalent regardless of which solver
+    populated it.
+
+    Cross-checks (workflow_spec_id agreement, metric direction match)
+    fire before any API call so a mis-stitched trio fails fast.
+
+    Args:
+        case_set / plan / spec / metric: same as `run_replay`.
+        client: AsyncAnthropic client.
+        model: Override `agent_solver.DEFAULT_MODEL`.
+        max_tokens: Override `agent_solver.DEFAULT_MAX_TOKENS`.
+
+    Returns:
+        An `EvalRunReport` whose `outcomes[i].actual_value` is the
+        agent's prediction (not the sim's ground truth).
+
+    Raises:
+        ValueError: cross-check failure (workflow_spec_id or direction).
+        AgentSolverError / NoPredictToolUseError /
+            PredictToolValidationError: from the agent solver.
+        MetricComputeError: from compute_metric.
+    """
+    # Lazy import — agent_solver lives in the `agent` extra (anthropic).
+    # Importing at module top would force every consumer of run_replay
+    # to install the `agent` extra.
+    from .agent_solver import (
+        DEFAULT_MAX_TOKENS as _DEFAULT_MAX_TOKENS,
+        DEFAULT_MODEL as _DEFAULT_MODEL,
+        solve_with_agent,
+    )
+
+    check_against_spec(metric, spec)
+
+    results = await solve_with_agent(
+        client,
+        case_set,
+        plan,
+        spec,
+        metric,
+        model=_DEFAULT_MODEL if model is None else model,
+        max_tokens=_DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+    )
+    metric_result = compute_metric(metric, results)
+
+    is_test_fold_by_id = {c.case_id: c.is_test_fold for c in case_set.cases}
+    outcomes = tuple(
+        _outcome_for(r, is_test_fold=is_test_fold_by_id[r.case_id]) for r in results
+    )
+    return _pack_report(spec, metric, metric_result, outcomes)
+
+
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
     "run_replay",
+    "run_with_agent",
 ]

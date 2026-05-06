@@ -1,0 +1,325 @@
+# LiteLLM proxy config — Anthropic /v1/messages → Ollama /api/chat translation,
+# plus passthrough entries for Anthropic cloud models (for hybrid runs where
+# NL-gen uses a frontier model and the agent solver uses a local model).
+#
+# Used by `apps/kernel/scripts/run_a4_4_local_smoke.sh` to dogfood the A4.4
+# NL-gen smoketest gate against local models. Set `OWNEVO_OLLAMA_HOST` to the
+# host running the Ollama daemon (default localhost).
+#
+# Models picked from docs/local-model-testing.md candidate list.
+# Provider string is `ollama_chat/<model>` (not `ollama/<model>`) — the
+# `_chat` variant routes through Ollama's `/api/chat` endpoint, which
+# is the only path that exposes proper tool-call translation in
+# LiteLLM 1.83.x. Plain `ollama/<model>` uses `/api/generate` and
+# silently drops tool definitions.
+#
+# `num_ctx: 65536` mitigates F1 (Ollama /v1 truncation when ctx not
+# explicitly passed). Required even on a single-turn smoketest because
+# the demand-prediction trajectory + tool definitions push past the
+# 4k Ollama default.
+#
+# A4.4 smoke verdict on these models (2026-05-05, --from-fixtures, $0):
+#   devstral-small-2 (24B): ALL 3 ✅ — beats Sonnet 4.6 on demand-prediction
+#   qwen2.5-coder:32b:      ALL 3 ✅ — passes via degenerate always-True bias on demand-prediction
+#   qwen3-coder:30b:        1/3   — strong on classification but weak on the noisy ones
+#   gpt-oss:20b:            errs out (max_tokens before tool-call commit)
+
+model_list:
+  # Anthropic cloud passthrough — for hybrid runs (frontier NL-gen + local agent).
+  # Requires ANTHROPIC_API_KEY in the environment that starts the proxy.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Ollama local models (via /api/chat, not /api/generate).
+  - model_name: qwen3-coder-30b
+    litellm_params:
+      model: ollama_chat/qwen3-coder:30b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-30b-instruct
+    litellm_params:
+      model: ollama_chat/qwen3:30b-instruct
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: devstral-small-2
+    litellm_params:
+      model: ollama_chat/devstral-small-2:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen2.5-coder-32b
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:32b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: ollama_chat/gpt-oss:20b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma4-26b
+    litellm_params:
+      model: ollama_chat/gemma4:26b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-32b
+    litellm_params:
+      model: ollama_chat/qwen3:32b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.5-27b
+    litellm_params:
+      model: ollama_chat/qwen3.5:27b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: granite4.1-30b
+    litellm_params:
+      model: ollama_chat/granite4.1:30b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: phi4-reasoning
+    litellm_params:
+      model: ollama_chat/phi4-reasoning:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwq-32b
+    litellm_params:
+      model: ollama_chat/Qwq:32b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: glm-4.7-flash
+    litellm_params:
+      model: ollama_chat/glm-4.7-flash:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma4-31b
+    litellm_params:
+      model: ollama_chat/gemma4:31b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.5-35b-a3b
+    litellm_params:
+      model: ollama_chat/qwen3.5:35b-a3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.6-27b
+    litellm_params:
+      model: ollama_chat/qwen3.6:27b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.6-35b-a3b
+    litellm_params:
+      model: ollama_chat/qwen3.6:35b-a3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: nemotron-cascade-2
+    litellm_params:
+      model: ollama_chat/nemotron-cascade-2:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma4-31b
+    litellm_params:
+      model: ollama_chat/gemma4:31b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma4-e4b
+    litellm_params:
+      model: ollama_chat/gemma4:e4b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma4-e2b
+    litellm_params:
+      model: ollama_chat/gemma4:e2b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma3-27b
+    litellm_params:
+      model: ollama_chat/gemma3:27b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma3-12b
+    litellm_params:
+      model: ollama_chat/gemma3:12b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: gemma3n
+    litellm_params:
+      model: ollama_chat/gemma3n:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-14b
+    litellm_params:
+      model: ollama_chat/qwen3:14b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-8b
+    litellm_params:
+      model: ollama_chat/qwen3:8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-4b-instruct
+    litellm_params:
+      model: ollama_chat/qwen3:4b-instruct
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-30b-a3b
+    litellm_params:
+      model: ollama_chat/qwen3:30b-a3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.5-35b-a3b
+    litellm_params:
+      model: ollama_chat/qwen3.5:35b-a3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.5-9b
+    litellm_params:
+      model: ollama_chat/qwen3.5:9b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.6-27b
+    litellm_params:
+      model: ollama_chat/qwen3.6:27b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.6-35b-a3b
+    litellm_params:
+      model: ollama_chat/qwen3.6:35b-a3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen2.5-14b
+    litellm_params:
+      model: ollama_chat/qwen2.5:14b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen2.5-7b
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen2.5-coder-7b
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:7b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: granite4.1-8b
+    litellm_params:
+      model: ollama_chat/granite4.1:8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: granite4.1-3b
+    litellm_params:
+      model: ollama_chat/granite4.1:3b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: granite3.3-8b
+    litellm_params:
+      model: ollama_chat/granite3.3:8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: llama3.1-8b
+    litellm_params:
+      model: ollama_chat/llama3.1:8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: ministral-3-8b
+    litellm_params:
+      model: ollama_chat/ministral-3:8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: phi4-mini-reasoning
+    litellm_params:
+      model: ollama_chat/phi4-mini-reasoning:3.8b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: olmo-3-7b
+    litellm_params:
+      model: ollama_chat/olmo-3:7b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: lfm2
+    litellm_params:
+      model: ollama_chat/lfm2:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: devstral-64k-cline
+    litellm_params:
+      model: ollama_chat/fomenks/devstral-small_cline_roocode-64k:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3-cline-14b
+    litellm_params:
+      model: ollama_chat/mychen76/qwen3_cline_roocode:14b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: deepseek-r1-roo-14b
+    litellm_params:
+      model: ollama_chat/tom_himanen/deepseek-r1-roo-cline-tools:14b
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: qwen3.5-distilled-27b
+    litellm_params:
+      model: ollama_chat/kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+  - model_name: rnj-1
+    litellm_params:
+      model: ollama_chat/rnj-1:latest
+      api_base: os.environ/OWNEVO_OLLAMA_HOST
+      num_ctx: 65536
+
+litellm_settings:
+  set_verbose: false
+  drop_params: true   # silently drop unsupported params instead of erroring
