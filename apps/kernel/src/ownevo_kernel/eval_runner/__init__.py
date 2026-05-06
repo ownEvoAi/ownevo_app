@@ -2,7 +2,7 @@
 
 The orchestration seam between the NL-gen artifacts (A3.1 spec, A3.2 sim
 plan, A4.1 eval cases, A4.2 metric) and the regression gate. Composes
-`replay_set` + `compute_metric` + `_check_against_spec` into a single
+`replay_set` + `compute_metric` + `check_against_spec` into a single
 typed report.
 
 Two callable surfaces:
@@ -33,14 +33,34 @@ from .runner import (
     EvalCaseOutcome,
     EvalRunReport,
     run_replay,
+    run_with_agent,
 )
 
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
     "run_replay",
+    "run_with_agent",
     "build_inspect_task",
+    # A4.4 — re-exported lazily so installs without the `agent` extra
+    # don't fail at import time.
+    "AgentPrediction",
+    "AgentSolverError",
+    "NoPredictToolUseError",
+    "PredictToolValidationError",
+    "predict_one",
+    "solve_with_agent",
 ]
+
+
+_AGENT_SOLVER_LAZY_NAMES = {
+    "AgentPrediction",
+    "AgentSolverError",
+    "NoPredictToolUseError",
+    "PredictToolValidationError",
+    "predict_one",
+    "solve_with_agent",
+}
 
 
 def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
@@ -48,4 +68,8 @@ def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
         from .inspect_task import build_inspect_task as _bit
 
         return _bit
+    if name in _AGENT_SOLVER_LAZY_NAMES:
+        from . import agent_solver
+
+        return getattr(agent_solver, name)
     raise AttributeError(name)

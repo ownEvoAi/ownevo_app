@@ -78,14 +78,20 @@ def _bool_label_fields(plan: SimulationPlan) -> dict[str, EventField]:
     return {f.name: f for f in plan.event_fields if f.type == "bool"}
 
 
-def _exec_sim_module(
-    plan: SimulationPlan, spec: WorkflowSpec
+def exec_sim_module(
+    plan: SimulationPlan, spec: WorkflowSpec, *, caller: str = "sim"
 ) -> dict[str, Any]:
-    """Render + exec the sim module, return its namespace."""
+    """Render + exec the sim module via render_simulation_module; return its namespace.
+
+    Shared between eval_replay and agent_solver — both paths go through the same
+    AST safety gate inside render_simulation_module. `caller` labels the namespace
+    and compile filename for debuggable tracebacks (default "sim" when caller
+    doesn't matter).
+    """
     content = render_simulation_module(plan, spec)
     record = parse_skill(content)
-    ns: dict[str, Any] = {"__name__": "_eval_replay_sim"}
-    exec(compile(record.body, f"<eval-replay:{spec.id}>", "exec"), ns)
+    ns: dict[str, Any] = {"__name__": f"_{caller}_sim"}
+    exec(compile(record.body, f"<{caller}:{spec.id}>", "exec"), ns)
     return ns
 
 
@@ -123,7 +129,7 @@ def replay_case(
             f"{sorted(bool_fields)})"
         )
 
-    ns = namespace if namespace is not None else _exec_sim_module(plan, spec)
+    ns = namespace if namespace is not None else exec_sim_module(plan, spec, caller="eval-replay")
     try:
         run_simulation = ns["run_simulation"]
     except KeyError:
@@ -191,13 +197,14 @@ def replay_set(
             f"does not match spec.id={spec.id!r}"
         )
 
-    ns = _exec_sim_module(plan, spec)
+    ns = exec_sim_module(plan, spec, caller="eval-replay")
     return [replay_case(c, plan, spec, namespace=ns) for c in case_set.cases]
 
 
 __all__ = [
     "EvalReplayError",
     "ReplayResult",
+    "exec_sim_module",
     "replay_case",
     "replay_set",
 ]
