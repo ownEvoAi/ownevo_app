@@ -149,7 +149,7 @@ class HDBSCANClusterer:
         persistence: dict[int, float] = {}
         unique = sorted(set(int(x) for x in labels.tolist()) - {-1})
         if unique and hasattr(clusterer, "cluster_persistence_"):
-            for lbl, p in zip(unique, clusterer.cluster_persistence_, strict=False):
+            for lbl, p in zip(unique, clusterer.cluster_persistence_, strict=True):
                 persistence[int(lbl)] = float(p)
         return RawClusterAssignment(labels=labels, persistence=persistence)
 

@@ -13,6 +13,7 @@ predictions being clustered. If the caller has multiple sources
 
 from __future__ import annotations
 
+import hashlib
 from uuid import UUID
 
 import asyncpg
@@ -103,13 +104,15 @@ async def _insert_cluster(
     quality = (
         round(float(summary.quality_score), 2) if summary.quality_score is not None else None
     )
+    fingerprint = _fingerprint(workflow_id, summary.label, len(summary.member_indices))
     row = await conn.fetchrow(
         """
         INSERT INTO failure_clusters (
             workflow_id, label, severity, centroid,
-            sample_trace_ids, cluster_size, quality_score
+            sample_trace_ids, cluster_size, quality_score, fingerprint
         )
-        VALUES ($1, $2, $3, $4::vector, $5::uuid[], $6, $7)
+        VALUES ($1, $2, $3, $4::vector, $5::uuid[], $6, $7, $8)
+        ON CONFLICT (fingerprint) DO NOTHING
         RETURNING id
         """,
         workflow_id,
@@ -119,8 +122,27 @@ async def _insert_cluster(
         sample_trace_ids,
         len(summary.member_indices),
         quality,
+        fingerprint,
     )
-    return PersistedCluster(id=row["id"], summary=summary)
+    if row is None:
+        # Conflict: a cluster with this fingerprint already exists (re-run).
+        existing = await conn.fetchrow(
+            "SELECT id FROM failure_clusters WHERE fingerprint = $1",
+            fingerprint,
+        )
+        if existing is None:
+            raise RuntimeError(
+                f"ON CONFLICT lost the row for fingerprint {fingerprint!r}",
+            )
+        cluster_id = existing["id"]
+    else:
+        cluster_id = row["id"]
+    return PersistedCluster(id=cluster_id, summary=summary)
+
+
+def _fingerprint(workflow_id: str, label: str, cluster_size: int) -> str:
+    raw = f"{workflow_id}|{label}|{cluster_size}"
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _to_pgvector_literal(values: list[float]) -> str:

@@ -243,7 +243,7 @@ def _feature_gap_hints(
     zero_share = float(np.mean(actual_row == 0.0))
 
     # Bias: only flag when |mean_diff| is meaningful relative to the actuals.
-    bias_threshold = max(0.5, 0.25 * actual_mean)
+    bias_threshold = max(0.5, 0.25 * abs(actual_mean))
     if mean_diff <= -bias_threshold:
         hints.append("under-forecast")
     elif mean_diff >= bias_threshold:

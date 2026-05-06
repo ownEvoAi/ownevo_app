@@ -1,7 +1,7 @@
 """B3.3 — cluster → eval-case promotion (DB-backed integration tests).
 
-Skipped when `OWNEVO_DATABASE_URL` is unset. Pure-Python `plan_cluster_promotion`
-is also exercised here without the DB so unit-only CI gets some coverage.
+Skipped when `OWNEVO_DATABASE_URL` is unset.
+Pure-Python plan_cluster_promotion tests live in test_plan_cluster_promotion.py.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.eval_cases import (
     ClusterPromotionError,
     list_eval_cases,
-    plan_cluster_promotion,
     promote_cluster_to_eval_cases,
     promote_clusters_to_eval_cases,
 )
@@ -71,50 +70,6 @@ def _cluster(
         sample_signatures=("a", "b"),
     )
     return PersistedCluster(id=cluster_id or uuid.uuid4(), summary=summary)
-
-
-# ---------------------------------------------------------------------------
-# plan_cluster_promotion (no DB needed)
-# ---------------------------------------------------------------------------
-
-
-def test_plan_orders_by_rmsse_descending() -> None:
-    snaps = [
-        _snap("HOBBIES_1_001_CA_1_validation", rmsse=0.5),
-        _snap("HOBBIES_1_002_CA_1_validation", rmsse=2.0),
-        _snap("HOBBIES_1_003_CA_1_validation", rmsse=1.0),
-    ]
-    cluster = _cluster((0, 1, 2))
-    plan = plan_cluster_promotion(cluster=cluster, snapshots=snaps)
-    assert plan.series_ids == (
-        "HOBBIES_1_002_CA_1_validation",
-        "HOBBIES_1_003_CA_1_validation",
-        "HOBBIES_1_001_CA_1_validation",
-    )
-    assert plan.rmsse_per_series == (2.0, 1.0, 0.5)
-    assert plan.cluster_label == "winter footwear in Pacific NW Q4"
-    assert plan.severity == "high"
-
-
-def test_plan_caps_at_max_cases_per_cluster() -> None:
-    snaps = [_snap(f"HOBBIES_1_{i:03d}_CA_1_validation", rmsse=float(i)) for i in range(10)]
-    cluster = _cluster(tuple(range(10)))
-    plan = plan_cluster_promotion(cluster=cluster, snapshots=snaps, max_cases_per_cluster=3)
-    assert len(plan.series_ids) == 3
-
-
-def test_plan_rejects_out_of_range_member_index() -> None:
-    snaps = [_snap("HOBBIES_1_001_CA_1_validation", rmsse=1.0)]
-    cluster = _cluster((0, 5))  # 5 doesn't exist
-    with pytest.raises(ClusterPromotionError, match="out of range"):
-        plan_cluster_promotion(cluster=cluster, snapshots=snaps)
-
-
-def test_plan_rejects_non_finite_rmsse() -> None:
-    snaps = [_snap("HOBBIES_1_001_CA_1_validation", rmsse=float("nan"))]
-    cluster = _cluster((0,))
-    with pytest.raises(ClusterPromotionError, match="non-finite"):
-        plan_cluster_promotion(cluster=cluster, snapshots=snaps)
 
 
 # ---------------------------------------------------------------------------

@@ -104,22 +104,6 @@ class _IdentityReducer:
         return embeddings
 
 
-class _CategoricalClusterer:
-    """Buckets failures by `(cat_id, primary_hint)` derived from text.
-
-    Read the cat (HOBBIES / FOODS / HOUSEHOLD) + the first feature-gap
-    hint out of each `text_signature` and assign cluster ids by the
-    distinct (cat, hint) pairs we see. Deterministic and stable across
-    runs — gives the smoketest 3-6 small clusters typical of real M5
-    failure distributions.
-    """
-
-    def cluster(self, reduced: np.ndarray) -> RawClusterAssignment:
-        # We need text — but Clusterer only sees reduced embeddings.
-        # The CLI plugs in a pre-bound clusterer that already saw the
-        # texts (built in `build_stub_clusterer`).
-        raise NotImplementedError("use build_stub_clusterer(snapshots)")
-
 
 def build_stub_clusterer(snapshots: list[M5FailureSnapshot]) -> Clusterer:
     """Return a clusterer that buckets `snapshots` by (cat_id, primary hint).
@@ -315,24 +299,25 @@ async def main_async(args: CliArgs) -> int:
 
         try:
             conn = await asyncpg.connect(db_url, timeout=10)
-        except (asyncpg.PostgresConnectionFailureError, OSError) as exc:
+        except (asyncpg.ConnectionFailureError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
         try:
-            await _ensure_workflow_row(conn, args.workflow_id)
-            persisted = await persist_clustering_result(
-                conn,
-                workflow_id=args.workflow_id,
-                result=result,
-            )
-            cases = await promote_clusters_to_eval_cases(
-                conn,
-                workflow_id=args.workflow_id,
-                clusters=persisted,
-                snapshots=snapshots,
-                max_cases_per_cluster=args.max_cases_per_cluster,
-                min_reward_floor=args.min_reward_floor,
-            )
+            async with conn.transaction():
+                await _ensure_workflow_row(conn, args.workflow_id)
+                persisted = await persist_clustering_result(
+                    conn,
+                    workflow_id=args.workflow_id,
+                    result=result,
+                )
+                cases = await promote_clusters_to_eval_cases(
+                    conn,
+                    workflow_id=args.workflow_id,
+                    clusters=persisted,
+                    snapshots=snapshots,
+                    max_cases_per_cluster=args.max_cases_per_cluster,
+                    min_reward_floor=args.min_reward_floor,
+                )
         finally:
             await conn.close()
         summary["persisted_clusters"] = len(persisted)
@@ -399,8 +384,6 @@ def _result_summary(result: ClusteringResult, *, top_k: int) -> dict[str, object
 async def _ensure_workflow_row(conn: object, workflow_id: str) -> None:
     """Idempotent upsert — `cluster_m5_failures` stands alone from
     `m5_baseline.py`, so we don't depend on it having seeded the row."""
-    import asyncpg  # noqa: F401  (typing only; conn type comes in via asyncpg)
-
     await conn.execute(  # type: ignore[attr-defined]
         """
         INSERT INTO workflows (id, description, spec)

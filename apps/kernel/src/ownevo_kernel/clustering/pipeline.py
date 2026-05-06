@@ -121,7 +121,7 @@ def cluster_failures(
         sample_indices = _pick_samples(snapshots, member_indices.tolist())
         sample_signatures = tuple(snapshots[i].text_signature for i in sample_indices)
 
-        label_text = labeler.label(list(sample_signatures), cluster_idx).strip()
+        label_text = labeler.label(list(sample_signatures), cluster_idx).strip()[:120]
         if not label_text:
             label_text = f"cluster-{cluster_idx}"
 

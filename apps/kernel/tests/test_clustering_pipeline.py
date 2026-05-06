@@ -246,7 +246,6 @@ def test_all_noise_returns_insufficient_data() -> None:
 
 
 def test_mega_cluster_returns_insufficient_data() -> None:
-    snaps = _make_snapshots(11)
     # 10 points in cluster 0, 1 point in cluster 1 → 91% in one cluster.
     # min_cluster_size=2 means cluster 1 (size=1) drops. With cluster 1
     # dropped before mega-cluster check, we'd lose the signal — so
