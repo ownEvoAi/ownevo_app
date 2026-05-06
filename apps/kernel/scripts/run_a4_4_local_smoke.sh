@@ -33,19 +33,51 @@ OWNEVO_OLLAMA_HOST="${OWNEVO_OLLAMA_HOST:-http://localhost:11434}"
 export OWNEVO_OLLAMA_HOST
 
 # Default model list (mirrors infra/litellm/ollama.yaml model_name values).
-# gpt-oss-20b excluded — known max_tokens error before tool-call commit.
+# Excludes embedding-only and vision-only models. gpt-oss-20b excluded —
+# known max_tokens error before tool-call commit.
 DEFAULT_MODELS=(
   devstral-small-2
+  devstral-64k-cline
   qwen2.5-coder-32b
+  qwen2.5-coder-7b
+  qwen2.5-14b
+  qwen2.5-7b
   qwen3-coder-30b
   qwen3-30b-instruct
+  qwen3-30b-a3b
   qwen3-32b
+  qwen3-14b
+  qwen3-8b
+  qwen3-4b-instruct
   qwen3.5-27b
+  qwen3.5-35b-a3b
+  qwen3.5-9b
+  qwen3.5-distilled-27b
+  qwen3.6-27b
+  qwen3.6-35b-a3b
   gemma4-26b
+  gemma4-31b
+  gemma4-e4b
+  gemma4-e2b
+  gemma3-27b
+  gemma3-12b
+  gemma3n
   granite4.1-30b
+  granite4.1-8b
+  granite4.1-3b
+  granite3.3-8b
   phi4-reasoning
+  phi4-mini-reasoning
   qwq-32b
   glm-4.7-flash
+  llama3.1-8b
+  ministral-3-8b
+  olmo-3-7b
+  lfm2
+  nemotron-cascade-2
+  qwen3-cline-14b
+  deepseek-r1-roo-14b
+  rnj-1
 )
 
 # Caller can pin one model.
