@@ -100,30 +100,6 @@ def test_inverted_expected_value_fails_replay():
 # ---------------------------------------------------------------------------
 
 
-def _solo_case_set(case: GeneratedEvalCase, workflow_id: str) -> EvalCaseSet:
-    """Wrap one case in a minimum-size set, padding to satisfy class balance."""
-    others_true = [
-        case.model_copy(update={
-            "case_id": f"pad-t-{i}",
-            "expected_value": True,
-            "target_step_index": i,
-        })
-        for i in range(3)
-    ]
-    others_false = [
-        case.model_copy(update={
-            "case_id": f"pad-f-{i}",
-            "expected_value": False,
-            "target_step_index": 5 + i,
-        })
-        for i in range(6)
-    ]
-    return EvalCaseSet(
-        workflow_spec_id=workflow_id,
-        simulation_plan_workflow_id=workflow_id,
-        cases=[case, *others_true, *others_false],
-    )
-
 
 def test_unknown_label_field_raises_eval_replay_error():
     spec = FIXTURES["demand-prediction"]

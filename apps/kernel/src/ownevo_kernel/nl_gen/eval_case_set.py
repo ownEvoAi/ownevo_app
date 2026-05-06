@@ -42,6 +42,7 @@ Downstream consumers:
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -49,14 +50,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .spec import Provenance
 
 SCHEMA_VERSION = "0.1"
-MIN_CLASS_COUNT = 3
-"""Minimum number of True and False expected_value entries required per EvalCaseSet."""
 """A4.1 schema version. Frozen to "1.0" at the A4-end ritual.
 
 Pre-freeze the version is `0.1`. After freeze the kernel's freeze test
 (modeled on `tests/test_nl_gen_schema_freeze.py`) will pin it against
 the snapshot at `nl_gen/schemas/eval_case_set.v1.0.json`. To intentionally
 change the schema, bump this constant + regenerate the snapshot."""
+MIN_CLASS_COUNT = 3
+"""Minimum number of True and False expected_value entries required per EvalCaseSet."""
 
 
 class _Base(BaseModel):
@@ -197,7 +198,7 @@ class EvalCaseSet(_Base):
     def _case_ids_unique(self) -> "EvalCaseSet":
         ids = [c.case_id for c in self.cases]
         if len(ids) != len(set(ids)):
-            dupes = sorted({i for i in ids if ids.count(i) > 1})
+            dupes = sorted(k for k, v in Counter(ids).items() if v > 1)
             raise ValueError(f"cases contains duplicate case_ids: {dupes}")
         return self
 

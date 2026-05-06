@@ -7,7 +7,7 @@ A3.2: WorkflowSpec → simulator — `sim_plan.SimulationPlan` (LLM artifact)
 A3.3: Sim runs in sandbox — exercised via tests over the rendered output.
 A3.4: Schema FROZEN at end of W3 — bumps `SCHEMA_VERSION` to "1.0".
 
-A4.1: NL → eval cases (`eval_generator.py`, deferred).
+A4.1: NL → eval cases — `eval_case_set.EvalCaseSet` + `eval_generator.generate_eval_case_set` + `eval_replay` + `eval_persistence`.
 A4.2: NL → success metric (`metric_generator.py`, deferred).
 A4.6: meta-eval spec (`meta_eval/`, deferred to W4-W5).
 """
