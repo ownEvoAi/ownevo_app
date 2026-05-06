@@ -81,6 +81,60 @@ fresh `[Unreleased]` block above it.
   (`sentence-transformers>=2.7,<4`, `umap-learn>=0.5,<0.6`,
   `hdbscan>=0.8.33,<0.9`).
 
+### Fixed (B3 review hardening — post-PR-#49)
+- `scripts/cluster_m5_failures.py` — **CRITICAL:** `asyncpg.PostgresConnectionFailureError`
+  → `asyncpg.ConnectionFailureError` (the old name does not exist in asyncpg;
+  any DB connection error double-faulted as `AttributeError`, propagating as
+  exit code 1 traceback instead of the intended exit code 4).
+- `scripts/cluster_m5_failures.py` — atomicity: `_ensure_workflow_row` +
+  `persist_clustering_result` + `promote_clusters_to_eval_cases` now share a
+  single outer `async with conn.transaction()`. If promotion fails mid-batch,
+  cluster rows roll back with it — no orphaned `failure_clusters` rows.
+- `clustering/persistence.py` — idempotency: `_insert_cluster` now computes a
+  `sha256(workflow_id|label|cluster_size)` fingerprint, stores it in the new
+  `fingerprint TEXT` column, and uses `ON CONFLICT (fingerprint) DO NOTHING`
+  with a fetch-existing fallback. Re-running the script is safe. Migration
+  `0002_failure_cluster_fingerprint.sql` adds the column + partial unique index
+  (`WHERE fingerprint IS NOT NULL` so existing NULL rows don't conflict).
+- `clustering/pipeline.py` — LLM-generated labels capped at 120 chars
+  (`.strip()[:120]`) before DB write. `failure_clusters.label` is
+  `TEXT NOT NULL` with no schema-level length check.
+- `clustering/default_impl.py` — `zip(..., strict=False)` → `strict=True` in
+  the HDBSCAN persistence-array iteration; a length mismatch now raises
+  `ValueError` instead of silently producing `quality_score=None` for trailing
+  clusters.
+- `benchmark/m5_failure_analyzer.py` — `max(0.5, 0.25 * actual_mean)` →
+  `max(0.5, 0.25 * abs(actual_mean))` in `_feature_gap_hints` bias threshold.
+  Safe for M5 (actuals ≥ 0 always) but latent for negative-domain reuse in the
+  W5.3 NL-gen path.
+- Dead code removed: `_CategoricalClusterer` class (sole method raised
+  `NotImplementedError`; superseded by `build_stub_clusterer`), stray
+  `import asyncpg # noqa: F401` inside `_ensure_workflow_row`, dead
+  `snaps = _make_snapshots(11)` assignment immediately overwritten in
+  `test_mega_cluster_returns_insufficient_data`.
+
+### Changed (B3 review hardening)
+- `tests/test_eval_cases_from_cluster.py` — 4 pure-Python `test_plan_*` tests
+  extracted to a new `tests/test_plan_cluster_promotion.py`; they now run in
+  unit-only CI without `OWNEVO_DATABASE_URL` set. The module-level
+  `pytestmark` DB-skip gate no longer gates these tests.
+- `.github/workflows/ci.yml` — `test_agent_tools_run_pipeline.py` added to
+  the `--ignore` list. On `ubuntu-latest` Docker is available (so the
+  `pytestmark` skipif doesn't fire), but the cold `python@sha256` image pull
+  (~16 s) was blowing the 15 s per-test sandbox timeout. Consistent with the
+  existing pattern for sandbox-gated tests; moved to nightly.
+- `.github/workflows/m5-replay-nightly.yml` — `test_agent_tools_run_pipeline.py`
+  added to the nightly run in its own step; a `docker pull python@sha256:...`
+  step pre-warms the image so the 15 s timeout applies to container execution
+  rather than image download. Path trigger updated to include this test file.
+
+### Added (B3 review hardening)
+- `apps/kernel/migrations/0002_failure_cluster_fingerprint.sql` — `fingerprint
+  TEXT` column + partial unique index on `failure_clusters` for B3 idempotency.
+- `apps/kernel/tests/test_plan_cluster_promotion.py` — 4 pure-Python unit
+  tests for `plan_cluster_promotion` (RMSSE ordering, cap, out-of-range index,
+  non-finite RMSSE) extracted from the DB-gated module.
+
 ### Added (A4.6 — NL-gen meta-eval, D7)
 - `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/judgment.py` —
   `MetaEvalJudgment` Pydantic schema. Three orthogonal dimensions
