@@ -73,7 +73,7 @@ class MetricResult:
     degenerate: bool
 
 
-def _check_against_spec(definition: MetricDefinition, spec: WorkflowSpec) -> None:
+def check_against_spec(definition: MetricDefinition, spec: WorkflowSpec) -> None:
     """Cross-check the metric definition against its source WorkflowSpec.
 
     Raises `ValueError` (mirroring `eval_replay.replay_set`) if:
@@ -165,7 +165,7 @@ def compute_metric(
             dispatch (programming error).
     """
     if spec is not None:
-        _check_against_spec(definition, spec)
+        check_against_spec(definition, spec)
 
     if not results:
         raise MetricComputeError(
@@ -240,5 +240,6 @@ def compute_metric(
 __all__ = [
     "MetricComputeError",
     "MetricResult",
+    "check_against_spec",
     "compute_metric",
 ]

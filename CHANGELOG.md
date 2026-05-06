@@ -18,6 +18,30 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/eval_runner/runner.py` — A4.3: `run_replay(case_set,
+  plan, spec, metric) → EvalRunReport`. Composes `replay_set` + `compute_metric` +
+  `_check_against_spec` into a single typed report (per-case outcomes carrying
+  `is_test_fold`, metric value, meets_target, degenerate flag, confusion counts).
+  `EvalRunReport.to_dict()` is JSON-serializable for the CLI + audit chain.
+- `apps/kernel/src/ownevo_kernel/eval_runner/inspect_task.py` — A4.3:
+  `build_inspect_task(case_set, plan, spec) → inspect_ai.Task`. Lazy import of
+  `inspect-ai` (new optional `eval` extra). Materializes one Sample per case
+  with replay knobs in metadata so an A5+ agent solver can render the sim
+  without re-joining the source case set. Solver and scorer intentionally
+  unset — caller supplies them when an agent goes through `inspect_ai.eval()`.
+- `apps/kernel/scripts/eval_replay.py` — A4.3 CLI. `--workflow {demand-prediction
+  | credit-risk | contract-review | all}`; emits sorted-keys NDJSON to stdout;
+  exit 0 iff every requested workflow meets its target. `--include-outcomes`
+  + `--pretty` flags.
+- `Makefile` target `eval-replay` (with `WORKFLOW=...` and `EVAL_ARGS=...`).
+- `inspect-ai` added to a new optional `eval` extra in `apps/kernel/pyproject.toml`.
+- 54 new tests: `test_eval_runner.py` (29 — happy path × 3 fixtures, JSON
+  round-trip, determinism, every cross-check failure path, lazy-import shim),
+  `test_eval_runner_inspect_task.py` (importorskip-gated; covers Task shape +
+  Sample metadata + cross-check failures), `test_scripts_eval_replay.py` (19 —
+  per-workflow exit codes, `all` mode, sorted-keys canonicalization,
+  `--include-outcomes`, `--pretty`, argparse rejection, miss → exit 1).
+
 - `apps/kernel/src/ownevo_kernel/nl_gen/metric_def.py` — A4.2: frozen `MetricDefinition`
   Pydantic schema (`extra="forbid"`, `frozen=True`); closed `MetricFamily` union
   (`pass_rate` / `precision` / `recall` / `f1` / `balanced_accuracy` / `specificity`);
