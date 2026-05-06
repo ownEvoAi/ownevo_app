@@ -61,7 +61,7 @@ def _stub_report(workflow_id: str, *, meets_target: bool) -> EvalRunReport:
 
 
 def _patch_run_to(monkeypatch, *, meets_target: bool):
-    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model):
+    async def _stub_run_with_agent(case_set, plan, spec, metric, **kwargs):
         return _stub_report(spec.id, meets_target=meets_target)
 
     monkeypatch.setattr(smoketest, "run_with_agent", _stub_run_with_agent)
@@ -128,7 +128,7 @@ def test_all_mode_one_miss_propagates_exit_one(monkeypatch, capsys):
     state = {"i": 0}
     pattern = [True, False, True]
 
-    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model):
+    async def _stub_run_with_agent(case_set, plan, spec, metric, **kwargs):
         report = _stub_report(spec.id, meets_target=pattern[state["i"]])
         state["i"] += 1
         return report
@@ -301,3 +301,107 @@ def test_max_cases_above_total_is_no_op(monkeypatch, capsys):
     )
     capsys.readouterr()
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# A4.5 — --max-tokens-per-workflow guardrail
+# ---------------------------------------------------------------------------
+
+
+def test_max_tokens_default_unset_no_budget_block_in_output(monkeypatch, capsys):
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+
+    rc = smoketest.main(["--workflow", "demand-prediction", "--from-fixtures"])
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert "token_budget" not in payload
+
+
+def test_max_tokens_under_cap_emits_token_budget_block(monkeypatch, capsys):
+    """When the run completes under the cap, the JSON output gains a
+    `token_budget` block summarizing spend. The stub run_with_agent
+    doesn't actually consume tokens, so used_total stays 0."""
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+
+    rc = smoketest.main(
+        [
+            "--workflow",
+            "demand-prediction",
+            "--from-fixtures",
+            "--max-tokens-per-workflow",
+            "100000",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert payload["token_budget"]["max_tokens"] == 100_000
+    assert payload["token_budget"]["used_total"] == 0
+    assert payload["token_budget"]["n_calls"] == 0
+
+
+def test_max_tokens_exceeded_exits_three_with_structured_error(
+    monkeypatch, capsys
+):
+    """When run_with_agent raises TokenBudgetExceededError, the CLI
+    exits 3 and prints a structured error block to stdout."""
+    _patch_client(monkeypatch)
+
+    from ownevo_kernel.eval_runner import TokenBudgetExceededError
+
+    async def _explode(case_set, plan, spec, metric, **kwargs):
+        raise TokenBudgetExceededError(
+            "test-injected: cap tipped",
+            max_tokens=500,
+            used_input=400,
+            used_output=200,
+            n_calls=3,
+            last_label="tipping-case",
+        )
+
+    monkeypatch.setattr(smoketest, "run_with_agent", _explode)
+
+    rc = smoketest.main(
+        [
+            "--workflow",
+            "demand-prediction",
+            "--from-fixtures",
+            "--max-tokens-per-workflow",
+            "500",
+        ]
+    )
+    out = capsys.readouterr().out.strip()
+    assert rc == 3
+    payload = json.loads(out)
+    assert payload["error"] == "token_budget_exceeded"
+    assert payload["max_tokens"] == 500
+    assert payload["used_total"] == 600
+    assert payload["n_calls"] == 3
+    assert payload["last_label"] == "tipping-case"
+    assert payload["workflow_id"] == "demand-prediction"
+
+
+def test_max_tokens_propagated_to_run_with_agent(monkeypatch, capsys):
+    """The CLI constructs a TokenBudget and passes it down."""
+    _patch_client(monkeypatch)
+
+    captured: dict = {}
+
+    async def _capture(case_set, plan, spec, metric, **kwargs):
+        captured["budget"] = kwargs.get("budget")
+        return _stub_report(spec.id, meets_target=True)
+
+    monkeypatch.setattr(smoketest, "run_with_agent", _capture)
+    smoketest.main(
+        [
+            "--workflow",
+            "credit-risk",
+            "--from-fixtures",
+            "--max-tokens-per-workflow",
+            "12345",
+        ]
+    )
+    capsys.readouterr()
+    assert captured["budget"] is not None
+    assert captured["budget"].max_tokens == 12345

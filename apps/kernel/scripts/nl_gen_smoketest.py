@@ -58,6 +58,10 @@ from ownevo_kernel.eval_runner import EvalRunReport, run_with_agent  # noqa: E40
 from ownevo_kernel.eval_runner.agent_solver import (  # noqa: E402
     DEFAULT_MODEL as AGENT_DEFAULT_MODEL,
 )
+from ownevo_kernel.eval_runner.token_budget import (  # noqa: E402
+    TokenBudget,
+    TokenBudgetExceededError,
+)
 from ownevo_kernel.nl_gen import EvalCaseSet, generate_full_pipeline  # noqa: E402
 from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     DESCRIPTIONS,
@@ -165,6 +169,19 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--max-tokens-per-workflow",
+        type=int,
+        default=None,
+        help=(
+            "A4.5 cost guardrail. Cap on cumulative input+output tokens "
+            "per workflow (across all agent-solver calls). When the cap "
+            "is crossed the run aborts with a non-zero exit code; the "
+            "operator sees what was spent before the abort fired. Cap "
+            "is gross-token, not billable-token (cache reads not "
+            "deducted). Default unset (no cap)."
+        ),
+    )
+    parser.add_argument(
         "--pretty",
         action="store_true",
         help="Pretty-print the per-workflow JSON output (2-space indent).",
@@ -229,8 +246,14 @@ async def _smoke_one(
     max_cases: int | None,
     model: str,
     nl_gen_model: str | None,
-) -> tuple[EvalRunReport, float]:
-    """Run the gate for one workflow; return (report, wall_seconds)."""
+    max_tokens_per_workflow: int | None,
+) -> tuple[EvalRunReport, float, TokenBudget | None]:
+    """Run the gate for one workflow; return (report, wall_seconds, budget).
+
+    The budget is returned so the CLI can surface usage even on the
+    happy path (under-cap runs print spend; over-cap runs surface it
+    on the typed exception).
+    """
     started = time.perf_counter()
     spec, plan, case_set, metric = await _materialize_quartet(
         workflow_id,
@@ -240,10 +263,21 @@ async def _smoke_one(
         nl_gen_model=nl_gen_model,
     )
     case_set = _truncate_case_set(case_set, max_cases)
-    report = await run_with_agent(
-        case_set, plan, spec, metric, client=client, model=model
+    budget = (
+        TokenBudget(max_tokens=max_tokens_per_workflow)
+        if max_tokens_per_workflow is not None
+        else None
     )
-    return report, time.perf_counter() - started
+    report = await run_with_agent(
+        case_set,
+        plan,
+        spec,
+        metric,
+        client=client,
+        model=model,
+        budget=budget,
+    )
+    return report, time.perf_counter() - started, budget
 
 
 def _serialize(
@@ -253,12 +287,21 @@ def _serialize(
     workflow_id: str,
     pretty: bool,
     include_outcomes: bool,
+    budget: TokenBudget | None,
 ) -> str:
     payload = report.to_dict()
     if not include_outcomes:
         payload.pop("outcomes", None)
     payload["workflow_id"] = workflow_id
     payload["wall_seconds"] = round(wall_seconds, 3)
+    if budget is not None:
+        payload["token_budget"] = {
+            "max_tokens": budget.max_tokens,
+            "used_input": budget.used_input,
+            "used_output": budget.used_output,
+            "used_total": budget.used_total,
+            "n_calls": budget.n_calls,
+        }
     if pretty:
         return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True)
     return json.dumps(payload, sort_keys=True, ensure_ascii=True)
@@ -320,15 +363,37 @@ async def _async_main(ns: argparse.Namespace) -> int:
 
     all_met = True
     for workflow_id in workflows:
-        report, wall = await _smoke_one(
-            workflow_id,
-            client=client,
-            nl_gen_client=nl_gen_client,
-            from_fixtures=ns.from_fixtures,
-            max_cases=ns.max_cases,
-            model=ns.model,
-            nl_gen_model=ns.nl_gen_model,
-        )
+        try:
+            report, wall, budget = await _smoke_one(
+                workflow_id,
+                client=client,
+                nl_gen_client=nl_gen_client,
+                from_fixtures=ns.from_fixtures,
+                max_cases=ns.max_cases,
+                model=ns.model,
+                nl_gen_model=ns.nl_gen_model,
+                max_tokens_per_workflow=ns.max_tokens_per_workflow,
+            )
+        except TokenBudgetExceededError as exc:
+            print(
+                json.dumps(
+                    {
+                        "workflow_id": workflow_id,
+                        "error": "token_budget_exceeded",
+                        "message": str(exc),
+                        "max_tokens": exc.max_tokens,
+                        "used_input": exc.used_input,
+                        "used_output": exc.used_output,
+                        "used_total": exc.used_total,
+                        "n_calls": exc.n_calls,
+                        "last_label": exc.last_label,
+                    },
+                    sort_keys=True,
+                    ensure_ascii=True,
+                ),
+                flush=True,
+            )
+            return 3
         if not report.meets_target:
             all_met = False
         print(
@@ -338,6 +403,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 workflow_id=workflow_id,
                 pretty=ns.pretty,
                 include_outcomes=ns.include_outcomes,
+                budget=budget,
             )
         )
 

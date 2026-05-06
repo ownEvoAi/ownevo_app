@@ -60,7 +60,7 @@ async def test_run_with_agent_perfect_predictions_meets_target(
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         # Cross-checks already happened on the wrapper; the stub mirrors
         # the contract solve_with_agent satisfies.
         return _perfect_results(cs)
@@ -85,7 +85,7 @@ async def test_run_with_agent_all_wrong_misses_target(workflow_id, monkeypatch):
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         return _all_wrong_results(cs)
 
     monkeypatch.setattr(
@@ -112,7 +112,7 @@ async def test_outcomes_carry_agent_actual_values(monkeypatch):
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         # Always predict True regardless.
         return [
             ReplayResult(
@@ -142,7 +142,7 @@ async def test_is_test_fold_propagates_through_run_with_agent(monkeypatch):
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         return _perfect_results(cs)
 
     monkeypatch.setattr(
@@ -170,7 +170,7 @@ async def test_metric_workflow_id_mismatch_raises_before_solver(monkeypatch):
 
     called = {"yes": False}
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         called["yes"] = True
         return _perfect_results(cs)
 
@@ -195,7 +195,7 @@ async def test_metric_direction_mismatch_raises_before_solver(monkeypatch):
 
     called = {"yes": False}
 
-    async def _stub_solve(client, cs, pl, sp, m, *, model, max_tokens):
+    async def _stub_solve(client, cs, pl, sp, m, **_kwargs):
         called["yes"] = True
         return _perfect_results(cs)
 

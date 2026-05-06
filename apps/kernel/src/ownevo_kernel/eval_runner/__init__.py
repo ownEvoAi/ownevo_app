@@ -35,6 +35,10 @@ from .runner import (
     run_replay,
     run_with_agent,
 )
+from .determinism import (
+    NondeterminismError,
+    verify_determinism,
+)
 
 __all__ = [
     "EvalCaseOutcome",
@@ -50,6 +54,12 @@ __all__ = [
     "PredictToolValidationError",
     "predict_one",
     "solve_with_agent",
+    # A4.5 — guardrails. `TokenBudget` lives in agent_solver's lazy
+    # surface (it imports `AgentSolverError`); determinism is sync.
+    "TokenBudget",
+    "TokenBudgetExceededError",
+    "NondeterminismError",
+    "verify_determinism",
 ]
 
 
@@ -62,6 +72,11 @@ _AGENT_SOLVER_LAZY_NAMES = {
     "solve_with_agent",
 }
 
+_TOKEN_BUDGET_LAZY_NAMES = {
+    "TokenBudget",
+    "TokenBudgetExceededError",
+}
+
 
 def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
     if name == "build_inspect_task":
@@ -72,4 +87,8 @@ def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
         from . import agent_solver
 
         return getattr(agent_solver, name)
+    if name in _TOKEN_BUDGET_LAZY_NAMES:
+        from . import token_budget
+
+        return getattr(token_budget, name)
     raise AttributeError(name)
