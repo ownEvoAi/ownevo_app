@@ -495,8 +495,9 @@ async def predict_one(
         model: Model id. Default haiku (Anthropic) or pass a local model id.
         max_tokens: Output cap.
         openai_client: When set, use OpenAI-compat API instead of Anthropic.
-        budget: Optional A4.5 token-budget accumulator. Applied to Anthropic
-            calls only (OpenAI-compat responses don't carry usage the same way).
+        budget: Optional A4.5 token-budget accumulator. Reads
+            `input_tokens`/`output_tokens` (Anthropic) or
+            `prompt_tokens`/`completion_tokens` (OpenAI-compat).
             If cumulative usage crosses the cap, raises `TokenBudgetExceededError`.
     """
     trajectory = _trajectory_for_case(case, namespace)
@@ -517,6 +518,14 @@ async def predict_one(
                 # form. With only one tool registered this is equivalent.
                 tool_choice="required",
             )
+            if budget is not None:
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    budget.record(
+                        input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                        output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+                        label=case.case_id,
+                    )
             return _extract_prediction_openai(
                 response, case_id=case.case_id, model=model
             )
