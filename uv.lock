@@ -1479,7 +1479,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.29" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110,<1" },
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27,<1" },
-    { name = "inspect-ai", marker = "extra == 'eval'", specifier = ">=0.3,<1" },
+    { name = "inspect-ai", marker = "extra == 'eval'", specifier = ">=0.3.217,<0.4" },
     { name = "lightgbm", marker = "extra == 'baselines-m5'", specifier = ">=4.3,<5" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "openai", marker = "extra == 'agent'", specifier = ">=1.30,<2" },

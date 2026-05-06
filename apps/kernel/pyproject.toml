@@ -44,7 +44,7 @@ api = [
 # pure stdlib + numpy. Install when an agent gets wired through
 # `inspect_ai.eval()` in A5+.
 eval = [
-    "inspect-ai>=0.3,<1",
+    "inspect-ai>=0.3.217,<0.4",
 ]
 
 [tool.uv.sources]

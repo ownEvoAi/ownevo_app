@@ -17,11 +17,14 @@ Inspect AI vocabulary mapping:
                                             handle the audit trail uses)
   * `inspect_ai.dataset.Sample.target`    ← `str(expected_value)`
                                             ("True" / "False")
-  * `inspect_ai.dataset.Sample.metadata`  ← `{"sim_seed", "n_steps",
+  * `inspect_ai.dataset.Sample.metadata`  ← `{"workflow_spec_id",
+                                            "sim_seed", "n_steps",
                                             "target_step_index",
                                             "target_label_field",
-                                            "is_test_fold",
-                                            "rationale", "provenance"}`
+                                            "expected_value",
+                                            "is_test_fold", "rationale",
+                                            "provenance_kind",
+                                            "provenance_source"}`
                                             so the future agent solver
                                             has every replay knob
                                             without re-joining against
@@ -36,7 +39,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet
+from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
 from ownevo_kernel.nl_gen.sim_plan import SimulationPlan
 from ownevo_kernel.nl_gen.spec import WorkflowSpec
 
@@ -44,7 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from inspect_ai import Task
 
 
-def _sample_metadata(case_set: EvalCaseSet, case) -> dict[str, Any]:
+def _sample_metadata(case_set: EvalCaseSet, case: GeneratedEvalCase) -> dict[str, Any]:
     return {
         "workflow_spec_id": case_set.workflow_spec_id,
         "sim_seed": case.sim_seed,

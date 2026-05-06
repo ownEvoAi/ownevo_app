@@ -36,7 +36,7 @@ from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet
 from ownevo_kernel.nl_gen.eval_replay import ReplayResult, replay_set
 from ownevo_kernel.nl_gen.metric_compute import (
     MetricResult,
-    _check_against_spec,
+    check_against_spec,
     compute_metric,
 )
 from ownevo_kernel.nl_gen.metric_def import MetricDefinition
@@ -95,7 +95,7 @@ class EvalRunReport:
     def to_dict(self) -> dict[str, Any]:
         """JSON-serializable view. `outcomes` becomes a list of dicts."""
         d = asdict(self)
-        d["outcomes"] = [asdict(o) for o in self.outcomes]
+        d["outcomes"] = list(d["outcomes"])
         return d
 
 
@@ -136,7 +136,7 @@ def run_replay(
         MetricComputeError: empty result list, non-bool label values,
             or computed value fell outside the metric's advertised bounds.
     """
-    _check_against_spec(metric, spec)
+    check_against_spec(metric, spec)
 
     results = replay_set(case_set, plan, spec)
     metric_result = compute_metric(metric, results)
@@ -177,6 +177,5 @@ def _pack_report(
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
-    "EvalRunnerError",
     "run_replay",
 ]

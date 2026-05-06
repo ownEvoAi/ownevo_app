@@ -32,14 +32,12 @@ from __future__ import annotations
 from .runner import (
     EvalCaseOutcome,
     EvalRunReport,
-    EvalRunnerError,
     run_replay,
 )
 
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
-    "EvalRunnerError",
     "run_replay",
     "build_inspect_task",
 ]

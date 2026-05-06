@@ -96,8 +96,8 @@ def _serialize(report: EvalRunReport, *, pretty: bool, include_outcomes: bool) -
     if not include_outcomes:
         payload.pop("outcomes", None)
     if pretty:
-        return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True)
-    return json.dumps(payload, sort_keys=True, ensure_ascii=True)
+        return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True, default=str)
+    return json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -107,7 +107,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     all_met = True
     for workflow_id in workflows:
-        report = _run_one(workflow_id)
+        try:
+            report = _run_one(workflow_id)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                json.dumps(
+                    {"workflow_spec_id": workflow_id, "error": str(exc), "meets_target": False},
+                    sort_keys=True,
+                    ensure_ascii=True,
+                ),
+                flush=True,
+                file=sys.stderr,
+            )
+            all_met = False
+            continue
         if not report.meets_target:
             all_met = False
         print(
@@ -115,7 +128,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 report,
                 pretty=ns.pretty,
                 include_outcomes=ns.include_outcomes,
-            )
+            ),
+            flush=True,
         )
 
     return 0 if all_met else 1

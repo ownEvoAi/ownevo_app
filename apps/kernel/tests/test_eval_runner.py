@@ -285,12 +285,11 @@ def test_unknown_attribute_raises_attribute_error():
 
 
 def test_build_inspect_task_resolves_through_shim():
-    """The lazy shim must at least find the symbol — even if the import fails
-    inside (when `inspect-ai` isn't installed), accessing the attribute
-    should not itself raise AttributeError on the shim level."""
+    """The lazy shim must resolve `build_inspect_task` to a callable.
+    Attribute access via __getattr__ should not raise AttributeError regardless
+    of whether inspect-ai is installed (ImportError fires only when the function
+    is called, not when the attribute is accessed)."""
     import ownevo_kernel.eval_runner as er
 
-    try:
-        er.build_inspect_task  # noqa: B018
-    except ImportError:
-        pytest.skip("inspect-ai not installed (eval extra) — shim resolved correctly")
+    fn = er.build_inspect_task
+    assert callable(fn)

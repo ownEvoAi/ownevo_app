@@ -176,3 +176,53 @@ def test_miss_returns_one(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 1
     assert json.loads(out)["meets_target"] is False
+
+
+def test_all_exits_one_when_any_workflow_misses(monkeypatch, capsys):
+    """all_met accumulator must stay False even when subsequent workflows pass.
+
+    Exercises the partial-miss path: one workflow misses, the rest pass via
+    the real fixtures. Exit code is 1 despite the majority passing, and all
+    N lines are still emitted (the loop does not short-circuit on the first
+    miss)."""
+    from ownevo_kernel.eval_runner import EvalRunReport
+    import scripts.eval_replay as cli
+
+    original_run_one = cli._run_one
+    missed_id = WORKFLOW_CHOICES[0]
+
+    def _patched(workflow_id):
+        if workflow_id == missed_id:
+            return EvalRunReport(
+                workflow_spec_id=workflow_id,
+                metric_name="demo",
+                metric_family="recall",
+                direction="maximize",
+                value=0.1,
+                target_value=0.8,
+                meets_target=False,
+                degenerate=False,
+                n_total=10,
+                n_pass=1,
+                tp=1,
+                tn=0,
+                fp=0,
+                fn=9,
+                outcomes=tuple(),
+            )
+        return original_run_one(workflow_id)
+
+    monkeypatch.setattr(cli, "_run_one", _patched)
+    rc = main(["--workflow", "all"])
+    out = capsys.readouterr().out.strip()
+    lines = out.splitlines()
+
+    assert len(lines) == len(WORKFLOW_CHOICES)
+    assert rc == 1
+
+    missed = [json.loads(l) for l in lines if json.loads(l)["workflow_spec_id"] == missed_id]
+    assert len(missed) == 1
+    assert missed[0]["meets_target"] is False
+
+    passing = [json.loads(l) for l in lines if json.loads(l)["workflow_spec_id"] != missed_id]
+    assert all(p["meets_target"] is True for p in passing)
