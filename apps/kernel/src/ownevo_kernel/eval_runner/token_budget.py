@@ -36,7 +36,10 @@ caching). For a guardrail, the gross surface is the right primitive.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+_log = logging.getLogger(__name__)
 
 from .agent_solver import AgentSolverError
 
@@ -162,6 +165,12 @@ def extract_usage(msg: object) -> tuple[int, int]:
         return 0, 0
     input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
     output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    if input_tokens == 0 and output_tokens == 0:
+        _log.warning(
+            "extract_usage: usage object present but both input_tokens and "
+            "output_tokens resolved to 0 — the SDK may have renamed these "
+            "fields. Token budget will not accumulate for this call."
+        )
     return input_tokens, output_tokens
 
 

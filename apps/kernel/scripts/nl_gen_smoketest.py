@@ -58,7 +58,7 @@ from ownevo_kernel.eval_runner import EvalRunReport, run_with_agent  # noqa: E40
 from ownevo_kernel.eval_runner.agent_solver import (  # noqa: E402
     DEFAULT_MODEL as AGENT_DEFAULT_MODEL,
 )
-from ownevo_kernel.eval_runner.token_budget import (  # noqa: E402
+from ownevo_kernel.eval_runner import (  # noqa: E402
     TokenBudget,
     TokenBudgetExceededError,
 )
@@ -73,6 +73,14 @@ from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
 
 WORKFLOW_CHOICES = sorted(FIXTURES.keys())
 _NL_GEN_STAGES = 4  # workflow_spec → sim_plan → eval_case_set → metric_definition
+
+
+def _positive_int(value: str) -> int:
+    """argparse type that rejects zero and negative values with a clean error."""
+    i = int(value)
+    if i <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
+    return i
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -170,7 +178,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-tokens-per-workflow",
-        type=int,
+        type=_positive_int,
         default=None,
         help=(
             "A4.5 cost guardrail. Cap on cumulative input+output tokens "

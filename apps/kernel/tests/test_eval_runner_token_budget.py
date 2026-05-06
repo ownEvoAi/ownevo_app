@@ -183,6 +183,19 @@ def test_extract_usage_missing_fields_treated_as_zero():
     assert extract_usage(msg) == (0, 0)
 
 
+def test_extract_usage_none_fields_treated_as_zero():
+    msg = SimpleNamespace(usage=SimpleNamespace(input_tokens=None, output_tokens=None))
+    assert extract_usage(msg) == (0, 0)
+
+
+def test_token_budget_record_zero_tokens_accepted():
+    b = TokenBudget(max_tokens=100)
+    b.record(input_tokens=0, output_tokens=0, label="noop")
+    assert b.used_total == 0
+    assert b.n_calls == 1
+    assert b.last_label == "noop"
+
+
 # ---------------------------------------------------------------------------
 # Integration: predict_one
 # ---------------------------------------------------------------------------

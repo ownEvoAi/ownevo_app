@@ -132,7 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 json.dumps(
                     {
-                        "workflow_spec_id": workflow_id,
+                        "workflow_spec_id": FIXTURES[workflow_id].id,
                         "error": "nondeterminism",
                         "kind": exc.kind,
                         "case_id": exc.case_id,
@@ -149,12 +149,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             nondeterminism_seen = True
-            all_met = False
             continue
         except Exception as exc:  # noqa: BLE001
             print(
                 json.dumps(
-                    {"workflow_spec_id": workflow_id, "error": str(exc), "meets_target": False},
+                    {
+                        "workflow_spec_id": FIXTURES[workflow_id].id,
+                        "error": str(exc),
+                        "meets_target": False,
+                    },
                     sort_keys=True,
                     ensure_ascii=True,
                 ),

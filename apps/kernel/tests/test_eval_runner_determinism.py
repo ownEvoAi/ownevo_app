@@ -31,7 +31,7 @@ from ownevo_kernel.eval_runner import (
 )
 from ownevo_kernel.eval_runner.determinism import (
     METRIC_VALUE_TOLERANCE,
-    _compare_reports,
+    compare_reports,
 )
 from ownevo_kernel.nl_gen.fixtures import (
     EVAL_CASE_SET_FIXTURES,
@@ -82,7 +82,7 @@ def test_verify_determinism_byte_equal_to_run_replay(workflow_id):
 
 
 # ---------------------------------------------------------------------------
-# Hand-crafted divergence reports — drive _compare_reports directly
+# Hand-crafted divergence reports — drive compare_reports directly
 # ---------------------------------------------------------------------------
 
 
@@ -138,14 +138,14 @@ def _baseline_pair() -> tuple[EvalRunReport, EvalRunReport]:
 
 def test_compare_reports_identical_passes():
     a, b = _baseline_pair()
-    _compare_reports(a, b)  # does not raise
+    compare_reports(a, b)  # does not raise
 
 
 def test_compare_reports_outcome_count_mismatch_raises():
     a, b = _baseline_pair()
     b = dataclasses.replace(b, outcomes=b.outcomes[:1])
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "outcome_count"
     assert excinfo.value.case_id is None
 
@@ -154,7 +154,7 @@ def test_compare_reports_case_id_order_diverges_raises():
     a, b = _baseline_pair()
     b = dataclasses.replace(b, outcomes=tuple(reversed(b.outcomes)))
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "case_id_order"
 
 
@@ -166,7 +166,7 @@ def test_compare_reports_actual_value_divergence_raises():
     )
     b = _make_report(outcomes=flipped, n_pass=1, tp=0, fn=1)
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     err = excinfo.value
     assert err.kind == "actual_value"
     assert err.case_id == "c1"
@@ -185,7 +185,7 @@ def test_compare_reports_passed_flag_divergence_raises():
     )
     b = _make_report(outcomes=diverged, n_pass=1)
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "passed"
     assert excinfo.value.case_id == "c1"
 
@@ -194,7 +194,7 @@ def test_compare_reports_confusion_count_divergence_raises():
     a, b = _baseline_pair()
     b = dataclasses.replace(b, tp=999)  # Only the count differs.
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "count:tp"
 
 
@@ -202,7 +202,7 @@ def test_compare_reports_metric_value_divergence_raises():
     a, _ = _baseline_pair()
     b = _make_report(outcomes=a.outcomes, value=0.0)
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "metric_value"
 
 
@@ -210,12 +210,19 @@ def test_compare_reports_within_tolerance_accepted():
     a, _ = _baseline_pair()
     # Tiny delta well under 1e-9.
     b = _make_report(outcomes=a.outcomes, value=1.0 + METRIC_VALUE_TOLERANCE / 10)
-    _compare_reports(a, b)  # does not raise
+    compare_reports(a, b)  # does not raise
 
 
 def test_compare_reports_just_over_tolerance_rejected():
     a, _ = _baseline_pair()
     b = _make_report(outcomes=a.outcomes, value=1.0 + METRIC_VALUE_TOLERANCE * 10)
     with pytest.raises(NondeterminismError) as excinfo:
-        _compare_reports(a, b)
+        compare_reports(a, b)
     assert excinfo.value.kind == "metric_value"
+
+
+def test_compare_reports_empty_outcomes_passes():
+    """Zero-case replay: zip short-circuits, falls through to count + metric checks."""
+    a = _make_report(outcomes=(), tp=0, tn=0, fp=0, fn=0, n_total=0, n_pass=0, value=0.0)
+    b = _make_report(outcomes=(), tp=0, tn=0, fp=0, fn=0, n_total=0, n_pass=0, value=0.0)
+    compare_reports(a, b)  # does not raise

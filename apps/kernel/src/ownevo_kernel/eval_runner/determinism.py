@@ -41,6 +41,8 @@ without being so generous it would mask a real bug.
 
 from __future__ import annotations
 
+import math
+
 from .runner import EvalRunReport, EvalRunnerError, run_replay
 
 # Local imports to avoid a circular import: this module is imported by
@@ -87,7 +89,7 @@ class NondeterminismError(EvalRunnerError):
         self.kind = kind
 
 
-def _compare_reports(
+def compare_reports(
     run1: EvalRunReport, run2: EvalRunReport
 ) -> None:
     """Raise `NondeterminismError` on the first divergence.
@@ -154,7 +156,7 @@ def _compare_reports(
             )
 
     delta = abs(run1.value - run2.value)
-    if delta > METRIC_VALUE_TOLERANCE:
+    if math.isnan(delta) or delta > METRIC_VALUE_TOLERANCE:
         raise NondeterminismError(
             f"metric value diverged beyond tolerance: "
             f"replay 1={run1.value!r}, replay 2={run2.value!r}, "
@@ -195,12 +197,13 @@ def verify_determinism(
     """
     run1 = run_replay(case_set, plan, spec, metric)
     run2 = run_replay(case_set, plan, spec, metric)
-    _compare_reports(run1, run2)
+    compare_reports(run1, run2)
     return run1
 
 
 __all__ = [
     "METRIC_VALUE_TOLERANCE",
     "NondeterminismError",
+    "compare_reports",
     "verify_determinism",
 ]

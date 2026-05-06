@@ -1,30 +1,26 @@
-"""Eval runner — generated eval cases → score (A4.3).
+"""Eval runner — generated eval cases → score (A4.3+).
 
 The orchestration seam between the NL-gen artifacts (A3.1 spec, A3.2 sim
 plan, A4.1 eval cases, A4.2 metric) and the regression gate. Composes
 `replay_set` + `compute_metric` + `check_against_spec` into a single
 typed report.
 
-Two callable surfaces:
+Four callable surfaces:
 
   * `run_replay(case_set, plan, spec, metric)` — deterministic replay
-    against the rendered sim. No model in the loop. This is the
-    A4.3 load-bearing path: `make eval-replay WORKFLOW=...` invokes
-    this. Every case's `actual_value` comes from the sim's hidden
-    ground-truth label, so against the A4.1 fixtures every case passes
-    by construction (the fixtures pin replay-equivalence).
+    against the rendered sim. No model in the loop. A4.3 load-bearing
+    path (`make eval-replay WORKFLOW=...`).
+  * `run_with_agent(case_set, plan, spec, metric, *, client, ...)` —
+    same shape as `run_replay` but `actual_value`s come from a Claude
+    agent (single-turn forced tool-use). A4.4 smoke-test entrypoint.
+  * `verify_determinism(case_set, plan, spec, metric)` — runs
+    `run_replay` twice and asserts identical outcomes; raises
+    `NondeterminismError` on the first divergence. A4.5 guardrail.
   * `build_inspect_task(case_set, plan, spec)` — adapts the trio into
-    an `inspect_ai.Task` so an agent (A4.4+) can be wired through
-    `inspect_ai.eval(task, model="anthropic/...")`. Lazy import — the
-    `inspect-ai` package lives in the `eval` extra so the runtime
-    kernel install stays slim.
+    an `inspect_ai.Task`. Lazy import (requires the `eval` extra).
 
-Why both: A4.3 ships a working score today (`run_replay`) without
-requiring an agent or the heavy Inspect AI install. The Task adapter
-proves the integration shape and is what A5+ will hit when there's an
-agent producing labels instead of the sim. The two paths share the
-report dataclass so the gate's downstream consumers don't care which
-path fed them.
+The three non-Inspect paths share `EvalRunReport` so the gate's
+downstream consumers don't care which path fed them.
 """
 
 from __future__ import annotations
@@ -54,8 +50,10 @@ __all__ = [
     "PredictToolValidationError",
     "predict_one",
     "solve_with_agent",
-    # A4.5 — guardrails. `TokenBudget` lives in agent_solver's lazy
-    # surface (it imports `AgentSolverError`); determinism is sync.
+    # A4.5 — guardrails. `TokenBudget` is defined in `token_budget.py`;
+    # it imports `AgentSolverError` from `agent_solver` (which lives in
+    # the `agent` extra), so both are lazy-shimmed together. `NondeterminismError`
+    # and `verify_determinism` are sync and eagerly imported above.
     "TokenBudget",
     "TokenBudgetExceededError",
     "NondeterminismError",
