@@ -85,6 +85,10 @@ from .metric_generator import (
     NoMetricToolUseError,
     generate_metric_definition,
 )
+from .pipeline import (
+    NLGenPipelineResult,
+    generate_full_pipeline,
+)
 from .sim_generator import (
     DEFAULT_MAX_TOKENS as SIM_DEFAULT_MAX_TOKENS,
 )
@@ -216,4 +220,7 @@ __all__ = [
     "MetricDefinitionValidationError",
     "MetricDirectionMismatchError",
     "generate_metric_definition",
+    # A4.4
+    "NLGenPipelineResult",
+    "generate_full_pipeline",
 ]

@@ -33,14 +33,34 @@ from .runner import (
     EvalCaseOutcome,
     EvalRunReport,
     run_replay,
+    run_with_agent,
 )
 
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
     "run_replay",
+    "run_with_agent",
     "build_inspect_task",
+    # A4.4 — re-exported lazily so installs without the `agent` extra
+    # don't fail at import time.
+    "AgentPrediction",
+    "AgentSolverError",
+    "NoPredictToolUseError",
+    "PredictToolValidationError",
+    "predict_one",
+    "solve_with_agent",
 ]
+
+
+_AGENT_SOLVER_LAZY_NAMES = {
+    "AgentPrediction",
+    "AgentSolverError",
+    "NoPredictToolUseError",
+    "PredictToolValidationError",
+    "predict_one",
+    "solve_with_agent",
+}
 
 
 def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
@@ -48,4 +68,8 @@ def __getattr__(name: str):  # pragma: no cover - thin lazy-import shim
         from .inspect_task import build_inspect_task as _bit
 
         return _bit
+    if name in _AGENT_SOLVER_LAZY_NAMES:
+        from . import agent_solver
+
+        return getattr(agent_solver, name)
     raise AttributeError(name)

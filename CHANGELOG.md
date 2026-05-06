@@ -18,6 +18,41 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py` — A4.4: Claude
+  agent predicts the redacted bool label per eval case via single-turn forced
+  tool-use (`predict_label(value: bool, rationale: str)`). Past trajectory
+  events keep their true labels (training signal); only the target event's
+  label_field is replaced with `<REDACTED>`. Tool definitions surface as
+  vocabulary (no actual tool execution in v1). Default model: haiku 4.5.
+  Errors: `AgentSolverError`, `NoPredictToolUseError`, `PredictToolValidationError`.
+- `apps/kernel/src/ownevo_kernel/eval_runner/runner.py` — A4.4: `run_with_agent`
+  orchestrator. Mirrors `run_replay`; only `actual_value` source differs (agent
+  prediction vs sim ground truth). Cross-checks fire before any API call.
+  EvalRunReport shape unchanged so downstream consumers don't move.
+- `apps/kernel/src/ownevo_kernel/nl_gen/pipeline.py` — A4.4:
+  `generate_full_pipeline(client, description) → NLGenPipelineResult`. Sequences
+  the four single-turn generators (workflow_spec → sim_plan → eval_case_set →
+  metric_definition); cross-step contracts enforced by the underlying
+  generators. Optional uniform `model` / `max_tokens` overrides.
+- `apps/kernel/scripts/nl_gen_smoketest.py` — A4.4 quality-gate CLI.
+  `--workflow {demand-prediction|credit-risk|contract-review|all}`; default
+  regenerates artifacts via live NL-gen + drives the agent solver per case;
+  `--from-fixtures` skips NL-gen for fast inner-loop dev (still hits agent);
+  `--max-cases N` truncates with re-validation; `--anthropic-base-url` for
+  local LLM proxies. Exit 0 iff every requested workflow `meets_target`,
+  1 on miss, 2 on argparse / preflight failure.
+- `Makefile` target `nl-gen-smoketest` (with `WORKFLOW=...` and `SMOKE_ARGS=...`).
+- 63 new tests: `test_eval_runner_agent_solver.py` (24 — fake AsyncAnthropic,
+  redaction correctness, trajectory visibility, tool definition + system
+  prompt pinning, every error path, cross-check failures, perfect/inverted
+  prediction wiring × 3 fixtures), `test_eval_runner_run_with_agent.py`
+  (10 — orchestrator with mocked solver, outcomes carry agent values,
+  is_test_fold propagation, cross-checks fire before any solver call),
+  `test_nl_gen_pipeline.py` (14 — call sequence pinning, payload threading,
+  override propagation, error propagation), `test_scripts_nl_gen_smoketest.py`
+  (15 — fixture-mode happy path, all-mode exit semantics, live-mode preflight,
+  output shape, --max-cases truncation + balanced-classes guard).
+
 - `apps/kernel/src/ownevo_kernel/eval_runner/runner.py` — A4.3: `run_replay(case_set,
   plan, spec, metric) → EvalRunReport`. Composes `replay_set` + `compute_metric` +
   `_check_against_spec` into a single typed report (per-case outcomes carrying
