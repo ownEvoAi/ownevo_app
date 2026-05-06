@@ -65,6 +65,8 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
 
+    from .token_budget import TokenBudget
+
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_MAX_TOKENS = 1_000
@@ -475,6 +477,7 @@ async def predict_one(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     openai_client: "AsyncOpenAI | None" = None,
+    budget: "TokenBudget | None" = None,
 ) -> AgentPrediction:
     """Run one agent prediction for one case.
 
@@ -492,6 +495,9 @@ async def predict_one(
         model: Model id. Default haiku (Anthropic) or pass a local model id.
         max_tokens: Output cap.
         openai_client: When set, use OpenAI-compat API instead of Anthropic.
+        budget: Optional A4.5 token-budget accumulator. Applied to Anthropic
+            calls only (OpenAI-compat responses don't carry usage the same way).
+            If cumulative usage crosses the cap, raises `TokenBudgetExceededError`.
     """
     trajectory = _trajectory_for_case(case, namespace)
     user_message = _format_user_message(spec, case, trajectory, metric)
@@ -523,6 +529,13 @@ async def predict_one(
                 tool_choice={"type": "tool", "name": TOOL_NAME},
                 messages=[{"role": "user", "content": user_message}],
             )
+            if budget is not None:
+                from .token_budget import extract_usage
+
+                in_tok, out_tok = extract_usage(msg)
+                budget.record(
+                    input_tokens=in_tok, output_tokens=out_tok, label=case.case_id
+                )
             return _extract_prediction(msg, case_id=case.case_id, model=model)
     except (AgentSolverError, NoPredictToolUseError, PredictToolValidationError):
         raise
@@ -543,6 +556,7 @@ async def solve_with_agent(
     model: str = DEFAULT_MODEL,
     max_tokens: int | None = None,
     openai_client: "AsyncOpenAI | None" = None,
+    budget: "TokenBudget | None" = None,
 ) -> list[ReplayResult]:
     """Run the agent on every case in the set; return ReplayResults.
 
@@ -564,6 +578,9 @@ async def solve_with_agent(
             block injected into every per-case user message.
         model: Anthropic model. Default haiku.
         max_tokens: Output cap per call.
+        budget: Optional A4.5 token-budget accumulator shared across
+            cases. When the budget tips, the loop aborts at the case
+            that crossed the cap (no further `predict_one` calls fire).
 
     Returns:
         `ReplayResult` per case, in the same order as `case_set.cases`.
@@ -573,6 +590,8 @@ async def solve_with_agent(
             with `spec.id`.
         AgentSolverError / NoPredictToolUseError / PredictToolValidationError:
             from `predict_one`.
+        TokenBudgetExceededError: `budget` was provided and a case's
+            usage tipped the cumulative cap.
     """
     if case_set.workflow_spec_id != spec.id:
         raise ValueError(
@@ -608,6 +627,7 @@ async def solve_with_agent(
             model=model,
             max_tokens=resolved_max_tokens,
             openai_client=openai_client,
+            budget=budget,
         )
         results.append(
             ReplayResult(

@@ -34,7 +34,12 @@ import json
 import sys
 from typing import Sequence
 
-from ownevo_kernel.eval_runner import EvalRunReport, run_replay
+from ownevo_kernel.eval_runner import (
+    EvalRunReport,
+    NondeterminismError,
+    run_replay,
+    verify_determinism,
+)
 from ownevo_kernel.nl_gen.fixtures import (
     EVAL_CASE_SET_FIXTURES,
     FIXTURES,
@@ -80,14 +85,27 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
             "Default omits it to keep the stdout small for `make eval-replay`."
         ),
     )
+    parser.add_argument(
+        "--check-determinism",
+        action="store_true",
+        help=(
+            "A4.5 determinism guardrail. Run each workflow's replay "
+            "twice and assert per-case outcomes + metric value are "
+            "identical (within 1e-9). Any divergence exits 3 with a "
+            "structured error block — flagging a sim-determinism bug "
+            "rather than reporting a passing score."
+        ),
+    )
     return parser.parse_args(argv)
 
 
-def _run_one(workflow_id: str) -> EvalRunReport:
+def _run_one(workflow_id: str, *, check_determinism: bool) -> EvalRunReport:
     spec = FIXTURES[workflow_id]
     plan = SIM_PLAN_FIXTURES[workflow_id]
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
+    if check_determinism:
+        return verify_determinism(case_set, plan, spec, metric)
     return run_replay(case_set, plan, spec, metric)
 
 
@@ -106,13 +124,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     workflows = WORKFLOW_CHOICES if ns.workflow == "all" else [ns.workflow]
 
     all_met = True
+    nondeterminism_seen = False
     for workflow_id in workflows:
         try:
-            report = _run_one(workflow_id)
+            report = _run_one(workflow_id, check_determinism=ns.check_determinism)
+        except NondeterminismError as exc:
+            print(
+                json.dumps(
+                    {
+                        "workflow_spec_id": FIXTURES[workflow_id].id,
+                        "error": "nondeterminism",
+                        "kind": exc.kind,
+                        "case_id": exc.case_id,
+                        "run1_value": exc.run1_value,
+                        "run2_value": exc.run2_value,
+                        "message": str(exc),
+                        "meets_target": False,
+                    },
+                    sort_keys=True,
+                    ensure_ascii=True,
+                    default=str,
+                ),
+                flush=True,
+                file=sys.stderr,
+            )
+            nondeterminism_seen = True
+            continue
         except Exception as exc:  # noqa: BLE001
             print(
                 json.dumps(
-                    {"workflow_spec_id": workflow_id, "error": str(exc), "meets_target": False},
+                    {
+                        "workflow_spec_id": FIXTURES[workflow_id].id,
+                        "error": str(exc),
+                        "meets_target": False,
+                    },
                     sort_keys=True,
                     ensure_ascii=True,
                 ),
@@ -132,6 +177,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             flush=True,
         )
 
+    if nondeterminism_seen:
+        return 3
     return 0 if all_met else 1
 
 

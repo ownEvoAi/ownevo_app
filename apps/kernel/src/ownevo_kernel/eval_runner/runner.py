@@ -47,6 +47,8 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
 
+    from .token_budget import TokenBudget
+
 
 class EvalRunnerError(RuntimeError):
     """Orchestration-level failure the typed primitives didn't already raise.
@@ -188,6 +190,7 @@ async def run_with_agent(
     model: str | None = None,
     max_tokens: int | None = None,
     openai_client: "AsyncOpenAI | None" = None,
+    budget: "TokenBudget | None" = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
 
@@ -205,9 +208,12 @@ async def run_with_agent(
         case_set / plan / spec / metric: same as `run_replay`.
         client: AsyncAnthropic client (used when openai_client is None).
         model: Override `agent_solver.DEFAULT_MODEL`.
-        max_tokens: Override `agent_solver.DEFAULT_MAX_TOKENS`.
+        max_tokens: Override path-appropriate default (1k Anthropic / 8k OpenAI).
         openai_client: When set, routes predictions through OpenAI-compat
             API (Ollama / LM Studio direct) instead of Anthropic.
+        budget: Optional A4.5 `TokenBudget`. When set, the agent solver
+            aborts via `TokenBudgetExceededError` once cumulative usage
+            crosses the cap.
 
     Returns:
         An `EvalRunReport` whose `outcomes[i].actual_value` is the
@@ -217,6 +223,7 @@ async def run_with_agent(
         ValueError: cross-check failure (workflow_spec_id or direction).
         AgentSolverError / NoPredictToolUseError /
             PredictToolValidationError: from the agent solver.
+        TokenBudgetExceededError: budget tipped during the run.
         MetricComputeError: from compute_metric.
     """
     # Lazy import — agent_solver lives in the `agent` extra (anthropic).
@@ -238,6 +245,7 @@ async def run_with_agent(
         model=_DEFAULT_MODEL if model is None else model,
         max_tokens=max_tokens,  # None → solve_with_agent picks path-appropriate default
         openai_client=openai_client,
+        budget=budget,
     )
     metric_result = compute_metric(metric, results)
 
