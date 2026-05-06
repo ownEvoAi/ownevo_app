@@ -132,3 +132,15 @@ SMOKE_ARGS ?=
 nl-gen-smoketest:
 	cd apps/kernel && uv run --extra agent python scripts/nl_gen_smoketest.py \
 	    --workflow $(WORKFLOW) $(SMOKE_ARGS)
+
+# ----------------------------------------------------------------------------
+# Meta-eval (A4.6 — NL-gen quality judge)
+# ----------------------------------------------------------------------------
+
+# `META_EVAL_ARGS=...` passes flags through to scripts/meta_eval.py
+# (e.g. META_EVAL_ARGS='--model claude-haiku-4-5 --concurrency 4 --pretty').
+META_EVAL_ARGS ?=
+
+meta-eval:
+	cd apps/kernel && uv run --extra agent python scripts/meta_eval.py \
+	    $(META_EVAL_ARGS)
