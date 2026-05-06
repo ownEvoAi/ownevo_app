@@ -17,6 +17,66 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (A4.6 — NL-gen meta-eval, D7)
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/judgment.py` —
+  `MetaEvalJudgment` Pydantic schema. Three orthogonal dimensions
+  (`sim_coverage`, `eval_case_coverage`, `metric_alignment`) each
+  scored `pass`/`partial`/`fail` with a one-line rationale; binary
+  overall verdict (`good`/`bad`) + paragraph rationale.
+  `dimension_score` and `aggregate_score` map verdicts to numbers.
+  `extra='forbid'`, `frozen=True`, `schema_version="0.1"` (frozen
+  at the A4-end ritual to "1.0").
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/judge.py` —
+  `judge_artifacts(client, description, spec, plan, case_set, metric)`
+  via single-turn Anthropic tool-use. Mirrors `metric_generator`'s
+  shape: forced `tool_choice`, wrapped `{judgment: ...}` payload,
+  `MetaEvalJudgmentValidationError`/`NoMetaEvalToolUseError`/
+  `MetaEvalSpecIdMismatchError`. Default model opus 4.7 (calibration
+  anchor). Long `step_code` truncated to 4kB in the prompt.
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/corruptions.py` —
+  six recipes that take a good bundle and produce a structurally-
+  valid but semantically-wrong bundle: `swap_sim_plan`,
+  `swap_eval_cases`, `swap_metric_family_to_opposing`,
+  `set_unreachable_threshold`, `set_trivial_threshold`,
+  `flip_metric_direction`. Each tagged with target dimension +
+  rationale.
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/fixtures/` — seven
+  new minimal good fixtures (supplier-late-shipment-risk,
+  fraud-card-decline-review, clinical-trial-eligibility,
+  insurance-claim-triage, hr-policy-violation-review,
+  content-moderation-escalation, manufacturing-defect-detection)
+  built via a compact `_FixtureSpec` → bundle helper. Domains span
+  supply-chain, credit-risk, legal-adjacent, support, labour, and
+  other so the judge has to read the description.
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/eval_set.py` —
+  `META_EVAL_SET`: 10 (description, good, bad, ground_truth) pairs
+  joining the 3 production fixtures + 7 minimal ones. Every
+  corruption recipe used at least once; recipe distribution
+  documented + pinned in tests.
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/runner.py` —
+  `run_meta_eval(client, ...) → MetaEvalReport` runs the judge
+  across every (good, bad) pair in parallel (configurable
+  `concurrency`, default 1). Aggregates judge-vs-human agreement,
+  per-dimension verdict distribution, per-recipe correctness.
+  Re-raises judge exceptions (no partial reports — would mislead
+  the agreement number).
+- `apps/kernel/scripts/meta_eval.py` + `make meta-eval` —
+  CLI entrypoint. `--model`, `--concurrency`, `--max-tokens`,
+  `--anthropic-base-url`, `--include-records`, `--pretty`,
+  `--require-agreement`. Exit 0 unless `--require-agreement` is
+  set + missed (the W5/A5.5 gate behavior, opt-in for A4.6).
+  Cost surface ~$0.50-$1.00 per run on opus 4.7.
+- 101 net new tests across 6 files (`test_nl_gen_meta_eval_schema.py`
+  21, `test_nl_gen_meta_eval_judge.py` 26, `test_nl_gen_meta_eval_corruptions.py`
+  13, `test_nl_gen_meta_eval_eval_set.py` 13, `test_nl_gen_meta_eval_runner.py`
+  13, `test_scripts_meta_eval.py` 15). Schema round-trip + frozen +
+  extra-forbid; judge tool-definition shape + system-prompt rules +
+  every error path; corruption round-trip + dimension targeting +
+  no-mutation invariant; eval-set cardinality + recipe coverage +
+  bundle validity + back-pointer integrity; runner aggregation +
+  agreement math + per-recipe slicing; CLI argparse + preflight +
+  agreement gate.
+
 ### Added (A4.5 — cost + determinism guardrails, PR #46)
 - `apps/kernel/src/ownevo_kernel/eval_runner/token_budget.py` — `TokenBudget(max_tokens)`
   accumulator + `TokenBudgetExceededError` (subclass of `AgentSolverError`). Threaded
