@@ -157,6 +157,19 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--openai-base-url",
+        default=None,
+        help=(
+            "OpenAI-compatible /v1 base URL for the agent solver (Ollama "
+            "direct: http://<host>:11434/v1, LM Studio: "
+            "http://<host>:1234/v1). When set, the agent solver uses "
+            "AsyncOpenAI + chat.completions instead of AsyncAnthropic. "
+            "No API key needed for local endpoints — set "
+            "OPENAI_API_KEY=dummy or leave unset. NL-gen still uses the "
+            "Anthropic client (or --from-fixtures to skip it entirely)."
+        ),
+    )
+    parser.add_argument(
         "--include-outcomes",
         action="store_true",
         help=(
@@ -225,6 +238,7 @@ async def _smoke_one(
     *,
     client,
     nl_gen_client,
+    openai_client,
     from_fixtures: bool,
     max_cases: int | None,
     model: str,
@@ -241,7 +255,9 @@ async def _smoke_one(
     )
     case_set = _truncate_case_set(case_set, max_cases)
     report = await run_with_agent(
-        case_set, plan, spec, metric, client=client, model=model
+        case_set, plan, spec, metric,
+        client=client, model=model,
+        openai_client=openai_client,
     )
     return report, time.perf_counter() - started
 
@@ -290,22 +306,29 @@ def _make_client(base_url: str | None):
     return AsyncAnthropic()
 
 
+def _make_openai_client(base_url: str):
+    """AsyncOpenAI client for Ollama / LM Studio direct calls."""
+    from openai import AsyncOpenAI
+
+    return AsyncOpenAI(base_url=base_url, api_key="dummy")
+
+
 async def _async_main(ns: argparse.Namespace) -> int:
     workflows = WORKFLOW_CHOICES if ns.workflow == "all" else [ns.workflow]
     _print_config(ns, workflows)
 
-    # The agent solver always hits the live API (--from-fixtures only
-    # skips the NL-gen pipeline). Preflight the auth before the asyncio
-    # event loop spins anything up.
-    if (
+    # Preflight: agent solver needs either Anthropic auth or --openai-base-url.
+    openai_client = None
+    if ns.openai_base_url:
+        openai_client = _make_openai_client(ns.openai_base_url)
+    elif (
         not os.environ.get("ANTHROPIC_API_KEY")
         and not ns.anthropic_base_url
     ):
         print(
-            "[nl-gen-smoketest] ANTHROPIC_API_KEY is unset and "
-            "--anthropic-base-url was not passed. The agent solver "
-            "needs auth even with --from-fixtures. Aborting before "
-            "any live call.",
+            "[nl-gen-smoketest] ANTHROPIC_API_KEY is unset and neither "
+            "--anthropic-base-url nor --openai-base-url was passed. "
+            "Aborting before any live call.",
             file=sys.stderr,
         )
         return 2
@@ -324,6 +347,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
             workflow_id,
             client=client,
             nl_gen_client=nl_gen_client,
+            openai_client=openai_client,
             from_fixtures=ns.from_fixtures,
             max_cases=ns.max_cases,
             model=ns.model,

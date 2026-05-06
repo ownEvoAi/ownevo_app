@@ -61,7 +61,7 @@ def _stub_report(workflow_id: str, *, meets_target: bool) -> EvalRunReport:
 
 
 def _patch_run_to(monkeypatch, *, meets_target: bool):
-    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model):
+    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model, openai_client=None, max_tokens=None):
         return _stub_report(spec.id, meets_target=meets_target)
 
     monkeypatch.setattr(smoketest, "run_with_agent", _stub_run_with_agent)
@@ -128,7 +128,7 @@ def test_all_mode_one_miss_propagates_exit_one(monkeypatch, capsys):
     state = {"i": 0}
     pattern = [True, False, True]
 
-    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model):
+    async def _stub_run_with_agent(case_set, plan, spec, metric, *, client, model, openai_client=None, max_tokens=None):
         report = _stub_report(spec.id, meets_target=pattern[state["i"]])
         state["i"] += 1
         return report

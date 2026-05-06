@@ -186,6 +186,7 @@ async def run_with_agent(
     client: "AsyncAnthropic",
     model: str | None = None,
     max_tokens: int | None = None,
+    openai_client: "Any | None" = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
 
@@ -234,6 +235,7 @@ async def run_with_agent(
         metric,
         model=_DEFAULT_MODEL if model is None else model,
         max_tokens=_DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+        openai_client=openai_client,
     )
     metric_result = compute_metric(metric, results)
 
