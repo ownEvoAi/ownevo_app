@@ -33,12 +33,19 @@ OWNEVO_OLLAMA_HOST="${OWNEVO_OLLAMA_HOST:-http://localhost:11434}"
 export OWNEVO_OLLAMA_HOST
 
 # Default model list (mirrors infra/litellm/ollama.yaml model_name values).
+# gpt-oss-20b excluded — known max_tokens error before tool-call commit.
 DEFAULT_MODELS=(
-  qwen3-coder-30b
-  qwen3-30b-instruct
   devstral-small-2
   qwen2.5-coder-32b
-  gpt-oss-20b
+  qwen3-coder-30b
+  qwen3-30b-instruct
+  qwen3-32b
+  qwen3.5-27b
+  gemma4-26b
+  granite4.1-30b
+  phi4-reasoning
+  qwq-32b
+  glm-4.7-flash
 )
 
 # Caller can pin one model.

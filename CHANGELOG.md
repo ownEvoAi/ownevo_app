@@ -42,6 +42,14 @@ fresh `[Unreleased]` block above it.
   tier-access from rate-limit failures (sonnet/opus 429 with empty error body
   was a monthly budget cap, not key access).
 
+### Added (continued)
+- `nl_gen_smoketest.py` — `--nl-gen-direct` flag + `--nl-gen-base-url` flag.
+  Allows NL-gen and agent solver to route through separate API endpoints in a
+  single run (e.g. frontier model for NL-gen, local model via LiteLLM for
+  agent predictions). `infra/litellm/ollama.yaml` extended with
+  `claude-sonnet-4-6` / `claude-haiku-4-5` passthrough entries for the same
+  hybrid pattern.
+
 ### Changed
 - `eval_runner/agent_solver.py` SYSTEM_PROMPT — made metric-aware. Added
   `_metric_framing(metric)` block prepended to every per-case user message,
@@ -66,6 +74,14 @@ fresh `[Unreleased]` block above it.
   on borderline cases, costing recall on demand-prediction (0.20) and
   giving credit-risk only +1.7pp margin (0.417 vs 0.40). README + PR #44
   body carry the full table.
+- Full canonical `--regenerate` run on Sonnet 4.6 (2026-05-06, ~$0.50).
+  Pipeline plumbing confirmed end-to-end: NL-gen → eval → scoring all
+  succeeded. Exit 1 on credit-risk and demand-prediction — expected: live
+  NL-gen generates uncalibrated metric targets (0.80 for both hard workflows
+  vs hand-calibrated fixture targets 0.40/0.50). The metric generator has no
+  knowledge of sim difficulty and sets aggressive targets. Fixture-based gate
+  (`--from-fixtures`) remains the canonical quality gate; `--regenerate`
+  validates pipeline plumbing only. contract-review passed (f1=1.00 ✅).
 
 ### Added
 - `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py` — A4.4: Claude
