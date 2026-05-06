@@ -152,7 +152,7 @@ def test_miss_returns_one(monkeypatch, capsys):
     from ownevo_kernel.eval_runner import EvalRunReport
     import scripts.eval_replay as cli
 
-    def _missed(workflow_id):
+    def _missed(workflow_id, **_kwargs):
         return EvalRunReport(
             workflow_spec_id=workflow_id,
             metric_name="demo",
@@ -191,7 +191,7 @@ def test_all_exits_one_when_any_workflow_misses(monkeypatch, capsys):
     original_run_one = cli._run_one
     missed_id = WORKFLOW_CHOICES[0]
 
-    def _patched(workflow_id):
+    def _patched(workflow_id, **kwargs):
         if workflow_id == missed_id:
             return EvalRunReport(
                 workflow_spec_id=workflow_id,
@@ -210,7 +210,7 @@ def test_all_exits_one_when_any_workflow_misses(monkeypatch, capsys):
                 fn=9,
                 outcomes=tuple(),
             )
-        return original_run_one(workflow_id)
+        return original_run_one(workflow_id, **kwargs)
 
     monkeypatch.setattr(cli, "_run_one", _patched)
     rc = main(["--workflow", "all"])
@@ -226,3 +226,77 @@ def test_all_exits_one_when_any_workflow_misses(monkeypatch, capsys):
 
     passing = [json.loads(l) for l in lines if json.loads(l)["workflow_spec_id"] != missed_id]
     assert all(p["meets_target"] is True for p in passing)
+
+
+# ---------------------------------------------------------------------------
+# A4.5 — --check-determinism
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("workflow_id", WORKFLOW_CHOICES)
+def test_check_determinism_passes_on_every_fixture(workflow_id, capsys):
+    """The shipped fixtures are deterministic — `--check-determinism`
+    exits 0 and emits the same JSON shape as a normal replay."""
+    from ownevo_kernel.nl_gen.fixtures import FIXTURES
+
+    rc = main(["--workflow", workflow_id, "--check-determinism"])
+    out = capsys.readouterr().out.strip()
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["meets_target"] is True
+    assert payload["workflow_spec_id"] == FIXTURES[workflow_id].id
+
+
+def test_check_determinism_all_workflows_exits_zero(capsys):
+    rc = main(["--workflow", "all", "--check-determinism"])
+    out = capsys.readouterr().out.strip()
+    assert rc == 0
+    assert len(out.splitlines()) == len(WORKFLOW_CHOICES)
+
+
+def test_nondeterminism_exits_three_with_structured_error(monkeypatch, capsys):
+    """Inject a NondeterminismError and pin the exit code + stderr block."""
+    from ownevo_kernel.eval_runner import NondeterminismError
+    import scripts.eval_replay as cli
+
+    def _explode(workflow_id, **_kwargs):
+        raise NondeterminismError(
+            f"injected divergence for {workflow_id}",
+            case_id="case-7",
+            run1_value=True,
+            run2_value=False,
+            kind="actual_value",
+        )
+
+    monkeypatch.setattr(cli, "_run_one", _explode)
+    rc = main(["--workflow", "demand-prediction", "--check-determinism"])
+    captured = capsys.readouterr()
+    assert rc == 3
+    # Determinism failures go to stderr per the gate's signal-vs-noise split.
+    payload = json.loads(captured.err.strip())
+    assert payload["error"] == "nondeterminism"
+    assert payload["kind"] == "actual_value"
+    assert payload["case_id"] == "case-7"
+    assert payload["run1_value"] is True
+    assert payload["run2_value"] is False
+    assert payload["meets_target"] is False
+
+
+def test_check_determinism_default_off(monkeypatch, capsys):
+    """Without the flag, `_run_one` is called with check_determinism=False.
+
+    Pins the default — the determinism check is opt-in so dev iteration
+    isn't paying for it on every `make eval-replay`."""
+    import scripts.eval_replay as cli
+
+    captured: dict = {}
+    original = cli._run_one
+
+    def _spy(workflow_id, **kwargs):
+        captured.update(kwargs)
+        return original(workflow_id, **kwargs)
+
+    monkeypatch.setattr(cli, "_run_one", _spy)
+    main(["--workflow", "demand-prediction"])
+    capsys.readouterr()
+    assert captured.get("check_determinism") is False
