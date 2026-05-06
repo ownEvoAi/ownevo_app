@@ -6,7 +6,8 @@
 
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
-        seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest
+        seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
+        meta-eval m5-cluster-failures
 
 help:
 	@printf 'targets:\n'
@@ -27,6 +28,11 @@ help:
 	@printf '  nl-gen-smoketest    A4.4 quality gate: live NL-gen + agent solver per case\n'
 	@printf '                      WORKFLOW=...; SMOKE_ARGS supports --from-fixtures /\n'
 	@printf '                      --max-cases / --model / --include-outcomes / --pretty\n'
+	@printf '  meta-eval           A4.6 NL-gen quality judge over the 10-pair eval set\n'
+	@printf '  m5-cluster-failures B3.1+B3.2+B3.3: top-k worst M5 series → cluster →\n'
+	@printf '                      eval-cases (CLUSTER_ARGS=...; default uses stub embedder\n'
+	@printf '                      and clusterer; pass --real for ST + UMAP + HDBSCAN +\n'
+	@printf '                      Anthropic)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -144,3 +150,15 @@ META_EVAL_ARGS ?=
 meta-eval:
 	cd apps/kernel && uv run --extra agent python scripts/meta_eval.py \
 	    $(META_EVAL_ARGS)
+
+# ----------------------------------------------------------------------------
+# Failure clustering (B3.1 + B3.2 + B3.3)
+# ----------------------------------------------------------------------------
+
+# `CLUSTER_ARGS=...` passes flags through, e.g.
+#   make m5-cluster-failures CLUSTER_ARGS='--top-k 30 --pretty'
+#   make m5-cluster-failures CLUSTER_ARGS='--real'   (uses sentence-transformers + UMAP + HDBSCAN + Anthropic)
+CLUSTER_ARGS ?=
+
+m5-cluster-failures:
+	cd apps/kernel && uv run python scripts/cluster_m5_failures.py $(CLUSTER_ARGS)

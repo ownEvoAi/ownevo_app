@@ -17,6 +17,70 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (B3.1 + B3.2 + B3.3 — Failure clustering pipeline, W3 Track B)
+- `apps/kernel/src/ownevo_kernel/benchmark/m5_failure_analyzer.py` —
+  `analyze_m5_failures(artifacts, fold=, k=10) → list[M5FailureSnapshot]`
+  ranks the worst-predicted M5 series by RMSSE and emits structured
+  per-failure context: parsed M5 hierarchy (item / dept / cat / store /
+  state via deterministic series-id parser, no CSV reads), peak-error
+  day offset + signed value, mean actual / predicted, and
+  `feature_gap_hints` (`under-forecast`, `over-forecast`,
+  `zero-inflated`, `high-variance`, `flat-prediction`). Pure-numpy +
+  stdlib `re`. `text_signature` is the embedding input for B3.2.
+- `apps/kernel/src/ownevo_kernel/clustering/` — failure clustering
+  pipeline behind 4 swappable stages (`Embedder` / `Reducer` /
+  `Clusterer` / `Labeler` Protocols). `cluster_failures(snapshots,
+  embedder=, reducer=, clusterer=, labeler=, thresholds=) →
+  ClusteringResult` orchestrates embed → reduce → cluster → quality-gate
+  → label → summarize. `quality.py` enforces three failure modes
+  BEFORE the LLM labeler is paid for: `too-few-points` (n < 5),
+  `all-noise` (HDBSCAN labelled every point -1), `mega-cluster` (one
+  cluster owns > 90% of non-noise points). Singleton-or-smaller clusters
+  drop silently; assignments that survive get severity (`high`/
+  `medium`/`low`) from cluster size + mean RMSSE + total cluster count.
+  Centroids pinned to `EMBEDDING_DIM=384` to match
+  `failure_clusters.centroid` schema.
+- `apps/kernel/src/ownevo_kernel/clustering/persistence.py` —
+  `persist_clustering_result(conn, *, workflow_id, result,
+  source_trace_ids=)` writes one `failure_clusters` row per cluster
+  under one transaction (centroid serialized as a pgvector literal,
+  asyncpg has no native codec); `fetch_failure_cluster(conn, id)` reads
+  back as the typed `FailureCluster` model. `INSUFFICIENT_DATA` results
+  no-op.
+- `apps/kernel/src/ownevo_kernel/clustering/default_impl.py` —
+  production wiring (`SentenceTransformerEmbedder` / `UMAPReducer` /
+  `HDBSCANClusterer` / `AnthropicLabeler`) gated on the new
+  `clustering` extra (`sentence-transformers` /  `umap-learn` /
+  `hdbscan`). Lazy imports — kernel core stays free of these heavy
+  deps and unit tests stub the Protocols.
+- `apps/kernel/src/ownevo_kernel/eval_cases/from_cluster.py` —
+  `promote_cluster_to_eval_cases(conn, *, workflow_id, cluster,
+  snapshots, ...)` and the batch sibling promote each cluster's worst-
+  RMSSE members (capped at `max_cases_per_cluster`, default 5) to
+  `eval_cases` rows tagged `provenance=CLUSTER_DERIVED` with
+  `cluster_id` set. Per-case payload carries `task_id` / `series_id` /
+  `feature_gap_hints` (input) and `min_reward` / `rmsse_at_promotion` /
+  `reward_at_promotion` / `rationale` / `cluster_severity` (expected
+  behavior). Single transaction per call so partial promotion never
+  leaves the suite half-built. `min_reward_floor` defaults to 0.30
+  (lenient) so cluster-derived cases describe failures without instant-
+  blocking the next iteration; tighten once the cluster is under
+  control. `plan_cluster_promotion` previews without writing.
+- `apps/kernel/scripts/cluster_m5_failures.py` + `make
+  m5-cluster-failures` — end-to-end CLI: in-process LightGBM baseline
+  → analyzer (top-k worst series) → clustering (deterministic stub
+  embedder/clusterer/labeler by default; `--real` flips to ST + UMAP
+  + HDBSCAN + Anthropic) → persistence → cluster-derived eval cases.
+  Stub stages bucket failures by `(cat_id, primary_hint)` so the
+  smoketest produces 3-6 small clusters typical of real M5 failure
+  distributions without paying for model downloads or LLM tokens.
+- 63 new tests across the analyzer + pipeline + quality gate +
+  persistence + cluster→eval-case promotion + script smoketest. Plus 9
+  CLI-internal smoke tests for the stub stages and arg parser.
+- `clustering` optional dependency in `apps/kernel/pyproject.toml`
+  (`sentence-transformers>=2.7,<4`, `umap-learn>=0.5,<0.6`,
+  `hdbscan>=0.8.33,<0.9`).
+
 ### Added (A4.6 — NL-gen meta-eval, D7)
 - `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/judgment.py` —
   `MetaEvalJudgment` Pydantic schema. Three orthogonal dimensions
