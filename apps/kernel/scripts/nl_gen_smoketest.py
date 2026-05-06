@@ -333,6 +333,21 @@ async def _async_main(ns: argparse.Namespace) -> int:
         )
         return 2
 
+    # Preflight: NL-gen pipeline (live mode) also needs Anthropic auth.
+    if (
+        not ns.from_fixtures
+        and not os.environ.get("ANTHROPIC_API_KEY")
+        and not ns.anthropic_base_url
+        and not getattr(ns, "nl_gen_base_url", None)
+        and not getattr(ns, "nl_gen_direct", False)
+    ):
+        print(
+            "[nl-gen-smoketest] ANTHROPIC_API_KEY is unset and live NL-gen "
+            "is active (--from-fixtures not passed). Aborting.",
+            file=sys.stderr,
+        )
+        return 2
+
     client = _make_client(ns.anthropic_base_url)
     if ns.nl_gen_direct:
         nl_gen_client = _make_client(None)

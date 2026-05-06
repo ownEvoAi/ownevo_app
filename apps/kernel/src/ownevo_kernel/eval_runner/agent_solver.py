@@ -360,8 +360,8 @@ _OPENAI_TOOL_DEFINITION = _build_openai_tool_definition()
 
 def _validate_prediction_input(
     raw_input: Any, *, case_id: str
-) -> AgentPrediction | None:
-    """Shared validation for predict_label tool input. Returns None on bad type."""
+) -> None:
+    """Validate predict_label tool input. Raises PredictToolValidationError on bad input."""
     if not isinstance(raw_input, dict):
         raise PredictToolValidationError(
             f"case {case_id!r}: predict_label input was not a dict: "
@@ -388,7 +388,6 @@ def _validate_prediction_input(
             f"non-empty string; got {rationale!r}",
             raw_input=raw_input,
         )
-    return raw_input
 
 
 def _extract_prediction(
@@ -423,6 +422,12 @@ def _extract_prediction_openai(
     response: Any, *, case_id: str, model: str
 ) -> AgentPrediction:
     """Parse OpenAI-format response into AgentPrediction."""
+    if not response.choices:
+        raise NoPredictToolUseError(
+            f"case {case_id!r}: OpenAI response has no choices",
+            stop_reason=None,
+            content_preview="",
+        )
     choice = response.choices[0]
     finish_reason = getattr(choice, "finish_reason", None)
     tool_calls = getattr(choice.message, "tool_calls", None) or []
@@ -435,12 +440,18 @@ def _extract_prediction_openai(
             stop_reason=finish_reason,
             content_preview=preview,
         )
+    args = matching[0].function.arguments
+    if args is None:
+        raise PredictToolValidationError(
+            f"case {case_id!r}: predict_label arguments is null",
+            raw_input=None,
+        )
     try:
-        raw_input = json.loads(matching[0].function.arguments)
+        raw_input = json.loads(args)
     except json.JSONDecodeError as exc:
         raise PredictToolValidationError(
             f"case {case_id!r}: predict_label arguments not valid JSON: {exc}",
-            raw_input=matching[0].function.arguments,
+            raw_input=args,
         ) from exc
     _validate_prediction_input(raw_input, case_id=case_id)
     return AgentPrediction(
@@ -492,7 +503,10 @@ async def predict_one(
                     {"role": "user", "content": user_message},
                 ],
                 tools=[_OPENAI_TOOL_DEFINITION],
-                tool_choice={"type": "function", "function": {"name": TOOL_NAME}},
+                # "required" (not named) for Ollama/LM Studio compat: some
+                # local backends don't support the named {"type":"function"}
+                # form. With only one tool registered this is equivalent.
+                tool_choice="required",
             )
             return _extract_prediction_openai(
                 response, case_id=case.case_id, model=model
@@ -612,5 +626,4 @@ __all__ = [
     "AgentPrediction",
     "predict_one",
     "solve_with_agent",
-    "_OPENAI_TOOL_DEFINITION",
 ]

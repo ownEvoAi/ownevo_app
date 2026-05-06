@@ -60,6 +60,16 @@ else
   done <<< "$ALL_MODELS"
 fi
 
+if ! curl -fsS --max-time 5 "${OWNEVO_OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+  echo "[ollama-sweep] ABORT: Ollama not reachable at ${OWNEVO_OLLAMA_HOST}/api/tags" >&2
+  exit 2
+fi
+
+if [[ ${#MODELS[@]} -eq 0 ]]; then
+  echo "[ollama-sweep] no models to sweep after filtering" >&2
+  exit 2
+fi
+
 echo "[ollama-sweep] host=${OWNEVO_OLLAMA_HOST}  models=${#MODELS[@]}"
 echo "[ollama-sweep] output → ${OUT_DIR}"
 
@@ -91,37 +101,9 @@ for model in "${MODELS[@]}"; do
 
   [[ $rc -ne 0 ]] && OVERALL_RC=1
 
-  python3 - <<PY >> "$SUMMARY"
-import json, pathlib
-log = pathlib.Path("${log}").read_text().splitlines()
-rows = {}
-for line in log:
-    if not line.startswith("{"):
-        continue
-    try:
-        d = json.loads(line)
-    except Exception:
-        continue
-    if "workflow_id" in d:
-        rows[d["workflow_id"]] = d
-
-def cell(wf):
-    d = rows.get(wf)
-    if not d:
-        return "—"
-    val = d.get("value")
-    met = "✅" if d.get("meets_target") else "❌"
-    return f"{val:.2f} {met}"
-
-wall = sum(d.get("wall_seconds", 0) for d in rows.values())
-print(
-    "| ${model} | "
-    + cell("demand-prediction") + " | "
-    + cell("credit-risk") + " | "
-    + cell("contract-review") + " | "
-    + f"{wall:.1f}s | ${rc} |"
-)
-PY
+  MODEL="${model}" RC="${rc}" LOG="${log}" \
+    python3 "$REPO_ROOT/apps/kernel/scripts/_sweep_parse_log.py" >> "$SUMMARY" \
+    || echo "| (summary-gen failed for model) | — | — | — | — | — |" >> "$SUMMARY"
 done
 
 echo

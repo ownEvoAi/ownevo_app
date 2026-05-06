@@ -45,6 +45,7 @@ from ownevo_kernel.nl_gen.spec import WorkflowSpec
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
+    from openai import AsyncOpenAI
 
 
 class EvalRunnerError(RuntimeError):
@@ -186,7 +187,7 @@ async def run_with_agent(
     client: "AsyncAnthropic",
     model: str | None = None,
     max_tokens: int | None = None,
-    openai_client: "Any | None" = None,
+    openai_client: "AsyncOpenAI | None" = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
 
@@ -202,9 +203,11 @@ async def run_with_agent(
 
     Args:
         case_set / plan / spec / metric: same as `run_replay`.
-        client: AsyncAnthropic client.
+        client: AsyncAnthropic client (used when openai_client is None).
         model: Override `agent_solver.DEFAULT_MODEL`.
         max_tokens: Override `agent_solver.DEFAULT_MAX_TOKENS`.
+        openai_client: When set, routes predictions through OpenAI-compat
+            API (Ollama / LM Studio direct) instead of Anthropic.
 
     Returns:
         An `EvalRunReport` whose `outcomes[i].actual_value` is the

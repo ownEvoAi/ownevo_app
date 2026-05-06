@@ -20,6 +20,12 @@ OPENAI_BASE_URL="${OWNEVO_LMSTUDIO_HOST}/v1"
 OUT_DIR="${REPO_ROOT}/temp/lmstudio_sweep/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT_DIR"
 
+# Pre-flight: LM Studio reachable?
+if ! curl -fsS --max-time 5 "${OPENAI_BASE_URL}/models" >/dev/null 2>&1; then
+  echo "[lmstudio-sweep] ABORT: LM Studio not reachable at ${OPENAI_BASE_URL}/models" >&2
+  exit 2
+fi
+
 # Model id fragments to skip: embedding-only and vision-only models.
 SKIP_PATTERNS=(
   "embed"
@@ -53,14 +59,13 @@ else
   done <<< "$ALL_MODELS"
 fi
 
-echo "[lmstudio-sweep] host=${OWNEVO_LMSTUDIO_HOST}  models=${#MODELS[@]}"
-echo "[lmstudio-sweep] output → ${OUT_DIR}"
-
-# Pre-flight: LM Studio reachable?
-if ! curl -fsS --max-time 5 "${OPENAI_BASE_URL}/models" >/dev/null 2>&1; then
-  echo "[lmstudio-sweep] ABORT: LM Studio not reachable at ${OPENAI_BASE_URL}/models" >&2
+if [[ ${#MODELS[@]} -eq 0 ]]; then
+  echo "[lmstudio-sweep] no models to sweep after filtering" >&2
   exit 2
 fi
+
+echo "[lmstudio-sweep] host=${OWNEVO_LMSTUDIO_HOST}  models=${#MODELS[@]}"
+echo "[lmstudio-sweep] output → ${OUT_DIR}"
 
 SUMMARY="${OUT_DIR}/summary.md"
 {
@@ -72,55 +77,59 @@ SUMMARY="${OUT_DIR}/summary.md"
   echo "|---|---:|---:|---:|---:|---:|"
 } > "$SUMMARY"
 
+LMS_CTX="${LMS_CONTEXT_LENGTH:-32768}"
+LOAD_URL="${OWNEVO_LMSTUDIO_HOST}/api/v1/models/load"
+UNLOAD_URL="${OWNEVO_LMSTUDIO_HOST}/api/v1/models/unload"
+
+lms_load() {
+  # Returns the instance_id on stdout; caller captures it for lms_unload.
+  curl -fsS -X POST "$LOAD_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\": \"$1\", \"context_length\": ${LMS_CTX}, \"flash_attention\": true, \"echo_load_config\": true}" \
+    2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('instance_id',''))"
+}
+
+lms_unload() {
+  local instance_id="$1"
+  [[ -z "$instance_id" ]] && return 0
+  curl -fsS -X POST "$UNLOAD_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"instance_id\": \"${instance_id}\"}" \
+    >/dev/null 2>&1 || true
+}
+
 OVERALL_RC=0
 
 for model in "${MODELS[@]}"; do
   log="${OUT_DIR}/$(echo "$model" | tr '/: ' '___').jsonl"
   echo
   echo "[lmstudio-sweep] === ${model} ==="
+
+  echo "[lmstudio-sweep] loading ${model} ctx=${LMS_CTX}..."
+  instance_id=$(lms_load "$model")
+  echo "[lmstudio-sweep] loaded instance_id=${instance_id}"
+
+  # Use instance_id as model name so LM Studio routes to our 32k instance,
+  # not the default-context one that may already be loaded.
+  run_model="${instance_id:-$model}"
+
   rc=0
   uv run --directory "$REPO_ROOT/apps/kernel" --extra agent \
     python scripts/nl_gen_smoketest.py \
       --workflow all \
       --from-fixtures \
-      --model "$model" \
+      --model "$run_model" \
       --openai-base-url "$OPENAI_BASE_URL" \
       --include-outcomes \
     2>&1 | tee "$log" || rc=$?
 
+  lms_unload "$instance_id"
+
   [[ $rc -ne 0 ]] && OVERALL_RC=1
 
-  python3 - <<PY >> "$SUMMARY"
-import json, pathlib
-log = pathlib.Path("${log}").read_text().splitlines()
-rows = {}
-for line in log:
-    if not line.startswith("{"):
-        continue
-    try:
-        d = json.loads(line)
-    except Exception:
-        continue
-    if "workflow_id" in d:
-        rows[d["workflow_id"]] = d
-
-def cell(wf):
-    d = rows.get(wf)
-    if not d:
-        return "—"
-    val = d.get("value")
-    met = "✅" if d.get("meets_target") else "❌"
-    return f"{val:.2f} {met}"
-
-wall = sum(d.get("wall_seconds", 0) for d in rows.values())
-print(
-    "| ${model} | "
-    + cell("demand-prediction") + " | "
-    + cell("credit-risk") + " | "
-    + cell("contract-review") + " | "
-    + f"{wall:.1f}s | ${rc} |"
-)
-PY
+  MODEL="${model}" RC="${rc}" LOG="${log}" \
+    python3 "$REPO_ROOT/apps/kernel/scripts/_sweep_parse_log.py" >> "$SUMMARY" \
+    || echo "| (summary-gen failed for model) | — | — | — | — | — |" >> "$SUMMARY"
 done
 
 echo
