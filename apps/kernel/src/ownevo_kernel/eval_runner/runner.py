@@ -46,6 +46,8 @@ from ownevo_kernel.nl_gen.spec import WorkflowSpec
 if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
 
+    from .token_budget import TokenBudget
+
 
 class EvalRunnerError(RuntimeError):
     """Orchestration-level failure the typed primitives didn't already raise.
@@ -186,6 +188,7 @@ async def run_with_agent(
     client: "AsyncAnthropic",
     model: str | None = None,
     max_tokens: int | None = None,
+    budget: "TokenBudget | None" = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
 
@@ -204,6 +207,9 @@ async def run_with_agent(
         client: AsyncAnthropic client.
         model: Override `agent_solver.DEFAULT_MODEL`.
         max_tokens: Override `agent_solver.DEFAULT_MAX_TOKENS`.
+        budget: Optional A4.5 `TokenBudget`. When set, the agent solver
+            aborts via `TokenBudgetExceededError` once cumulative usage
+            crosses the cap.
 
     Returns:
         An `EvalRunReport` whose `outcomes[i].actual_value` is the
@@ -213,6 +219,7 @@ async def run_with_agent(
         ValueError: cross-check failure (workflow_spec_id or direction).
         AgentSolverError / NoPredictToolUseError /
             PredictToolValidationError: from the agent solver.
+        TokenBudgetExceededError: budget tipped during the run.
         MetricComputeError: from compute_metric.
     """
     # Lazy import — agent_solver lives in the `agent` extra (anthropic).
@@ -234,6 +241,7 @@ async def run_with_agent(
         metric,
         model=_DEFAULT_MODEL if model is None else model,
         max_tokens=_DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+        budget=budget,
     )
     metric_result = compute_metric(metric, results)
 
