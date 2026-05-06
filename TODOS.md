@@ -85,6 +85,11 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S (human ~1 day / CC ~2 hours).
 - **Priority:** P1 — surfaces in YC demo.
 - **Depends on:** clustering pipeline operational (W3 Track B).
+- **Note (2026-05-06):** PR #49 (B3.1+B3.2+B3.3) merged with the following manual test-plan items skipped — run these before starting TODO-5:
+  - `OWNEVO_DATABASE_URL=... uv run pytest` clean on a fresh DB
+  - `make m5-cluster-failures CLUSTER_ARGS='--no-db --top-k 30 --pretty'` — stub-stages smoke on the in-process M5 baseline
+  - (when M5 dataset available) `make m5-cluster-failures` with `OWNEVO_DATABASE_URL` — cluster rows + eval cases land in DB
+  - (when network available) `make m5-cluster-failures CLUSTER_ARGS='--real'` — sentence-transformers + UMAP + HDBSCAN + Anthropic end-to-end
 
 ### TODO-6: LLM-judge stub eval expansion (W5)
 
