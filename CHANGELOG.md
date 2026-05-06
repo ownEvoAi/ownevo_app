@@ -42,7 +42,12 @@ fresh `[Unreleased]` block above it.
   records the calibration story (sim-difficulty inspection, irreducible
   noise floor on credit-risk's stochastic Bernoulli label, multi-step
   reasoning required to estimate `base` from same-SKU history on
-  demand-prediction).
+  demand-prediction). Three-way model comparison run on the softened
+  fixtures (haiku 4.5 / sonnet 4.6 / opus 4.7) — only Sonnet clears every
+  gate by a clear margin; Opus is more capable but also more conservative
+  on borderline cases, costing recall on demand-prediction (0.20) and
+  giving credit-risk only +1.7pp margin (0.417 vs 0.40). README + PR #44
+  body carry the full table.
 
 ### Added
 - `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py` — A4.4: Claude
