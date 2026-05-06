@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from dataclasses import dataclass
 
 DEFAULT_MODELS = [
@@ -35,8 +36,6 @@ class ProbeResult:
 
 
 async def _probe_one(client, model: str) -> ProbeResult:
-    import time
-
     started = time.perf_counter()
     try:
         msg = await client.messages.create(

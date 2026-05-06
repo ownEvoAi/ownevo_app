@@ -58,7 +58,7 @@ from ownevo_kernel.eval_runner import EvalRunReport, run_with_agent  # noqa: E40
 from ownevo_kernel.eval_runner.agent_solver import (  # noqa: E402
     DEFAULT_MODEL as AGENT_DEFAULT_MODEL,
 )
-from ownevo_kernel.nl_gen import generate_full_pipeline  # noqa: E402
+from ownevo_kernel.nl_gen import EvalCaseSet, generate_full_pipeline  # noqa: E402
 from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     DESCRIPTIONS,
     EVAL_CASE_SET_FIXTURES,
@@ -68,6 +68,7 @@ from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
 )
 
 WORKFLOW_CHOICES = sorted(FIXTURES.keys())
+_NL_GEN_STAGES = 4  # workflow_spec → sim_plan → eval_case_set → metric_definition
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -192,7 +193,6 @@ def _truncate_case_set(case_set, max_cases: int | None):
         update={"cases": list(case_set.cases[:max_cases])}
     )
     # Re-validate via a fresh round-trip — model_copy bypasses validators.
-    from ownevo_kernel.nl_gen import EvalCaseSet
     return EvalCaseSet.model_validate(truncated.model_dump())
 
 
@@ -249,7 +249,7 @@ def _print_config(ns: argparse.Namespace, workflows: list[str]) -> None:
     if not ns.from_fixtures:
         print(
             "[nl-gen-smoketest] live NL-gen: "
-            f"{4 * len(workflows)} pipeline calls + agent predictions; "
+            f"{_NL_GEN_STAGES * len(workflows)} pipeline calls + agent predictions; "
             "ANTHROPIC_API_KEY required.",
             file=sys.stderr,
         )

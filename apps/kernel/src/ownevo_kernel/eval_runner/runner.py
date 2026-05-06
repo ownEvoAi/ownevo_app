@@ -220,11 +220,9 @@ async def run_with_agent(
     # to install the `agent` extra.
     from .agent_solver import (
         DEFAULT_MAX_TOKENS as _DEFAULT_MAX_TOKENS,
-    )
-    from .agent_solver import (
         DEFAULT_MODEL as _DEFAULT_MODEL,
+        solve_with_agent,
     )
-    from .agent_solver import solve_with_agent
 
     check_against_spec(metric, spec)
 
@@ -234,8 +232,8 @@ async def run_with_agent(
         plan,
         spec,
         metric,
-        model=model or _DEFAULT_MODEL,
-        max_tokens=max_tokens or _DEFAULT_MAX_TOKENS,
+        model=_DEFAULT_MODEL if model is None else model,
+        max_tokens=_DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
     )
     metric_result = compute_metric(metric, results)
 

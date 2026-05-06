@@ -89,24 +89,21 @@ async def generate_full_pipeline(
         typed (`NLGenError` subclasses), and the pipeline doesn't
         wrap them so the smoke test's error class stays sharp.
     """
-    spec_kwargs = _kwargs_for(model, max_tokens)
+    kwargs = _kwargs_for(model, max_tokens)
     workflow_spec = await generate_workflow_spec(
-        client, description, **spec_kwargs
+        client, description, **kwargs
     )
 
-    plan_kwargs = _kwargs_for(model, max_tokens)
     simulation_plan = await generate_simulation_plan(
-        client, workflow_spec, **plan_kwargs
+        client, workflow_spec, **kwargs
     )
 
-    eval_kwargs = _kwargs_for(model, max_tokens)
     eval_case_set = await generate_eval_case_set(
-        client, workflow_spec, simulation_plan, **eval_kwargs
+        client, workflow_spec, simulation_plan, **kwargs
     )
 
-    metric_kwargs = _kwargs_for(model, max_tokens)
     metric_definition = await generate_metric_definition(
-        client, workflow_spec, **metric_kwargs
+        client, workflow_spec, **kwargs
     )
 
     return NLGenPipelineResult(

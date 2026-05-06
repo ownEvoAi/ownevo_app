@@ -31,12 +31,12 @@ from ownevo_kernel.eval_runner.agent_solver import (
     AgentSolverError,
     NoPredictToolUseError,
     PredictToolValidationError,
-    _exec_sim_namespace,
     _format_user_message,
     _redact_target_event,
     predict_one,
     solve_with_agent,
 )
+from ownevo_kernel.nl_gen.eval_replay import exec_sim_module as _exec_sim_namespace
 from ownevo_kernel.nl_gen.fixtures import (
     EVAL_CASE_SET_FIXTURES,
     FIXTURES,

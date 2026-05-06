@@ -18,6 +18,24 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `infra/litellm/ollama.yaml` — LiteLLM proxy config for the A4.4 local-model
+  smoke. Translates Anthropic `/v1/messages` → `ollama_chat/<model>`
+  `/api/chat`. Uses `os.environ/OWNEVO_OLLAMA_HOST` substitution so the same
+  config works for laptop-local Ollama and a remote daemon. Documents the
+  `ollama_chat/` vs `ollama/` provider-string gotcha + `num_ctx` requirement.
+- `apps/kernel/scripts/run_a4_4_local_smoke.sh` — dogfood script. Starts the
+  LiteLLM proxy (or reuses an existing one on `:4001`), runs
+  `nl-gen-smoketest` against each model in the config, captures per-model
+  JSONL + a markdown summary table to `temp/a4_4_local_smoke/<timestamp>/`.
+  Exit 0 iff every requested model meets target on every workflow.
+  `OWNEVO_OLLAMA_HOST=http://<host>:11434 bash run_a4_4_local_smoke.sh`.
+- `docs/local-model-testing.md` § F13 — A4.4 single-turn classification
+  gate findings: devstral-small-2 (24B, local) matches/beats Sonnet 4.6 and
+  catches `winter-boot-spike-week-47` (the canonical past-miss Sonnet
+  missed). qwen2.5-coder:32b passes via degenerate always-True bias on the
+  recall-gated workflow (calibration note for future metric design).
+  qwen3-coder:30b — F5's multi-turn gold standard — is weak on single-turn
+  classification under partial info; capability is task-shape-specific.
 - `apps/kernel/scripts/probe_anthropic_models.py` — diagnostic script. Probes
   a list of Anthropic model ids with one tiny call each, reports OK/FAIL with
   status code + elapsed ms. Used during the A4.4 gate run to disambiguate

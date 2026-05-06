@@ -54,13 +54,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
-from ownevo_kernel.nl_gen.eval_replay import ReplayResult
+from ownevo_kernel.nl_gen.eval_replay import ReplayResult, exec_sim_module
 from ownevo_kernel.nl_gen.metric_def import MetricDefinition
 from ownevo_kernel.nl_gen.sim_plan import SimulationPlan
-from ownevo_kernel.nl_gen.sim_render import render_simulation_module
 from ownevo_kernel.nl_gen.spec import WorkflowSpec
 from ownevo_kernel.nl_gen.workflow_spec_generator import NLGenError
-from ownevo_kernel.skills.format import parse_skill
 from pydantic import ValidationError
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
@@ -134,7 +132,7 @@ SYSTEM_PROMPT = (
 
 
 class AgentSolverError(NLGenError):
-    """Wraps Anthropic API failures during agent solving.
+    """Solver-level failure: API errors, trajectory bounds, or sim execution.
 
     Subclass of NLGenError so smoke-test orchestrators can catch the
     NL-gen + agent-solver surfaces uniformly. The original exception
@@ -180,18 +178,6 @@ class AgentPrediction:
     model: str
 
 
-def _exec_sim_namespace(plan: SimulationPlan, spec: WorkflowSpec) -> dict[str, Any]:
-    """Render + exec the sim module once; return its namespace.
-
-    Mirrors `eval_replay._exec_sim_module` (kept private there) — we
-    duplicate the 4-line implementation rather than import a private
-    name to keep the agent-solver path independent of replay-only
-    internals."""
-    content = render_simulation_module(plan, spec)
-    record = parse_skill(content)
-    ns: dict[str, Any] = {"__name__": "_agent_solver_sim"}
-    exec(compile(record.body, f"<agent-solver:{spec.id}>", "exec"), ns)
-    return ns
 
 
 def _trajectory_for_case(
@@ -444,14 +430,20 @@ async def predict_one(
     trajectory = _trajectory_for_case(case, namespace)
     user_message = _format_user_message(spec, case, trajectory, metric)
 
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
-        messages=[{"role": "user", "content": user_message}],
-    )
+    try:
+        msg = await client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=SYSTEM_PROMPT,
+            tools=[_TOOL_DEFINITION],
+            tool_choice={"type": "tool", "name": TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except Exception as exc:
+        raise AgentSolverError(
+            f"case {case.case_id!r}: API call failed — "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     return _extract_prediction(msg, case_id=case.case_id, model=model)
 
 
@@ -511,7 +503,7 @@ async def solve_with_agent(
             f"does not match spec.id={spec.id!r}"
         )
 
-    ns = _exec_sim_namespace(plan, spec)
+    ns = exec_sim_module(plan, spec, caller="agent-solver")
 
     results: list[ReplayResult] = []
     for case in case_set.cases:
@@ -549,6 +541,4 @@ __all__ = [
     "AgentPrediction",
     "predict_one",
     "solve_with_agent",
-    "_metric_framing",
-    "_METRIC_FAMILY_GUIDANCE",
 ]
