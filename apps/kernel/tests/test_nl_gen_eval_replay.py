@@ -100,30 +100,6 @@ def test_inverted_expected_value_fails_replay():
 # ---------------------------------------------------------------------------
 
 
-def _solo_case_set(case: GeneratedEvalCase, workflow_id: str) -> EvalCaseSet:
-    """Wrap one case in a minimum-size set, padding to satisfy class balance."""
-    others_true = [
-        case.model_copy(update={
-            "case_id": f"pad-t-{i}",
-            "expected_value": True,
-            "target_step_index": i,
-        })
-        for i in range(3)
-    ]
-    others_false = [
-        case.model_copy(update={
-            "case_id": f"pad-f-{i}",
-            "expected_value": False,
-            "target_step_index": 5 + i,
-        })
-        for i in range(6)
-    ]
-    return EvalCaseSet(
-        workflow_spec_id=workflow_id,
-        simulation_plan_workflow_id=workflow_id,
-        cases=[case, *others_true, *others_false],
-    )
-
 
 def test_unknown_label_field_raises_eval_replay_error():
     spec = FIXTURES["demand-prediction"]
@@ -161,13 +137,12 @@ def test_non_bool_label_field_raises_eval_replay_error():
         replay_case(bad, plan, spec)
 
 
-def test_step_index_past_trajectory_end_raises_eval_replay_error():
-    """The Pydantic validator caps target_step_index < n_steps; this test
-    constructs a case that is internally consistent but whose sim's
-    trajectory is shorter than n_steps would suggest. We do that by
-    asking the replay helper directly with a case that targets the very
-    end of a sim run that wasn't long enough — and we check the helper's
-    bound check fires."""
+def test_step_index_at_n_steps_minus_one_succeeds():
+    """target_step_index == n_steps - 1 is the last valid index; replay succeeds.
+
+    The out-of-bounds guard (target_step_index >= len(trajectory)) is exercised
+    at the schema level in test_nl_gen_eval_spec.py via the _step_index_within_n_steps
+    validator. Here we sanity-check the in-bounds boundary case runs cleanly."""
     spec = FIXTURES["demand-prediction"]
     plan = SIM_PLAN_FIXTURES["demand-prediction"]
     case = GeneratedEvalCase(

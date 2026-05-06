@@ -9,10 +9,12 @@ Two safety layers:
      `sim_plan.ALLOWED_IMPORTS`. Rejected at render time.
   2. **AST safety check** — `init_state_code` and `step_code` are parsed
      with `ast.parse` and walked; any `Import`/`ImportFrom` (modules cannot
-     re-import inside function bodies), any `Call` to a forbidden name
-     (`eval`, `exec`, `compile`, `open`, `__import__`, `globals`, `locals`,
-     `vars`, `getattr`/`setattr`/`delattr`/`hasattr` against dunder targets),
-     and any `Attribute` access whose name starts with `__` are rejected.
+     re-import inside function bodies), any `Call` to a forbidden name OR any
+     bare `Name` reference to a forbidden name (`eval`, `exec`, `compile`,
+     `open`, `__import__`, `globals`, `locals`, `vars`,
+     `getattr`/`setattr`/`delattr`/`hasattr` against dunder targets — blocking
+     name references prevents `_f = exec; _f(...)` bypass), and any `Attribute`
+     access whose name starts with `__` are rejected.
 
 The rendered module is structured so that:
 
@@ -105,6 +107,13 @@ def _ast_safety_check(source: str, *, where: str) -> None:
                 raise SimRenderError(
                     f"{where}: dunder name {node.id!r} is not allowed — "
                     f"use of __builtins__ or similar enables sandbox escape."
+                )
+            if node.id in _FORBIDDEN_CALL_NAMES:
+                raise SimRenderError(
+                    f"{where}: forbidden name {node.id!r} is not allowed — "
+                    f"assigning builtins to variables bypasses the call check "
+                    f"(e.g. `_f = exec; _f(...)`). "
+                    f"Rejected: {sorted(_FORBIDDEN_CALL_NAMES)}"
                 )
         if isinstance(node, ast.Call):
             target = node.func

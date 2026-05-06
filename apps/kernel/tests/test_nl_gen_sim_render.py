@@ -277,6 +277,50 @@ def test_rejects_subscript_based_call():
         render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
 
 
+def test_rejects_global_statement():
+    """global statement corrupts the shared replay_set namespace."""
+    plan = _plan_with(step="global rng\nreturn {'step_index': step_index}")
+    with pytest.raises(SimRenderError, match="global/nonlocal"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
+
+
+def test_rejects_nonlocal_in_nested_function():
+    """nonlocal inside a nested function could leak state across replay_case calls."""
+    plan = _plan_with(
+        step=(
+            "def _inner():\n"
+            "    nonlocal step_index\n"
+            "    return step_index\n"
+            "return {'step_index': _inner()}"
+        )
+    )
+    with pytest.raises(SimRenderError, match="global/nonlocal"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
+
+
+def test_rejects_dunder_name_reference():
+    """__builtins__ as a bare Name reference bypasses the Call check."""
+    plan = _plan_with(
+        step="x = __builtins__\nreturn {'step_index': step_index}"
+    )
+    with pytest.raises(SimRenderError, match="dunder name"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
+
+
+@pytest.mark.parametrize("builtin_name", ["exec", "eval", "open", "compile"])
+def test_rejects_forbidden_builtin_as_name_reference(builtin_name):
+    """Assigning a forbidden builtin to a variable bypasses the Call check.
+
+    e.g. `_f = exec; _f(...)` — the AST check on `_f(...)` only sees ast.Name('_f'),
+    not 'exec'. Blocking the Name reference closes the gap.
+    """
+    plan = _plan_with(
+        step=f"_f = {builtin_name}\nreturn {{'step_index': step_index}}"
+    )
+    with pytest.raises(SimRenderError, match="forbidden name"):
+        render_simulation_module(plan, DEMAND_PREDICTION_SPEC)
+
+
 def test_rejects_invalid_python():
     plan = _plan_with(step="x = (1 +\nreturn {'step_index': step_index}")
     with pytest.raises(SimRenderError, match="not valid Python"):
