@@ -124,7 +124,13 @@ def replay_case(
         )
 
     ns = namespace if namespace is not None else _exec_sim_module(plan, spec)
-    run_simulation = ns["run_simulation"]
+    try:
+        run_simulation = ns["run_simulation"]
+    except KeyError:
+        raise EvalReplayError(
+            f"case {case.case_id!r}: namespace missing 'run_simulation' — "
+            "the sim module may not have been exec'd correctly"
+        )
     try:
         result = run_simulation(case.sim_seed, case.n_steps)
         trajectory = result["trajectory"]
@@ -141,7 +147,21 @@ def replay_case(
         )
 
     event = trajectory[case.target_step_index]
-    actual = event[case.target_label_field]
+    try:
+        actual = event[case.target_label_field]
+    except KeyError:
+        raise EvalReplayError(
+            f"case {case.case_id!r}: target_label_field="
+            f"{case.target_label_field!r} not found in trajectory event at "
+            f"step {case.target_step_index} — sim emitted keys: "
+            f"{sorted(event.keys()) if isinstance(event, dict) else repr(event)}"
+        )
+    if not isinstance(actual, bool):
+        raise EvalReplayError(
+            f"case {case.case_id!r}: target_label_field="
+            f"{case.target_label_field!r} returned {type(actual).__name__!r} "
+            f"({actual!r}), expected bool — sim must emit True/False, not 1/0"
+        )
     return ReplayResult(
         case_id=case.case_id,
         passed=actual == case.expected_value,

@@ -255,7 +255,10 @@ async def generate_eval_case_set(
     try:
         return EvalCaseSet.model_validate(set_payload)
     except ValidationError as exc:
-        preview = json.dumps(raw_input)[:500]
+        try:
+            preview = json.dumps(raw_input)[:500]
+        except (TypeError, ValueError):
+            preview = repr(raw_input)[:500]
         raise EvalCaseSetValidationError(
             f"Tool input failed EvalCaseSet validation: {exc.error_count()} "
             f"errors. Input preview: {preview}",
