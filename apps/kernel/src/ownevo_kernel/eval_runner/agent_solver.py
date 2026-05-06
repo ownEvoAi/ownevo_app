@@ -63,6 +63,7 @@ from pydantic import ValidationError
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
+    from openai import AsyncOpenAI
 
     from .token_budget import TokenBudget
 
@@ -70,6 +71,9 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_MAX_TOKENS = 1_000
 """Bool + one-line rationale fits in <500 tokens; 1k is the cap."""
+DEFAULT_MAX_TOKENS_OPENAI = 8_000
+"""Higher cap for OpenAI-compat path: reasoning/thinking models emit a
+long preamble before committing the tool call; 1k hits the wall too early."""
 
 REDACTED_TOKEN = "<REDACTED>"
 """Sentinel value substituted into the target event's label field."""
@@ -335,6 +339,7 @@ def _format_user_message(
 
 
 def _build_tool_definition() -> dict[str, Any]:
+    """Anthropic tool definition format."""
     return {
         "name": TOOL_NAME,
         "description": TOOL_DESCRIPTION,
@@ -342,27 +347,26 @@ def _build_tool_definition() -> dict[str, Any]:
     }
 
 
+def _build_openai_tool_definition() -> dict[str, Any]:
+    """OpenAI tool definition format (for Ollama / LM Studio direct calls)."""
+    return {
+        "type": "function",
+        "function": {
+            "name": TOOL_NAME,
+            "description": TOOL_DESCRIPTION,
+            "parameters": TOOL_INPUT_SCHEMA,
+        },
+    }
+
+
 _TOOL_DEFINITION = _build_tool_definition()
+_OPENAI_TOOL_DEFINITION = _build_openai_tool_definition()
 
 
-def _extract_prediction(
-    msg: Any, *, case_id: str, model: str
-) -> AgentPrediction:
-    tool_blocks = [
-        b for b in msg.content
-        if getattr(b, "type", None) == "tool_use"
-        and getattr(b, "name", None) == TOOL_NAME
-    ]
-    if not tool_blocks:
-        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
-        preview = (text_blocks[0].text if text_blocks else "")[:300]
-        raise NoPredictToolUseError(
-            f"case {case_id!r}: agent did not call {TOOL_NAME} "
-            f"(stop_reason={msg.stop_reason!r})",
-            stop_reason=msg.stop_reason,
-            content_preview=preview,
-        )
-    raw_input = tool_blocks[0].input
+def _validate_prediction_input(
+    raw_input: Any, *, case_id: str
+) -> None:
+    """Validate predict_label tool input. Raises PredictToolValidationError on bad input."""
     if not isinstance(raw_input, dict):
         raise PredictToolValidationError(
             f"case {case_id!r}: predict_label input was not a dict: "
@@ -389,8 +393,77 @@ def _extract_prediction(
             f"non-empty string; got {rationale!r}",
             raw_input=raw_input,
         )
+
+
+def _extract_prediction(
+    msg: Any, *, case_id: str, model: str
+) -> AgentPrediction:
+    """Parse Anthropic-format response into AgentPrediction."""
+    tool_blocks = [
+        b for b in msg.content
+        if getattr(b, "type", None) == "tool_use"
+        and getattr(b, "name", None) == TOOL_NAME
+    ]
+    if not tool_blocks:
+        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
+        preview = (text_blocks[0].text if text_blocks else "")[:300]
+        raise NoPredictToolUseError(
+            f"case {case_id!r}: agent did not call {TOOL_NAME} "
+            f"(stop_reason={msg.stop_reason!r})",
+            stop_reason=msg.stop_reason,
+            content_preview=preview,
+        )
+    raw_input = tool_blocks[0].input
+    _validate_prediction_input(raw_input, case_id=case_id)
     return AgentPrediction(
-        case_id=case_id, value=value, rationale=rationale, model=model
+        case_id=case_id,
+        value=raw_input["value"],
+        rationale=raw_input["rationale"],
+        model=model,
+    )
+
+
+def _extract_prediction_openai(
+    response: Any, *, case_id: str, model: str
+) -> AgentPrediction:
+    """Parse OpenAI-format response into AgentPrediction."""
+    if not response.choices:
+        raise NoPredictToolUseError(
+            f"case {case_id!r}: OpenAI response has no choices",
+            stop_reason=None,
+            content_preview="",
+        )
+    choice = response.choices[0]
+    finish_reason = getattr(choice, "finish_reason", None)
+    tool_calls = getattr(choice.message, "tool_calls", None) or []
+    matching = [tc for tc in tool_calls if tc.function.name == TOOL_NAME]
+    if not matching:
+        preview = (getattr(choice.message, "content", "") or "")[:300]
+        raise NoPredictToolUseError(
+            f"case {case_id!r}: agent did not call {TOOL_NAME} "
+            f"(stop_reason={finish_reason!r})",
+            stop_reason=finish_reason,
+            content_preview=preview,
+        )
+    args = matching[0].function.arguments
+    if args is None:
+        raise PredictToolValidationError(
+            f"case {case_id!r}: predict_label arguments is null",
+            raw_input=None,
+        )
+    try:
+        raw_input = json.loads(args)
+    except json.JSONDecodeError as exc:
+        raise PredictToolValidationError(
+            f"case {case_id!r}: predict_label arguments not valid JSON: {exc}",
+            raw_input=args,
+        ) from exc
+    _validate_prediction_input(raw_input, case_id=case_id)
+    return AgentPrediction(
+        case_id=case_id,
+        value=raw_input["value"],
+        rationale=raw_input["rationale"],
+        model=model,
     )
 
 
@@ -403,67 +476,74 @@ async def predict_one(
     namespace: dict[str, Any],
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    openai_client: "AsyncOpenAI | None" = None,
     budget: "TokenBudget | None" = None,
 ) -> AgentPrediction:
     """Run one agent prediction for one case.
 
-    The sim namespace must already be exec'd (by `solve_with_agent`); we
-    pass it in so the caller can reuse the namespace across all cases of
-    one workflow without paying the AST safety + compile cost per case.
+    When `openai_client` is provided the call goes through the OpenAI
+    `/v1/chat/completions` path (Ollama / LM Studio direct) instead of
+    the Anthropic `/v1/messages` path. Tool definitions and response
+    parsing are converted automatically; all other logic is identical.
 
     Args:
-        client: AsyncAnthropic client.
+        client: AsyncAnthropic client (used when openai_client is None).
         case: The eval case to predict.
         spec: Source WorkflowSpec (for the description + tool vocabulary).
-        metric: A4.2 MetricDefinition — drives the gate-metric framing
-            block injected into the user message. Load-bearing for
-            error-mode tie-breaking on borderline cases.
-        namespace: Pre-exec'd sim namespace (from `_exec_sim_namespace`).
-        model: Anthropic model id. Default haiku.
+        metric: A4.2 MetricDefinition — drives the gate-metric framing.
+        namespace: Pre-exec'd sim namespace.
+        model: Model id. Default haiku (Anthropic) or pass a local model id.
         max_tokens: Output cap.
-        budget: Optional A4.5 token-budget accumulator. When set, the
-            call's `usage.input_tokens + usage.output_tokens` is added
-            after the call completes; if the cumulative crosses the cap
-            the budget raises `TokenBudgetExceededError` (subclass of
-            `AgentSolverError`). The check is post-call by design — we
-            need the response to read `usage` — so actual spend may
-            exceed the cap by at most one call's worth.
-
-    Returns:
-        An `AgentPrediction`.
-
-    Raises:
-        AgentSolverError: trajectory bounds error.
-        NoPredictToolUseError: agent stopped without calling the tool.
-        PredictToolValidationError: tool input failed schema check.
-        TokenBudgetExceededError: `budget` was provided and this call
-            tipped the cumulative usage past the cap.
+        openai_client: When set, use OpenAI-compat API instead of Anthropic.
+        budget: Optional A4.5 token-budget accumulator. Applied to Anthropic
+            calls only (OpenAI-compat responses don't carry usage the same way).
+            If cumulative usage crosses the cap, raises `TokenBudgetExceededError`.
     """
     trajectory = _trajectory_for_case(case, namespace)
     user_message = _format_user_message(spec, case, trajectory, metric)
 
     try:
-        msg = await client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=[_TOOL_DEFINITION],
-            tool_choice={"type": "tool", "name": TOOL_NAME},
-            messages=[{"role": "user", "content": user_message}],
-        )
+        if openai_client is not None:
+            response = await openai_client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                tools=[_OPENAI_TOOL_DEFINITION],
+                # "required" (not named) for Ollama/LM Studio compat: some
+                # local backends don't support the named {"type":"function"}
+                # form. With only one tool registered this is equivalent.
+                tool_choice="required",
+            )
+            return _extract_prediction_openai(
+                response, case_id=case.case_id, model=model
+            )
+        else:
+            msg = await client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=SYSTEM_PROMPT,
+                tools=[_TOOL_DEFINITION],
+                tool_choice={"type": "tool", "name": TOOL_NAME},
+                messages=[{"role": "user", "content": user_message}],
+            )
+            if budget is not None:
+                from .token_budget import extract_usage
+
+                in_tok, out_tok = extract_usage(msg)
+                budget.record(
+                    input_tokens=in_tok, output_tokens=out_tok, label=case.case_id
+                )
+            return _extract_prediction(msg, case_id=case.case_id, model=model)
+    except (AgentSolverError, NoPredictToolUseError, PredictToolValidationError):
+        raise
     except Exception as exc:
         raise AgentSolverError(
             f"case {case.case_id!r}: API call failed — "
             f"{type(exc).__name__}: {exc}"
         ) from exc
-    if budget is not None:
-        from .token_budget import extract_usage
-
-        in_tok, out_tok = extract_usage(msg)
-        budget.record(
-            input_tokens=in_tok, output_tokens=out_tok, label=case.case_id
-        )
-    return _extract_prediction(msg, case_id=case.case_id, model=model)
 
 
 async def solve_with_agent(
@@ -474,7 +554,8 @@ async def solve_with_agent(
     metric: MetricDefinition,
     *,
     model: str = DEFAULT_MODEL,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
+    openai_client: "AsyncOpenAI | None" = None,
     budget: "TokenBudget | None" = None,
 ) -> list[ReplayResult]:
     """Run the agent on every case in the set; return ReplayResults.
@@ -529,6 +610,11 @@ async def solve_with_agent(
         )
 
     ns = exec_sim_module(plan, spec, caller="agent-solver")
+    resolved_max_tokens = (
+        max_tokens
+        if max_tokens is not None
+        else (DEFAULT_MAX_TOKENS_OPENAI if openai_client is not None else DEFAULT_MAX_TOKENS)
+    )
 
     results: list[ReplayResult] = []
     for case in case_set.cases:
@@ -539,7 +625,8 @@ async def solve_with_agent(
             metric=metric,
             namespace=ns,
             model=model,
-            max_tokens=max_tokens,
+            max_tokens=resolved_max_tokens,
+            openai_client=openai_client,
             budget=budget,
         )
         results.append(
@@ -556,6 +643,7 @@ async def solve_with_agent(
 __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOKENS_OPENAI",
     "REDACTED_TOKEN",
     "TOOL_NAME",
     "TOOL_DESCRIPTION",

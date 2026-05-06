@@ -504,3 +504,169 @@ async def test_target_step_past_trajectory_raises_agent_solver_error():
         await predict_one(client, huge, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
     # Restore (defensive — namespace is local to this test)
     ns["run_simulation"] = original
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compat path (predict_one with openai_client)
+# ---------------------------------------------------------------------------
+
+
+def _oai_tool_call(name: str, arguments: str | None) -> SimpleNamespace:
+    return SimpleNamespace(
+        function=SimpleNamespace(name=name, arguments=arguments)
+    )
+
+
+def _oai_response(
+    tool_calls: list | None = None,
+    content: str = "",
+    finish_reason: str = "tool_calls",
+) -> SimpleNamespace:
+    msg = SimpleNamespace(
+        tool_calls=tool_calls,
+        content=content,
+    )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=msg, finish_reason=finish_reason)]
+    )
+
+
+def _oai_predict_response(value: bool, rationale: str = "scripted") -> SimpleNamespace:
+    args = json.dumps({"value": value, "rationale": rationale})
+    return _oai_response(tool_calls=[_oai_tool_call(TOOL_NAME, args)])
+
+
+class _ScriptedOpenAICompletions:
+    def __init__(self, responses: list) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if not self._responses:
+            raise AssertionError("openai client received more calls than scripted")
+        resp = self._responses.pop(0)
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+
+class _ScriptedOpenAIClient:
+    def __init__(self, responses: list) -> None:
+        self.chat = SimpleNamespace(
+            completions=_ScriptedOpenAICompletions(responses)
+        )
+
+    @property
+    def completions(self) -> _ScriptedOpenAICompletions:
+        return self.chat.completions
+
+
+def _oai_client(responses: list) -> _ScriptedOpenAIClient:
+    return _ScriptedOpenAIClient(responses)
+
+
+def _oai_fixture():
+    workflow_id = "demand-prediction"
+    spec = FIXTURES[workflow_id]
+    plan = SIM_PLAN_FIXTURES[workflow_id]
+    case = EVAL_CASE_SET_FIXTURES[workflow_id].cases[0]
+    ns = _exec_sim_namespace(plan, spec)
+    metric = METRIC_FIXTURES[workflow_id]
+    return spec, case, ns, metric
+
+
+async def test_predict_one_openai_happy_path():
+    spec, case, ns, metric = _oai_fixture()
+    oai = _oai_client([_oai_predict_response(True, "looks local")])
+
+    result = await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+    assert isinstance(result, AgentPrediction)
+    assert result.value is True
+    assert result.rationale == "looks local"
+
+
+async def test_predict_one_openai_passes_system_prompt_and_tool_definition():
+    spec, case, ns, metric = _oai_fixture()
+    oai = _oai_client([_oai_predict_response(False)])
+
+    await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+    kw = oai.completions.calls[0]
+    assert kw["messages"][0]["role"] == "system"
+    assert kw["messages"][0]["content"] == SYSTEM_PROMPT
+    assert kw["tools"][0]["function"]["name"] == TOOL_NAME
+    assert kw["tool_choice"] == "required"
+
+
+async def test_predict_one_openai_empty_choices_raises_no_predict():
+    spec, case, ns, metric = _oai_fixture()
+    empty = SimpleNamespace(choices=[])
+    oai = _oai_client([empty])
+
+    with pytest.raises(NoPredictToolUseError):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_no_matching_tool_raises_no_predict():
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[_oai_tool_call("other_tool", '{"value": true, "rationale": "x"}')])
+    oai = _oai_client([resp])
+
+    with pytest.raises(NoPredictToolUseError):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_null_arguments_raises_validation_error():
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[_oai_tool_call(TOOL_NAME, None)])
+    oai = _oai_client([resp])
+
+    with pytest.raises(PredictToolValidationError, match="null"):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_invalid_json_arguments_raises_validation_error():
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[_oai_tool_call(TOOL_NAME, "not-json{")])
+    oai = _oai_client([resp])
+
+    with pytest.raises(PredictToolValidationError, match="JSON"):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_non_bool_value_raises_validation_error():
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[_oai_tool_call(TOOL_NAME, '{"value": 1, "rationale": "x"}')])
+    oai = _oai_client([resp])
+
+    with pytest.raises(PredictToolValidationError, match="bool"):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_empty_rationale_raises_validation_error():
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[_oai_tool_call(TOOL_NAME, '{"value": true, "rationale": "  "}')])
+    oai = _oai_client([resp])
+
+    with pytest.raises(PredictToolValidationError, match="rationale"):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_api_error_wrapped_as_agent_solver_error():
+    spec, case, ns, metric = _oai_fixture()
+    oai = _oai_client([RuntimeError("connection refused")])
+
+    with pytest.raises(AgentSolverError, match="connection refused"):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
+
+
+async def test_predict_one_openai_no_predict_error_not_wrapped():
+    """NoPredictToolUseError must propagate as-is (not wrapped in AgentSolverError)."""
+    spec, case, ns, metric = _oai_fixture()
+    resp = _oai_response(tool_calls=[], finish_reason="stop")
+    oai = _oai_client([resp])
+
+    with pytest.raises(NoPredictToolUseError):
+        await predict_one(None, case, spec=spec, metric=metric, namespace=ns, openai_client=oai)
