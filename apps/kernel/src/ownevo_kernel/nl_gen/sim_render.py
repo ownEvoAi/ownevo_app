@@ -94,6 +94,18 @@ def _ast_safety_check(source: str, *, where: str) -> None:
                 f"body (declare imports in SimulationPlan.imports instead). "
                 f"Got: {ast.unparse(node)!r}"
             )
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            raise SimRenderError(
+                f"{where}: global/nonlocal statements are not allowed — they "
+                f"corrupt the shared namespace in replay_set. "
+                f"Got: {ast.unparse(node)!r}"
+            )
+        if isinstance(node, ast.Name):
+            if node.id.startswith("__") and node.id.endswith("__"):
+                raise SimRenderError(
+                    f"{where}: dunder name {node.id!r} is not allowed — "
+                    f"use of __builtins__ or similar enables sandbox escape."
+                )
         if isinstance(node, ast.Call):
             target = node.func
             if isinstance(target, ast.Subscript):

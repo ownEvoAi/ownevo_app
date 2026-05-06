@@ -125,8 +125,13 @@ def replay_case(
 
     ns = namespace if namespace is not None else _exec_sim_module(plan, spec)
     run_simulation = ns["run_simulation"]
-    result = run_simulation(case.sim_seed, case.n_steps)
-    trajectory = result["trajectory"]
+    try:
+        result = run_simulation(case.sim_seed, case.n_steps)
+        trajectory = result["trajectory"]
+    except Exception as exc:
+        raise EvalReplayError(
+            f"case {case.case_id!r}: sim execution failed — {type(exc).__name__}: {exc}"
+        ) from exc
 
     if case.target_step_index >= len(trajectory):
         raise EvalReplayError(

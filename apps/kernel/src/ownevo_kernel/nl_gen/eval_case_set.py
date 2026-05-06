@@ -49,6 +49,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .spec import Provenance
 
 SCHEMA_VERSION = "0.1"
+MIN_CLASS_COUNT = 3
+"""Minimum number of True and False expected_value entries required per EvalCaseSet."""
 """A4.1 schema version. Frozen to "1.0" at the A4-end ritual.
 
 Pre-freeze the version is `0.1`. After freeze the kernel's freeze test
@@ -209,9 +211,10 @@ class EvalCaseSet(_Base):
         """
         true_count = sum(1 for c in self.cases if c.expected_value is True)
         false_count = len(self.cases) - true_count
-        if true_count < 3 or false_count < 3:
+        if true_count < MIN_CLASS_COUNT or false_count < MIN_CLASS_COUNT:
             raise ValueError(
-                f"cases must include >=3 True and >=3 False expected_value "
+                f"cases must include >={MIN_CLASS_COUNT} True and "
+                f">={MIN_CLASS_COUNT} False expected_value "
                 f"entries (got True={true_count}, False={false_count})"
             )
         return self
@@ -219,6 +222,7 @@ class EvalCaseSet(_Base):
 
 __all__ = [
     "SCHEMA_VERSION",
+    "MIN_CLASS_COUNT",
     "GeneratedEvalCase",
     "EvalCaseSet",
 ]
