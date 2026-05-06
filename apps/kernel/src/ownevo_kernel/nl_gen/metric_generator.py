@@ -271,7 +271,10 @@ async def generate_metric_definition(
     try:
         definition = MetricDefinition.model_validate(md_payload)
     except ValidationError as exc:
-        preview = json.dumps(raw_input)[:500]
+        try:
+            preview = json.dumps(raw_input)[:500]
+        except (TypeError, ValueError):
+            preview = repr(raw_input)[:500]
         raise MetricDefinitionValidationError(
             f"Tool input failed MetricDefinition validation: {exc.error_count()} "
             f"errors. Input preview: {preview}",

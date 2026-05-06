@@ -356,3 +356,53 @@ def test_provenance_object_round_trips_through_compute():
     # Just exercising — provenance lives on the definition, not the result.
     result = compute_metric(md, _RESULTS_8)
     assert result.metric_name == md.name
+
+
+# ---------------------------------------------------------------------------
+# spec= kwarg: _check_against_spec wired into compute_metric
+# ---------------------------------------------------------------------------
+
+
+def test_compute_metric_with_matching_spec_passes():
+    spec = FIXTURES["demand-prediction"]
+    md = METRIC_FIXTURES["demand-prediction"]
+    results = replay_set(EVAL_CASE_SET_FIXTURES["demand-prediction"], SIM_PLAN_FIXTURES["demand-prediction"], spec)
+    result = compute_metric(md, results, spec=spec)
+    assert result.meets_target is True
+
+
+def test_compute_metric_with_mismatched_spec_raises():
+    spec = FIXTURES["credit-risk"]
+    md = METRIC_FIXTURES["demand-prediction"]
+    with pytest.raises(ValueError, match="workflow_spec_id"):
+        compute_metric(md, _RESULTS_8, spec=spec)
+
+
+def test_compute_metric_without_spec_skips_cross_check():
+    """Passing spec=None (default) skips _check_against_spec — backward-compatible."""
+    md = METRIC_FIXTURES["demand-prediction"]
+    result = compute_metric(md, _RESULTS_8)  # no spec — should not raise
+    assert isinstance(result.value, float)
+
+
+# ---------------------------------------------------------------------------
+# Float precision: meets_target uses math.isclose for boundary values
+# ---------------------------------------------------------------------------
+
+
+def test_meets_target_at_float_boundary_maximize():
+    """f1 computed from integer counts may land at a binary-float value
+    that is one ULP away from the stored target. math.isclose covers the gap."""
+    # 1 TP, 0 TN, 0 FP, 0 FN → precision=1.0, recall=1.0, f1=1.0 (exact)
+    results = [_r("tp1", True, True)]
+    md = _md("f1", target=1.0)
+    result = compute_metric(md, results)
+    assert result.meets_target is True
+
+
+def test_meets_target_at_float_boundary_minimize():
+    """Symmetric check for the minimize direction."""
+    results = [_r("tp1", True, False)]  # FN — recall = 0/1 = 0.0
+    md = _md("recall", target=0.0, direction="minimize")
+    result = compute_metric(md, results)
+    assert result.meets_target is True

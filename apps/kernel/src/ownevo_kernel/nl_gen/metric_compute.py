@@ -30,6 +30,7 @@ WorkflowSpec; the call site (the generator + the gate) wires it in.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import assert_never
 
@@ -136,23 +137,36 @@ def _safe_div(num: int, den: int) -> tuple[float, bool]:
 
 
 def compute_metric(
-    definition: MetricDefinition, results: list[ReplayResult]
+    definition: MetricDefinition,
+    results: list[ReplayResult],
+    *,
+    spec: WorkflowSpec | None = None,
 ) -> MetricResult:
     """Compute the metric defined by `definition` over `results`.
 
     Args:
         definition: The metric to compute.
         results: ReplayResult list, typically from `eval_replay.replay_set`.
+        spec: Optional WorkflowSpec. When provided, `_check_against_spec` is
+            called to enforce that `definition.workflow_spec_id` and
+            `definition.direction` agree with the spec before computing.
+            Pass this whenever the spec is in scope — the gate should always
+            pass it to prevent silent computation on the wrong workflow's data.
 
     Returns:
         A `MetricResult` carrying the computed value, confusion counts,
         and whether `target_value` was met under `direction`.
 
     Raises:
+        ValueError: spec is provided and `definition` doesn't match it
+            (workflow_spec_id or direction mismatch).
         MetricComputeError: results is empty, or any expected/actual
             value is not a bool, or `definition.family` is not in the
             dispatch (programming error).
     """
+    if spec is not None:
+        _check_against_spec(definition, spec)
+
     if not results:
         raise MetricComputeError(
             "cannot compute a metric over an empty result list — the gate "
@@ -202,10 +216,11 @@ def compute_metric(
             f"the family's actual range, which is a programming error"
         )
 
+    _close = math.isclose(value, definition.target_value, rel_tol=1e-9)
     if definition.direction == "maximize":
-        meets_target = value >= definition.target_value
+        meets_target = value >= definition.target_value or _close
     else:
-        meets_target = value <= definition.target_value
+        meets_target = value <= definition.target_value or _close
 
     return MetricResult(
         metric_name=definition.name,
@@ -226,5 +241,4 @@ __all__ = [
     "MetricComputeError",
     "MetricResult",
     "compute_metric",
-    "_check_against_spec",
 ]

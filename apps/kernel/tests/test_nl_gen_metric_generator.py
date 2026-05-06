@@ -30,8 +30,9 @@ from ownevo_kernel.nl_gen.fixtures import FIXTURES, METRIC_FIXTURES
 from ownevo_kernel.nl_gen.metric_generator import (
     SYSTEM_PROMPT,
     TOOL_NAME,
-    _TOOL_DEFINITION,
+    _TOOL_DEFINITION,  # private but needed to pin the tool-definition shape
 )
+from ownevo_kernel.nl_gen import EVAL_TOOL_NAME as _EVAL_TOOL_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +201,7 @@ async def test_wrong_tool_name_raises_no_tool_use():
     spec = FIXTURES["demand-prediction"]
     client = _FakeClient(
         _ScriptedResponse(
-            content=[_tool_use_block("emit_eval_case_set", {"x": 1})],
+            content=[_tool_use_block(_EVAL_TOOL_NAME, {"x": 1})],
             stop_reason="tool_use",
         )
     )
