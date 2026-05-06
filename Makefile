@@ -6,7 +6,7 @@
 
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
-        seed-m5-baseline m5-bootstrap-loop
+        seed-m5-baseline m5-bootstrap-loop eval-replay
 
 help:
 	@printf 'targets:\n'
@@ -22,6 +22,8 @@ help:
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
 	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
+	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
+	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -98,3 +100,18 @@ seed-m5-baseline:
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)
+
+# ----------------------------------------------------------------------------
+# NL-gen eval replay (A4.3)
+# ----------------------------------------------------------------------------
+
+# `WORKFLOW=...` selects the fixture trio to replay. `all` runs every
+# fixture and exits 0 only if every one meets its metric's target.
+# `EVAL_ARGS=...` passes flags through to scripts/eval_replay.py
+# (e.g. EVAL_ARGS='--pretty --include-outcomes').
+WORKFLOW ?= all
+EVAL_ARGS ?=
+
+eval-replay:
+	cd apps/kernel && uv run python scripts/eval_replay.py \
+	    --workflow $(WORKFLOW) $(EVAL_ARGS)

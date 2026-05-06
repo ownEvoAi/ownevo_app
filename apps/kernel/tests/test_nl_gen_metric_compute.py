@@ -13,7 +13,7 @@ Two halves:
      eval cases ↔ metric all line up).
 
 `MetricComputeError` paths: empty list, non-bool labels.
-`_check_against_spec`: id mismatch, direction mismatch.
+`check_against_spec`: id mismatch, direction mismatch.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from ownevo_kernel.nl_gen.fixtures import (
     METRIC_FIXTURES,
     SIM_PLAN_FIXTURES,
 )
-from ownevo_kernel.nl_gen.metric_compute import _check_against_spec
+from ownevo_kernel.nl_gen.metric_compute import check_against_spec
 from ownevo_kernel.nl_gen.spec import Provenance
 
 
@@ -233,30 +233,30 @@ def test_non_bool_expected_value_raises():
 
 
 # ---------------------------------------------------------------------------
-# _check_against_spec
+# check_against_spec
 # ---------------------------------------------------------------------------
 
 
-def test_check_against_spec_pass_when_id_and_direction_agree():
+def testcheck_against_spec_pass_when_id_and_direction_agree():
     spec = FIXTURES["demand-prediction"]
     md = METRIC_FIXTURES["demand-prediction"]
-    _check_against_spec(md, spec)  # no raise
+    check_against_spec(md, spec)  # no raise
 
 
-def test_check_against_spec_id_mismatch_raises():
+def testcheck_against_spec_id_mismatch_raises():
     spec = FIXTURES["demand-prediction"]
     md = METRIC_FIXTURES["credit-risk"]
     with pytest.raises(ValueError, match="workflow_spec_id"):
-        _check_against_spec(md, spec)
+        check_against_spec(md, spec)
 
 
-def test_check_against_spec_direction_mismatch_raises():
+def testcheck_against_spec_direction_mismatch_raises():
     spec = FIXTURES["demand-prediction"]
     md = METRIC_FIXTURES["demand-prediction"].model_copy(
         update={"direction": "minimize"}
     )
     with pytest.raises(ValueError, match="direction"):
-        _check_against_spec(md, spec)
+        check_against_spec(md, spec)
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ def test_provenance_object_round_trips_through_compute():
 
 
 # ---------------------------------------------------------------------------
-# spec= kwarg: _check_against_spec wired into compute_metric
+# spec= kwarg: check_against_spec wired into compute_metric
 # ---------------------------------------------------------------------------
 
 
@@ -379,7 +379,7 @@ def test_compute_metric_with_mismatched_spec_raises():
 
 
 def test_compute_metric_without_spec_skips_cross_check():
-    """Passing spec=None (default) skips _check_against_spec — backward-compatible."""
+    """Passing spec=None (default) skips check_against_spec — backward-compatible."""
     md = METRIC_FIXTURES["demand-prediction"]
     result = compute_metric(md, _RESULTS_8)  # no spec — should not raise
     assert isinstance(result.value, float)
