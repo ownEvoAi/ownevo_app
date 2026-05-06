@@ -17,6 +17,51 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (A4.5 — cost + determinism guardrails, PR #46)
+- `apps/kernel/src/ownevo_kernel/eval_runner/token_budget.py` — `TokenBudget(max_tokens)`
+  accumulator + `TokenBudgetExceededError` (subclass of `AgentSolverError`). Threaded
+  through `predict_one` → `solve_with_agent` → `run_with_agent` as optional `budget=`.
+  After every `client.messages.create`, the accumulator reads `msg.usage.input_tokens +
+  output_tokens` and raises if cumulative crosses the cap. Post-call by design — can
+  overshoot by at most one call's worth. `extract_usage` helper normalises the SDK response;
+  logs a warning when both fields resolve to 0 (SDK field-rename sentinel).
+- `apps/kernel/src/ownevo_kernel/eval_runner/determinism.py` — `verify_determinism(...)
+  → EvalRunReport`. Runs `run_replay` twice; `compare_reports` checks outcome count,
+  per-case `case_id` ordering + `actual_value` + `passed` flag, confusion-matrix counts
+  (tp/tn/fp/fn/n_total/n_pass), and metric value (tolerance `1e-9`). `NondeterminismError`
+  carries `kind`, `case_id`, `run1_value`, `run2_value`. `compare_reports` is public API
+  (`__all__`).
+- `nl_gen_smoketest.py` — `--max-tokens-per-workflow` CLI flag wiring the budget into
+  `run_with_agent`; exit 3 on `TokenBudgetExceededError` with structured JSON on stdout.
+  Budget block included in per-workflow JSON output on successful (under-cap) runs.
+- `eval_replay.py` — `--check-determinism` flag; exit 3 on `NondeterminismError` with
+  structured JSON to stderr. Default off (avoids paying for the duplicate run on every
+  dev iteration).
+- 18 net new tests across `test_eval_runner_token_budget.py` (2 new edge-case tests added
+  in the review pass) and `test_eval_runner_determinism.py` (1 new empty-outcomes test).
+
+### Fixed (A4.5 review pass, `4a9c27e`)
+- `eval_runner/determinism.py` — NaN guard on metric-value comparison. `abs(NaN - NaN)
+  is NaN`; `NaN > 1e-9` is `False`, so a sim returning NaN metric silently passed the
+  gate. Fixed: `math.isnan(delta) or delta > METRIC_VALUE_TOLERANCE` raises
+  `NondeterminismError(kind="metric_value")`.
+- `nl_gen_smoketest.py` — `--max-tokens-per-workflow 0` (or negative) previously raised
+  an uncaught `ValueError` from `TokenBudget.__post_init__`. Now rejected by argparse
+  via a `_positive_int` type validator with a clean error message before any API call.
+- `eval_replay.py` — error JSON blocks used the FIXTURES dict key (e.g.
+  `"demand-prediction"`) as `workflow_spec_id` instead of `FIXTURES[workflow_id].id`
+  (e.g. `"supply-chain-demand-forecast"`). All three fixture keys diverge from their
+  `WorkflowSpec.id` values. Fixed in both the `NondeterminismError` handler and the
+  generic `Exception` handler.
+- `nl_gen_smoketest.py` — import of `TokenBudget` / `TokenBudgetExceededError` changed
+  from the internal submodule (`eval_runner.token_budget`) to the public package surface
+  (`eval_runner`), consistent with how every other caller imports these names.
+
+### Changed (A4.5)
+- `eval_runner/__init__.py` — module docstring updated to enumerate all four callable
+  surfaces (`run_replay`, `run_with_agent`, `verify_determinism`, `build_inspect_task`);
+  stale comment on `TokenBudget`'s lazy-shim corrected.
+
 ### Added
 - `infra/litellm/ollama.yaml` — LiteLLM proxy config for the A4.4 local-model
   smoke. Translates Anthropic `/v1/messages` → `ollama_chat/<model>`
