@@ -131,7 +131,29 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=None,
         help=(
             "Anthropic-compatible /v1/messages base URL (LM Studio, "
-            "LiteLLM proxy). Default uses the Anthropic API directly."
+            "LiteLLM proxy). Default uses the Anthropic API directly. "
+            "Applied to both NL-gen and agent solver unless "
+            "--nl-gen-base-url is also set."
+        ),
+    )
+    parser.add_argument(
+        "--nl-gen-base-url",
+        default=None,
+        help=(
+            "Override base URL for the NL-gen pipeline only. Lets you "
+            "route NL-gen through one endpoint (e.g. Anthropic direct) "
+            "and the agent solver through another (e.g. a local LiteLLM "
+            "proxy). When omitted, --anthropic-base-url applies to both."
+        ),
+    )
+    parser.add_argument(
+        "--nl-gen-direct",
+        action="store_true",
+        help=(
+            "Force NL-gen to use the real Anthropic API directly, even "
+            "when --anthropic-base-url is set for the agent solver. "
+            "Shorthand for the hybrid pattern: frontier NL-gen + local "
+            "agent solver."
         ),
     )
     parser.add_argument(
@@ -154,12 +176,14 @@ async def _materialize_quartet(
     workflow_id: str,
     *,
     client,
+    nl_gen_client,
     from_fixtures: bool,
     nl_gen_model: str | None,
 ):
     """Acquire (spec, plan, case_set, metric) for `workflow_id`.
 
     Returns a 4-tuple. From-fixtures path is sync; regenerate path is async.
+    `nl_gen_client` may differ from `client` when --nl-gen-base-url is set.
     """
     if from_fixtures:
         return (
@@ -170,7 +194,7 @@ async def _materialize_quartet(
         )
     description = DESCRIPTIONS[workflow_id]
     pipeline = await generate_full_pipeline(
-        client, description, model=nl_gen_model
+        nl_gen_client, description, model=nl_gen_model
     )
     return (
         pipeline.workflow_spec,
@@ -200,6 +224,7 @@ async def _smoke_one(
     workflow_id: str,
     *,
     client,
+    nl_gen_client,
     from_fixtures: bool,
     max_cases: int | None,
     model: str,
@@ -210,6 +235,7 @@ async def _smoke_one(
     spec, plan, case_set, metric = await _materialize_quartet(
         workflow_id,
         client=client,
+        nl_gen_client=nl_gen_client,
         from_fixtures=from_fixtures,
         nl_gen_model=nl_gen_model,
     )
@@ -285,12 +311,19 @@ async def _async_main(ns: argparse.Namespace) -> int:
         return 2
 
     client = _make_client(ns.anthropic_base_url)
+    if ns.nl_gen_direct:
+        nl_gen_client = _make_client(None)
+    elif ns.nl_gen_base_url:
+        nl_gen_client = _make_client(ns.nl_gen_base_url)
+    else:
+        nl_gen_client = client
 
     all_met = True
     for workflow_id in workflows:
         report, wall = await _smoke_one(
             workflow_id,
             client=client,
+            nl_gen_client=nl_gen_client,
             from_fixtures=ns.from_fixtures,
             max_cases=ns.max_cases,
             model=ns.model,

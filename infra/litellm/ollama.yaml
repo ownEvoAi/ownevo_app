@@ -1,9 +1,10 @@
-# LiteLLM proxy config — Anthropic /v1/messages → Ollama /api/chat translation.
+# LiteLLM proxy config — Anthropic /v1/messages → Ollama /api/chat translation,
+# plus passthrough entries for Anthropic cloud models (for hybrid runs where
+# NL-gen uses a frontier model and the agent solver uses a local model).
 #
 # Used by `apps/kernel/scripts/run_a4_4_local_smoke.sh` to dogfood the A4.4
-# NL-gen smoketest gate against local models without touching the
-# Anthropic API. Set `OWNEVO_OLLAMA_HOST` to the host running the Ollama
-# daemon (default 192.168.1.50; override for laptop-local Ollama).
+# NL-gen smoketest gate against local models. Set `OWNEVO_OLLAMA_HOST` to the
+# host running the Ollama daemon (default 192.168.1.50).
 #
 # Models picked from docs/local-model-testing.md candidate list.
 # Provider string is `ollama_chat/<model>` (not `ollama/<model>`) — the
@@ -24,6 +25,19 @@
 #   gpt-oss:20b:            errs out (max_tokens before tool-call commit)
 
 model_list:
+  # Anthropic cloud passthrough — for hybrid runs (frontier NL-gen + local agent).
+  # Requires ANTHROPIC_API_KEY in the environment that starts the proxy.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Ollama local models (via /api/chat, not /api/generate).
   - model_name: qwen3-coder-30b
     litellm_params:
       model: ollama_chat/qwen3-coder:30b
