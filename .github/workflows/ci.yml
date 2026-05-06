@@ -52,6 +52,7 @@ jobs:
           uv run pytest apps/kernel/tests/ \
             --ignore=apps/kernel/tests/test_nl_gen_sim_sandbox.py \
             --ignore=apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py \
+            --ignore=apps/kernel/tests/test_agent_tools_run_pipeline.py \
             -v --tb=short
 
       - name: Run trace-format tests

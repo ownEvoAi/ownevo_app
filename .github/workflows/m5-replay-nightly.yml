@@ -47,6 +47,7 @@ on:
       - "apps/kernel/src/ownevo_kernel/benchmark/m5*.py"
       - "apps/kernel/src/ownevo_kernel/datasets/m5*.py"
       - "apps/kernel/src/ownevo_kernel/agent_tools/run_pipeline.py"
+      - "apps/kernel/tests/test_agent_tools_run_pipeline.py"
       - "apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py"
       - "apps/kernel/tests/test_baselines_m5_lightgbm.py"
       - "apps/kernel/tests/test_benchmark_m5.py"
@@ -115,6 +116,12 @@ jobs:
           cache-from: type=gha,scope=m5-sandbox
           cache-to: type=gha,scope=m5-sandbox,mode=max
 
+      - name: Pull default sandbox image (python@sha256)
+        # test_agent_tools_run_pipeline.py uses the stock Python image, not
+        # the M5 image. Pre-pull here so the 15s per-test timeout applies to
+        # container execution rather than image download.
+        run: docker pull python@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2 || true
+
       - name: Verify sandbox image is locally available
         # Defensive: if the image build silently no-op'd (e.g., upstream
         # action quirk), the sandboxed pytest will skip rather than
@@ -141,6 +148,12 @@ jobs:
             echo "FATAL: sandboxed suite did not report '4 passed' — tests may have been skipped (check Docker daemon + sandbox image)"
             exit 1
           }
+
+      - name: Run agent-tools run_pipeline tests
+        # Uses the stock python@sha256 image (pre-pulled above).
+        # Excluded from ci.yml because ubuntu-latest has Docker but the
+        # cold image pull blows the 15s per-test timeout.
+        run: uv run pytest apps/kernel/tests/test_agent_tools_run_pipeline.py -v
 
       - name: Run in-process M5 baseline tests
         # Belt-and-suspenders: if a refactor breaks the in-process
