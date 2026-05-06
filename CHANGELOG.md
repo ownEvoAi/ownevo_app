@@ -18,6 +18,31 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- `apps/kernel/src/ownevo_kernel/nl_gen/metric_def.py` — A4.2: frozen `MetricDefinition`
+  Pydantic schema (`extra="forbid"`, `frozen=True`); closed `MetricFamily` union
+  (`pass_rate` / `precision` / `recall` / `f1` / `balanced_accuracy` / `specificity`);
+  bounds-ordered + target-in-bounds validators; `schema_version="0.1"` pre-A4-end freeze.
+- `apps/kernel/src/ownevo_kernel/nl_gen/metric_compute.py` — A4.2: pure
+  `compute_metric(definition, results) → MetricResult` over `ReplayResult` lists.
+  Confusion-matrix dispatch with `assert_never` exhaustiveness; degenerate zero-division
+  branches return `0.0` + `degenerate=True` (no NaN to the gate). `_check_against_spec`
+  cross-checks `workflow_spec_id` + direction. `MetricComputeError` for empty list /
+  non-bool labels / out-of-advertised-bounds value.
+- `apps/kernel/src/ownevo_kernel/nl_gen/metric_generator.py` — A4.2: single-turn
+  Anthropic tool-use generator (`WorkflowSpec` → `MetricDefinition`); raises
+  `NoMetricToolUseError` / `MetricDefinitionValidationError` /
+  `MetricDirectionMismatchError` (the last surfaces a structurally valid metric whose
+  direction contradicts the spec's `success_criterion.direction` — the gate would
+  silently treat regressions as wins).
+- `apps/kernel/src/ownevo_kernel/nl_gen/fixtures/metrics.py` — 3 hand-authored fixtures:
+  demand-prediction → `recall`, credit-risk → `balanced_accuracy`, contract-review →
+  `f1`. Family choice tracks each workflow's documented past-miss asymmetry.
+- 102 new tests: `test_nl_gen_metric_def.py` (55), `test_nl_gen_metric_compute.py` (36),
+  `test_nl_gen_metric_generator.py` (14, incl. 3 live-API gated). End-to-end fixture
+  composition (workflow ↔ sim ↔ eval cases ↔ metric) pinned by
+  `compute_metric(fixture, replay_set(fixture_eval_set, fixture_sim_plan, fixture_spec))`
+  asserting value=1.0 and meets_target=True for every fixture.
+
 - `apps/kernel/src/ownevo_kernel/nl_gen/eval_case_set.py` — A4.1: frozen `EvalCaseSet` +
   `GeneratedEvalCase` Pydantic schema (`extra="forbid"`, `frozen=True`); size 10-30;
   balanced-classes ≥3/≥3 + back-pointer + unique-id validators; `schema_version="0.1"`;
