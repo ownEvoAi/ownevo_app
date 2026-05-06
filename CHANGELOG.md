@@ -17,6 +17,16 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Fixed (`0c839b3` — TokenBudget not enforced on OpenAI-compat path)
+- `eval_runner/agent_solver.py` — `predict_one` accumulates token usage via
+  `token_budget.record(usage)`, but OpenAI API responses carry field names
+  `prompt_tokens` / `completion_tokens` while the A4.5 `extract_usage` helper
+  read `input_tokens` / `output_tokens` (Anthropic field names). On
+  Ollama / LM Studio runs, both fields resolved to 0, silently skipping the
+  cap. Fixed: `predict_one` now passes the raw `usage` object directly so
+  `TokenBudget` sees the correct field names on both API shapes. The
+  `--max-tokens-per-workflow` flag now enforces the budget for local-model runs.
+
 ### Added (B3.1 + B3.2 + B3.3 — Failure clustering pipeline, W3 Track B)
 - `apps/kernel/src/ownevo_kernel/benchmark/m5_failure_analyzer.py` —
   `analyze_m5_failures(artifacts, fold=, k=10) → list[M5FailureSnapshot]`
