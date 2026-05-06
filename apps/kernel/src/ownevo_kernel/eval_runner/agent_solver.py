@@ -69,6 +69,9 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_MAX_TOKENS = 1_000
 """Bool + one-line rationale fits in <500 tokens; 1k is the cap."""
+DEFAULT_MAX_TOKENS_OPENAI = 8_000
+"""Higher cap for OpenAI-compat path: reasoning/thinking models emit a
+long preamble before committing the tool call; 1k hits the wall too early."""
 
 REDACTED_TOKEN = "<REDACTED>"
 """Sentinel value substituted into the target event's label field."""
@@ -538,7 +541,7 @@ async def solve_with_agent(
     metric: MetricDefinition,
     *,
     model: str = DEFAULT_MODEL,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
     openai_client: "AsyncOpenAI | None" = None,
 ) -> list[ReplayResult]:
     """Run the agent on every case in the set; return ReplayResults.
@@ -588,6 +591,11 @@ async def solve_with_agent(
         )
 
     ns = exec_sim_module(plan, spec, caller="agent-solver")
+    resolved_max_tokens = (
+        max_tokens
+        if max_tokens is not None
+        else (DEFAULT_MAX_TOKENS_OPENAI if openai_client is not None else DEFAULT_MAX_TOKENS)
+    )
 
     results: list[ReplayResult] = []
     for case in case_set.cases:
@@ -598,7 +606,7 @@ async def solve_with_agent(
             metric=metric,
             namespace=ns,
             model=model,
-            max_tokens=max_tokens,
+            max_tokens=resolved_max_tokens,
             openai_client=openai_client,
         )
         results.append(
@@ -615,6 +623,7 @@ async def solve_with_agent(
 __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOKENS_OPENAI",
     "REDACTED_TOKEN",
     "TOOL_NAME",
     "TOOL_DESCRIPTION",

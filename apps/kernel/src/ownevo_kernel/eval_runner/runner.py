@@ -223,7 +223,6 @@ async def run_with_agent(
     # Importing at module top would force every consumer of run_replay
     # to install the `agent` extra.
     from .agent_solver import (
-        DEFAULT_MAX_TOKENS as _DEFAULT_MAX_TOKENS,
         DEFAULT_MODEL as _DEFAULT_MODEL,
         solve_with_agent,
     )
@@ -237,7 +236,7 @@ async def run_with_agent(
         spec,
         metric,
         model=_DEFAULT_MODEL if model is None else model,
-        max_tokens=_DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+        max_tokens=max_tokens,  # None → solve_with_agent picks path-appropriate default
         openai_client=openai_client,
     )
     metric_result = compute_metric(metric, results)
