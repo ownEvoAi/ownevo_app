@@ -12,6 +12,40 @@ A4.2: NL → success metric (`metric_generator.py`, deferred).
 A4.6: meta-eval spec (`meta_eval/`, deferred to W4-W5).
 """
 
+from .eval_case_set import (
+    SCHEMA_VERSION as EVAL_CASE_SET_SCHEMA_VERSION,
+)
+from .eval_case_set import (
+    EvalCaseSet,
+    GeneratedEvalCase,
+)
+from .eval_generator import (
+    DEFAULT_MAX_TOKENS as EVAL_DEFAULT_MAX_TOKENS,
+)
+from .eval_generator import (
+    DEFAULT_MODEL as EVAL_DEFAULT_MODEL,
+)
+from .eval_generator import (
+    SYSTEM_PROMPT as EVAL_SYSTEM_PROMPT,
+)
+from .eval_generator import (
+    TOOL_DESCRIPTION as EVAL_TOOL_DESCRIPTION,
+)
+from .eval_generator import (
+    TOOL_NAME as EVAL_TOOL_NAME,
+)
+from .eval_generator import (
+    EvalCaseSetValidationError,
+    NoEvalToolUseError,
+    generate_eval_case_set,
+)
+from .eval_persistence import persist_eval_case_set
+from .eval_replay import (
+    EvalReplayError,
+    ReplayResult,
+    replay_case,
+    replay_set,
+)
 from .sim_generator import (
     DEFAULT_MAX_TOKENS as SIM_DEFAULT_MAX_TOKENS,
 )
@@ -110,4 +144,21 @@ __all__ = [
     "NoSimToolUseError",
     "SimulationPlanValidationError",
     "generate_simulation_plan",
+    # A4.1
+    "EVAL_CASE_SET_SCHEMA_VERSION",
+    "EvalCaseSet",
+    "GeneratedEvalCase",
+    "EVAL_DEFAULT_MODEL",
+    "EVAL_DEFAULT_MAX_TOKENS",
+    "EVAL_TOOL_NAME",
+    "EVAL_TOOL_DESCRIPTION",
+    "EVAL_SYSTEM_PROMPT",
+    "NoEvalToolUseError",
+    "EvalCaseSetValidationError",
+    "generate_eval_case_set",
+    "EvalReplayError",
+    "ReplayResult",
+    "replay_case",
+    "replay_set",
+    "persist_eval_case_set",
 ]

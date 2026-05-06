@@ -17,6 +17,38 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+- `apps/kernel/src/ownevo_kernel/nl_gen/eval_case_set.py` — A4.1: frozen `EvalCaseSet` +
+  `GeneratedEvalCase` Pydantic schema (`extra="forbid"`, `frozen=True`); size 10-30;
+  balanced-classes ≥3/≥3 + back-pointer + unique-id validators; `schema_version="0.1"`;
+  `MIN_CLASS_COUNT` constant.
+- `apps/kernel/src/ownevo_kernel/nl_gen/eval_generator.py` — A4.1: single-turn Anthropic
+  tool-use generator (`WorkflowSpec` + `SimulationPlan` → `EvalCaseSet`); raises
+  `NoEvalToolUseError` / `EvalCaseSetValidationError`; pre-flight rejects mismatched
+  `simulation_plan.workflow_spec_id`.
+- `apps/kernel/src/ownevo_kernel/nl_gen/eval_replay.py` — A4.1: in-process replay seam;
+  renders `SimulationPlan` via `sim_render`, execs in fresh namespace, reads
+  `trajectory[step_index][label_field]`; `EvalReplayError` for structural failures
+  (non-bool field, out-of-bounds step, sim execution error).
+- `apps/kernel/src/ownevo_kernel/nl_gen/eval_persistence.py` — A4.1:
+  `persist_eval_case_set` — single-transaction insert of all cases via
+  `add_eval_case(provenance=NL_GEN)`.
+- `apps/kernel/src/ownevo_kernel/nl_gen/fixtures/eval_case_sets.py` — 3 hand-authored
+  fixtures (demand-prediction / credit-risk / contract-review; 12 cases each).
+- 70 new tests: `test_nl_gen_eval_spec.py` (34), `test_nl_gen_eval_generator.py` (14),
+  `test_nl_gen_eval_replay.py` (13), `test_nl_gen_eval_persistence.py` (9).
+  Total kernel suite: 629 passing.
+
+### Security
+- `sim_render._ast_safety_check`: block `global`/`nonlocal` statements (prevented
+  namespace pollution across `replay_set` cases sharing an exec namespace) and dunder
+  `ast.Name` references (`__builtins__`, `__import__`, etc.) that could bypass the
+  existing forbidden-call checks.
+
+### Fixed
+- `eval_replay.replay_case`: wrap `run_simulation()` exceptions as `EvalReplayError`
+  so callers can distinguish sim execution failures from pass/fail gate signal.
+
 ## [0.3.0] — 2026-05-05
 
 NL-gen pipeline closed (A3.2–A3.4) and cross-iteration failure memory shipped (TODO-23).
