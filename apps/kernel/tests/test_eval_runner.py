@@ -6,7 +6,7 @@ Two kinds of coverage:
      replays clean, the metric scores at 1.0, the report shape is pinned,
      and the per-case outcomes carry `is_test_fold` through verbatim.
   2. Cross-check failure paths — the runner must surface the underlying
-     `ValueError` from `replay_set` or `_check_against_spec` so a
+     `ValueError` from `replay_set` or `check_against_spec` so a
      mis-stitched trio fails loudly before reaching the gate.
 
 Inspect AI Task adapter tests live in `test_eval_runner_inspect_task.py`

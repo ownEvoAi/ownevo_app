@@ -5,7 +5,7 @@
   1. Cross-check the trio agrees on `workflow_spec_id` (per
      `eval_replay.replay_set`).
   2. Cross-check `metric.workflow_spec_id` + `metric.direction`
-     against the spec via `metric_compute._check_against_spec`.
+     against the spec via `metric_compute.check_against_spec`.
   3. Replay every case against the rendered sim once
      (single exec'd namespace per `replay_set` semantics).
   4. Compute the metric over the result list.
@@ -22,7 +22,7 @@ to stdout and the audit chain can canonicalize without extra adapters.
 `EvalRunnerError` distinguishes orchestration failures from the typed
 exceptions the underlying primitives already raise. Cross-check
 failures bubble up as the underlying `ValueError` from `replay_set` /
-`_check_against_spec` — they're caller-bug surfaces, not gate signal.
+`check_against_spec` — they're caller-bug surfaces, not gate signal.
 Sim execution failures bubble up as `EvalReplayError` for the same
 reason.
 """
@@ -132,7 +132,7 @@ def run_replay(
     Raises:
         ValueError: cross-check failure between case_set / plan / spec
             (via `replay_set`), or between metric / spec (via
-            `_check_against_spec`).
+            `check_against_spec`).
         EvalReplayError: a case is structurally broken — non-bool
             label_field, label_field absent from plan, step_index past
             trajectory's end, or sim execution raised.
@@ -226,13 +226,14 @@ async def run_with_agent(
     )
     from .agent_solver import solve_with_agent
 
-    _check_against_spec(metric, spec)
+    check_against_spec(metric, spec)
 
     results = await solve_with_agent(
         client,
         case_set,
         plan,
         spec,
+        metric,
         model=model or _DEFAULT_MODEL,
         max_tokens=max_tokens or _DEFAULT_MAX_TOKENS,
     )

@@ -2,7 +2,7 @@
 
 The orchestration seam between the NL-gen artifacts (A3.1 spec, A3.2 sim
 plan, A4.1 eval cases, A4.2 metric) and the regression gate. Composes
-`replay_set` + `compute_metric` + `_check_against_spec` into a single
+`replay_set` + `compute_metric` + `check_against_spec` into a single
 typed report.
 
 Two callable surfaces:

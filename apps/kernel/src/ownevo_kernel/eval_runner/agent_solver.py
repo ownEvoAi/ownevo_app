@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING, Any
 
 from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
 from ownevo_kernel.nl_gen.eval_replay import ReplayResult
+from ownevo_kernel.nl_gen.metric_def import MetricDefinition
 from ownevo_kernel.nl_gen.sim_plan import SimulationPlan
 from ownevo_kernel.nl_gen.sim_render import render_simulation_module
 from ownevo_kernel.nl_gen.spec import WorkflowSpec
@@ -106,8 +107,9 @@ SYSTEM_PROMPT = (
     "smoke-test loop. You receive (a) a workflow's plain-English "
     "description, (b) the tools the workflow's agent has access to (for "
     "vocabulary; you do not call them), (c) a deterministic event "
-    "trajectory through some target step, and (d) the name of the "
-    "redacted bool label at the target step.\n\n"
+    "trajectory through some target step, (d) the name of the redacted "
+    "bool label at the target step, and (e) a gate-metric framing block "
+    "telling you which error mode is the dominant cost on this workflow.\n\n"
     "Your job: predict the redacted label as True or False. Past events "
     "in the trajectory carry their true labels — those are your training "
     "signal. The target event has the label field replaced with "
@@ -121,10 +123,13 @@ SYSTEM_PROMPT = (
     "so there IS a learnable rule — your job is to find it.\n"
     "3. Do not invent fields the trajectory doesn't show. The trajectory "
     "is the entire context; the workflow description is framing.\n"
-    "4. Be honest under uncertainty — if past labels suggest the rule "
-    "fires rarely, predicting False on a borderline case is the right "
-    "call. Spurious True predictions hurt precision; spurious False "
-    "predictions hurt recall."
+    "4. Read the gate-metric framing block and let it shape your tie-"
+    "breaker on borderline cases. A `recall`-gated workflow penalizes "
+    "False Negatives heavily — predict True under uncertainty when the "
+    "evidence even moderately supports it. A `precision`-gated workflow "
+    "penalizes False Positives — require strong evidence before True. "
+    "`balanced_accuracy` and `f1` weight both errors; calibrate without "
+    "a default lean. The metric is given to you per call; use it."
 )
 
 
@@ -221,6 +226,67 @@ def _redact_target_event(
     return [*events[:-1], redacted]
 
 
+_METRIC_FAMILY_GUIDANCE = {
+    # Tuned for the smoke-test failure mode observed on haiku 4.5
+    # (2026-05-05): with no metric framing, the agent defaulted to
+    # False on every sparse-True workflow and tanked recall to 0.0.
+    # Each entry names the dominant error cost for that family so the
+    # tie-breaker on borderline cases lands the right way.
+    "recall": (
+        "False Negatives are the dominant cost. Predict True when the "
+        "evidence even moderately supports it; missing a true positive "
+        "is much worse than a borderline false alarm."
+    ),
+    "precision": (
+        "False Positives are the dominant cost. Require strong evidence "
+        "before predicting True; spurious alerts are worse than missing "
+        "a borderline positive."
+    ),
+    "f1": (
+        "Both error modes hurt symmetrically. Calibrate without a "
+        "default lean — predict the class the evidence actually supports."
+    ),
+    "balanced_accuracy": (
+        "Both classes count equally regardless of class frequency. Do "
+        "not bias toward the larger class — class imbalance does not "
+        "imply the rare class should be predicted rarely."
+    ),
+    "specificity": (
+        "False Positives are the dominant cost. Predict True only when "
+        "the evidence is strong; the negative class is the costly one "
+        "to confuse."
+    ),
+    "pass_rate": (
+        "Both error modes count equally. Predict the class the evidence "
+        "supports without a default lean."
+    ),
+}
+
+
+def _metric_framing(metric: MetricDefinition) -> str:
+    """Per-workflow gate-framing block injected into the user message.
+
+    Names the metric (so the agent can re-derive its error-mode prior),
+    the target value (so the agent knows the bar isn't 100%), and the
+    family-specific guidance from `_METRIC_FAMILY_GUIDANCE`. Direction
+    is included so a future minimize-direction family doesn't break the
+    framing silently.
+
+    The block is short (<300 chars) — long enough to land the
+    asymmetry, short enough not to dominate the trajectory rendering.
+    """
+    guidance = _METRIC_FAMILY_GUIDANCE.get(
+        metric.family,
+        "Calibrate without a default lean.",
+    )
+    return (
+        f"## Gate metric\n"
+        f"family: `{metric.family}`  ·  direction: `{metric.direction}`  "
+        f"·  target: {metric.target_value:.2f}\n"
+        f"{guidance}"
+    )
+
+
 def _format_tools_for_context(spec: WorkflowSpec) -> str:
     """Render the workflow's tools as plain-English vocabulary.
 
@@ -246,10 +312,16 @@ def _format_user_message(
     spec: WorkflowSpec,
     case: GeneratedEvalCase,
     trajectory: list[dict[str, Any]],
+    metric: MetricDefinition,
 ) -> str:
     """Assemble the per-case user message.
 
     Pieces, in order:
+      * Gate-metric framing (family + direction + target + dominant
+        error cost) — load-bearing because it shapes the tie-breaker
+        on borderline cases. With no framing, haiku 4.5 defaulted to
+        False on every sparse-True case and tanked recall to 0.0
+        (observed 2026-05-05).
       * Workflow framing (description + domain).
       * Tool vocabulary.
       * Trajectory through the target step (target event redacted).
@@ -258,13 +330,17 @@ def _format_user_message(
     redacted = _redact_target_event(trajectory, case.target_label_field)
     trajectory_json = json.dumps(redacted, indent=2, sort_keys=True, default=str)
     tools_block = _format_tools_for_context(spec)
+    framing = _metric_framing(metric)
     return (
-        f"Workflow: {spec.id} (domain: {spec.domain})\n\n"
-        f"Tools the workflow's live agent has access to (vocabulary only — "
-        f"do not call them):\n{tools_block}\n\n"
-        f"Event trajectory through step {case.target_step_index} "
-        f"(target event has `{case.target_label_field}` redacted):\n"
+        f"{framing}\n\n"
+        f"## Workflow\n"
+        f"id: `{spec.id}`  ·  domain: `{spec.domain}`\n\n"
+        f"## Tools (vocabulary only — do not call them)\n"
+        f"{tools_block}\n\n"
+        f"## Event trajectory through step {case.target_step_index}\n"
+        f"(target event has `{case.target_label_field}` redacted)\n"
         f"```json\n{trajectory_json}\n```\n\n"
+        f"## Decision\n"
         f"Predict the redacted value of `{case.target_label_field}` at "
         f"step {case.target_step_index}. Call `predict_label` exactly once."
     )
@@ -335,6 +411,7 @@ async def predict_one(
     case: GeneratedEvalCase,
     *,
     spec: WorkflowSpec,
+    metric: MetricDefinition,
     namespace: dict[str, Any],
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -349,6 +426,9 @@ async def predict_one(
         client: AsyncAnthropic client.
         case: The eval case to predict.
         spec: Source WorkflowSpec (for the description + tool vocabulary).
+        metric: A4.2 MetricDefinition — drives the gate-metric framing
+            block injected into the user message. Load-bearing for
+            error-mode tie-breaking on borderline cases.
         namespace: Pre-exec'd sim namespace (from `_exec_sim_namespace`).
         model: Anthropic model id. Default haiku.
         max_tokens: Output cap.
@@ -362,7 +442,7 @@ async def predict_one(
         PredictToolValidationError: tool input failed schema check.
     """
     trajectory = _trajectory_for_case(case, namespace)
-    user_message = _format_user_message(spec, case, trajectory)
+    user_message = _format_user_message(spec, case, trajectory, metric)
 
     msg = await client.messages.create(
         model=model,
@@ -380,6 +460,7 @@ async def solve_with_agent(
     case_set: EvalCaseSet,
     plan: SimulationPlan,
     spec: WorkflowSpec,
+    metric: MetricDefinition,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -390,15 +471,18 @@ async def solve_with_agent(
     pathway scores it byte-identically to `replay_set` — only the source
     of `actual_value` changes (agent prediction vs sim ground truth).
 
-    Cross-checks (case_set.workflow_spec_id, plan.workflow_spec_id) mirror
-    `replay_set`. The sim is rendered + exec'd once and the namespace is
-    reused across all cases.
+    Cross-checks (case_set.workflow_spec_id, plan.workflow_spec_id,
+    metric.workflow_spec_id) mirror `replay_set` + `compute_metric.check_against_spec`.
+    The sim is rendered + exec'd once and the namespace is reused
+    across all cases.
 
     Args:
         client: AsyncAnthropic client.
         case_set: Cases to predict.
         plan: SimulationPlan whose trajectory the cases reference.
         spec: WorkflowSpec the plan was rendered against.
+        metric: A4.2 MetricDefinition — drives the gate-metric framing
+            block injected into every per-case user message.
         model: Anthropic model. Default haiku.
         max_tokens: Output cap per call.
 
@@ -406,7 +490,8 @@ async def solve_with_agent(
         `ReplayResult` per case, in the same order as `case_set.cases`.
 
     Raises:
-        ValueError: case_set/plan/spec workflow_spec_id mismatch.
+        ValueError: case_set / plan / metric workflow_spec_id disagrees
+            with `spec.id`.
         AgentSolverError / NoPredictToolUseError / PredictToolValidationError:
             from `predict_one`.
     """
@@ -420,6 +505,11 @@ async def solve_with_agent(
             f"plan.workflow_spec_id={plan.workflow_spec_id!r} "
             f"does not match spec.id={spec.id!r}"
         )
+    if metric.workflow_spec_id != spec.id:
+        raise ValueError(
+            f"metric.workflow_spec_id={metric.workflow_spec_id!r} "
+            f"does not match spec.id={spec.id!r}"
+        )
 
     ns = _exec_sim_namespace(plan, spec)
 
@@ -429,6 +519,7 @@ async def solve_with_agent(
             client,
             case,
             spec=spec,
+            metric=metric,
             namespace=ns,
             model=model,
             max_tokens=max_tokens,
@@ -458,4 +549,6 @@ __all__ = [
     "AgentPrediction",
     "predict_one",
     "solve_with_agent",
+    "_metric_framing",
+    "_METRIC_FAMILY_GUIDANCE",
 ]

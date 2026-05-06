@@ -40,6 +40,7 @@ from ownevo_kernel.eval_runner.agent_solver import (
 from ownevo_kernel.nl_gen.fixtures import (
     EVAL_CASE_SET_FIXTURES,
     FIXTURES,
+    METRIC_FIXTURES,
     SIM_PLAN_FIXTURES,
 )
 
@@ -117,6 +118,57 @@ def test_system_prompt_pins_load_bearing_rules():
     # The two error-mode framings the prompt is supposed to teach
     assert "precision" in p.lower()
     assert "recall" in p.lower()
+    # Metric-aware tie-breaker — load-bearing for sparse-True workflows
+    # whose target metric is recall (haiku 4.5 default-False bias bug,
+    # observed 2026-05-05).
+    assert "gate-metric framing" in p.lower()
+
+
+def test_metric_framing_block_for_recall_workflow():
+    from ownevo_kernel.eval_runner.agent_solver import _metric_framing
+
+    metric = METRIC_FIXTURES["demand-prediction"]
+    assert metric.family == "recall"
+    block = _metric_framing(metric)
+    assert "recall" in block
+    assert f"{metric.target_value:.2f}" in block
+    # The recall-specific tie-breaker the prompt fix is supposed to inject.
+    assert "False Negative" in block
+    assert "True" in block  # the recommended tie-breaker direction
+
+
+def test_metric_framing_block_for_precision_workflow():
+    from ownevo_kernel.eval_runner.agent_solver import _metric_framing
+    from ownevo_kernel.nl_gen import MetricDefinition
+
+    precision_metric = MetricDefinition.model_validate(
+        {
+            "schema_version": "0.1",
+            "workflow_spec_id": "any-workflow",
+            "name": "demo-precision",
+            "family": "precision",
+            "direction": "maximize",
+            "lower_bound": 0.0,
+            "upper_bound": 1.0,
+            "target_value": 0.85,
+            "description": "Synthetic precision metric.",
+            "rationale": "test fixture",
+            "provenance": {"kind": "inferred", "source": "test"},
+        }
+    )
+    block = _metric_framing(precision_metric)
+    assert "precision" in block
+    assert "False Positive" in block
+
+
+def test_metric_framing_covers_every_supported_family():
+    from ownevo_kernel.eval_runner.agent_solver import (
+        _METRIC_FAMILY_GUIDANCE,
+    )
+    from typing import get_args
+    from ownevo_kernel.nl_gen import MetricFamily
+
+    assert set(_METRIC_FAMILY_GUIDANCE.keys()) == set(get_args(MetricFamily))
 
 
 # ---------------------------------------------------------------------------
@@ -159,18 +211,22 @@ def test_format_user_message_includes_workflow_id_and_redacts_target():
     spec = FIXTURES[workflow_id]
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     plan = SIM_PLAN_FIXTURES[workflow_id]
+    metric = METRIC_FIXTURES[workflow_id]
     case = case_set.cases[0]
 
     ns = _exec_sim_namespace(plan, spec)
     trajectory = ns["run_simulation"](case.sim_seed, case.n_steps)["trajectory"]
     events = trajectory[: case.target_step_index + 1]
-    msg = _format_user_message(spec, case, events)
+    msg = _format_user_message(spec, case, events, metric)
 
     assert spec.id in msg
     assert spec.domain in msg
     assert REDACTED_TOKEN in msg
     assert case.target_label_field in msg
     assert str(case.target_step_index) in msg
+    # Gate-metric framing surfaces
+    assert metric.family in msg
+    assert "Gate metric" in msg
     # Tool vocabulary surfaces
     for tool in spec.tools:
         assert tool.name in msg
@@ -183,6 +239,7 @@ def test_format_user_message_keeps_past_event_labels_visible():
     spec = FIXTURES[workflow_id]
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     plan = SIM_PLAN_FIXTURES[workflow_id]
+    metric = METRIC_FIXTURES[workflow_id]
     # Pick the case with the largest target_step_index → most past events.
     case = max(case_set.cases, key=lambda c: c.target_step_index)
     assert case.target_step_index >= 1, "fixture should include a past event"
@@ -190,7 +247,7 @@ def test_format_user_message_keeps_past_event_labels_visible():
     ns = _exec_sim_namespace(plan, spec)
     trajectory = ns["run_simulation"](case.sim_seed, case.n_steps)["trajectory"]
     events = trajectory[: case.target_step_index + 1]
-    msg = _format_user_message(spec, case, events)
+    msg = _format_user_message(spec, case, events, metric)
 
     # The target field is redacted on the last event; check that ANY
     # past event has a True or False bool label rendered (i.e. the
@@ -213,7 +270,7 @@ async def test_predict_one_returns_agent_prediction():
     ns = _exec_sim_namespace(plan, spec)
     client = _ScriptedClient([_predict_response(True, "looks like a markdown week")])
 
-    result = await predict_one(client, case, spec=spec, namespace=ns)
+    result = await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
     assert isinstance(result, AgentPrediction)
     assert result.case_id == case.case_id
@@ -229,7 +286,7 @@ async def test_predict_one_passes_tool_definition_and_system_prompt():
 
     ns = _exec_sim_namespace(plan, spec)
     client = _ScriptedClient([_predict_response(False)])
-    await predict_one(client, case, spec=spec, namespace=ns)
+    await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
     kw = client.messages.calls[0]
     assert kw["system"] == SYSTEM_PROMPT
@@ -249,7 +306,7 @@ async def test_predict_one_no_tool_use_raises():
         [_ScriptedResponse(content=[_text("I think it's True...")], stop_reason="end_turn")]
     )
     with pytest.raises(NoPredictToolUseError) as exc_info:
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
     assert exc_info.value.stop_reason == "end_turn"
     assert "True" in exc_info.value.content_preview
 
@@ -265,7 +322,7 @@ async def test_predict_one_wrong_tool_name_raises():
         [_ScriptedResponse(content=[_tool_use("other_tool", {"value": True})])]
     )
     with pytest.raises(NoPredictToolUseError):
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
 
 async def test_predict_one_non_bool_value_raises():
@@ -279,7 +336,7 @@ async def test_predict_one_non_bool_value_raises():
         [_ScriptedResponse(content=[_tool_use(TOOL_NAME, {"value": 1, "rationale": "x"})])]
     )
     with pytest.raises(PredictToolValidationError, match="bool"):
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
 
 async def test_predict_one_missing_rationale_raises():
@@ -293,7 +350,7 @@ async def test_predict_one_missing_rationale_raises():
         [_ScriptedResponse(content=[_tool_use(TOOL_NAME, {"value": True})])]
     )
     with pytest.raises(PredictToolValidationError, match="rationale"):
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
 
 async def test_predict_one_empty_rationale_rejected():
@@ -307,7 +364,7 @@ async def test_predict_one_empty_rationale_rejected():
         [_ScriptedResponse(content=[_tool_use(TOOL_NAME, {"value": True, "rationale": "  "})])]
     )
     with pytest.raises(PredictToolValidationError):
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
 
 async def test_predict_one_non_dict_input_raises():
@@ -321,7 +378,7 @@ async def test_predict_one_non_dict_input_raises():
         [_ScriptedResponse(content=[_tool_use(TOOL_NAME, "string-not-dict")])]
     )
     with pytest.raises(PredictToolValidationError):
-        await predict_one(client, case, spec=spec, namespace=ns)
+        await predict_one(client, case, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +394,7 @@ async def test_solve_with_agent_returns_one_result_per_case(workflow_id):
 
     # Script: agent always predicts True.
     client = _ScriptedClient([_predict_response(True) for _ in case_set.cases])
-    results = await solve_with_agent(client, case_set, plan, spec)
+    results = await solve_with_agent(client, case_set, plan, spec, METRIC_FIXTURES[workflow_id])
 
     assert len(results) == len(case_set.cases)
     assert [r.case_id for r in results] == [c.case_id for c in case_set.cases]
@@ -353,7 +410,7 @@ async def test_perfect_predictions_yield_all_pass():
     client = _ScriptedClient(
         [_predict_response(c.expected_value) for c in case_set.cases]
     )
-    results = await solve_with_agent(client, case_set, plan, spec)
+    results = await solve_with_agent(client, case_set, plan, spec, METRIC_FIXTURES[workflow_id])
     assert all(r.passed for r in results)
 
 
@@ -366,7 +423,7 @@ async def test_inverted_predictions_yield_all_fail():
     client = _ScriptedClient(
         [_predict_response(not c.expected_value) for c in case_set.cases]
     )
-    results = await solve_with_agent(client, case_set, plan, spec)
+    results = await solve_with_agent(client, case_set, plan, spec, METRIC_FIXTURES[workflow_id])
     assert not any(r.passed for r in results)
 
 
@@ -380,7 +437,7 @@ async def test_actual_value_is_agent_prediction_not_sim_label():
 
     # Force every prediction to True regardless of expected_value.
     client = _ScriptedClient([_predict_response(True) for _ in case_set.cases])
-    results = await solve_with_agent(client, case_set, plan, spec)
+    results = await solve_with_agent(client, case_set, plan, spec, METRIC_FIXTURES[workflow_id])
     assert all(r.actual_value is True for r in results)
     assert all(r.expected_value == c.expected_value
                for r, c in zip(results, case_set.cases))
@@ -395,9 +452,10 @@ async def test_case_set_workflow_id_mismatch_raises():
     spec = FIXTURES["demand-prediction"]
     plan = SIM_PLAN_FIXTURES["demand-prediction"]
     case_set = EVAL_CASE_SET_FIXTURES["credit-risk"]
+    metric = METRIC_FIXTURES["demand-prediction"]
     client = _ScriptedClient([])
     with pytest.raises(ValueError, match="workflow_spec_id"):
-        await solve_with_agent(client, case_set, plan, spec)
+        await solve_with_agent(client, case_set, plan, spec, metric)
     assert client.messages.calls == []  # no API hit
 
 
@@ -405,9 +463,21 @@ async def test_plan_workflow_id_mismatch_raises():
     spec = FIXTURES["demand-prediction"]
     plan = SIM_PLAN_FIXTURES["credit-risk"]
     case_set = EVAL_CASE_SET_FIXTURES["demand-prediction"]
+    metric = METRIC_FIXTURES["demand-prediction"]
     client = _ScriptedClient([])
     with pytest.raises(ValueError, match="workflow_spec_id"):
-        await solve_with_agent(client, case_set, plan, spec)
+        await solve_with_agent(client, case_set, plan, spec, metric)
+    assert client.messages.calls == []
+
+
+async def test_metric_workflow_id_mismatch_raises():
+    spec = FIXTURES["demand-prediction"]
+    plan = SIM_PLAN_FIXTURES["demand-prediction"]
+    case_set = EVAL_CASE_SET_FIXTURES["demand-prediction"]
+    metric = METRIC_FIXTURES["credit-risk"]
+    client = _ScriptedClient([])
+    with pytest.raises(ValueError, match="workflow_spec_id"):
+        await solve_with_agent(client, case_set, plan, spec, metric)
     assert client.messages.calls == []
 
 
@@ -431,6 +501,6 @@ async def test_target_step_past_trajectory_raises_agent_solver_error():
     ns["run_simulation"] = _short
     client = _ScriptedClient([])  # no calls expected
     with pytest.raises(AgentSolverError, match="past the trajectory"):
-        await predict_one(client, huge, spec=spec, namespace=ns)
+        await predict_one(client, huge, spec=spec, metric=METRIC_FIXTURES[workflow_id], namespace=ns)
     # Restore (defensive — namespace is local to this test)
     ns["run_simulation"] = original
