@@ -141,8 +141,10 @@ SYSTEM_PROMPT = (
     "2. Each rationale is one line (≤600 chars). overall_rationale "
     "ties the overall verdict to the per-dimension verdicts (≤800 "
     "chars).\n"
-    f"3. Set `schema_version` to {SCHEMA_VERSION!r}. Set "
-    "`workflow_spec_id` to the WorkflowSpec's id verbatim.\n"
+    f"3. Set the top-level `schema_version` field to {SCHEMA_VERSION!r}. "
+    "Do NOT add a `schema_version` field to the dimension sub-objects — "
+    "they only carry `verdict` and `rationale`. Set `workflow_spec_id` "
+    "to the WorkflowSpec's id verbatim.\n"
     "4. Be calibrated: not every bundle deserves `good` and not every "
     "imperfect one is `bad`. The eval set is balanced; if you call "
     "everything `good` or everything `bad`, your judgments are "
@@ -349,6 +351,30 @@ async def judge_artifacts(
         payload = raw_input["judgment"]
     else:
         payload = raw_input
+
+    # Defensive parsing #1: opus 4.7 sometimes returns the wrapped
+    # value as a JSON-encoded string instead of a dict (observed in
+    # the A4.6 live smoke 2026-05-06). Try one round of JSON-decoding
+    # if we see a string where a dict was expected; non-JSON strings
+    # fall through to the normal validation path which raises the
+    # typed error.
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            pass  # let model_validate raise the typed error below
+
+    # Defensive parsing #2: opus 4.7 sometimes propagates the top-level
+    # `schema_version` field into each dimension sub-object (observed in
+    # the A4.6 live smoke). `MetaEvalDimension` is `extra='forbid'` so
+    # this would otherwise fail validation. Strip the spurious key only
+    # — every other unexpected key still fails loudly so a real schema
+    # regression doesn't slip through.
+    if isinstance(payload, dict):
+        for dim_key in ("sim_coverage", "eval_case_coverage", "metric_alignment"):
+            dim_val = payload.get(dim_key)
+            if isinstance(dim_val, dict) and "schema_version" in dim_val:
+                dim_val.pop("schema_version", None)
 
     try:
         judgment = MetaEvalJudgment.model_validate(payload)

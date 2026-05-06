@@ -66,16 +66,42 @@ fresh `[Unreleased]` block above it.
   `--require-agreement`. Exit 0 unless `--require-agreement` is
   set + missed (the W5/A5.5 gate behavior, opt-in for A4.6).
   Cost surface ~$0.50-$1.00 per run on opus 4.7.
-- 101 net new tests across 6 files (`test_nl_gen_meta_eval_schema.py`
-  21, `test_nl_gen_meta_eval_judge.py` 26, `test_nl_gen_meta_eval_corruptions.py`
+- 108 net new tests across 6 files (`test_nl_gen_meta_eval_schema.py`
+  21, `test_nl_gen_meta_eval_judge.py` 28, `test_nl_gen_meta_eval_corruptions.py`
   13, `test_nl_gen_meta_eval_eval_set.py` 13, `test_nl_gen_meta_eval_runner.py`
-  13, `test_scripts_meta_eval.py` 15). Schema round-trip + frozen +
+  16, `test_scripts_meta_eval.py` 15). Schema round-trip + frozen +
   extra-forbid; judge tool-definition shape + system-prompt rules +
   every error path; corruption round-trip + dimension targeting +
   no-mutation invariant; eval-set cardinality + recipe coverage +
   bundle validity + back-pointer integrity; runner aggregation +
-  agreement math + per-recipe slicing; CLI argparse + preflight +
-  agreement gate.
+  agreement math + per-recipe slicing + retry-on-validation-error;
+  CLI argparse + preflight + agreement gate.
+
+### Fixed (A4.6 live-smoke hardening)
+- `meta_eval/judge.py` — defensive parsing for two opus-4.7 quirks
+  observed during the A4.6 live smoke (2026-05-06): (1) the judge
+  occasionally returns the wrapped value as a JSON-encoded string
+  rather than a dict — `json.loads` is now attempted before
+  `model_validate`; (2) the judge sometimes propagates the top-level
+  `schema_version` field into each dimension sub-object — the field
+  is now stripped from sub-dimension dicts before validation
+  (every other unexpected key still fails loudly via the typed
+  error so a real schema regression doesn't slip through).
+  System prompt updated to be explicit: only the top-level judgment
+  carries `schema_version`; dimensions only carry `verdict` +
+  `rationale`.
+- `meta_eval/runner.py` + `scripts/meta_eval.py` —
+  `--max-retries-per-call` flag (default 0). Retries on
+  `MetaEvalJudgmentValidationError` only — empirically transient
+  on opus 4.7 (~5-10% of calls). Other errors propagate
+  immediately so real misconfiguration doesn't silently waste
+  calls. Live smoke result with `--max-retries-per-call 2`:
+  **agreement 0.85 (17/20)**, well over the W5 (A5.5) ≥0.7 gate.
+  3 disagreements: 2 false-bad on production fixtures
+  (credit-risk + contract-review — judge is strict about
+  description ↔ sim entity matching), 1 false-good on a subtle
+  metric-family swap (balanced_accuracy → pass_rate for
+  clinical-trial-eligibility).
 
 ### Added (A4.5 — cost + determinism guardrails, PR #46)
 - `apps/kernel/src/ownevo_kernel/eval_runner/token_budget.py` — `TokenBudget(max_tokens)`

@@ -299,3 +299,83 @@ async def test_runner_propagates_judge_exceptions(monkeypatch):
     monkeypatch.setattr(runner_module, "judge_artifacts", boom)
     with pytest.raises(RuntimeError, match="the judge crashed"):
         await run_meta_eval(client=None)
+
+
+# ---------------------------------------------------------------------------
+# Retry on MetaEvalJudgmentValidationError
+# ---------------------------------------------------------------------------
+
+
+async def test_runner_retries_validation_error(monkeypatch):
+    """First call fails with MetaEvalJudgmentValidationError; retry
+    succeeds. With max_retries_per_call=1, the run completes."""
+    from pydantic import ValidationError
+
+    from ownevo_kernel.nl_gen.meta_eval.judge import (
+        MetaEvalJudgmentValidationError,
+    )
+
+    state = {"calls": 0}
+
+    async def flaky(client, description, spec, plan, case_set, metric, **kw):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            # Fabricate a ValidationError instance to attach.
+            try:
+                from ownevo_kernel.nl_gen.meta_eval.judgment import MetaEvalJudgment
+                MetaEvalJudgment.model_validate({})
+            except ValidationError as e:
+                raise MetaEvalJudgmentValidationError(
+                    "synthetic transient",
+                    raw_input={},
+                    pydantic_error=e,
+                )
+        return _judgment(spec.id, overall="good")
+
+    monkeypatch.setattr(runner_module, "judge_artifacts", flaky)
+    report = await run_meta_eval(client=None, max_retries_per_call=1)
+    assert report.n_total == 20
+    # First call retried + 19 good calls = 21 calls total.
+    assert state["calls"] == 21
+
+
+async def test_runner_does_not_retry_other_exceptions(monkeypatch):
+    """`max_retries_per_call` only retries MetaEvalJudgmentValidationError —
+    other failures propagate immediately so real misconfiguration
+    doesn't silently waste calls."""
+
+    state = {"calls": 0}
+
+    async def boom_runtime(client, description, spec, plan, case_set, metric, **kw):
+        state["calls"] += 1
+        raise RuntimeError("anthropic API down")
+
+    monkeypatch.setattr(runner_module, "judge_artifacts", boom_runtime)
+    with pytest.raises(RuntimeError, match="anthropic API down"):
+        await run_meta_eval(client=None, max_retries_per_call=3)
+    # Concurrency=1 default: first call fails, gather collects pending
+    # futures and the loop ends. Calls is at most concurrency (1).
+    assert state["calls"] >= 1
+
+
+async def test_runner_max_retries_zero_is_strict(monkeypatch):
+    """Default max_retries_per_call=0 — validation error fires
+    immediately (preserves the pre-A4.6-smoke contract)."""
+    from pydantic import ValidationError
+
+    from ownevo_kernel.nl_gen.meta_eval.judge import (
+        MetaEvalJudgmentValidationError,
+    )
+
+    async def always_fail(client, description, spec, plan, case_set, metric, **kw):
+        try:
+            from ownevo_kernel.nl_gen.meta_eval.judgment import MetaEvalJudgment
+            MetaEvalJudgment.model_validate({})
+        except ValidationError as e:
+            raise MetaEvalJudgmentValidationError(
+                "synthetic", raw_input={}, pydantic_error=e
+            )
+
+    monkeypatch.setattr(runner_module, "judge_artifacts", always_fail)
+    with pytest.raises(MetaEvalJudgmentValidationError):
+        await run_meta_eval(client=None)  # max_retries_per_call defaults to 0

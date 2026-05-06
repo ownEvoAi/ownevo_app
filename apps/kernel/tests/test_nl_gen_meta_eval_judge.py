@@ -154,6 +154,9 @@ def test_system_prompt_pins_load_bearing_rules():
     assert "past-miss" in p or "past_miss" in p
     # Calibration warning
     assert "balanced" in p or "calibrat" in p
+    # Schema-version field is top-level only — observed model quirk
+    # from A4.6 live smoke.
+    assert "Do NOT add a `schema_version`" in p
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +370,75 @@ async def test_judge_happy_path_per_existing_fixture(workflow_id: str):
 # ---------------------------------------------------------------------------
 # Smoke: the prompt is sent as JSON-encoded dict (not raw repr)
 # ---------------------------------------------------------------------------
+
+
+async def test_json_encoded_string_payload_is_parsed():
+    """Opus 4.7 sometimes returns the wrapped value as a JSON-encoded
+    string instead of a dict (observed in the A4.6 live smoke
+    2026-05-06). The judge json.loads it and proceeds."""
+    description, spec, plan, case_set, metric = _fixture_bundle()
+    payload = _good_judgment_payload(spec.id)
+    json_string = json.dumps(payload)
+    client = _FakeClient(
+        _ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, {"judgment": json_string})]
+        )
+    )
+    result = await judge_artifacts(client, description, spec, plan, case_set, metric)
+    assert isinstance(result, MetaEvalJudgment)
+    assert result.workflow_spec_id == spec.id
+
+
+async def test_non_json_string_payload_still_raises():
+    """The string-decode fallback is best-effort — non-JSON strings
+    still fail with the typed validation error so a real model
+    regression doesn't slip through silently."""
+    description, spec, plan, case_set, metric = _fixture_bundle()
+    client = _FakeClient(
+        _ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, {"judgment": "not json at all"})]
+        )
+    )
+    with pytest.raises(MetaEvalJudgmentValidationError):
+        await judge_artifacts(client, description, spec, plan, case_set, metric)
+
+
+async def test_dimension_schema_version_field_is_stripped():
+    """Opus 4.7 sometimes propagates the top-level `schema_version` into
+    each dimension sub-object. `MetaEvalDimension` is `extra='forbid'`,
+    so the judge strips the spurious key before model_validate. Pin
+    this defensive parse so a future refactor can't drop it.
+
+    Observed in the A4.6 live smoke (2026-05-06)."""
+    description, spec, plan, case_set, metric = _fixture_bundle()
+    payload = _good_judgment_payload(spec.id)
+    # Inject the model quirk: schema_version on each dimension dict.
+    for dim_key in ("sim_coverage", "eval_case_coverage", "metric_alignment"):
+        payload[dim_key]["schema_version"] = "0.1"
+    client = _FakeClient(
+        _ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, {"judgment": payload})]
+        )
+    )
+    result = await judge_artifacts(client, description, spec, plan, case_set, metric)
+    assert isinstance(result, MetaEvalJudgment)
+    assert result.sim_coverage.verdict == "pass"
+
+
+async def test_other_extra_fields_in_dimension_still_fail():
+    """The strip is targeted to `schema_version` only — every other
+    unexpected dimension field still triggers a typed validation error
+    so a real schema regression doesn't slip through."""
+    description, spec, plan, case_set, metric = _fixture_bundle()
+    payload = _good_judgment_payload(spec.id)
+    payload["sim_coverage"]["confidence"] = 0.7  # Not schema_version
+    client = _FakeClient(
+        _ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, {"judgment": payload})]
+        )
+    )
+    with pytest.raises(MetaEvalJudgmentValidationError):
+        await judge_artifacts(client, description, spec, plan, case_set, metric)
 
 
 async def test_user_message_artifacts_are_json_decodable():

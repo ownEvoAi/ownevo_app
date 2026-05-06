@@ -21,14 +21,22 @@ imports `judge_artifacts` directly. The eval set itself
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from .corruptions import Bundle
 from .eval_set import META_EVAL_SET, MetaEvalPair
-from .judge import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, judge_artifacts
+from .judge import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL,
+    MetaEvalJudgmentValidationError,
+    judge_artifacts,
+)
 from .judgment import DimensionVerdict, MetaEvalJudgment, OverallVerdict
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
@@ -156,18 +164,51 @@ async def _judge_one_side(
     bundle: Bundle,
     model: str,
     max_tokens: int,
+    max_retries: int = 0,
 ) -> MetaEvalRecord:
+    """Drive the judge for one (pair, role).
+
+    `max_retries` retries on `MetaEvalJudgmentValidationError` only —
+    the typed error fires when the model produces malformed JSON or
+    drops a required field, which empirically is transient (~5-10%
+    of opus 4.7 calls when the wrapped payload comes back as a
+    JSON-encoded string with a parse error). Other errors
+    (NoMetaEvalToolUseError, MetaEvalSpecIdMismatchError, anthropic
+    API errors) are not retried — they signal real misconfiguration
+    rather than model output drift.
+    """
     spec, plan, case_set, metric = bundle
-    judgment = await judge_artifacts(
-        client,
-        pair.description,
-        spec,
-        plan,
-        case_set,
-        metric,
-        model=model,
-        max_tokens=max_tokens,
-    )
+    last_exc: MetaEvalJudgmentValidationError | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            judgment = await judge_artifacts(
+                client,
+                pair.description,
+                spec,
+                plan,
+                case_set,
+                metric,
+                model=model,
+                max_tokens=max_tokens,
+            )
+            break
+        except MetaEvalJudgmentValidationError as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                _log.warning(
+                    "judge validation failed for pair=%s role=%s attempt=%d; "
+                    "retrying (errors=%d)",
+                    pair.pair_id,
+                    role,
+                    attempt,
+                    exc.pydantic_error.error_count(),
+                )
+                continue
+            raise
+    else:  # pragma: no cover — unreachable; loop always breaks or raises
+        assert last_exc is not None
+        raise last_exc
+
     expected = pair.expected_good_verdict if role == "good" else pair.expected_bad_verdict
     return MetaEvalRecord(
         pair_id=pair.pair_id,
@@ -185,6 +226,7 @@ async def run_meta_eval(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     concurrency: int = 1,
+    max_retries_per_call: int = 0,
 ) -> MetaEvalReport:
     """Run the judge across every (good, bad) pair and aggregate.
 
@@ -197,6 +239,11 @@ async def run_meta_eval(
         concurrency: Number of judge calls to run in parallel. Default
             1 (sequential — easiest to reason about + cheapest path
             against rate limits). Bump to 4-8 for faster CI runs.
+        max_retries_per_call: Retries on `MetaEvalJudgmentValidationError`
+            only. Default 0 (current strict behavior). Bump to 1 for
+            live runs against opus 4.7 — the model occasionally
+            returns malformed JSON in the string-wrapped payload
+            (~5-10% of calls); a single retry resolves it.
 
     Returns:
         `MetaEvalReport` with per-pair records + aggregates.
@@ -215,7 +262,13 @@ async def run_meta_eval(
     async def _bounded(pair: MetaEvalPair, role: PairRole, bundle: Bundle):
         async with sem:
             return await _judge_one_side(
-                client, pair, role, bundle, model, max_tokens
+                client,
+                pair,
+                role,
+                bundle,
+                model,
+                max_tokens,
+                max_retries=max_retries_per_call,
             )
 
     tasks = []

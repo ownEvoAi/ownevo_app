@@ -101,6 +101,18 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--max-retries-per-call",
+        type=int,
+        default=0,
+        help=(
+            "Retries on MetaEvalJudgmentValidationError per judge call. "
+            "Default 0 (strict). Set to 1 for live runs against opus "
+            "4.7 — the model occasionally returns malformed JSON in "
+            "the string-wrapped payload (~5-10%% of calls); a single "
+            "retry empirically resolves it."
+        ),
+    )
+    parser.add_argument(
         "--anthropic-base-url",
         default=None,
         help=(
@@ -181,6 +193,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
         model=ns.model,
         max_tokens=ns.max_tokens,
         concurrency=ns.concurrency,
+        max_retries_per_call=ns.max_retries_per_call,
     )
     wall_seconds = time.perf_counter() - started
 
