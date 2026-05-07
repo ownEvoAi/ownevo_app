@@ -17,6 +17,73 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (B3.5 — Cluster-label LLM eval, W3 Track B exit criterion)
+- `apps/kernel/src/ownevo_kernel/clustering/label_eval/judgment.py` —
+  `ClusterLabelJudgment` Pydantic schema. Binary verdict (`agree` /
+  `disagree`) + ≤400-char rationale + echoed `cluster_id`.
+  `extra='forbid'`, `frozen=True`, `schema_version="0.1"`. Numeric
+  mapping `verdict_score` (agree=1.0, disagree=0.0); the agreement
+  number is `mean(verdict_score)` over the eval set.
+- `apps/kernel/src/ownevo_kernel/clustering/label_eval/fixtures.py` —
+  `LabeledClusterCase` dataclass (frozen) + `LABELED_CLUSTER_CASES`,
+  20 hand-authored M5 fixtures spanning the failure-mode taxonomy
+  (under-forecast / over-forecast / zero-inflated / high-variance /
+  flat-prediction × FOODS / HOUSEHOLD / HOBBIES × CA / TX / WI). Each
+  case carries 3-8 plausible `text_signature` strings (matching the
+  `m5_failure_analyzer._text_signature` format), a `domain_context`
+  one-liner, a `dominant_hint` for per-bucket slicing, and the
+  ground-truth label. Module-import-time validator pins the cardinality,
+  cluster_id uniqueness, signature minimum, and label length cap.
+- `apps/kernel/src/ownevo_kernel/clustering/label_eval/judge.py` —
+  `judge_label_match(client, case, candidate_label)` via single-turn
+  Anthropic forced tool-use. Default model `claude-sonnet-4-6`
+  (D4 contract: different model from the haiku-4.5 labeler; sonnet
+  is strictly stronger but cheaper than opus). Mirrors A4.6 errors:
+  `ClusterLabelJudgmentValidationError` /
+  `NoClusterLabelToolUseError` / `ClusterLabelIdMismatchError`. JSON-
+  string-wrapped payload defensive recovery is kept (sonnet hasn't
+  shown the A4.6 quirk but the recovery is nearly free).
+- `apps/kernel/src/ownevo_kernel/clustering/label_eval/runner.py` —
+  `run_cluster_label_eval(client, label_fn, ...) → ClusterLabelEvalReport`
+  drives the labeler + judge across the fixture set in parallel
+  (configurable `concurrency`, default 1). Aggregates judge-vs-human
+  agreement, per-`dominant_hint` correctness slicing, and verdict
+  histogram. `wrap_sync_labeler` adapts a sync `Labeler` (e.g.
+  `AnthropicLabeler`) to the async `LabelFn` shape via
+  `asyncio.to_thread`. Optional `max_retries_per_call` on
+  validation-only errors mirrors A4.6's transient-malformation pattern.
+- `apps/kernel/scripts/cluster_label_eval.py` + `make cluster-label-eval` —
+  CLI entrypoint. `--judge-model`, `--labeler-model`, `--concurrency`,
+  `--max-retries-per-call`, `--anthropic-base-url`, `--include-records`,
+  `--pretty`, `--require-agreement`. Preflight rejects when
+  `--judge-model == --labeler-model` (D4 contract) and when no API
+  key / base URL is configured. Cost surface ~$1.20/run on default
+  models (20 haiku labeler calls + 20 sonnet judge calls).
+- `.github/workflows/m5-replay-nightly.yml` — new `cluster-label-eval`
+  job in the existing nightly workflow. Runs on the same cron + push
+  triggers (`apps/kernel/src/ownevo_kernel/clustering/label_eval/**`
+  + `apps/kernel/scripts/cluster_label_eval.py` added to paths).
+  `--require-agreement 0.7` makes the W3 Track B exit gate a hard CI
+  fail. Skips silently with a `::warning::` annotation when the
+  `ANTHROPIC_API_KEY` secret is unconfigured (graceful pre-launch
+  state). `--concurrency 4 --max-retries-per-call 1` matches A4.6's
+  live-run convention.
+- 64 new tests across 5 files (`test_clustering_label_eval_schema.py`
+  13 — schema round-trip + frozen + extra-forbid + verdict-literal
+  pinning + cluster_id pattern + rationale length bounds;
+  `test_clustering_label_eval_fixtures.py` 12 — 20-case cardinality +
+  uniqueness + signature format + dominant_hint taxonomy + failure-mode
+  coverage + immutability + bias balance; `test_clustering_label_eval_judge.py`
+  11 — fake AsyncAnthropic + tool-definition shape + system-prompt
+  load-bearing rules + happy path + wrapped-payload paths + every
+  error path + cluster-id mismatch; `test_clustering_label_eval_runner.py`
+  13 — aggregate math (perfect / zero / mixed) + per-hint slicing +
+  ordering + record shape + retry recovery + concurrency guard +
+  to_dict serialization + wrap_sync_labeler; `test_scripts_cluster_label_eval.py`
+  15 — argparse rejections + preflight (key + judge=labeler abort) +
+  happy path + record / pretty flags + agreement gate (pass / fail /
+  unset)). Total kernel suite: 1009 passing.
+
 ### Fixed (`0c839b3` — TokenBudget not enforced on OpenAI-compat path)
 - `eval_runner/agent_solver.py` — `predict_one` accumulates token usage via
   `token_budget.record(usage)`, but OpenAI API responses carry field names
