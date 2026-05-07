@@ -35,7 +35,7 @@ _log = logging.getLogger(__name__)
 
 
 _DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-_DEFAULT_LABEL_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_LABEL_MODEL = "claude-sonnet-4-6"
 
 
 class SentenceTransformerEmbedder:

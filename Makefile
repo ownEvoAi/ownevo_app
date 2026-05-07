@@ -7,7 +7,7 @@
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
-        meta-eval m5-cluster-failures
+        meta-eval m5-cluster-failures cluster-label-eval
 
 help:
 	@printf 'targets:\n'
@@ -33,6 +33,9 @@ help:
 	@printf '                      eval-cases (CLUSTER_ARGS=...; default uses stub embedder\n'
 	@printf '                      and clusterer; pass --real for ST + UMAP + HDBSCAN +\n'
 	@printf '                      Anthropic)\n'
+	@printf '  cluster-label-eval  B3.5: judge labeler vs hand-labeled fixtures; reports\n'
+	@printf '                      agreement (LABEL_EVAL_ARGS=... pass flags; default sonnet\n'
+	@printf '                      judge + haiku labeler; --require-agreement for gate)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -162,3 +165,15 @@ CLUSTER_ARGS ?=
 
 m5-cluster-failures:
 	cd apps/kernel && uv run python scripts/cluster_m5_failures.py $(CLUSTER_ARGS)
+
+# ----------------------------------------------------------------------------
+# Cluster-label LLM eval (B3.5)
+# ----------------------------------------------------------------------------
+
+# `LABEL_EVAL_ARGS=...` passes flags through to scripts/cluster_label_eval.py
+# (e.g. LABEL_EVAL_ARGS='--concurrency 4 --require-agreement 0.7 --pretty').
+LABEL_EVAL_ARGS ?=
+
+cluster-label-eval:
+	cd apps/kernel && uv run --extra agent python scripts/cluster_label_eval.py \
+	    $(LABEL_EVAL_ARGS)
