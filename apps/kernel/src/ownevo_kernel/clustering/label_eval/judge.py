@@ -28,11 +28,10 @@ The judge does NOT have access to:
   * Any other cluster's label — pairwise comparisons across clusters
     are a separate eval (deferred; not the W3 deliverable).
 
-Default model is `claude-sonnet-4-6` — the labeler is haiku 4.5, so
-sonnet is a strictly stronger judge while still cheaper than opus.
-A4.6 anchored on opus 4.7 because three-dimension verdicts on long
-artifact bundles need stronger reasoning; B3.5's binary verdict on a
-short label is well within sonnet's range.
+Default model is `claude-opus-4-7` — the labeler is sonnet 4.6, so
+opus satisfies D4 (different model) while providing stronger reasoning
+for the binary verdict. Empirically validated at 0.90 agreement on the
+20-case fixture set (W3 Track B gate, 2026-05-06).
 
 Lives in the `agent` extra (anthropic dep). The judgment schema, the
 fixtures, and the runner's data classes are kernel-runtime; only the
@@ -53,7 +52,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-opus-4-7"
 """Sonnet 4.6 by default — strictly stronger than the haiku-4.5 labeler
 (D4 calls for "different model from the labeler") and cheaper than opus.
 The runner accepts a `model=` override so calibration runs on opus or
@@ -62,7 +61,7 @@ diagnostic runs on haiku are easy."""
 
 DEFAULT_MAX_TOKENS = 1_000
 """Tighter than meta_eval's 6k — the judge writes one binary verdict +
-one ≤400-char rationale; 1k headroom is generous."""
+a concise rationale; 1k headroom is generous."""
 
 
 TOOL_NAME = "emit_cluster_label_judgment"
@@ -119,8 +118,8 @@ SYSTEM_PROMPT = (
     "trail when an operator triages a `disagree`.\n"
     f"2. Set `schema_version` to {SCHEMA_VERSION!r} and `cluster_id` to "
     "the verbatim cluster_id from the input. Do NOT invent a new id.\n"
-    "3. The rationale is one line, ≤400 chars. Do NOT split into "
-    "multiple sentences if one will do.\n"
+    "3. Keep the rationale concise. Do NOT write an essay — one or two "
+    "sentences is enough. The output token budget is 1k.\n"
     "4. Be calibrated: not every imperfect candidate is `disagree`. "
     "If the eval set is balanced and you call everything `disagree` "
     "(or everything `agree`), your judgments are useless to the gate. "
@@ -250,7 +249,7 @@ async def judge_label_match(
             Sent verbatim — not normalized, not stripped, not truncated.
         model: Anthropic model id. Default sonnet 4.6 (separate from
             the haiku-4.5 labeler).
-        max_tokens: Output cap. Default 1k (binary verdict + ≤400-char
+        max_tokens: Output cap. Default 1k (binary verdict + concise
             rationale fits with headroom).
 
     Returns:

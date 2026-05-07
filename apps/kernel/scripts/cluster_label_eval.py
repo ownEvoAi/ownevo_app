@@ -18,9 +18,9 @@ opts into the W3 Track B gate behavior — exits 1 if agreement < N
 exit criterion on a local gate run).
 
 Cost surface — printed to stderr before any API call:
-  * 20 labeler calls (haiku 4.5; ~$0.01 each).
-  * 20 judge calls (sonnet 4.6; ~$0.05 each).
-  * Total: ~$1.20 per run on default models.
+  * 20 labeler calls (sonnet 4.6).
+  * 20 judge calls (opus 4.7).
+  * Total: ~$3-5 per run on default models.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         prog="cluster-label-eval",
         description=(
             "B3.5 cluster-label eval. Runs the production labeler "
-            "(haiku 4.5) + a separate judge (sonnet 4.6) across the "
+            "(sonnet 4.6) + a separate judge (opus 4.7) across the "
             "20-case hand-labeled LABELED_CLUSTER_CASES fixture set. "
             "Emits a JSON report with judge-vs-human agreement, "
             "per-failure-mode slicing, and verdict distribution. "
@@ -115,7 +115,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=DEFAULT_MAX_TOKENS,
         help=(
             f"Per-judge-call output cap. Default {DEFAULT_MAX_TOKENS}; "
-            "the judge writes one ≤400-char rationale plus the verdict, "
+            "the judge writes a concise rationale plus the verdict, "
             "so 1k is generous."
         ),
     )
@@ -207,7 +207,7 @@ def _make_sync_client(base_url: str | None):
 def _make_label_fn(labeler_model: str, base_url: str | None):
     """Build the async LabelFn the runner expects.
 
-    Default wires the production `AnthropicLabeler` (sync, haiku 4.5)
+    Default wires the production `AnthropicLabeler` (sync, sonnet 4.6)
     and adapts it to async via `wrap_sync_labeler`. Tests monkeypatch
     this factory to substitute a canned label producer."""
     from ownevo_kernel.clustering.default_impl import AnthropicLabeler

@@ -95,9 +95,8 @@ class ClusterLabelJudgment(_Base):
     )
     rationale: str = Field(
         min_length=1,
-        max_length=400,
         description=(
-            "One-line explanation of the verdict. Quotes the candidate "
+            "Explanation of the verdict. Quotes the candidate "
             "and ground-truth phrasing where relevant. Surfaces in the "
             "audit trail; what an operator reads when triaging a disagree."
         ),
