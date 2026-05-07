@@ -33,6 +33,9 @@ SKIP_PATTERNS=(
   "vision"
   "vl-"
   "-vl"
+  "-asr"
+  "_asr"
+  "vibevoice"
 )
 
 # Fetch all models from LM Studio.
@@ -83,10 +86,28 @@ UNLOAD_URL="${OWNEVO_LMSTUDIO_HOST}/api/v1/models/unload"
 
 lms_load() {
   # Returns the instance_id on stdout; caller captures it for lms_unload.
-  curl -fsS -X POST "$LOAD_URL" \
-    -H "Content-Type: application/json" \
-    -d "{\"model\": \"$1\", \"context_length\": ${LMS_CTX}, \"flash_attention\": true, \"echo_load_config\": true}" \
-    2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('instance_id',''))"
+  # Tries LMS_CTX first, then falls back to 16384 and 8192 if LMS rejects the load (OOM).
+  local model="$1"
+  local ctx instance_id body
+  for ctx in "${LMS_CTX}" 16384 8192; do
+    body=$(curl -fsS --max-time 60 -X POST "$LOAD_URL" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\": \"${model}\", \"context_length\": ${ctx}, \"flash_attention\": true, \"echo_load_config\": true}" \
+      2>/dev/null) || true
+    if [[ -z "$body" ]]; then
+      echo "[lmstudio-sweep] WARN: empty/failed response loading ${model} at ctx=${ctx} — trying smaller context" >&2
+      continue
+    fi
+    instance_id=$(echo "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('instance_id',''))" 2>/dev/null) || true
+    if [[ -n "$instance_id" ]]; then
+      echo "[lmstudio-sweep] loaded ${model} at ctx=${ctx} → instance_id=${instance_id}" >&2
+      echo "$instance_id"
+      return 0
+    fi
+    echo "[lmstudio-sweep] WARN: no instance_id for ${model} at ctx=${ctx} — trying smaller context" >&2
+  done
+  echo "[lmstudio-sweep] WARN: could not load ${model} at any context size — will use whatever is already in LMS" >&2
+  echo ""
 }
 
 lms_unload() {

@@ -203,6 +203,17 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--max-tokens",
+        type=_positive_int,
+        default=None,
+        help=(
+            "Per-call output token limit passed to the agent solver. "
+            "Overrides the path default (1k Anthropic / 8k OpenAI). "
+            "Useful for thinking/reasoning models that exhaust 8k before "
+            "committing a tool call."
+        ),
+    )
+    parser.add_argument(
         "--pretty",
         action="store_true",
         help="Pretty-print the per-workflow JSON output (2-space indent).",
@@ -269,6 +280,7 @@ async def _smoke_one(
     model: str,
     nl_gen_model: str | None,
     max_tokens_per_workflow: int | None,
+    max_tokens: int | None,
 ) -> tuple[EvalRunReport, float, TokenBudget | None]:
     """Run the gate for one workflow; return (report, wall_seconds, budget).
 
@@ -293,6 +305,7 @@ async def _smoke_one(
     report = await run_with_agent(
         case_set, plan, spec, metric,
         client=client, model=model,
+        max_tokens=max_tokens,
         openai_client=openai_client,
         budget=budget,
     )
@@ -415,6 +428,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 model=ns.model,
                 nl_gen_model=ns.nl_gen_model,
                 max_tokens_per_workflow=ns.max_tokens_per_workflow,
+                max_tokens=ns.max_tokens,
             )
         except TokenBudgetExceededError as exc:
             print(

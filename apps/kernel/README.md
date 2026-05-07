@@ -12,17 +12,31 @@ Planned modules (Week 1-2 lift):
 - `eval/` — Inspect AI integration
 - `gate/` — 3-step regression gate runner
 
-## A4.4 local model verdicts (from-fixtures gate, OpenAI-compat path)
+## A4.4 local model recommendations (from-fixtures gate, OpenAI-compat)
 
-Tested via `scripts/run_ollama_sweep.sh` against Ollama at `OWNEVO_OLLAMA_HOST`
-(OpenAI `/v1` direct, no proxy). `OLLAMA_CONTEXT_LENGTH=65536` set server-side.
+Top 3/3-pass picks from the 2026-05-06/07 sweep across desktop LMS,
+laptop LMS, and desktop Ollama (full results + 19 passing models +
+infrastructure notes in `../../docs/local-model-testing.md` § F14).
 
-**3/3 pass (all workflows):**
-- `qwen3.5:27b` — demand 0.60 ✅, credit 0.42 ✅, contract 1.00 ✅  ← recommended local model
-- `qwen3:30b-instruct` — demand 0.60 ✅, credit 0.42 ✅, contract 1.00 ✅ (earlier run)
+**Laptop (≤10B, no dedicated GPU) — recommended:**
 
-**LM Studio (`scripts/run_lmstudio_sweep.sh`, 32k context via load API):**
-- `granite-4.1-8b` — demand 0.80 ✅, credit 0.42 ✅, contract 0.83 ✅
+| model | host | wall | demand / credit / contract |
+|---|---|---:|---:|
+| **`qwen/qwen3-4b-2507`** | LMS | 152s | 1.00 / 0.42 / 0.91 |
+| `qwen/qwen3-1.7b` | LMS | 826s | 0.80 / 0.50 / 0.89 (smallest 3/3) |
 
-See `infra/litellm/ollama.yaml` for the LiteLLM proxy config used in hybrid
-NL-gen (frontier) + local agent runs.
+**Desktop (24GB+ VRAM, 8B–32B class) — recommended:**
+
+| model | host | wall | demand / credit / contract |
+|---|---|---:|---:|
+| **`granite-4.1-8b`** | LMS | 33s | 1.00 / 0.50 / 0.91 (fastest 3/3) |
+| `mistralai/ministral-3-14b-reasoning` | LMS | 47s | 1.00 / 0.50 / 0.91 |
+| `qwen2.5-coder-32b-instruct` | LMS | 98s | 1.00 / 0.50 / 0.89 |
+| `qwen3:8b` | Ollama | 373s | 0.80 / 0.42 / 0.91 |
+
+**Best credit-risk score (hybrid frontier-NL-gen + local-agent):**
+`mychen76/qwen3_cline_roocode:14b` (Ollama, 629s, 0.60 / 0.67 / 1.00).
+
+Run a sweep: `scripts/run_lmstudio_sweep.sh` (LMS) /
+`scripts/run_ollama_sweep.sh` (Ollama). LiteLLM proxy config (hybrid
+NL-gen frontier + local agent) at `infra/litellm/ollama.yaml`.

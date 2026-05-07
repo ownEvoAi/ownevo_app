@@ -80,6 +80,15 @@ backed by a sweep that's reproducible from this file.
   - **Follow-up:** wire `lmstudio-python` into a small `lms_remote.py`
     helper to drive proper unload + context-length-on-load before the
     real Phase 1 sweep.
+- **Load with context length via REST (verified 2026-05-06):** `POST
+  /api/v1/models/load` with body
+  `{"model": "<id>", "context_length": 32768, "flash_attention": true,
+  "echo_load_config": true}` returns `{"instance_id": "<id>", ...}`.
+  Subsequent `/v1/chat/completions` calls **must use the returned
+  `instance_id` as the `model` field** — passing the original model id
+  routes to whatever instance LMS auto-loaded with default context.
+  `run_lmstudio_sweep.sh` does this automatically with a 32k → 16k → 8k
+  fallback ladder for VRAM-tight loads.
 
 ---
 
@@ -686,6 +695,170 @@ selection criteria — devstral-small-2 isn't on the F5 multi-turn
 shortlist but is the best on this lower-bar task. The two tracks
 have orthogonal model selection.
 
+### F14 — A4.4 OpenAI-compat direct sweep: three backends, 19 models pass 3/3 (2026-05-06/07)
+
+Different infrastructure from F13 (no LiteLLM proxy). The agent solver
+now speaks OpenAI `/v1/chat/completions` directly to Ollama and LM Studio
+via `AsyncOpenAI`. Three infrastructure fixes were required before any
+model could pass:
+
+1. **`tool_choice="required"` (string).** LMS and Ollama reject the object
+   form `{"type": "function", "function": {"name": ...}}` with
+   `BadRequestError: Invalid tool_choice type: 'object'`. Changed to the
+   string `"required"` in `agent_solver.py`.
+
+2. **`DEFAULT_MAX_TOKENS_OPENAI = 8_000` (default), `--max-tokens 10000`
+   on the Ollama sweep.** Reasoning/thinking models (Qwq, gemma4,
+   phi4-reasoning, qwen3 thinking mode) emit a long preamble before the
+   tool call; 1k was exhausted before `predict_label` could fire. 8k is
+   now the auto-selected default for the OpenAI path; the new
+   `--max-tokens` CLI flag in `nl_gen_smoketest.py` overrides per-call.
+
+3. **LM Studio load API with context fallback (32k → 16k → 8k).** LMS
+   loads models at 4k context by default; demand-prediction trajectories
+   run ~4.8k tokens so demand-pred returned "—" on every model. Fixed via
+   `POST /api/v1/models/load` with `context_length` and routing completions
+   to the returned `instance_id`. The sweep script tries 32k → 16k → 8k
+   on load failure (OOM / VRAM pressure).
+
+**Three sweeps run across two hosts and two backends:**
+
+| Sweep | Host | Backend | Models | Filtered | 3/3 pass |
+|---|---|---|---|---|---|
+| Desktop LMS | 192.168.1.50:1234 | LMS OpenAI-compat | 49 | 42 | 7 |
+| Laptop LMS  | localhost:1234     | LMS OpenAI-compat | 77 | 62 | 8 |
+| Desktop Ollama | 192.168.1.50:11434 | Ollama OpenAI-compat | 65 | 51 | 4 |
+
+#### F14a — Desktop LMS (32k context, 8k max-tokens) — 7 / 42
+
+| model | ctx | demand | credit | contract | wall |
+|---|---|---:|---:|---:|---:|
+| `granite-4.1-8b` | 32k | 1.00 ✅ | 0.50 ✅ | 0.91 ✅ | 33s |
+| `google/gemma-4-e4b` | 32k | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 34s |
+| `ibm/granite-3.2-8b` | 32k | 1.00 ✅ | 0.50 ✅ | 0.83 ✅ | 43s |
+| `mistralai/ministral-3-14b-reasoning` | 32k | 1.00 ✅ | 0.50 ✅ | 0.91 ✅ | 47s |
+| `qwen/qwen3-32b` | 32k | 0.60 ✅ | 0.42 ✅ | 0.83 ✅ | 96s |
+| `qwen2.5-coder-32b-instruct` | 16k | 1.00 ✅ | 0.50 ✅ | 0.89 ✅ | 98s |
+| `google/gemma-4-31b` | 32k | 0.60 ✅ | 0.42 ✅ | 1.00 ✅ | 229s |
+
+Full sweep logs: `temp/lmstudio_sweep/20260506-124340/summary.md`
+(25-model canonical run) + per-model dirs from the 17-model resume run.
+
+**Notable 2/3-pass on desktop LMS:**
+
+| model | failing workflow | score |
+|---|---|---|
+| `ibm/granite-4-h-tiny` | contract-review | 0.62 ❌ |
+| `microsoft/phi-4` | credit-risk | 0.17 ❌ |
+| `mistralai/magistral-small` | contract-review | 0.33 ❌ |
+| `liquid/lfm2-24b-a2b` | contract-review | 0.67 ❌ (variance; once ✅) |
+| `openai/gpt-oss-20b` | credit-risk | 0.25 ❌ (variance; once 0.42 ✅) |
+
+#### F14b — Laptop LMS (32k context, 8k max-tokens) — 8 / 62
+
+Different model catalog from desktop (more 4B-class quants and MLX builds).
+Many 27B+ models in the catalog wouldn't load on laptop VRAM (load API
+returns 0.0s). The 1.7B `qwen3-1.7b` passing 3/3 is the smallest model
+to pass any A4.4 gate to date.
+
+| model | demand | credit | contract | wall |
+|---|---:|---:|---:|---:|
+| `qwen/qwen3-4b-2507` | 1.00 ✅ | 0.42 ✅ | 0.91 ✅ | 152s |
+| `openai/gpt-oss-20b` | 0.80 ✅ | 0.42 ✅ | 1.00 ✅ | 197s |
+| `qwen3.5-4b` | 0.80 ✅ | 0.42 ✅ | 0.89 ✅ | 304s |
+| `nvidia_nvidia-nemotron-nano-9b-v2` | 1.00 ✅ | 0.58 ✅ | 0.83 ✅ | 548s |
+| `qwen/qwen3-1.7b` | 0.80 ✅ | 0.50 ✅ | 0.89 ✅ | 826s |
+| `qwen/qwen3-4b` | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 1855s |
+| `qwen/qwen3-8b` | 1.00 ✅ | 0.42 ✅ | 0.89 ✅ | 3141s |
+| `qwen/qwen3-14b` | 0.80 ✅ | 0.58 ✅ | 0.89 ✅ | 4734s (79 min) |
+
+Full sweep log: `temp/lmstudio_sweep/20260506-184434/summary.md`.
+
+**Cross-host comparison (same model, both hosts):**
+
+| model | desktop wall | laptop wall | desktop pass | laptop pass |
+|---|---:|---:|---|---|
+| `openai/gpt-oss-20b` | 36s (0.25 ❌ credit) | 197s (3/3 ✅) | ❌ 2/3 | ✅ 3/3 |
+| `qwen/qwen3-32b` | 96s (3/3 ✅) | 0.0s (load failed) | ✅ 3/3 | ❌ |
+
+The variance on `gpt-oss-20b` between desktop runs (0.42 ✅ → 0.25 ❌)
+plus laptop's clean 3/3 suggests it's a credible 3/3 model with run noise
+on the credit-risk metric. Counted in laptop totals.
+
+#### F14c — Desktop Ollama (10k max-tokens) — 4 / 51
+
+The 10k max-tokens fix unblocked the thinking models hitting
+`stop_reason='length'` at 8k. `Qwq:32b` went from 0.0s NoPredictToolUse
+to a full 3/3 in 38 minutes — strong evidence that thinking-flavored
+reasoning models need >8k for partial-info classification gates.
+
+| model | demand | credit | contract | wall |
+|---|---:|---:|---:|---:|
+| `qwen3:8b` | 0.80 ✅ | 0.42 ✅ | 0.91 ✅ | 373s |
+| `mychen76/qwen3_cline_roocode:14b` | 0.60 ✅ | 0.67 ✅ | 1.00 ✅ | 629s |
+| `qwen3.5:35b-a3b` | 0.60 ✅ | 0.58 ✅ | 0.91 ✅ | 669s (11 min) |
+| `Qwq:32b` | 0.60 ✅ | 0.50 ✅ | 0.83 ✅ | 2301s (38 min) |
+
+Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
+
+**Notable 2/3-pass on desktop Ollama:**
+
+| model | failing workflow | score |
+|---|---|---|
+| `qwen3-coder:30b` | demand-pred | 0.40 ❌ |
+| `qwen3:32b` | demand-pred | 0.40 ❌ |
+| `qwen3:14b` | demand-pred | 0.40 ❌ |
+| `granite4.1:30b` | demand-pred | 0.40 ❌ |
+| `gpt-oss:120b` | credit-risk | 0.42 ✅ but contract 0.80 / demand 0.40 ❌ (40 min wall) |
+| `gemma4:e4b` | demand-pred | 0.40 ❌ |
+| `qwen3:30b-instruct` | credit-risk | 0.08 ❌ (weak on credit) |
+| `qwen3:4b-instruct` | contract-review | 0.50 ❌ (very fast 40s, demand+credit pass) |
+
+#### F14d — Zero-result categories (not worth re-running)
+
+- **"Does not support tools" (Ollama API 400):** `gemma3:*`, `gemma3n:*`,
+  `phi4-reasoning`, `phi4-mini-reasoning`, `olmo-3:7b`, `llama3.x:*`,
+  `qwen2.5:*`, `qwen2.5-coder:*` Ollama variants. Hard failures.
+- **Doesn't emit tool calls (NoPredictToolUseError, stop_reason='stop'):**
+  most LMS reasoning-distilled variants (`qwen3.5-27b-claude-*`,
+  `qwopus3.5-27b-v3`, `mlx-qwen3.5-4b-claude-*`), `zai-org/glm-4.7-flash`,
+  `crow-4b-opus-4.6-distill-heretic`. Models trained on conversational
+  reasoning don't reliably emit OpenAI-format tool calls.
+- **OOM at all context sizes (laptop):** `qwen/qwen3-32b`,
+  `qwen/qwen3-coder-30b`, `qwen/qwen3.6-27b`, `qwen2.5-coder-32b-instruct`,
+  most 26B+ models on laptop VRAM.
+- **OOM total (desktop):** `gpt-oss:120b` runs but underperforms
+  (35.5 GiB working set, 40 min wall, 2/3 result).
+
+#### F14e — Recommendations by class
+
+**Best small/fast for laptop (≤10B, <5 min wall):**
+1. `qwen/qwen3-4b-2507` (4B) — laptop, 152s, 1.00 / 0.42 / 0.91. Best
+   speed/quality on laptop. Recommended laptop default.
+2. `qwen/qwen3-1.7b` (1.7B) — laptop, 826s. Smallest 3/3 in any sweep —
+   useful for headless/edge prototype where 4B doesn't fit.
+
+**Best general-purpose for desktop (32k+ context, 14B–32B class):**
+1. `granite-4.1-8b` — desktop LMS, 33s, 1.00 / 0.50 / 0.91. **Fastest 3/3
+   model in any sweep.** Recommended desktop default.
+2. `mistralai/ministral-3-14b-reasoning` — desktop LMS, 47s, 1.00 / 0.50
+   / 0.91. Best 14B-class.
+3. `qwen2.5-coder-32b-instruct` — desktop LMS, 98s, 1.00 / 0.50 / 0.89.
+   Best 32B-class for codegen affinity (cf F13's qwen2.5-coder:32b
+   Ollama-side 1.00-but-degenerate; LMS run is non-degenerate).
+
+**Best for hybrid (NL-gen frontier + agent local):**
+1. `mychen76/qwen3_cline_roocode:14b` — desktop Ollama, 629s, 0.60 / 0.67
+   / 1.00. Highest credit-risk score of any local model. Tool-tuned
+   variant of qwen3-14b.
+
+**Avoid (deterministic failures, large wall, or no improvement track):**
+- `gpt-oss:120b` — 35.5 GiB, 40 min wall, 2/3 result. Cost/perf bad.
+- `qwen3:30b-instruct` Ollama — 0.08 credit (very weak). Avoid for
+  credit-risk class problems.
+- All `gemma3:*` / `gemma3n:*` / `phi4-reasoning:*` Ollama variants —
+  Ollama API rejects (no tool-call support exposed).
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
@@ -736,26 +909,128 @@ downloads. Run via `--api-format anthropic` (preferred — has cache_read)
 or `--api-format openai` (no cache_read; useful only if Anthropic
 shim rejects the model).
 
-| Model | Status |
-|---|---|
-| `qwen/qwen3-coder-30b` | ✅ end-to-end PASS via Anthropic streaming (val_score 0.4642 on synthetic) |
-| `granite-4.1-8b` | ⚠️ read-loop stall via Anthropic (F4) |
-| `ibm/granite-3.2-8b` | ⚠️ read-loop stall via Anthropic (F4) |
-| `qwen/qwen3.6-35b-a3b` | ❌ adapter rejection via Anthropic (retry via direct Ollama) |
-| `qwen/qwen3.6-27b` | ❌ adapter rejection via Anthropic (retry via direct Ollama) |
-| `mistralai/devstral-small-2-2512` | ❌ adapter rejection via Anthropic (Mistral `[TOOL_CALLS]` shim issue) |
-| `openai/gpt-oss-20b` | ⚠️ partial via Anthropic — no write_skill |
-| `zai-org/glm-4.7-flash` | ⚠️ partial via Anthropic — read-loop stall |
-| `google/gemma-4-26b-a4b` | not yet smoked |
-| `gemma-4-31b-it` | not yet smoked (dense 31B, non-thinking) |
-| `gemma-4-e4b-it` | not yet smoked (~8B, small MoE) |
-| `microsoft/phi-4` | not yet smoked |
-| `qwen/qwen2.5-coder-14b` | not yet smoked |
-| `qwen2.5-coder-32b-instruct` | not yet smoked |
-| `qwopus3.5-27b-v3` | not yet smoked |
-| `qwen/qwen3-30b-a3b-2507` | not yet smoked |
-| `qwen/qwen3-30b-a3b` | not yet smoked |
-| `qwen/qwen3-32b` | not yet smoked |
+| Model | A4.4 gate (LMS OpenAI-compat, 32k ctx) | Loop status (LMS Anthropic streaming) |
+|---|---|---|
+| `qwen/qwen3-coder-30b` | not swept (16k ctx fallback) | ✅ end-to-end PASS via Anthropic streaming (val_score 0.4642 on synthetic) |
+| `granite-4.1-8b` | ✅ 3/3 (1.00 / 0.50 / 0.91, 33s) | ⚠️ read-loop stall via Anthropic (F4) |
+| `ibm/granite-3.2-8b` | ✅ 3/3 (1.00 / 0.50 / 0.83, 43s) | ⚠️ read-loop stall via Anthropic (F4) |
+| `mistralai/ministral-3-14b-reasoning` | ✅ 3/3 (1.00 / 0.50 / 0.91, 47s) | not yet smoked |
+| `qwen/qwen3-32b` | ✅ 3/3 (0.60 / 0.42 / 0.83, 96s) | not yet smoked |
+| `qwen2.5-coder-32b-instruct` | ✅ 3/3 (1.00 / 0.50 / 0.89, 98s, 16k ctx) | not yet smoked |
+| `google/gemma-4-31b` | ✅ 3/3 (0.60 / 0.42 / 1.00, 229s) | not yet smoked |
+| `google/gemma-4-e4b` | ✅ 3/3 (0.60 / 0.42 / 0.89, 34s) | not yet smoked |
+| `ibm/granite-4-h-tiny` | ❌ 2/3 (contract 0.62) | not yet smoked |
+| `microsoft/phi-4` | ❌ 2/3 (credit 0.17) | not yet smoked |
+| `mistralai/magistral-small` | ❌ 2/3 (contract 0.33) | not yet smoked |
+| `liquid/lfm2-24b-a2b` | ❌ 2/3 (contract borderline, run variance) | not yet smoked |
+| `qwen/qwen3-30b-a3b` | ❌ 2/3 (credit 0.33, run variance) | not yet smoked |
+| `openai/gpt-oss-20b` | ❌ 2/3 (credit variance) | ⚠️ partial via Anthropic — no write_skill |
+| `qwen/qwen3.6-35b-a3b` | ❌ 1/3 (demand only) | ❌ adapter rejection via Anthropic |
+| `qwen/qwen3.6-27b` | ❌ 0.0s (load failed at all ctx) | ❌ adapter rejection via Anthropic |
+| `mistralai/devstral-small-2-2512` | ❌ 1/3 (demand 0.40) | ❌ adapter rejection via Anthropic |
+| `zai-org/glm-4.7-flash` | ❌ 0.0s (NoPredictToolUse) | ⚠️ partial via Anthropic — read-loop stall |
+
+---
+
+## How to run an A4.4 sweep (forced-tool gate, OpenAI-compat)
+
+Two sweep scripts cover the two backends. Both call
+`scripts/nl_gen_smoketest.py --workflow all --from-fixtures` per model
+and write a markdown summary table. Run sequential — never simultaneously
+on the same GPU host.
+
+**Two distinct knobs (don't conflate):**
+
+| knob | what it controls | LMS sweep default | Ollama sweep default |
+|---|---|---|---|
+| `context_length` | **input** context window the model is loaded with | **32k** (via `POST /api/v1/models/load`, fallback 16k → 8k) | server-side `OLLAMA_CONTEXT_LENGTH=65536` (per-request `num_ctx` overrides unreliable, see F1) |
+| `max_tokens` | **output** generation cap per API call | 8k (path default in `agent_solver.py`) | **10k** (script passes `--max-tokens 10000`) |
+
+LMS context is set at *load* time (via REST). Ollama output cap is set
+at *request* time (via the OpenAI `max_tokens` field). Reasoning models
+(Qwq:32b, qwen3-thinking) need a 10k+ **output** budget because they
+emit a long preamble before the tool call; that's why Ollama gets the
+boost. LMS gets the input-context boost because demand-prediction
+trajectories are ~4.8k tokens and LMS would otherwise load at the 4k
+default.
+
+### LM Studio (`scripts/run_lmstudio_sweep.sh`)
+
+```bash
+# All models on the host, 32k input context + 8k output max.
+OWNEVO_LMSTUDIO_HOST=http://192.168.1.50:1234 \
+  bash apps/kernel/scripts/run_lmstudio_sweep.sh
+
+# Restrict to one model:
+OWNEVO_LMSTUDIO_HOST=http://localhost:1234 \
+  bash apps/kernel/scripts/run_lmstudio_sweep.sh "qwen/qwen3-4b-2507"
+
+# Override the input context (the value tried first; still falls back
+# to 16k/8k if VRAM rejects):
+LMS_CONTEXT_LENGTH=65536 \
+OWNEVO_LMSTUDIO_HOST=http://localhost:1234 \
+  bash apps/kernel/scripts/run_lmstudio_sweep.sh
+```
+
+The script:
+- Queries `/v1/models` for the catalog, filters embed/whisper/vl/asr.
+- Per model: `POST /api/v1/models/load` with `context_length=$LMS_CTX`,
+  falling back through `[LMS_CTX, 16384, 8192]` on empty/error response.
+- Routes completions to the returned `instance_id`.
+- `POST /api/v1/models/unload` after each model to free VRAM.
+- Writes per-model JSONL + a summary table to
+  `temp/lmstudio_sweep/<timestamp>/`.
+
+### Ollama (`scripts/run_ollama_sweep.sh`)
+
+```bash
+# All text-capable models, 10k output max-tokens.
+OWNEVO_OLLAMA_HOST=http://192.168.1.50:11434 \
+  bash apps/kernel/scripts/run_ollama_sweep.sh
+
+# Restrict to one model:
+OWNEVO_OLLAMA_HOST=http://localhost:11434 \
+  bash apps/kernel/scripts/run_ollama_sweep.sh "Qwq:32b"
+
+# Bump the output cap (e.g. for slow thinking models that need >10k):
+OLLAMA_SWEEP_MAX_TOKENS=20000 \
+OWNEVO_OLLAMA_HOST=http://192.168.1.50:11434 \
+  bash apps/kernel/scripts/run_ollama_sweep.sh "Qwq:32b"
+```
+
+`OLLAMA_SWEEP_MAX_TOKENS` (default `10000`) is plumbed into the
+smoketest as `--max-tokens N`, which overrides
+`DEFAULT_MAX_TOKENS_OPENAI = 8000` in `agent_solver.py`. The Ollama
+**input** context is configured daemon-side (`OLLAMA_CONTEXT_LENGTH`
++ `OLLAMA_NUM_PARALLEL=1` per F1), not in this script.
+
+### Direct smoketest invocation (single model, no sweep wrapper)
+
+When iterating on a specific model + override:
+
+```bash
+uv run --directory apps/kernel --extra agent \
+  python scripts/nl_gen_smoketest.py \
+    --workflow all --from-fixtures \
+    --model "qwen/qwen3-4b-2507" \
+    --openai-base-url http://localhost:1234/v1 \
+    --max-tokens 10000 \
+    --include-outcomes
+```
+
+Flags worth knowing:
+- `--max-tokens N` — per-call **output** token cap (auto-selects 1k
+  Anthropic / 8k OpenAI when omitted; sweeps explicitly set 10k for
+  Ollama).
+- `--max-tokens-per-workflow N` — A4.5 cumulative input+output budget
+  cap; aborts via `TokenBudgetExceededError` when crossed.
+- `--openai-base-url URL` — switches the agent solver to `AsyncOpenAI`
+  (Ollama / LMS direct). Omit for the default Anthropic path.
+
+For LMS, **input context is not a smoketest flag** — it's set at
+load-time via the LMS REST `/api/v1/models/load` endpoint (or `lms load
+<model> --context-length N` on the host). The smoketest then talks to
+whatever instance LMS routes to.
 
 ---
 

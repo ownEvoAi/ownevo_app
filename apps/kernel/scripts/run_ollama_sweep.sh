@@ -96,6 +96,7 @@ for model in "${MODELS[@]}"; do
       --from-fixtures \
       --model "$model" \
       --openai-base-url "$OPENAI_BASE_URL" \
+      --max-tokens "${OLLAMA_SWEEP_MAX_TOKENS:-10000}" \
       --include-outcomes \
     2>&1 | tee "$log" || rc=$?
 
