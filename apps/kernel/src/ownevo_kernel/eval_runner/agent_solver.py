@@ -137,6 +137,23 @@ SYSTEM_PROMPT = (
 )
 
 
+def _maybe_no_think_suffix(model: str) -> str:
+    """Suppress thinking traces on Qwen3-family models via `/no_think` directive.
+
+    Qwen3 / Qwen3.5 / Qwen3.6 ship with thinking mode ON by default. Without
+    suppression, the `<think>...</think>` reasoning trace consumes the entire
+    max_tokens budget before the model commits to a `predict_label` tool call
+    (see Ollama issue #14502, Crush #2457, F14h-hang in
+    docs/local-model-testing.md). The `/no_think` soft-switch disables
+    thinking for the current turn — appended to the system prompt where Qwen
+    parses it. No-op on non-Qwen models (just extra text), so safe to leave
+    in even on cross-family runs.
+    """
+    if "qwen3" in model.lower():
+        return "\n\n/no_think"
+    return ""
+
+
 class AgentSolverError(NLGenError):
     """Solver-level failure: API errors, trajectory bounds, or sim execution.
 
@@ -504,12 +521,13 @@ async def predict_one(
     user_message = _format_user_message(spec, case, trajectory, metric)
 
     try:
+        system_prompt = SYSTEM_PROMPT + _maybe_no_think_suffix(model)
         if openai_client is not None:
             response = await openai_client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
                 tools=[_OPENAI_TOOL_DEFINITION],
@@ -533,7 +551,7 @@ async def predict_one(
             msg = await client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 tools=[_TOOL_DEFINITION],
                 tool_choice={"type": "tool", "name": TOOL_NAME},
                 messages=[{"role": "user", "content": user_message}],
