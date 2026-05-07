@@ -30,8 +30,10 @@
 name: m5-replay-nightly
 
 on:
-  # schedule disabled: no GHA secrets / Docker infrastructure configured
-  # for unattended nightly runs. Re-enable once CI base is provisioned.
+  schedule:
+    # 04:00 UTC daily — early enough that drift is caught before US
+    # business hours. cron uses UTC; no DST surprises.
+    - cron: "0 4 * * *"
   workflow_dispatch:
     # Manual re-run for paranoia after touching the sandbox surface.
   push:
