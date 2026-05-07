@@ -90,6 +90,7 @@ from .metric_generator import (
     generate_metric_definition,
 )
 from .pipeline import (
+    MetaEvalGateFailedError,
     NLGenPipelineResult,
     generate_full_pipeline,
 )
@@ -230,4 +231,6 @@ __all__ = [
     # W5.3 — failure clustering wire-up
     "NLGenFailureSnapshot",
     "analyze_nl_gen_failures",
+    # W5.5 — meta-eval gate
+    "MetaEvalGateFailedError",
 ]

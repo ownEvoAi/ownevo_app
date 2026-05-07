@@ -175,7 +175,7 @@ def test_live_mode_with_api_key_proceeds(monkeypatch, capsys):
         SIM_PLAN_FIXTURES,
     )
 
-    async def _stub_pipeline(client, description, *, model=None, max_tokens=None):
+    async def _stub_pipeline(client, description, **kwargs):
         # Use demand-prediction as the canned response for any description.
         wid = "demand-prediction"
         return NLGenPipelineResult(
@@ -380,6 +380,195 @@ def test_max_tokens_exceeded_exits_three_with_structured_error(
     assert payload["n_calls"] == 3
     assert payload["last_label"] == "tipping-case"
     assert payload["workflow_id"] == "demand-prediction"
+
+
+# ---------------------------------------------------------------------------
+# W5.5 — meta-eval gate
+# ---------------------------------------------------------------------------
+
+
+def _patch_pipeline(monkeypatch, *, judgment=None, raise_gate_failed=False):
+    """Stub generate_full_pipeline so live-mode tests don't hit the API.
+
+    `judgment` is attached to the returned NLGenPipelineResult when set.
+    `raise_gate_failed` short-circuits with MetaEvalGateFailedError so
+    the CLI's error-handling branch is exercised.
+    """
+    from ownevo_kernel.nl_gen import (
+        MetaEvalGateFailedError,
+        NLGenPipelineResult,
+    )
+    from ownevo_kernel.nl_gen.fixtures import (
+        EVAL_CASE_SET_FIXTURES,
+        FIXTURES,
+        METRIC_FIXTURES,
+        SIM_PLAN_FIXTURES,
+    )
+
+    async def _stub(client, description, **kwargs):
+        wid = "demand-prediction"
+        if raise_gate_failed:
+            assert judgment is not None, "raise_gate_failed needs a judgment"
+            raise MetaEvalGateFailedError(
+                "stub: gate rejected",
+                judgment=judgment,
+                min_aggregate_score=kwargs.get("meta_eval_min_aggregate_score"),
+            )
+        return NLGenPipelineResult(
+            workflow_spec=FIXTURES[wid],
+            simulation_plan=SIM_PLAN_FIXTURES[wid],
+            eval_case_set=EVAL_CASE_SET_FIXTURES[wid],
+            metric_definition=METRIC_FIXTURES[wid],
+            meta_eval_judgment=judgment,
+        )
+
+    monkeypatch.setattr(smoketest, "generate_full_pipeline", _stub)
+
+
+def _make_judgment(spec_id="demand-prediction", *, sim="pass", overall="good"):
+    from ownevo_kernel.nl_gen.meta_eval.judgment import MetaEvalJudgment
+
+    return MetaEvalJudgment.model_validate(
+        {
+            "schema_version": "0.1",
+            "workflow_spec_id": spec_id,
+            "sim_coverage": {"verdict": sim, "rationale": f"sim={sim}."},
+            "eval_case_coverage": {"verdict": "pass", "rationale": "eval ok."},
+            "metric_alignment": {"verdict": "pass", "rationale": "metric ok."},
+            "overall_verdict": overall,
+            "overall_rationale": f"overall={overall}.",
+        }
+    )
+
+
+def test_gate_off_by_default_no_meta_eval_block(monkeypatch, capsys):
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+
+    rc = smoketest.main(["--workflow", "demand-prediction", "--from-fixtures"])
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert "meta_eval" not in payload
+
+
+def test_from_fixtures_does_not_run_gate_even_when_flag_set(monkeypatch, capsys):
+    """--from-fixtures bypasses NL-gen entirely, so the gate never runs."""
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+
+    rc = smoketest.main(
+        [
+            "--workflow",
+            "demand-prediction",
+            "--from-fixtures",
+            "--meta-eval-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert "meta_eval" not in payload
+
+
+def test_gate_pass_emits_meta_eval_block(monkeypatch, capsys):
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+    _patch_pipeline(monkeypatch, judgment=_make_judgment())
+
+    rc = smoketest.main(
+        ["--workflow", "demand-prediction", "--meta-eval-gate"]
+    )
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    block = payload["meta_eval"]
+    assert block["overall_verdict"] == "good"
+    assert block["aggregate_score"] == 1.0
+    assert block["coverage"]["sim_coverage"] == "pass"
+    assert block["coverage"]["eval_case_coverage"] == "pass"
+    assert block["coverage"]["metric_alignment"] == "pass"
+
+
+def test_gate_fail_short_circuits_with_meta_eval_error_payload(monkeypatch, capsys):
+    """Gate failure → exit 1, JSON error block, no agent call."""
+    _patch_client(monkeypatch)
+    bad = _make_judgment(sim="fail", overall="bad")
+
+    agent_called = {"flag": False}
+
+    async def _should_not_run(*args, **kwargs):
+        agent_called["flag"] = True
+        return None  # pragma: no cover
+
+    monkeypatch.setattr(smoketest, "run_with_agent", _should_not_run)
+    _patch_pipeline(monkeypatch, judgment=bad, raise_gate_failed=True)
+
+    rc = smoketest.main(
+        ["--workflow", "demand-prediction", "--meta-eval-gate"]
+    )
+    out = capsys.readouterr().out.strip()
+    assert rc == 1
+    assert agent_called["flag"] is False
+    payload = json.loads(out)
+    assert payload["error"] == "meta_eval_gate_failed"
+    assert payload["workflow_id"] == "demand-prediction"
+    assert payload["meta_eval"]["overall_verdict"] == "bad"
+    assert payload["meta_eval"]["coverage"]["sim_coverage"] == "fail"
+
+
+def test_gate_min_aggregate_score_propagated_to_pipeline(monkeypatch, capsys):
+    """The CLI flag is passed through to generate_full_pipeline."""
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+
+    captured: dict = {}
+
+    from ownevo_kernel.nl_gen import NLGenPipelineResult
+    from ownevo_kernel.nl_gen.fixtures import (
+        EVAL_CASE_SET_FIXTURES,
+        FIXTURES,
+        METRIC_FIXTURES,
+        SIM_PLAN_FIXTURES,
+    )
+
+    async def _capture(client, description, **kwargs):
+        captured.update(kwargs)
+        wid = "demand-prediction"
+        return NLGenPipelineResult(
+            workflow_spec=FIXTURES[wid],
+            simulation_plan=SIM_PLAN_FIXTURES[wid],
+            eval_case_set=EVAL_CASE_SET_FIXTURES[wid],
+            metric_definition=METRIC_FIXTURES[wid],
+            meta_eval_judgment=_make_judgment(),
+        )
+
+    monkeypatch.setattr(smoketest, "generate_full_pipeline", _capture)
+    rc = smoketest.main(
+        [
+            "--workflow",
+            "demand-prediction",
+            "--meta-eval-gate",
+            "--meta-eval-min-aggregate-score",
+            "0.7",
+            "--meta-eval-model",
+            "claude-opus-4-7",
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+    assert captured["meta_eval_gate"] is True
+    assert captured["meta_eval_min_aggregate_score"] == 0.7
+    assert captured["meta_eval_model"] == "claude-opus-4-7"
+
+
+def test_gate_banner_in_stderr(monkeypatch, capsys):
+    _patch_client(monkeypatch)
+    _patch_run_to(monkeypatch, meets_target=True)
+    _patch_pipeline(monkeypatch, judgment=_make_judgment())
+
+    smoketest.main(
+        ["--workflow", "demand-prediction", "--meta-eval-gate"]
+    )
+    err = capsys.readouterr().err
+    assert "meta_eval_gate=on" in err
 
 
 def test_max_tokens_propagated_to_run_with_agent(monkeypatch, capsys):

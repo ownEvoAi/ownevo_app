@@ -47,22 +47,27 @@ import json
 import os
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
-from ownevo_kernel.eval_runner import EvalRunReport, run_with_agent  # noqa: E402
+from ownevo_kernel.eval_runner import (  # noqa: E402
+    EvalRunReport,
+    TokenBudget,
+    TokenBudgetExceededError,
+    run_with_agent,
+)
 from ownevo_kernel.eval_runner.agent_solver import (  # noqa: E402
     DEFAULT_MODEL as AGENT_DEFAULT_MODEL,
 )
-from ownevo_kernel.eval_runner import (  # noqa: E402
-    TokenBudget,
-    TokenBudgetExceededError,
+from ownevo_kernel.nl_gen import (  # noqa: E402
+    EvalCaseSet,
+    MetaEvalGateFailedError,
+    generate_full_pipeline,
 )
-from ownevo_kernel.nl_gen import EvalCaseSet, generate_full_pipeline  # noqa: E402
 from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     DESCRIPTIONS,
     EVAL_CASE_SET_FIXTURES,
@@ -214,6 +219,41 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--meta-eval-gate",
+        action="store_true",
+        help=(
+            "W5.5: run the meta-eval judge after NL-gen and gate on "
+            "`overall_verdict == \"good\"`. Adds one Anthropic call "
+            "per workflow (the 5th call in the pipeline). Surfaces the "
+            "judgment in the JSON output (per-dimension verdicts + "
+            "aggregate score). When the gate fails, the workflow is "
+            "marked failed without running the agent solver — saves the "
+            "agent-call cost on a junk bundle. Ignored with "
+            "--from-fixtures (the fixtures are pre-validated)."
+        ),
+    )
+    parser.add_argument(
+        "--meta-eval-min-aggregate-score",
+        type=float,
+        default=None,
+        help=(
+            "Belt-and-braces numeric floor on the judgment's aggregate "
+            "score (mean of pass=1.0/partial=0.5/fail=0.0). When set, "
+            "the gate also requires score >= this value, even if the "
+            "judge calls overall=good. Ignored unless --meta-eval-gate."
+        ),
+    )
+    parser.add_argument(
+        "--meta-eval-model",
+        default=None,
+        help=(
+            "Optional model override for the meta-eval judge. Default "
+            "is the judge's `DEFAULT_MODEL` (opus 4.7 — the calibration "
+            "anchor for the W5 ≥0.7 agreement gate). Independent of "
+            "--model so cheap-NL-gen + frontier-judge is one flag."
+        ),
+    )
+    parser.add_argument(
         "--pretty",
         action="store_true",
         help="Pretty-print the per-workflow JSON output (2-space indent).",
@@ -228,11 +268,17 @@ async def _materialize_quartet(
     nl_gen_client,
     from_fixtures: bool,
     nl_gen_model: str | None,
+    meta_eval_gate: bool,
+    meta_eval_min_aggregate_score: float | None,
+    meta_eval_model: str | None,
 ):
-    """Acquire (spec, plan, case_set, metric) for `workflow_id`.
+    """Acquire (spec, plan, case_set, metric, judgment) for `workflow_id`.
 
-    Returns a 4-tuple. From-fixtures path is sync; regenerate path is async.
-    `nl_gen_client` may differ from `client` when --nl-gen-base-url is set.
+    Returns a 5-tuple. `judgment` is None on the from-fixtures path
+    (gate skipped — fixtures are pre-validated) and on the regenerate
+    path when `meta_eval_gate=False`. From-fixtures is sync; regenerate
+    is async. `nl_gen_client` may differ from `client` when
+    --nl-gen-base-url is set.
     """
     if from_fixtures:
         return (
@@ -240,16 +286,23 @@ async def _materialize_quartet(
             SIM_PLAN_FIXTURES[workflow_id],
             EVAL_CASE_SET_FIXTURES[workflow_id],
             METRIC_FIXTURES[workflow_id],
+            None,
         )
     description = DESCRIPTIONS[workflow_id]
     pipeline = await generate_full_pipeline(
-        nl_gen_client, description, model=nl_gen_model
+        nl_gen_client,
+        description,
+        model=nl_gen_model,
+        meta_eval_gate=meta_eval_gate,
+        meta_eval_min_aggregate_score=meta_eval_min_aggregate_score,
+        meta_eval_model=meta_eval_model,
     )
     return (
         pipeline.workflow_spec,
         pipeline.simulation_plan,
         pipeline.eval_case_set,
         pipeline.metric_definition,
+        pipeline.meta_eval_judgment,
     )
 
 
@@ -281,20 +334,30 @@ async def _smoke_one(
     nl_gen_model: str | None,
     max_tokens_per_workflow: int | None,
     max_tokens: int | None,
-) -> tuple[EvalRunReport, float, TokenBudget | None]:
-    """Run the gate for one workflow; return (report, wall_seconds, budget).
+    meta_eval_gate: bool,
+    meta_eval_min_aggregate_score: float | None,
+    meta_eval_model: str | None,
+):
+    """Run the gate for one workflow.
 
-    The budget is returned so the CLI can surface usage even on the
+    Returns `(report, wall_seconds, budget, judgment)`. The judgment is
+    the W5.5 meta-eval verdict when `meta_eval_gate=True` and the gate
+    passed; `None` otherwise (gate disabled or from-fixtures).
+
+    Token budget is returned so the CLI can surface usage even on the
     happy path (under-cap runs print spend; over-cap runs surface it
     on the typed exception).
     """
     started = time.perf_counter()
-    spec, plan, case_set, metric = await _materialize_quartet(
+    spec, plan, case_set, metric, judgment = await _materialize_quartet(
         workflow_id,
         client=client,
         nl_gen_client=nl_gen_client,
         from_fixtures=from_fixtures,
         nl_gen_model=nl_gen_model,
+        meta_eval_gate=meta_eval_gate,
+        meta_eval_min_aggregate_score=meta_eval_min_aggregate_score,
+        meta_eval_model=meta_eval_model,
     )
     case_set = _truncate_case_set(case_set, max_cases)
     budget = (
@@ -309,7 +372,7 @@ async def _smoke_one(
         openai_client=openai_client,
         budget=budget,
     )
-    return report, time.perf_counter() - started, budget
+    return report, time.perf_counter() - started, budget, judgment
 
 
 def _serialize(
@@ -320,6 +383,7 @@ def _serialize(
     pretty: bool,
     include_outcomes: bool,
     budget: TokenBudget | None,
+    judgment,
 ) -> str:
     payload = report.to_dict()
     if not include_outcomes:
@@ -334,23 +398,49 @@ def _serialize(
             "used_total": budget.used_total,
             "n_calls": budget.n_calls,
         }
+    if judgment is not None:
+        payload["meta_eval"] = _judgment_summary(judgment)
     if pretty:
         return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True)
     return json.dumps(payload, sort_keys=True, ensure_ascii=True)
 
 
+def _judgment_summary(judgment) -> dict:
+    """Compact summary of a MetaEvalJudgment for the smoketest output.
+
+    Surfaces the per-dimension verdicts + the aggregate score (the
+    "coverage %" the W5.5 UI badge will display) + the overall verdict.
+    Rationales aren't included by default — the audit trail keeps them;
+    smoketest stdout stays readable. The `coverage` key is named for
+    the user-facing surface (`"sim covers 11/12 of your description"`),
+    not for the underlying mean-of-scores arithmetic.
+    """
+    return {
+        "overall_verdict": judgment.overall_verdict,
+        "aggregate_score": round(judgment.aggregate_score(), 3),
+        "coverage": {
+            "sim_coverage": judgment.sim_coverage.verdict,
+            "eval_case_coverage": judgment.eval_case_coverage.verdict,
+            "metric_alignment": judgment.metric_alignment.verdict,
+        },
+    }
+
+
 def _print_config(ns: argparse.Namespace, workflows: list[str]) -> None:
     """Stderr-only banner so the operator sees the cost surface."""
     mode = "from-fixtures" if ns.from_fixtures else "live-regenerate"
+    gate_active = ns.meta_eval_gate and not ns.from_fixtures
     print(
         f"[nl-gen-smoketest] mode={mode} model={ns.model!r} "
-        f"workflows={workflows} max_cases={ns.max_cases}",
+        f"workflows={workflows} max_cases={ns.max_cases} "
+        f"meta_eval_gate={'on' if gate_active else 'off'}",
         file=sys.stderr,
     )
     if not ns.from_fixtures:
+        per_workflow = _NL_GEN_STAGES + (1 if gate_active else 0)
         print(
             "[nl-gen-smoketest] live NL-gen: "
-            f"{_NL_GEN_STAGES * len(workflows)} pipeline calls + agent predictions; "
+            f"{per_workflow * len(workflows)} pipeline calls + agent predictions; "
             "ANTHROPIC_API_KEY required.",
             file=sys.stderr,
         )
@@ -418,7 +508,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
     all_met = True
     for workflow_id in workflows:
         try:
-            report, wall, budget = await _smoke_one(
+            report, wall, budget, judgment = await _smoke_one(
                 workflow_id,
                 client=client,
                 nl_gen_client=nl_gen_client,
@@ -429,7 +519,30 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 nl_gen_model=ns.nl_gen_model,
                 max_tokens_per_workflow=ns.max_tokens_per_workflow,
                 max_tokens=ns.max_tokens,
+                meta_eval_gate=ns.meta_eval_gate,
+                meta_eval_min_aggregate_score=ns.meta_eval_min_aggregate_score,
+                meta_eval_model=ns.meta_eval_model,
             )
+        except MetaEvalGateFailedError as exc:
+            # Gate failure short-circuits the agent solver call —
+            # we don't burn agent-call cost on a junk bundle. The
+            # workflow is marked failed; exit code reflects this.
+            all_met = False
+            print(
+                json.dumps(
+                    {
+                        "workflow_id": workflow_id,
+                        "error": "meta_eval_gate_failed",
+                        "message": str(exc),
+                        "meta_eval": _judgment_summary(exc.judgment),
+                        "meta_eval_min_aggregate_score": exc.min_aggregate_score,
+                    },
+                    sort_keys=True,
+                    ensure_ascii=True,
+                ),
+                flush=True,
+            )
+            continue
         except TokenBudgetExceededError as exc:
             print(
                 json.dumps(
@@ -460,6 +573,7 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 pretty=ns.pretty,
                 include_outcomes=ns.include_outcomes,
                 budget=budget,
+                judgment=judgment,
             )
         )
 
