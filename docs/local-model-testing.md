@@ -859,6 +859,56 @@ Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
 - All `gemma3:*` / `gemma3n:*` / `phi4-reasoning:*` Ollama variants —
   Ollama API rejects (no tool-call support exposed).
 
+#### F14f — Workarounds for Ollama "does not support tools" 400 (open follow-up)
+
+13 of the 20 Ollama zero-results in F14c (`gemma3:*`, `gemma3n:*`,
+`phi4-reasoning:*`, `olmo-3:7b`, `llama3.1:8b`, `llama3.2:3b`,
+`qwen2.5:*`, `qwen2.5-coder:7b/32b`, `tom_himanen/deepseek-r1-roo-cline-tools:14b`,
+`fomenks/devstral-small_cline_roocode-64k`,
+`granite3.3:8b`, `granite4.1:3b`, `granite4:3b`,
+`kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF`)
+fail with:
+
+```
+BadRequestError: 400 - {'error': {'message':
+  'registry.ollama.ai/library/<model> does not support tools', ...}}
+```
+
+The same underlying weights often pass on LMS (e.g. `gemma-4-31b` 3/3
+LMS but the gemma3 line all reject Ollama-side). The 400 is server-side
+gating on the model's `Modelfile` `TEMPLATE` block — not a hard
+capability limit.
+
+**Three known workarounds, ordered by effort:**
+
+1. **`POST /api/chat` with manual tool-call parsing.** Ollama's `/v1`
+   endpoint enforces a tool-template-present check; the native
+   `/api/chat` endpoint doesn't and just returns the assistant text. We
+   parse tool-call-shaped JSON out of that text. This is what LiteLLM
+   already does when proxying — `ollama_chat/<model>` in F13's hybrid
+   setup avoids this gate end-to-end. Cost: ~50 LOC adding a
+   `predict_one_ollama_native` branch in `agent_solver.py` when the
+   base URL is recognized as Ollama.
+
+2. **Edit the Modelfile to add a tool template.** `ollama show <model>
+   --modelfile` → append a `TEMPLATE` block with `{{- if .ToolCalls }}`
+   handling → `ollama create <model>-tools -f Modelfile`. Most rejected
+   models pass after this. Per-model manual work; the new variants
+   compete for VRAM.
+
+3. **Pull the LMS GGUF version into Ollama directly.**
+   `ollama pull hf.co/<repo>:<quant>` where the GGUF has the tool
+   template baked in (LMS-compatible builds usually do). Cleanest when
+   the repo allows it — not all HF repos are pull-able.
+
+**Decision:** not blocking the A4.4 sweep — LMS covers most models we'd
+want anyway, and the 4 Ollama 3/3 passers (`qwen3:8b`,
+`mychen76/qwen3_cline_roocode:14b`, `qwen3.5:35b-a3b`, `Qwq:32b`)
+already have `tool_calls` in their Modelfile. Revisit option 1 if
+Ollama-only fine-tunes (e.g. `qwen3:4b-instruct`'s 0.83 credit-risk
+near-miss) become operationally interesting. Tracked here so future
+sweeps don't re-discover the gate.
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
