@@ -30,6 +30,7 @@ infrastructure notes in `../../docs/local-model-testing.md` § F14).
 | model | host | API | wall | demand / credit / contract |
 |---|---|---|---:|---:|
 | **`granite-4.1-8b`** | LMS | OpenAI | 33s | 1.00 / 0.50 / 0.91 (fastest 3/3) |
+| **`google/gemma-4-e4b`** | LMS | OpenAI | 34s | 0.60 / 0.42 / 0.89 (smallest 3/3 at this speed — Gemma's "edge" 4B) |
 | `mistralai/ministral-3-14b-reasoning` | LMS | OpenAI | 47s | 1.00 / 0.50 / 0.91 |
 | `qwen/qwen3.5-9b` | LMS | **Anthropic** | 52s | 0.60 / 0.42 / 0.89 (only passes via `/v1/messages`) |
 | `qwen2.5-coder-32b-instruct` | LMS | OpenAI | 98s | 1.00 / 0.50 / 0.89 |
