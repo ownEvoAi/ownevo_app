@@ -84,15 +84,12 @@ def test_rationale_min_length_one():
         ClusterLabelJudgment.model_validate(bad_payload)
 
 
-def test_rationale_max_length_400():
-    bad_payload = _good_payload()
-    bad_payload["rationale"] = "x" * 401
-    with pytest.raises(ValidationError):
-        ClusterLabelJudgment.model_validate(bad_payload)
-    # 400 is allowed
-    ok_payload = _good_payload()
-    ok_payload["rationale"] = "x" * 400
-    ClusterLabelJudgment.model_validate(ok_payload)  # no raise
+def test_rationale_no_upper_bound():
+    # max_length was removed; sonnet writes rationales >400 chars in practice.
+    # The API max_tokens=1000 cap bounds output at the call site instead.
+    long_payload = _good_payload()
+    long_payload["rationale"] = "x" * 1000
+    ClusterLabelJudgment.model_validate(long_payload)  # must not raise
 
 
 def test_label_verdict_literal_pinned():
