@@ -59,15 +59,13 @@ fresh `[Unreleased]` block above it.
   `--judge-model == --labeler-model` (D4 contract) and when no API
   key / base URL is configured. Cost surface ~$1.20/run on default
   models (20 haiku labeler calls + 20 sonnet judge calls).
-- `.github/workflows/m5-replay-nightly.yml` — new `cluster-label-eval`
-  job in the existing nightly workflow. Runs on the same cron + push
-  triggers (`apps/kernel/src/ownevo_kernel/clustering/label_eval/**`
-  + `apps/kernel/scripts/cluster_label_eval.py` added to paths).
-  `--require-agreement 0.7` makes the W3 Track B exit gate a hard CI
-  fail. Skips silently with a `::warning::` annotation when the
-  `ANTHROPIC_API_KEY` secret is unconfigured (graceful pre-launch
-  state). `--concurrency 4 --max-retries-per-call 1` matches A4.6's
-  live-run convention.
+- The W3 Track B ≥0.7 gate runs **on demand only** via
+  `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7'`
+  (or the script directly with `--concurrency 4 --max-retries-per-call 1`
+  matching A4.6's live-run convention). No GitHub Actions wiring —
+  the project policy is that CI does not consume API keys. The gate
+  is run locally before tagging W3 / v0.4.0 and the result recorded
+  in the release notes.
 - 64 new tests across 5 files (`test_clustering_label_eval_schema.py`
   13 — schema round-trip + frozen + extra-forbid + verdict-literal
   pinning + cluster_id pattern + rationale length bounds;
