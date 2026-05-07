@@ -843,7 +843,10 @@ Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
    model in any sweep.** Recommended desktop default.
 2. `mistralai/ministral-3-14b-reasoning` — desktop LMS, 47s, 1.00 / 0.50
    / 0.91. Best 14B-class.
-3. `qwen2.5-coder-32b-instruct` — desktop LMS, 98s, 1.00 / 0.50 / 0.89.
+3. `qwen/qwen3.5-9b` — desktop LMS via **Anthropic API** (F14g), 52s,
+   0.60 / 0.42 / 0.89. Only passes via `/v1/messages`; 0/3 on OpenAI
+   path. Use `--anthropic-base-url http://<host>:1234`.
+4. `qwen2.5-coder-32b-instruct` — desktop LMS, 98s, 1.00 / 0.50 / 0.89.
    Best 32B-class for codegen affinity (cf F13's qwen2.5-coder:32b
    Ollama-side 1.00-but-degenerate; LMS run is non-degenerate).
 
@@ -908,6 +911,144 @@ already have `tool_calls` in their Modelfile. Revisit option 1 if
 Ollama-only fine-tunes (e.g. `qwen3:4b-instruct`'s 0.83 credit-risk
 near-miss) become operationally interesting. Tracked here so future
 sweeps don't re-discover the gate.
+
+#### F14g — LMS Anthropic-API retry recovers tool-shy models (2026-05-07)
+
+23 LMS models that hit `NoPredictToolUseError` on the OpenAI path were
+retried via LMS's Anthropic-format `/v1/messages` endpoint
+(`--anthropic-base-url http://<lms-host>:1234`). Same model weights,
+same 32k context, same workflows — only the chat-completion API format
+differs.
+
+**Net new desktop pass:**
+
+| model | OpenAI baseline | Anthropic retry | wall |
+|---|---|---|---:|
+| **`qwen/qwen3.5-9b`** | 0/3 (`stop_reason='stop'`) | **3/3 ✅** (0.60 / 0.42 / 0.89) | 52s |
+
+**Partial recoveries (0/3 → 2/3):**
+
+| model | host | demand | credit | contract | wall |
+|---|---|---:|---:|---:|---:|
+| `qwen/qwen3.6-27b` | desktop | 0.40 ❌ | 0.50 ✅ | 0.91 ✅ | 123s |
+| `google/gemma-4-26b-a4b` | desktop | 0.40 ❌ | 0.42 ✅ | 1.00 ✅ | 71s |
+| `google/gemma-3-12b` | laptop | 1.00 ✅ | 0.33 ❌ | 0.83 ✅ | 393s |
+
+**Why this works:** Anthropic-format tool use uses `tool_use` content
+blocks with structured `input` rather than the OpenAI `tool_calls`
+JSON-string-in-arguments shape. Models trained on conversational/Claude
+flavored data (Qwen 3.5/3.6, Gemma-4) emit Anthropic-shaped tool calls
+more reliably; the OpenAI form is what was tripping
+`NoPredictToolUseError`. LMS converts Anthropic input/output to its
+internal format on both endpoints, so the underlying inference is
+identical.
+
+**Models that did NOT recover under Anthropic API** (still tool-blind
+or tool-format-malformed): `deepseek-r1-0528-qwen3-8b`, `gemma-3-1b`,
+`phi-4-mini-reasoning`, `qwen2.5-14b-instruct`, `qwen/qwen3-4b-thinking-2507`,
+`nvidia/nemotron-3-nano-{4b,omni}`, `omnicoder-9b`, `qwopus3.5-{27b,9b}-v3`,
+`qwen3.5-27b-claude-4.6-opus-reasoning-distilled`,
+`unsloth/qwen3.6-35b-a3b`, `zai-org/glm-4.7-flash`,
+`hugging-quants/llama-3.2-3b-instruct` (calls tool but emits
+`value="false"` string instead of bool).
+
+**Cross-host scaling:** `qwen/qwen3.5-9b` is **9× slower on laptop
+(486s, 1/3) than desktop (52s, 3/3)**. The Anthropic-API speedup is a
+desktop-class signal only — laptop falls back to 8k context due to
+VRAM pressure and gets thrashing-bound. Don't promote
+laptop/Anthropic recoveries unless the wall is acceptable for the
+tier.
+
+**Run a retry sweep:** `temp/retry_lms_anthropic.sh {laptop|desktop}`
+loads each model via the LMS REST `/api/v1/models/load` endpoint and
+runs the smoketest with `--anthropic-base-url http://<host>:1234`.
+
+#### F14h — Laptop Ollama (10k max-tokens) — 0 / 15 (2026-05-07)
+
+Sweep ran on `localhost:11434` against the laptop's Ollama catalog
+(22 model tags; 1 embedding-only filtered, 6 qwen3.x/qwen3.5.x skipped
+mid-run after consistent thinking-mode hangs — see workaround note
+below). 15 actually completed; **none passed 3/3**, but two reached
+2/3 with notably high single-metric scores worth highlighting.
+
+**2/3 passers (laptop Ollama):**
+
+| model | host | demand | credit | contract | wall |
+|---|---|---:|---:|---:|---:|
+| **`nemotron-3-nano:4b`** | laptop | 0.40 ❌ | **0.75 ✅** | **0.91 ✅** | 892s |
+| `gemma4:e2b` | laptop | 0.40 ❌ | 0.42 ✅ | 0.89 ✅ | 639s |
+
+`nemotron-3-nano:4b` has the **highest credit-risk balanced-accuracy of
+any local 4B-class model in any sweep** (0.75 vs typical 0.42-0.50)
+and 0.91 contract-f1. Demand-recall just below the 0.50 threshold at
+0.40. A prompt-tightening or `--max-tokens` increase could plausibly
+flip demand and make this a competitive laptop pick.
+
+**1/3 passers (laptop Ollama):**
+
+| model | host | passing workflow | wall |
+|---|---|---:|---:|
+| `gemma4:e4b` | laptop | contract 0.91 ✅ | 287s |
+| `lfm2:24b` | laptop | credit 0.50 ✅ | 51s |
+| `rnj-1:latest` | laptop | credit 0.67 ✅ | 331s |
+
+**0/3 — tool-reject 400s (Ollama gate, see F14f):** `gemma3:4b`,
+`gemma3:12b`, `gemma4:latest`, `granite3.3:8b`, `granite4:3b`,
+`llama3.2:1b`, `llama3.2:3b`, `phi4-mini:latest`, `qwen2.5:14b`,
+`qwen2.5-coder:14b`. Same family-level gate observed on desktop —
+`gemma3:*` and `llama3.x:*` are hard rejections without a Modelfile
+TEMPLATE patch.
+
+**Skipped — qwen3.x / qwen3.5.x thinking-mode hang:** `qwen3.5:4b`,
+`qwen3.5:9b`, `qwen3.5:latest`, `qwen3:14b`, `qwen3:30b-a3b`,
+`qwen3:8b`. Each stalled at 17-20 minutes wall with no workflow
+output written and `expires_at` decaying (Ollama saw no tokens for
+3-4 min). See **F14h-hang** below for root cause and proposed fix.
+
+##### F14h-hang — qwen3.x / qwen3.5.x thinking trace consumes max_tokens
+
+Reproducer: `qwen3.5:9b` started at 12:22, killed at 12:39. jsonl
+size held at 138 bytes (the startup banner) the entire time. Ollama
+runner accumulated 45.9s CPU; Metal GPU was active per `expires_at`
+but no tokens flowed back to the smoketest.
+
+**Root cause** (Ollama #14502, charmbracelet/crush #2457, Qwen3 docs):
+qwen3 / qwen3.5 ships with **thinking mode ON by default**. The
+model emits a long `<think>...</think>` reasoning trace before any
+tool call. With our `--max-tokens 10000` cap, the thinking trace
+consumes the entire budget — model never reaches the
+`predict_label` tool call, request hits `max_tokens` silently,
+client waits on stream that never produces structured output.
+
+Same model family on **desktop Ollama (192.168.1.50:11434)** behaves
+differently — `qwen3:8b` passed 3/3 in 373s and `qwen3.5:35b-a3b`
+passed 3/3 in 668s. Likely the desktop's pulled tags use a
+different Modelfile TEMPLATE (thinking opt-in vs default-on) or
+have been re-pulled at a different time. Tag identity isn't a
+guarantee of identical config across hosts.
+
+**Three documented mitigations:**
+
+1. **Inject `/no_think` into the system or first user prompt** — Qwen3
+   soft-switch, turn-by-turn disable. ~1 line in `agent_solver.py`
+   when the model id matches `^qwen3` (or always — `/no_think` is a
+   no-op on non-qwen3 models).
+2. **Pass `extra_body={"chat_template_kwargs":{"enable_thinking": False}}`**
+   on the OpenAI client call. Proper API-level disable. ~5 LOC.
+3. **Pull a non-thinking instruct variant** (e.g. `qwen3:4b-instruct`,
+   `qwen3:30b-instruct` are both already in the desktop catalog and
+   behaved well — neither stalled, both got 2/3).
+
+**Decision:** local-Ollama-on-laptop sweep ends here at 15 models; 0
+3/3 passers means there's no laptop-Ollama recommendation to add to
+F14e. The qwen3.x retry with `/no_think` is tracked as a follow-up
+(would unlock 6 more candidates).
+
+**Run a sweep:** `OWNEVO_OLLAMA_HOST=http://localhost:11434 bash
+apps/kernel/scripts/run_ollama_sweep.sh`. The sweep script now
+auto-evicts each model between iterations via `keep_alive: 0` so
+the next model doesn't co-tenant on VRAM during the prior model's
+5-min keep-alive window.
 
 ---
 

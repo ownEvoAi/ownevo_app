@@ -27,13 +27,22 @@ infrastructure notes in `../../docs/local-model-testing.md` § F14).
 
 **Desktop (24GB+ VRAM, 8B–32B class) — recommended:**
 
-| model | host | wall | demand / credit / contract |
-|---|---|---:|---:|
-| **`granite-4.1-8b`** | LMS | 33s | 1.00 / 0.50 / 0.91 (fastest 3/3) |
-| `mistralai/ministral-3-14b-reasoning` | LMS | 47s | 1.00 / 0.50 / 0.91 |
-| `qwen2.5-coder-32b-instruct` | LMS | 98s | 1.00 / 0.50 / 0.89 |
-| `qwen3:8b` | Ollama | 373s | 0.80 / 0.42 / 0.91 |
+| model | host | API | wall | demand / credit / contract |
+|---|---|---|---:|---:|
+| **`granite-4.1-8b`** | LMS | OpenAI | 33s | 1.00 / 0.50 / 0.91 (fastest 3/3) |
+| `mistralai/ministral-3-14b-reasoning` | LMS | OpenAI | 47s | 1.00 / 0.50 / 0.91 |
+| `qwen/qwen3.5-9b` | LMS | **Anthropic** | 52s | 0.60 / 0.42 / 0.89 (only passes via `/v1/messages`) |
+| `qwen2.5-coder-32b-instruct` | LMS | OpenAI | 98s | 1.00 / 0.50 / 0.89 |
+| `qwen3:8b` | Ollama | OpenAI | 373s | 0.80 / 0.42 / 0.91 |
 
-Run a sweep: `scripts/run_lmstudio_sweep.sh` (LMS) /
+`qwen/qwen3.5-9b` is the first model where API format is load-bearing:
+0/3 on OpenAI path (`stop_reason='stop'`, no tool emitted), 3/3 on
+Anthropic path. See `../../docs/local-model-testing.md` § F14g for the
+broader Anthropic-retry findings (also lifts `qwen3.6-27b` and
+`gemma-4-26b-a4b` from 0/3 to 2/3).
+
+Run a sweep: `scripts/run_lmstudio_sweep.sh` (LMS, OpenAI path) /
 `scripts/run_ollama_sweep.sh` (Ollama). LiteLLM proxy config (hybrid
 NL-gen frontier + local agent) at `infra/litellm/ollama.yaml`.
+Anthropic-API retry helper for tool-shy LMS models:
+`temp/retry_lms_anthropic.sh {laptop|desktop}`.

@@ -105,6 +105,13 @@ for model in "${MODELS[@]}"; do
   MODEL="${model}" RC="${rc}" LOG="${log}" \
     python3 "$REPO_ROOT/apps/kernel/scripts/_sweep_parse_log.py" >> "$SUMMARY" \
     || echo "| (summary-gen failed for model) | — | — | — | — | — |" >> "$SUMMARY"
+
+  # Evict the just-tested model so the next one doesn't co-tenant on VRAM
+  # while the prior model is still in its 5-min keep_alive window.
+  curl -fsS --max-time 10 -X POST "${OWNEVO_OLLAMA_HOST}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\": \"${model}\", \"keep_alive\": 0}" \
+    >/dev/null 2>&1 || true
 done
 
 echo
