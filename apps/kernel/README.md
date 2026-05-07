@@ -34,9 +34,6 @@ infrastructure notes in `../../docs/local-model-testing.md` § F14).
 | `qwen2.5-coder-32b-instruct` | LMS | 98s | 1.00 / 0.50 / 0.89 |
 | `qwen3:8b` | Ollama | 373s | 0.80 / 0.42 / 0.91 |
 
-**Best credit-risk score (hybrid frontier-NL-gen + local-agent):**
-`mychen76/qwen3_cline_roocode:14b` (Ollama, 629s, 0.60 / 0.67 / 1.00).
-
 Run a sweep: `scripts/run_lmstudio_sweep.sh` (LMS) /
 `scripts/run_ollama_sweep.sh` (Ollama). LiteLLM proxy config (hybrid
 NL-gen frontier + local agent) at `infra/litellm/ollama.yaml`.
