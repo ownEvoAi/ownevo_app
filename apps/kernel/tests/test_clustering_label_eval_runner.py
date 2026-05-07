@@ -14,6 +14,7 @@ isolation:
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -25,6 +26,7 @@ from ownevo_kernel.clustering.label_eval.fixtures import (
 from ownevo_kernel.clustering.label_eval.judge import (
     TOOL_NAME,
     ClusterLabelJudgmentValidationError,
+    NoClusterLabelToolUseError,
 )
 from ownevo_kernel.clustering.label_eval.judgment import ClusterLabelJudgment
 from ownevo_kernel.clustering.label_eval.runner import (
@@ -195,6 +197,10 @@ async def test_aggregate_mixed_agreement():
 @pytest.mark.asyncio
 async def test_per_hint_slicing_aggregates_per_dominant_hint():
     """Use 4 cases spanning 2 hints. Per-hint slice should count correctly."""
+    assert LABELED_CLUSTER_CASES[0].dominant_hint == "under-forecast"
+    assert LABELED_CLUSTER_CASES[4].dominant_hint == "under-forecast"
+    assert LABELED_CLUSTER_CASES[1].dominant_hint == "over-forecast"
+    assert LABELED_CLUSTER_CASES[5].dominant_hint == "over-forecast"
     sub = (
         LABELED_CLUSTER_CASES[0],   # under-forecast — agree
         LABELED_CLUSTER_CASES[4],   # under-forecast — disagree
@@ -296,6 +302,74 @@ async def test_retry_zero_propagates_validation_error():
         )
 
 
+@pytest.mark.asyncio
+async def test_retry_exhaustion_raises():
+    """max_retries=1, fail_first_n=2 → ValidationError after all attempts consumed."""
+    case = LABELED_CLUSTER_CASES[0]
+    scripted = {case.cluster_id: _ScriptedJudgeResponse(case.cluster_id, "agree")}
+    client = _ScriptedJudgeClient(scripted, validation_error_first_n_calls=2)
+
+    with pytest.raises(ClusterLabelJudgmentValidationError):
+        await run_cluster_label_eval(
+            client,
+            _make_label_fn({case.cluster_id: "x"}),
+            eval_set=(case,),
+            max_retries_per_call=1,
+        )
+    assert client._calls_total == 2  # one fail + one retry, then raise
+
+
+@pytest.mark.asyncio
+async def test_non_retried_tool_error_propagates_immediately():
+    """NoClusterLabelToolUseError is not in the retry catch clause — must propagate
+    on first attempt with exactly one judge call made."""
+    case = LABELED_CLUSTER_CASES[0]
+
+    class _NoToolClient:
+        messages = None
+
+        def __init__(self):
+            self.call_count = 0
+            self.messages = self
+
+        async def create(self, **kwargs):
+            self.call_count += 1
+            return type("R", (), {"content": [], "stop_reason": "end_turn"})()
+
+    client = _NoToolClient()
+    with pytest.raises(NoClusterLabelToolUseError):
+        await run_cluster_label_eval(
+            client,
+            _make_label_fn({case.cluster_id: "x"}),
+            eval_set=(case,),
+            max_retries_per_call=2,  # retry budget should NOT be used
+        )
+    assert client.call_count == 1  # no retry
+
+
+@pytest.mark.asyncio
+async def test_labeler_error_propagates_without_retry():
+    """Labeler (label_fn) errors are not retried — propagate immediately."""
+    case = LABELED_CLUSTER_CASES[0]
+    scripted = {case.cluster_id: _ScriptedJudgeResponse(case.cluster_id, "agree")}
+
+    call_count = 0
+
+    async def _failing_label_fn(sample_texts, cluster_index):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("labeler network error")
+
+    with pytest.raises(RuntimeError, match="labeler network error"):
+        await run_cluster_label_eval(
+            _ScriptedJudgeClient(scripted),
+            _failing_label_fn,
+            eval_set=(case,),
+            max_retries_per_call=2,
+        )
+    assert call_count == 1  # not retried
+
+
 # ---------------------------------------------------------------------------
 # Concurrency guard
 # ---------------------------------------------------------------------------
@@ -317,6 +391,29 @@ async def test_concurrency_lt_one_raises():
 
 
 @pytest.mark.asyncio
+async def test_concurrency_negative_raises():
+    case = LABELED_CLUSTER_CASES[0]
+    scripted = {case.cluster_id: _ScriptedJudgeResponse(case.cluster_id, "agree")}
+    with pytest.raises(ValueError, match="concurrency"):
+        await run_cluster_label_eval(
+            _ScriptedJudgeClient(scripted),
+            _make_label_fn({case.cluster_id: "x"}),
+            eval_set=(case,),
+            concurrency=-1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_eval_set_raises():
+    with pytest.raises(ValueError, match="eval_set must not be empty"):
+        await run_cluster_label_eval(
+            _ScriptedJudgeClient({}),
+            _make_label_fn({}),
+            eval_set=(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_to_dict_is_serializable():
     case = LABELED_CLUSTER_CASES[0]
     scripted = {case.cluster_id: _ScriptedJudgeResponse(case.cluster_id, "agree")}
@@ -327,7 +424,6 @@ async def test_to_dict_is_serializable():
         _make_label_fn(candidate_for),
         eval_set=(case,),
     )
-    import json
     payload = report.to_dict()
     json.dumps(payload)  # must not raise
     assert payload["agreement"] == 1.0

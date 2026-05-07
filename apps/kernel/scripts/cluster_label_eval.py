@@ -14,7 +14,8 @@ Usage:
 
 By default exit 0 unless an exception fires. `--require-agreement N`
 opts into the W3 Track B gate behavior — exits 1 if agreement < N
-(0.7 is the deliverable target; the nightly workflow passes 0.7).
+(0.7 is the deliverable target; pass 0.7 to enforce the W3 Track B
+exit criterion on a local gate run).
 
 Cost surface — printed to stderr before any API call:
   * 20 labeler calls (haiku 4.5; ~$0.01 each).
@@ -44,12 +45,13 @@ from ownevo_kernel.clustering.label_eval.judge import (  # noqa: E402
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
 )
+from ownevo_kernel.clustering.default_impl import (  # noqa: E402
+    _DEFAULT_LABEL_MODEL as _DEFAULT_LABELER_MODEL,
+)
 from ownevo_kernel.clustering.label_eval.runner import (  # noqa: E402
     run_cluster_label_eval,
     wrap_sync_labeler,
 )
-
-_DEFAULT_LABELER_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _positive_int(value: str) -> int:
@@ -57,6 +59,15 @@ def _positive_int(value: str) -> int:
     if i <= 0:
         raise argparse.ArgumentTypeError(
             f"must be a positive integer, got {value!r}"
+        )
+    return i
+
+
+def _non_negative_int(value: str) -> int:
+    i = int(value)
+    if i < 0:
+        raise argparse.ArgumentTypeError(
+            f"must be a non-negative integer, got {value!r}"
         )
     return i
 
@@ -119,7 +130,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-retries-per-call",
-        type=int,
+        type=_non_negative_int,
         default=0,
         help=(
             "Retries on ClusterLabelJudgmentValidationError per judge call. "
@@ -150,8 +161,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=None,
         help=(
             "Minimum judge-vs-human agreement to exit 0. Default unset. "
-            "Set to 0.7 in the nightly workflow to enforce the W3 "
-            "Track B exit criterion."
+            "Set to 0.7 to enforce the W3 Track B exit criterion on a "
+            "local gate run."
         ),
     )
     parser.add_argument(

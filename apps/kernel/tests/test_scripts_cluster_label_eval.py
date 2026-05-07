@@ -67,6 +67,26 @@ def mocked_judge_and_clients(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
 
+@pytest.fixture
+def mocked_disagree_judge_and_clients(monkeypatch):
+    """Always-disagree judge + dummy clients + canned label_fn."""
+
+    async def disagreer(client, case, candidate_label, **kw):
+        return _stamp(case.cluster_id, verdict="disagree")
+
+    monkeypatch.setattr(runner_module, "judge_label_match", disagreer)
+
+    class _FakeAsync:
+        pass
+
+    async def _canned_label(sample_texts, cluster_index):
+        return "wrong"
+
+    monkeypatch.setattr(cli, "_make_async_client", lambda url: _FakeAsync())
+    monkeypatch.setattr(cli, "_make_label_fn", lambda model, url: _canned_label)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+
 # ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
@@ -85,6 +105,11 @@ def test_concurrency_negative_rejected():
 def test_max_tokens_zero_rejected():
     with pytest.raises(SystemExit):
         cli._parse_args(["--max-tokens", "0"])
+
+
+def test_max_retries_negative_rejected():
+    with pytest.raises(SystemExit):
+        cli._parse_args(["--max-retries-per-call", "-1"])
 
 
 def test_require_agreement_out_of_range_rejected():
@@ -202,23 +227,10 @@ def test_require_agreement_passes_when_judge_is_perfect(mocked_judge_and_clients
     assert rc == 0
 
 
-def test_require_agreement_fails_when_judge_is_below_threshold(monkeypatch):
+def test_require_agreement_fails_when_judge_is_below_threshold(
+    mocked_disagree_judge_and_clients,
+):
     """Always-disagree judge → agreement 0.0; threshold 0.7 → exit 1."""
-    async def disagreer(client, case, candidate_label, **kw):
-        return _stamp(case.cluster_id, verdict="disagree")
-
-    monkeypatch.setattr(runner_module, "judge_label_match", disagreer)
-
-    class _FakeAsync:
-        pass
-
-    async def _canned_label(sample_texts, cluster_index):
-        return "wrong"
-
-    monkeypatch.setattr(cli, "_make_async_client", lambda url: _FakeAsync())
-    monkeypatch.setattr(cli, "_make_label_fn", lambda model, url: _canned_label)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-
     f = io.StringIO()
     with redirect_stdout(f):
         rc = cli.main(["--require-agreement", "0.7"])
@@ -227,23 +239,8 @@ def test_require_agreement_fails_when_judge_is_below_threshold(monkeypatch):
     assert payload["agreement"] == 0.0
 
 
-def test_require_agreement_unset_ignores_low_score(monkeypatch):
+def test_require_agreement_unset_ignores_low_score(mocked_disagree_judge_and_clients):
     """Default (no --require-agreement) → exit 0 even on disagreement."""
-    async def disagreer(client, case, candidate_label, **kw):
-        return _stamp(case.cluster_id, verdict="disagree")
-
-    monkeypatch.setattr(runner_module, "judge_label_match", disagreer)
-
-    class _FakeAsync:
-        pass
-
-    async def _canned_label(sample_texts, cluster_index):
-        return "wrong"
-
-    monkeypatch.setattr(cli, "_make_async_client", lambda url: _FakeAsync())
-    monkeypatch.setattr(cli, "_make_label_fn", lambda model, url: _canned_label)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-
     f = io.StringIO()
     with redirect_stdout(f):
         rc = cli.main([])

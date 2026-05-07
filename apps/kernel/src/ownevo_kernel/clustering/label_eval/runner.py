@@ -271,6 +271,10 @@ async def run_cluster_label_eval(
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be ≥1; got {concurrency}")
+    if max_retries_per_call < 0:
+        raise ValueError(f"max_retries_per_call must be ≥0; got {max_retries_per_call}")
+    if not eval_set:
+        raise ValueError("eval_set must not be empty")
 
     sem = asyncio.Semaphore(concurrency)
 

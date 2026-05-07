@@ -214,6 +214,34 @@ async def test_string_wrapped_payload_recovered():
     assert judgment.cluster_id == case.cluster_id
 
 
+@pytest.mark.asyncio
+async def test_bare_json_string_raw_input_recovered():
+    """Defensive parsing: raw_input is a bare JSON string (no 'judgment' wrapper).
+    The judge must detect it's not a dict, attempt json.loads, and validate."""
+    case = LABELED_CLUSTER_CASES[0]
+    bare_str = json.dumps(_good_payload(case.cluster_id))
+    client = _FakeClient(
+        response=_ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, bare_str)],
+        )
+    )
+    judgment = await judge_label_match(client, case, "weekend under-forecasts")
+    assert judgment.cluster_id == case.cluster_id
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_string_raises_validation_error():
+    """Defensive parsing: raw_input is an unparseable string → ValidationError."""
+    case = LABELED_CLUSTER_CASES[0]
+    client = _FakeClient(
+        response=_ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, "not valid json {{{")],
+        )
+    )
+    with pytest.raises(ClusterLabelJudgmentValidationError):
+        await judge_label_match(client, case, "weekend under-forecasts")
+
+
 # ---------------------------------------------------------------------------
 # Error paths
 # ---------------------------------------------------------------------------

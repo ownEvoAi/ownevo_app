@@ -23,8 +23,8 @@ Public surface:
 
 W3 Track B exit criterion: agreement ≥ 0.7 on the `LABELED_CLUSTER_CASES`
 fixture set, judged by sonnet 4.6, labelled by haiku 4.5. The CLI
-(`scripts/cluster_label_eval.py`) wires `--require-agreement` so the
-nightly workflow fails CI when the gate misses.
+(`scripts/cluster_label_eval.py`) wires `--require-agreement` so an
+on-demand run exits 1 when the gate misses.
 
 `judge_label_match` and `run_cluster_label_eval` live in the `agent`
 extra (anthropic dep). They are imported lazily so installs without

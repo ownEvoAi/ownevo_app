@@ -322,7 +322,7 @@ LABELED_CLUSTER_CASES: tuple[LabeledClusterCase, ...] = (
         ),
     ),
     LabeledClusterCase(
-        cluster_id="ca3-pet-over",
+        cluster_id="ca3-paper-goods-over",
         domain_context=_M5_DOMAIN,
         member_signatures=(
             "HOUSEHOLD_2_705_CA_3_validation [HOUSEHOLD/HOUSEHOLD_2 @ CA/CA_3] "
