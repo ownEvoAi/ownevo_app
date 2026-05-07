@@ -4,3 +4,288 @@
    from public/styles. */
 @import url('/styles/shell.css');
 @import url('/styles/primitives.css');
+
+/* ---------------------------------------------------------------------
+   W5.1 — proposal detail polish (lifted from
+   www/preview/s26-rk7p3/07-proposal-detail.html <style> block).
+   primitives.css owns the tokens + .side / .diff-add / .diff-del
+   building blocks; the page-level layout pieces (gate headline +
+   per-case list, diff line block layout, sidebar cards, rationale)
+   live here so the React components can reference class names instead
+   of redeclaring inline styles per node.
+   --------------------------------------------------------------------- */
+
+/* Breadcrumb */
+.crumb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+.crumb-row a {
+  color: var(--text-3);
+  text-decoration: none;
+}
+.crumb-row a:hover {
+  color: var(--text);
+}
+.crumb-row .sep {
+  color: var(--text-faint);
+}
+
+/* Proposal header */
+.prop-header {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 26px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+.prop-pills {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.prop-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.3;
+  margin-bottom: 12px;
+}
+.prop-meta-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.prop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prop-meta-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.prop-meta-value {
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+/* Layout */
+.prop-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .prop-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Diff line layout inside .side-body.code — full-row highlight */
+.diff-line {
+  display: block;
+  padding: 1px 8px;
+  margin: 0 -8px;
+}
+.ctx {
+  display: block;
+  color: var(--text-3);
+  padding: 1px 8px;
+  margin: 0 -8px;
+}
+.ctx.dim {
+  color: var(--text-muted);
+}
+.head {
+  display: block;
+  color: var(--text);
+  font-weight: 500;
+  padding: 1px 8px;
+  margin: 0 -8px;
+}
+.side-body.code {
+  padding: 16px 18px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+/* Sidebar card chrome (gate result + expected impact + reviewer) */
+.sidebar-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 12px;
+}
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 10px;
+}
+
+/* Gate result */
+.gate-headline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.gate-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gate-icon.amber {
+  background: var(--amber-soft, rgba(245, 158, 11, 0.12));
+  color: var(--amber, #d97706);
+}
+.gate-icon.red {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.gate-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+}
+.gate-status-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.gate-status-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.gate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.gate-case {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 4px 0;
+}
+.gate-case .check {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--green);
+}
+.gate-case.fail .check {
+  color: var(--red);
+}
+.gate-case .check svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+}
+.gate-case .case-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gate-case.fail {
+  color: var(--text);
+  font-weight: 500;
+}
+.gate-case.new::after {
+  content: 'NEW';
+  font-size: 9px;
+  font-weight: 600;
+  background: var(--accent-muted);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.gate-section-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 10px 0 4px;
+}
+.gate-section-label:first-of-type {
+  margin-top: 0;
+}
+
+/* Expected impact */
+.impact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.impact-cell {
+  padding: 4px 0;
+}
+.impact-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.impact-value {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rationale ("Why this change") */
+.rationale {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Section title (also used by inbox) */
+.section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 24px 0 10px;
+}
+.section-title:first-of-type {
+  margin-top: 0;
+}

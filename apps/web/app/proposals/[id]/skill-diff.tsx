@@ -1,20 +1,25 @@
-// Tiny line-level diff renderer for the proposal detail view.
+// W5.1 — true side-by-side diff. Two columns: current (left) vs.
+// proposed (right). Each side renders the full skill body for that
+// version, with mismatched lines highlighted (`diff-del` on the left,
+// `diff-add` on the right) and shared lines as `ctx`. Classes are
+// already defined in `public/styles/primitives.css` — same set the
+// `07-proposal-detail.html` mock uses.
 //
-// Real polish (W5) will use a Monaco-style side-by-side viewer. For
-// W2.5 scaffold, a per-line classification (add/remove/context) is
-// enough to prove the wire and the visual structure. We compute the
-// classification server-side via an LCS so there's no client JS for
-// reading.
+// We keep the LCS computation (rare >500-line skills, fine) and emit
+// per-row classifications for both sides in lockstep. Pure server
+// component — zero client JS.
 
 interface DiffSegment {
   kind: 'add' | 'remove' | 'context'
   text: string
 }
 
+interface SidePart {
+  kind: 'context' | 'diff'
+  text: string
+}
+
 function lcsDiff(a: string[], b: string[]): DiffSegment[] {
-  // Standard O(n*m) longest-common-subsequence; fine for skill bodies
-  // (rarely >500 lines). Switch to Myers if a real workflow ever hits
-  // multi-thousand-line skills.
   const n = a.length
   const m = b.length
   const dp: number[][] = Array.from({ length: n + 1 }, () =>
@@ -47,27 +52,52 @@ function lcsDiff(a: string[], b: string[]): DiffSegment[] {
   return out
 }
 
+function partition(segments: DiffSegment[]): {
+  left: SidePart[]
+  right: SidePart[]
+} {
+  const left: SidePart[] = []
+  const right: SidePart[] = []
+  for (const s of segments) {
+    if (s.kind === 'context') {
+      left.push({ kind: 'context', text: s.text })
+      right.push({ kind: 'context', text: s.text })
+    } else if (s.kind === 'remove') {
+      left.push({ kind: 'diff', text: s.text })
+    } else {
+      right.push({ kind: 'diff', text: s.text })
+    }
+  }
+  return { left, right }
+}
+
 export function SkillDiff({
   current,
   proposed,
+  parentVersionSeq,
 }: {
   current: string | null
   proposed: string
+  parentVersionSeq: number | null
 }) {
-  // No parent version → just render the proposed body. The bootstrap
-  // iteration of any workflow falls into this branch.
   if (current === null) {
+    // Bootstrap iteration — no parent version. Show a single column
+    // with the full proposed body.
     return (
-      <div className="side">
-        <div className="side-header">
-          <span>Initial version</span>
-          <span className="pill accent" style={{ fontSize: 9.5 }}>
-            +{proposed.split('\n').length} lines
-          </span>
+      <div className="side-by-side" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="side">
+          <div className="side-header">
+            <span>Initial version</span>
+            <span className="pill accent" style={{ fontSize: 9.5 }}>
+              +{proposed.split('\n').length} lines
+            </span>
+          </div>
+          <pre className="side-body code" style={codeBoxStyle}>
+            {proposed.split('\n').map((line, i) => (
+              <Line key={i} kind="diff" side="right" text={line} />
+            ))}
+          </pre>
         </div>
-        <pre className="side-body code" style={codeBoxStyle}>
-          <code>{proposed}</code>
-        </pre>
       </div>
     )
   }
@@ -75,44 +105,68 @@ export function SkillDiff({
   const segments = lcsDiff(current.split('\n'), proposed.split('\n'))
   const adds = segments.filter((s) => s.kind === 'add').length
   const removes = segments.filter((s) => s.kind === 'remove').length
+  const { left, right } = partition(segments)
+
+  const currentLabel =
+    parentVersionSeq !== null ? `Current · v${parentVersionSeq}` : 'Current'
+  const proposedLabel =
+    parentVersionSeq !== null
+      ? `Proposed · v${parentVersionSeq + 1}`
+      : 'Proposed'
 
   return (
-    <div className="side-by-side" style={{ display: 'grid', gap: 12 }}>
+    <div className="side-by-side">
       <div className="side">
         <div className="side-header">
-          <span>Proposed change</span>
+          <span>{currentLabel}</span>
+          <span className="pill outline" style={{ fontSize: 9.5 }}>
+            Active · −{removes}
+          </span>
+        </div>
+        <pre className="side-body code" style={codeBoxStyle}>
+          {left.map((p, i) => (
+            <Line key={i} kind={p.kind} side="left" text={p.text} />
+          ))}
+        </pre>
+      </div>
+      <div className="side">
+        <div className="side-header">
+          <span>{proposedLabel}</span>
           <span className="pill accent" style={{ fontSize: 9.5 }}>
             +{adds} · −{removes}
           </span>
         </div>
         <pre className="side-body code" style={codeBoxStyle}>
-          {segments.map((seg, i) => (
-            <span
-              key={i}
-              className={`diff-line ${
-                seg.kind === 'add' ? 'diff-add' : seg.kind === 'remove' ? 'diff-del' : ''
-              }`}
-              style={{
-                display: 'block',
-                padding: '1px 8px',
-                margin: '0 -8px',
-                background:
-                  seg.kind === 'add'
-                    ? 'rgba(34, 197, 94, 0.10)'
-                    : seg.kind === 'remove'
-                      ? 'rgba(239, 68, 68, 0.10)'
-                      : 'transparent',
-                color:
-                  seg.kind === 'context' ? 'var(--text-3)' : 'var(--text)',
-              }}
-            >
-              {seg.kind === 'add' ? '+ ' : seg.kind === 'remove' ? '- ' : '  '}
-              {seg.text || ' '}
-            </span>
+          {right.map((p, i) => (
+            <Line key={i} kind={p.kind} side="right" text={p.text} />
           ))}
         </pre>
       </div>
     </div>
+  )
+}
+
+function Line({
+  kind,
+  side,
+  text,
+}: {
+  kind: 'context' | 'diff'
+  side: 'left' | 'right'
+  text: string
+}) {
+  if (kind === 'context') {
+    return <span className="ctx">{text || ' '}</span>
+  }
+  // `diff-add` / `diff-del` are styled in primitives.css and already
+  // include the `+ ` / `− ` glyph via ::before, so don't prepend it.
+  // `.diff-line` (globals.css) makes each one a full-row block.
+  return (
+    <span
+      className={side === 'left' ? 'diff-line diff-del' : 'diff-line diff-add'}
+    >
+      {text || ' '}
+    </span>
   )
 }
 
@@ -124,7 +178,4 @@ const codeBoxStyle: React.CSSProperties = {
   margin: 0,
   whiteSpace: 'pre',
   overflowX: 'auto',
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
 }

@@ -17,6 +17,55 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (W5.1 — approval surface polish, PLAN.md § W5 § 5.1)
+- `apps/kernel/src/ownevo_kernel/api/models.py` — new
+  `GateResultCases` Pydantic model exposed on `ProposalDetail` as
+  `gate_result_cases`. Three string lists (`passed`, `regressed`,
+  `newly_admitted`) plus an `unknown` flag for the rare race where the
+  proposal is fetched mid-gate. `extra='forbid'`, `frozen=True`.
+- `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` —
+  `_gate_result_cases_from_audit(entries)` reconstructs the breakdown
+  from the existing `gate-run-started` (`prior_eval_task_ids`) and
+  `gate-run-completed` (`failed_prior_task_ids`, `promotable_task_ids`)
+  audit payloads. **No DB schema change** — the gate persistence layer
+  already audits everything we need; the W5.1 polish just surfaces it.
+  `passed = prior - regressed`. Returns `None` for hand-seeded
+  proposals that never went through the gate persistence path.
+- `apps/kernel/tests/test_api_gate_result_cases.py` — 7 pure-Python
+  unit tests covering: no audits → `None`; only unrelated audits →
+  `None`; pass path with newly-admitted; fail path subtracting
+  regressions from prior; started-only marks `unknown=True`; missing
+  prior list defaults to `[]`; non-string ids coerced via `str()`.
+- `apps/web/lib/api.ts` — `GateResultCases` TypeScript interface added
+  to the public exports + threaded through `ProposalDetail`.
+- `apps/web/app/proposals/[id]/page.tsx` — new `GateResult` sidebar
+  with a status icon (green check / amber alert / red X), a
+  `{passed} / {total} prior cases pass` headline, and a per-section
+  case list (Regressed / Passed / Newly admitted) styled to match
+  `www/preview/s26-rk7p3/07-proposal-detail.html`. Sandbox-error and
+  gate-failed states swap the icon tone + headline. Falls back
+  cleanly when `gate_result_cases` is `null` (bootstrap iteration or
+  hand-seeded demo proposal).
+- `apps/web/app/proposals/[id]/skill-diff.tsx` — replaced single-pane
+  +/- diff with **true side-by-side** rendering: "Current · v{n}" on
+  the left (context + removes only), "Proposed · v{n+1}" on the right
+  (context + adds only), reusing the LCS classifier. Bootstrap
+  iteration (no parent) collapses to a single-column "Initial
+  version" view. Class-based styling (`diff-line diff-add` /
+  `diff-line diff-del` / `ctx`) instead of inline-style spans.
+- `apps/web/app/globals.css` — page-level CSS lifted from the mock's
+  `<style>` block (breadcrumb, prop-header, prop-grid, sidebar-card,
+  rationale, gate-headline / gate-icon / gate-list / gate-case +
+  `.fail` / `.new` variants, gate-section-label, impact-grid,
+  diff-line / ctx / head). Keeps page components class-driven so the
+  visual contract stays in CSS.
+
+### Changed (W5.1)
+- `apps/web/app/proposals/[id]/page.tsx` — header, breadcrumb, meta
+  row, rationale, expected-impact grid all switched from inline
+  styles to the existing CSS classes (smaller component file, mock
+  parity).
+
 ## [0.4.0] — 2026-05-07
 
 W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped
