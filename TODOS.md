@@ -78,14 +78,16 @@ Format follows the standard:
 These were added to the W1-W3 plan by the 2026-05-03 eng review. Listed here as
 backup tracking in case PLAN.md edits drift.
 
-### TODO-5: Cluster-label LLM eval (W3, Track B)
+### TODO-5: Cluster-label LLM eval (W3, Track B) — ✅ DONE 2026-05-06
 
-- **What:** Hand-label 20 M5 clusters with ground-truth names. Add nightly judge-vs-human eval at `apps/kernel/eval_runner/cluster_label_eval/`. Target agreement ≥0.7.
+- **What:** Hand-label 20 M5 clusters with ground-truth names. Add nightly judge-vs-human eval at `apps/kernel/src/ownevo_kernel/clustering/label_eval/`. Target agreement ≥0.7.
+- **Status (2026-05-06):** Shipped. 20 hand-authored fixtures at `apps/kernel/src/ownevo_kernel/clustering/label_eval/fixtures.py` (`LABELED_CLUSTER_CASES`) spanning the failure-mode taxonomy. Sonnet 4.6 judge (D4: different from haiku 4.5 labeler). The ≥0.7 gate runs on demand via `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7 ...'` — not in GitHub Actions, per project policy that CI doesn't consume API keys. Cost ~$1.20/run on default models. 64 new tests; kernel suite 1009 passing. Module landed at `clustering/label_eval/` (adjacent to the thing being evaluated, mirroring A4.6's `nl_gen/meta_eval/` pattern) rather than the original `eval_runner/cluster_label_eval/` path the row called out — that path predated the meta_eval pattern.
 - **Why:** D4 (eng-review) — the demo storyboard at 0:25-0:38 shows a cluster card with an LLM-generated label. Hallucinated labels are a credibility hit; no eval = no detection.
-- **Effort:** S (human ~1 day / CC ~2 hours).
+- **Effort:** S (human ~1 day / CC ~2 hours, as predicted).
 - **Priority:** P1 — surfaces in YC demo.
 - **Depends on:** clustering pipeline operational (W3 Track B).
-- **Note (2026-05-06):** PR #49 (B3.1+B3.2+B3.3) merged with the following manual test-plan items skipped — run these before starting TODO-5:
+- **Follow-up: run the live gate locally before tagging W3 / v0.4.0** — `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1 --pretty --include-records'` and record the agreement number + per-hint slice in the release notes.
+- **Manual test-plan items deferred from PR #49 (B3.1+B3.2+B3.3) — still outstanding, run when blockers clear:**
   - `OWNEVO_DATABASE_URL=... uv run pytest` clean on a fresh DB
   - `make m5-cluster-failures CLUSTER_ARGS='--no-db --top-k 30 --pretty'` — stub-stages smoke on the in-process M5 baseline
   - (when M5 dataset available) `make m5-cluster-failures` with `OWNEVO_DATABASE_URL` — cluster rows + eval cases land in DB
