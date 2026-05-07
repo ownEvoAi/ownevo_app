@@ -59,6 +59,15 @@ def _positive_int(value: str) -> int:
     return i
 
 
+def _non_negative_int(value: str) -> int:
+    i = int(value)
+    if i < 0:
+        raise argparse.ArgumentTypeError(
+            f"must be a non-negative integer, got {value!r}"
+        )
+    return i
+
+
 def _agreement_threshold(value: str) -> float:
     f = float(value)
     if not 0.0 <= f <= 1.0:
@@ -108,7 +117,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-retries-per-call",
-        type=int,
+        type=_non_negative_int,
         default=0,
         help=(
             "Retries on JudgmentValidationError per judge call. Default "

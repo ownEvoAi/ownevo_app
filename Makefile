@@ -7,7 +7,7 @@
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
-        meta-eval m5-cluster-failures judge-eval
+        meta-eval m5-cluster-failures cluster-label-eval judge-eval
 
 help:
 	@printf 'targets:\n'
@@ -33,6 +33,9 @@ help:
 	@printf '                      eval-cases (CLUSTER_ARGS=...; default uses stub embedder\n'
 	@printf '                      and clusterer; pass --real for ST + UMAP + HDBSCAN +\n'
 	@printf '                      Anthropic)\n'
+	@printf '  cluster-label-eval  B3.5: judge labeler vs hand-labeled fixtures; reports\n'
+	@printf '                      agreement (LABEL_EVAL_ARGS=... pass flags; default sonnet\n'
+	@printf '                      judge + haiku labeler; --require-agreement for gate)\n'
 	@printf '  judge-eval          W5.2 LLM-judge stub approver over the 30-pair eval set\n'
 	@printf '                      (JUDGE_ARGS=...; --require-agreement 0.85 enables W5.2 gate)\n'
 	@printf '\nenv:\n'
@@ -176,3 +179,15 @@ JUDGE_ARGS ?=
 judge-eval:
 	cd apps/kernel && uv run --extra agent python scripts/judge_eval.py \
 	    $(JUDGE_ARGS)
+
+# ----------------------------------------------------------------------------
+# Cluster-label LLM eval (B3.5)
+# ----------------------------------------------------------------------------
+
+# `LABEL_EVAL_ARGS=...` passes flags through to scripts/cluster_label_eval.py
+# (e.g. LABEL_EVAL_ARGS='--concurrency 4 --require-agreement 0.7 --pretty').
+LABEL_EVAL_ARGS ?=
+
+cluster-label-eval:
+	cd apps/kernel && uv run --extra agent python scripts/cluster_label_eval.py \
+	    $(LABEL_EVAL_ARGS)

@@ -129,7 +129,6 @@ class JudgeEvalReport:
 
 def _aggregate(
     records: list[JudgeEvalRecord],
-    eval_set: list[JudgeEvalPair],
     model: str,
 ) -> JudgeEvalReport:
     n_total = len(records)
@@ -267,6 +266,8 @@ async def run_judge_eval(
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be ≥1; got {concurrency}")
+    if max_retries_per_call < 0:
+        raise ValueError(f"max_retries_per_call must be ≥0; got {max_retries_per_call}")
 
     sem = asyncio.Semaphore(concurrency)
 
@@ -281,11 +282,19 @@ async def run_judge_eval(
             )
 
     tasks = [_bounded(p) for p in eval_set]
-    records = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Re-raise the first exception. Partial reports (some pairs succeeded,
+    # some failed) would silently under-count the agreement numerator, so
+    # the runner surfaces the first failure and lets the caller decide how
+    # to recover (typically: fix the error, re-run).
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    records: list[JudgeEvalRecord] = list(results)  # type: ignore[arg-type]
     # Stable order: same as the eval-set iteration order.
     pair_order = {p.pair_id: i for i, p in enumerate(eval_set)}
     records_sorted = sorted(records, key=lambda r: pair_order[r.pair_id])
-    return _aggregate(records_sorted, eval_set, model)
+    return _aggregate(records_sorted, model)
 
 
 __all__ = [

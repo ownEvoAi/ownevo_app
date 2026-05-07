@@ -78,6 +78,12 @@ MetricImprovementAxis = Literal["lower-is-better", "higher-is-better"]
 MAE, regret, error count) or up (recall, precision, accuracy, lift).
 Used to ground the `states_direction` check."""
 
+_MAX_EXPLANATION_LEN = 4_000
+"""Hard cap on explanation length. Explanations that exceed this are
+rejected at ProposalContext construction time rather than silently
+truncated — the caller should surface the error upstream rather than
+letting the judge evaluate a truncated explanation."""
+
 
 SYSTEM_PROMPT = (
     "You are ownEvo's LLM-judge stub approver. You receive a proposal's "
@@ -175,6 +181,11 @@ class ProposalContext:
             )
         if not self.explanation or not self.explanation.strip():
             raise ValueError("ProposalContext.explanation must be non-empty")
+        if len(self.explanation) > _MAX_EXPLANATION_LEN:
+            raise ValueError(
+                f"ProposalContext.explanation exceeds max length "
+                f"({len(self.explanation)} > {_MAX_EXPLANATION_LEN})",
+            )
 
 
 class ApproversError(Exception):
@@ -256,6 +267,7 @@ def _build_tool_definition() -> dict[str, Any]:
 
 
 _TOOL_DEFINITION: dict[str, Any] = _build_tool_definition()
+_TOOL_CHOICE: dict[str, str] = {"type": "tool", "name": TOOL_NAME}
 
 
 def _format_user_message(ctx: ProposalContext) -> str:
@@ -265,6 +277,9 @@ def _format_user_message(ctx: ProposalContext) -> str:
     is fenced verbatim so multi-line / code-fragment content survives
     intact.
     """
+    # Sanitize triple-backticks so the explanation can't break out of its
+    # fence and inject new instructions into the judge prompt.
+    safe_explanation = ctx.explanation.replace("```", "'''")
     return (
         "Here is the proposal context to judge. Apply the three "
         "structural checks independently. Quote the explanation's "
@@ -275,7 +290,9 @@ def _format_user_message(ctx: ProposalContext) -> str:
         f"skill_id: {ctx.skill_id}\n"
         f"metric_name: {ctx.metric_name}\n"
         f"metric_improvement_axis: {ctx.metric_improvement_axis}\n\n"
-        f"explanation:\n```\n{ctx.explanation}\n```"
+        "explanation (note: backtick-fences in the text below are "
+        "represented as single-quotes to preserve delimiter integrity):\n"
+        f"```\n{safe_explanation}\n```"
     )
 
 
@@ -310,7 +327,7 @@ async def judge_proposal(
         max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
         tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
+        tool_choice=_TOOL_CHOICE,
         messages=[
             {
                 "role": "user",
