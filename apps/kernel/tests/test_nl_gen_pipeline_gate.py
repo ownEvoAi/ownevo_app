@@ -17,6 +17,7 @@ These tests pin:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -365,8 +366,6 @@ async def test_result_is_frozen_dataclass_when_gate_enabled():
         (JUDGE_TOOL_NAME, "judgment", _judgment_payload(spec.id)),
     ]
     client = _ScriptedClient(script)
-
-    import dataclasses
 
     result = await generate_full_pipeline(
         client, "any description", meta_eval_gate=True

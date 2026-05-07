@@ -15,7 +15,7 @@ so the pipeline itself is just sequencing.
 Why a separate orchestrator (instead of the smoke test inlining the
 four calls): the same trio of artifacts is used by:
 
-  * `make nl-gen-smoketest`  (A4.4 — agent-solve gate, this commit)
+  * `make nl-gen-smoketest`  (A4.4 — agent-solve gate)
   * `make eval-replay --regenerate`  (A4.3 follow-on)
   * Future cached-pipeline cache poisoning tests (future)
 
@@ -168,6 +168,10 @@ async def generate_full_pipeline(
         Plus `MetaEvalGateFailedError` when the gate is enabled and
         the judgment fails the threshold.
     """
+    _MAX_DESCRIPTION_BYTES = 4096
+    if len(description.encode()) > _MAX_DESCRIPTION_BYTES:
+        description = description.encode()[:_MAX_DESCRIPTION_BYTES].decode(errors="ignore")
+
     kwargs = _kwargs_for(model, max_tokens)
     workflow_spec = await generate_workflow_spec(
         client, description, **kwargs
@@ -228,37 +232,42 @@ async def _run_meta_eval_gate(
     defense-in-depth — but the lazy boundary is the meta_eval package's
     documented contract, so we honour it here too.
     """
-    from .meta_eval import judge_artifacts
+    from .meta_eval import MetaEvalJudgmentValidationError, judge_artifacts
 
-    judge_kwargs: dict = {}
-    if model is not None:
-        judge_kwargs["model"] = model
-    if max_tokens is not None:
-        judge_kwargs["max_tokens"] = max_tokens
-
-    judgment = await judge_artifacts(
-        client, description, spec, plan, case_set, metric, **judge_kwargs
-    )
+    _kwargs = _kwargs_for(model, max_tokens)
+    last_exc: MetaEvalJudgmentValidationError | None = None
+    for attempt in range(2):
+        try:
+            judgment = await judge_artifacts(
+                client, description, spec, plan, case_set, metric, **_kwargs
+            )
+            break
+        except MetaEvalJudgmentValidationError as exc:
+            last_exc = exc
+            if attempt == 0:
+                continue
+            raise
+    else:
+        raise last_exc  # type: ignore[misc]
 
     if judgment.overall_verdict != "good":
+        score = judgment.aggregate_score()
         raise MetaEvalGateFailedError(
             f"Meta-eval gate rejected bundle for spec {spec.id!r}: "
             f"overall_verdict={judgment.overall_verdict!r} "
             f"(sim_coverage={judgment.sim_coverage.verdict}, "
             f"eval_case_coverage={judgment.eval_case_coverage.verdict}, "
             f"metric_alignment={judgment.metric_alignment.verdict}, "
-            f"aggregate_score={judgment.aggregate_score():.3f})",
+            f"aggregate_score={score:.3f})",
             judgment=judgment,
             min_aggregate_score=min_aggregate_score,
         )
 
-    if (
-        min_aggregate_score is not None
-        and judgment.aggregate_score() < min_aggregate_score
-    ):
+    score = judgment.aggregate_score()
+    if min_aggregate_score is not None and score < min_aggregate_score:
         raise MetaEvalGateFailedError(
             f"Meta-eval gate rejected bundle for spec {spec.id!r}: "
-            f"aggregate_score={judgment.aggregate_score():.3f} < "
+            f"aggregate_score={score:.3f} < "
             f"min_aggregate_score={min_aggregate_score:.3f} "
             f"(overall_verdict={judgment.overall_verdict!r})",
             judgment=judgment,

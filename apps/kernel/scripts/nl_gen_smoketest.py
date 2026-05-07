@@ -24,7 +24,8 @@ Exit code:
 Modes:
 
   * Default (regenerate live): full A4.4 gate. Cost ~16 calls per
-    workflow (4 NL-gen + 12 agent predictions on a 12-case fixture).
+    workflow (4 NL-gen + 12 agent predictions on a 12-case fixture);
+    ~17 with `--meta-eval-gate` (adds the 5th judge call).
   * `--from-fixtures`: skip NL-gen, use the hand-authored quartet.
     Useful for fast inner-loop dev on the agent prompt without
     burning generation cost. Still hits the live agent for predictions.
@@ -66,6 +67,7 @@ from ownevo_kernel.eval_runner.agent_solver import (  # noqa: E402
 from ownevo_kernel.nl_gen import (  # noqa: E402
     EvalCaseSet,
     MetaEvalGateFailedError,
+    NLGenError,
     generate_full_pipeline,
 )
 from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
@@ -75,6 +77,7 @@ from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     METRIC_FIXTURES,
     SIM_PLAN_FIXTURES,
 )
+from ownevo_kernel.nl_gen.meta_eval.judgment import MetaEvalJudgment  # noqa: E402
 
 WORKFLOW_CHOICES = sorted(FIXTURES.keys())
 _NL_GEN_STAGES = 4  # workflow_spec → sim_plan → eval_case_set → metric_definition
@@ -232,15 +235,25 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
             "--from-fixtures (the fixtures are pre-validated)."
         ),
     )
+    def _score_float(v: str) -> float:
+        f = float(v)
+        if not (0.0 < f <= 1.0):
+            raise argparse.ArgumentTypeError(
+                f"must be in (0.0, 1.0]; got {f}. "
+                "Scores are in [0, 1] — did you mean a fraction not a percentage?"
+            )
+        return f
+
     parser.add_argument(
         "--meta-eval-min-aggregate-score",
-        type=float,
+        type=_score_float,
         default=None,
         help=(
             "Belt-and-braces numeric floor on the judgment's aggregate "
-            "score (mean of pass=1.0/partial=0.5/fail=0.0). When set, "
-            "the gate also requires score >= this value, even if the "
-            "judge calls overall=good. Ignored unless --meta-eval-gate."
+            "score (mean of pass=1.0/partial=0.5/fail=0.0). Must be in "
+            "(0.0, 1.0]. When set, the gate also requires score >= this "
+            "value, even if the judge calls overall=good. Ignored unless "
+            "--meta-eval-gate."
         ),
     )
     parser.add_argument(
@@ -337,7 +350,7 @@ async def _smoke_one(
     meta_eval_gate: bool,
     meta_eval_min_aggregate_score: float | None,
     meta_eval_model: str | None,
-):
+) -> tuple[EvalRunReport, float, TokenBudget | None, MetaEvalJudgment | None]:
     """Run the gate for one workflow.
 
     Returns `(report, wall_seconds, budget, judgment)`. The judgment is
@@ -383,7 +396,7 @@ def _serialize(
     pretty: bool,
     include_outcomes: bool,
     budget: TokenBudget | None,
-    judgment,
+    judgment: MetaEvalJudgment | None,
 ) -> str:
     payload = report.to_dict()
     if not include_outcomes:
@@ -405,7 +418,7 @@ def _serialize(
     return json.dumps(payload, sort_keys=True, ensure_ascii=True)
 
 
-def _judgment_summary(judgment) -> dict:
+def _judgment_summary(judgment: MetaEvalJudgment) -> dict:
     """Compact summary of a MetaEvalJudgment for the smoketest output.
 
     Surfaces the per-dimension verdicts + the aggregate score (the
@@ -563,6 +576,25 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 flush=True,
             )
             return 3
+        except NLGenError as exc:
+            # Catch remaining NLGenError subclasses (NoMetaEvalToolUseError,
+            # MetaEvalJudgmentValidationError, MetaEvalSpecIdMismatchError, etc.)
+            # that bubble up from judge_artifacts or the four generators.
+            # Must come AFTER TokenBudgetExceededError since that is also NLGenError.
+            all_met = False
+            print(
+                json.dumps(
+                    {
+                        "workflow_id": workflow_id,
+                        "error": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                    ensure_ascii=True,
+                ),
+                flush=True,
+            )
+            continue
         if not report.meets_target:
             all_met = False
         print(
@@ -574,7 +606,8 @@ async def _async_main(ns: argparse.Namespace) -> int:
                 include_outcomes=ns.include_outcomes,
                 budget=budget,
                 judgment=judgment,
-            )
+            ),
+            flush=True,
         )
 
     return 0 if all_met else 1

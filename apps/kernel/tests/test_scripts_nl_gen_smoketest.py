@@ -425,8 +425,12 @@ def _patch_pipeline(monkeypatch, *, judgment=None, raise_gate_failed=False):
     monkeypatch.setattr(smoketest, "generate_full_pipeline", _stub)
 
 
-def _make_judgment(spec_id="demand-prediction", *, sim="pass", overall="good"):
+def _make_judgment(spec_id=None, *, sim="pass", overall="good"):
+    from ownevo_kernel.nl_gen.fixtures import FIXTURES
     from ownevo_kernel.nl_gen.meta_eval.judgment import MetaEvalJudgment
+
+    if spec_id is None:
+        spec_id = FIXTURES["demand-prediction"].id
 
     return MetaEvalJudgment.model_validate(
         {
