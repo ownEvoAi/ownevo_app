@@ -17,6 +17,62 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (W5.2 — LLM-judge stub approver)
+- `apps/kernel/src/ownevo_kernel/approvers/judgment.py` —
+  `ApprovalJudgment` Pydantic schema. Three orthogonal structural
+  checks (`references_cluster`, `names_change`, `states_direction`)
+  each scored `pass`/`fail` (binary, no `partial` middle band) with
+  a one-line rationale; `admits` property derives the binary
+  admit/reject mechanically (admit iff all three checks pass).
+  `extra='forbid'`, `frozen=True`, `schema_version="0.1"` (frozen
+  at the W5-end ritual to "1.0").
+- `apps/kernel/src/ownevo_kernel/approvers/llm_judge.py` —
+  `judge_proposal(client, ctx)` via single-turn Anthropic tool-use
+  with forced `tool_choice`. Mirrors `meta_eval/judge.py`'s shape.
+  Six-field `ProposalContext` (proposal_id, cluster_label, cluster_summary,
+  skill_id, metric_name, metric_improvement_axis, explanation) is the
+  minimum surface needed to evaluate the structural elements without
+  letting the judge see the diff or gate result. Defensive parsing
+  re-uses the two opus 4.7 quirks from A4.6 (string-wrapped payload,
+  schema_version leaking into per-check sub-objects). Default model
+  opus 4.7 (calibration anchor).
+- `apps/kernel/src/ownevo_kernel/approvers/eval_set.py` —
+  `JUDGE_EVAL_SET`: 30 hand-labeled (proposal-context, explanation,
+  expected_admit) records spanning one admit bucket and four reject
+  buckets (vague-but-positive, structural-but-wrong-direction, hand-
+  wavy / missing change name, missing cluster reference) × six
+  domains (M5 demand-prediction, credit-risk, supplier-risk, fraud-
+  review, clinical-eligibility, content-moderation). Plus
+  `JUDGE_SMOKE_SET` — 5-record subset (3 admit + 2 reject, anchored
+  on the two highest-leverage adversarial cases vague-but-positive
+  + wrong-direction) for cheap iteration via `--smoke`.
+- `apps/kernel/src/ownevo_kernel/approvers/runner.py` —
+  `run_judge_eval(client, ...) → JudgeEvalReport` runs the judge across
+  every record in parallel (configurable concurrency, default 1).
+  Aggregates judge-vs-human agreement, per-bucket correctness,
+  per-check verdict distribution, separate admit-side and reject-side
+  correctness counts. Re-raises judge exceptions (no partial reports).
+  Retries on `JudgmentValidationError` only (transient ~5-10% on
+  opus 4.7 per A4.6 precedent).
+- `apps/kernel/scripts/judge_eval.py` + `make judge-eval` — CLI
+  entrypoint. `--model`, `--concurrency`, `--max-tokens`,
+  `--anthropic-base-url`, `--include-records`, `--pretty`, `--smoke`,
+  `--require-agreement`, `--max-retries-per-call`. Exit 0 unless
+  `--require-agreement` is set + missed (the W5.2 gate, opt-in).
+  Cost surface ~$0.10–$0.30 per full run on opus 4.7 (cheaper than
+  meta-eval — smaller prompt).
+- 100 net new tests across 5 files (`test_approvers_judgment.py` 27,
+  `test_approvers_eval_set.py` 17, `test_approvers_llm_judge.py` 23,
+  `test_approvers_runner.py` 16, `test_scripts_judge_eval.py` 17):
+  schema round-trip + frozen + extra-forbid + binary-verdict-only;
+  judge tool-definition shape + system-prompt rules + every error
+  path (no tool_use, malformed input, extra field, proposal-id
+  mismatch) + defensive-parsing pins; eval-set cardinality + bucket
+  distribution + per-domain consistency + smoke-subset adversarial
+  pin; runner aggregation + ordering + per-bucket slicing + retry
+  behavior; CLI argparse + preflight + agreement gate + smoke flag.
+- All 1001 kernel tests still pass.
+
 ### Fixed (`0c839b3` — TokenBudget not enforced on OpenAI-compat path)
 - `eval_runner/agent_solver.py` — `predict_one` accumulates token usage via
   `token_budget.record(usage)`, but OpenAI API responses carry field names

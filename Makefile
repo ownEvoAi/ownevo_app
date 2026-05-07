@@ -7,7 +7,7 @@
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
-        meta-eval m5-cluster-failures
+        meta-eval m5-cluster-failures judge-eval
 
 help:
 	@printf 'targets:\n'
@@ -33,6 +33,8 @@ help:
 	@printf '                      eval-cases (CLUSTER_ARGS=...; default uses stub embedder\n'
 	@printf '                      and clusterer; pass --real for ST + UMAP + HDBSCAN +\n'
 	@printf '                      Anthropic)\n'
+	@printf '  judge-eval          W5.2 LLM-judge stub approver over the 30-pair eval set\n'
+	@printf '                      (JUDGE_ARGS=...; --require-agreement 0.85 enables W5.2 gate)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -162,3 +164,15 @@ CLUSTER_ARGS ?=
 
 m5-cluster-failures:
 	cd apps/kernel && uv run python scripts/cluster_m5_failures.py $(CLUSTER_ARGS)
+
+# ----------------------------------------------------------------------------
+# LLM-judge stub approver (W5.2)
+# ----------------------------------------------------------------------------
+
+# `JUDGE_ARGS=...` passes flags through to scripts/judge_eval.py
+# (e.g. JUDGE_ARGS='--require-agreement 0.85 --pretty --include-records').
+JUDGE_ARGS ?=
+
+judge-eval:
+	cd apps/kernel && uv run --extra agent python scripts/judge_eval.py \
+	    $(JUDGE_ARGS)
