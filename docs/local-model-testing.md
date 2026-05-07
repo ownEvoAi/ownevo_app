@@ -850,6 +850,13 @@ Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
    Best 32B-class for codegen affinity (cf F13's qwen2.5-coder:32b
    Ollama-side 1.00-but-degenerate; LMS run is non-degenerate).
 
+**Best Ollama-side for desktop (with `/no_think` auto-injection from F14i):**
+1. `qwen3-coder:30b` — desktop Ollama, 82s, 0.60 / 0.42 / 0.89.
+   Fastest desktop Ollama 3/3 by 4×. Replaces `qwen3:8b` (373s) as
+   the recommended Ollama desktop default.
+2. `qwen3:8b` — desktop Ollama, 373s. Still useful as the 8B-class
+   reference (smaller VRAM than 30B coder).
+
 **Best for hybrid (NL-gen frontier + agent local):**
 1. `mychen76/qwen3_cline_roocode:14b` — desktop Ollama, 629s, 0.60 / 0.67
    / 1.00. Highest credit-risk score of any local model. Tool-tuned
@@ -1049,6 +1056,58 @@ apps/kernel/scripts/run_ollama_sweep.sh`. The sweep script now
 auto-evicts each model between iterations via `keep_alive: 0` so
 the next model doesn't co-tenant on VRAM during the prior model's
 5-min keep-alive window.
+
+#### F14i — `/no_think` auto-injection unlocks 5 desktop Ollama 3/3 passers (2026-05-07)
+
+`agent_solver.py` now auto-appends `/no_think` to the system prompt
+when the model id contains `qwen3` (commit f6b9980). The directive
+suppresses Qwen3-family thinking traces that previously consumed the
+entire `max_tokens` budget before any tool call landed (root cause of
+F14h-hang). Only effective on Ollama builds whose Modelfile TEMPLATE
+contains the `IsThinkSet` parser; verified by inspecting `/api/show`
+template output (laptop's `qwen3.5:4b` template is 13 chars empty,
+laptop builds of `qwen3:8b/14b` ignore the directive in practice,
+desktop's same-tag `qwen3:14b` template is 1723 chars and does honor
+it).
+
+**Net new desktop Ollama 3/3 passers (all OpenAI-compat path):**
+
+| model | demand | credit | contract | wall | prior result |
+|---|---:|---:|---:|---:|---|
+| `qwen3:14b` | 0.60 ✅ | 0.67 ✅ | 1.00 ✅ | 551 s | was 2/3 (demand 0.40) |
+| `qwen3:30b-a3b` | 1.00 ✅ | 0.42 ✅ | 1.00 ✅ | 786 s | was 1/3 |
+| `qwen3:32b` | 0.60 ✅ | 0.42 ✅ | 1.00 ✅ | 1007 s | was 2/3 (demand 0.40) |
+| **`qwen3-coder:30b`** | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | **82 s** | was 2/3 (demand 0.40) |
+| `qwen3-coder-next:latest` | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 382 s | was 2/3 (demand 0.20) |
+
+`qwen3-coder:30b` at **82 s wall** is the new fast 3/3 candidate on
+the Ollama side (4× faster than the next Ollama 3/3 `qwen3:8b` at
+373 s). Counts as a real iteration option alongside the LMS desktop
+fast trio (`granite-4.1-8b` 33 s, `gemma-4-e4b` 34 s,
+`ministral-3-14b-reasoning` 47 s).
+
+**Models the `/no_think` patch did NOT unlock:**
+
+- `qwen3.5:9b` (desktop) — crashed `NoPredictToolUseError stop_reason='length'`
+  on credit-risk despite the directive. qwen3.5 lineage embeds
+  thinking more deeply than the chat template directive can override.
+- `qwen3.5:27b` (desktop) — stuck 28 min, killed; same root cause.
+- `qwen3.6:*` (desktop) — skipped without testing; qwen3.6 lineage is
+  the next-major qwen-thinking generation, expected to behave like
+  qwen3.5.
+- `qwen3:30b-a3b-instruct-2507-q4_K_M` — 2/3 (credit 0.33 ❌, demand
+  0.60 ✅, contract 0.89 ✅, **73 s wall**). Faster than non-instruct
+  variants (no thinking) but credit just below threshold.
+- All laptop qwen3-family (covered in F14h-hang) — laptop Ollama's
+  builds either lack the parser entirely (qwen3.5:4b's 13-char
+  template) or fail to apply it via OpenAI-compat path (qwen3:8b/14b
+  on laptop ignore even with proper template — likely
+  Modelfile-build-version difference).
+
+**Implication for F14e recommendations:** desktop now has 4 Ollama
+3/3 passers (`qwen3:8b`, `mychen76/qwen3_cline_roocode:14b`,
+`qwen3.5:35b-a3b`, `Qwq:32b` from F14c) plus 5 more via `/no_think`
+(F14i). `qwen3-coder:30b` joins the desktop iteration shortlist.
 
 ---
 
