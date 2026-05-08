@@ -1109,6 +1109,57 @@ fast trio (`granite-4.1-8b` 33 s, `gemma-4-e4b` 34 s,
 `qwen3.5:35b-a3b`, `Qwq:32b` from F14c) plus 5 more via `/no_think`
 (F14i). `qwen3-coder:30b` joins the desktop iteration shortlist.
 
+#### F14j — Hardware-correlated quality gap on granite-4.1-8b (Apple Metal vs CUDA, 2026-05-07)
+
+Same model file (`unsloth/granite-4.1-8b-gguf` Q4_K_S — verified
+identical via `/api/v0/models/granite-4.1-8b` on both LMS instances),
+same context length (32k loaded via `/api/v1/models/load`), same
+prompt — but **systematic credit-risk gap of ~0.17 points** between
+desktop CUDA and laptop Apple Metal:
+
+| run | host | hardware | demand | credit | contract | wall | result |
+|---|---|---|---:|---:|---:|---:|---|
+| 1 | desktop LMS | RTX 3090 | 1.00 ✅ | **0.50 ✅** | 0.91 ✅ | 33 s | 3/3 |
+| 2 | desktop LMS | RTX 3090 | 1.00 ✅ | **0.42 ✅** | 0.91 ✅ | 32 s | 3/3 |
+| 3 | laptop LMS | Apple Metal | 0.60 ✅ | **0.33 ❌** | 0.77 ✅ | 279 s | 2/3 |
+| 4 | laptop LMS | Apple Metal | 0.80 ✅ | **0.25 ❌** | 0.91 ✅ | 284 s | 2/3 |
+
+- **Within-host variance** (run 1 vs 2 on each host): ~0.08 on credit,
+  ~0.20 on demand-recall — consistent with non-zero-temperature
+  sampling stochasticity.
+- **Cross-host gap on credit-risk**: desktop mean **0.46**, laptop
+  mean **0.29** — gap of ~0.17 points, larger than within-host noise.
+- Threshold sits at 0.40, so the gap is exactly enough to flip
+  desktop's reliable pass into laptop's reliable fail.
+
+The numerical drift between llama.cpp's CUDA and Metal Q4_K_S kernels
+on borderline classification cases is enough to consistently flip
+predictions in one direction. **Granite-4.1-8b is desktop-only;
+do not promote it as a laptop pick** despite being the canonical
+fastest 3/3 (33 s on desktop LMS).
+
+**Other late-session laptop results (today, all 2/3 with contract or
+credit just below threshold):**
+
+| backend | host | model | demand | credit | contract | wall |
+|---|---|---|---:|---:|---:|---:|
+| LMS | laptop | `granite-4.1-8b` | 0.60 ✅ | 0.33 ❌ | 0.77 ✅ | 279 s |
+| LMS | laptop | `granite-4.1-8b` (run 2) | 0.80 ✅ | 0.25 ❌ | 0.91 ✅ | 284 s |
+| Ollama | laptop | `granite4.1:8b` | 0.60 ✅ | 0.58 ✅ | 0.73 ❌ | 368 s |
+| Ollama | laptop | `qwen3:4b-instruct` | 1.00 ✅ | 0.67 ✅ | 0.67 ❌ | 264 s |
+
+The pattern is consistent: laptop runs land in the "almost 3/3" zone
+where one workflow falls 0.02–0.10 below threshold. Some of this is
+fixable via deterministic decoding (`temperature=0`, not yet pinned
+in `agent_solver.py`) — would land as a follow-up; tracked here so
+future-you knows the laptop scores carry sampling noise on top of
+the hardware-kernel drift.
+
+**Decision:** keep desktop-tier recommendations as-is; tag
+granite-4.1-8b in F14e as "desktop CUDA only" not "any 8B-class".
+Laptop tier remains the F14b 3/3 picks (`qwen/qwen3-4b-2507` 152 s,
+`qwen/qwen3-1.7b` 826 s).
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
