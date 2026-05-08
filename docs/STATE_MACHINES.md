@@ -83,7 +83,7 @@ audit kind they produce.
 | `gate-passed` | `approved-awaiting-deploy` | LLM-judge approves | `llm-judge` | `proposal-approved` |
 | `gate-passed` | `rejected` | Human or LLM-judge rejects | `human` / `llm-judge` | `proposal-rejected` |
 | `approved-awaiting-deploy` | `deployed` | Deploy job advances HEAD on `skills` table | — | `proposal-deployed` |
-| `deployed` | `rolled-back` | `POST /api/skills/{id}/revert` (W7 demo runbook) | — | `proposal-rolled-back` |
+| `deployed` | `rolled-back` | `make revert-skill` operator script (W7 demo runbook; see `docs/runbooks/demo-rollback.md`) | — | `proposal-rolled-back` |
 
 ### Invariants
 

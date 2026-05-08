@@ -17,6 +17,15 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Removed
+
+- **`docs/api/openapi.yaml`: two unimplemented stub endpoints removed.** `GET /api/skills/{id}/versions` and `POST /api/skills/{id}/revert` had no kernel route handlers (only `GET /{skill_id}` and `GET /workflows/{id}/skills` are registered). The `SkillVersion` component schema is also removed — it was only referenced by these stubs. `SkillVersionSummary` (used by `SkillDetailResponse.versions[]` and the web UI) is retained. Version history is returned inline by `GET /api/skills/{id}`; the demo rollback runbook remains at `docs/runbooks/demo-rollback.md`. Pre-existing drift; no behavior changes.
+
+### Fixed
+
+- **`docs/STATE_MACHINES.md`: `deployed → rolled-back` trigger updated.** Row previously cited `POST /api/skills/{id}/revert`; the actual mechanism is `make revert-skill` (see `docs/runbooks/demo-rollback.md`).
+- **`docs/api/openapi.yaml` header: stale codegen claim corrected.** Header claimed `apps/web/lib/api/client.ts` is auto-generated via `openapi-typescript`; the file does not exist and there is no codegen step. Updated to reflect that the Python models and TypeScript types are hand-maintained.
+
 ### Added (BL.3 in-call conversation compaction — keeps multi-turn agent runs in context)
 - `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/conversation_compaction.py` —
   new module exporting `compact_anthropic_messages(messages, *,
