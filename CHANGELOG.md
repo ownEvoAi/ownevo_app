@@ -17,6 +17,21 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-07
+
+W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped
+(B3.1–B3.5) on `main`, plus the broader A4.4 local-model sweep (19+ models pass
+3/3 across LM Studio + Ollama on desktop and laptop).
+PRs: #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #52.
+
+W3 Track B exit gate run before the cut (2026-05-07): `make cluster-label-eval
+LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1
+--pretty --include-records'` → **agreement 0.85 (17/20)** with judge
+`claude-opus-4-7` vs labeler `claude-sonnet-4-6`, 33.9s wall. Verdict
+distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
+`under-forecast` 5/6, `over-forecast` 5/5, `flat-prediction` 4/5,
+`zero-inflated` 2/3, `high-variance` 1/1. Above the W3 Track B ≥0.7 contract.
+
 ### Added (A4.4 broader local-model sweep — 19+ models pass 3/3 across LMS + Ollama)
 - `apps/kernel/scripts/run_lmstudio_sweep.sh` + `apps/kernel/scripts/run_ollama_sweep.sh` —
   drive the A4.4 forced-tool-use gate (`predict_label`) against every text-capable
@@ -133,8 +148,9 @@ fresh `[Unreleased]` block above it.
   (or the script directly with `--concurrency 4 --max-retries-per-call 1`
   matching A4.6's live-run convention). No GitHub Actions wiring —
   the project policy is that CI does not consume API keys. The gate
-  is run locally before tagging W3 / v0.4.0 and the result recorded
-  in the release notes.
+  is run locally before each W3-impacting release and the result
+  recorded in the release notes (see the `[0.4.0]` header for the
+  2026-05-07 result).
 - 64 new tests across 5 files (`test_clustering_label_eval_schema.py`
   13 — schema round-trip + frozen + extra-forbid + verdict-literal
   pinning + cluster_id pattern + rationale length bounds;

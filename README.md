@@ -49,13 +49,13 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 
 ## Status
 
-**W4 complete (Phase 2 Track A) — v0.3.0 + A4.x and B3.x on `main` (v0.4.0 cut pending).** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
+**W4 complete (Phase 2 Track A) — v0.4.0 staged on `main`, tag pending.** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
 
 - **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
 - **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
 - **W3 NL-gen pipeline** (v0.3.0, A3.x): NL description → `WorkflowSpec` → `SimulationPlan` (renderer + AST safety) → sandbox-runnable sim. Schemas frozen at v1.0.
-- **W4 NL-gen pipeline closed** (A4.1–A4.6, on `main` pending tag): NL → eval cases (A4.1), NL → success metric (A4.2), Inspect AI integration + `make eval-replay` (A4.3), `make nl-gen-smoketest` validates 3 workflows end-to-end with a Claude agent in the loop (A4.4), token budget + determinism guardrails (A4.5), and the LLM-as-judge meta-eval with a 10-pair ground-truth set + `make meta-eval` — agreement 0.85 on the live opus 4.7 smoke (A4.6).
-- **W3-W4 Track B failure clustering** (B3.1–B3.5, on `main` pending tag): embedding + UMAP + HDBSCAN clustering pipeline over `AgentEvent` failures, plus LLM-judge cluster-label evaluation as the W3 Track B exit criterion.
+- **W4 NL-gen pipeline closed** (v0.4.0, A4.1–A4.6): NL → eval cases (A4.1), NL → success metric (A4.2), Inspect AI integration + `make eval-replay` (A4.3), `make nl-gen-smoketest` validates 3 workflows end-to-end with a Claude agent in the loop (A4.4), token budget + determinism guardrails (A4.5), and the LLM-as-judge meta-eval with a 10-pair ground-truth set + `make meta-eval` — agreement 0.85 on the live opus 4.7 smoke (A4.6).
+- **W3-W4 Track B failure clustering** (v0.4.0, B3.1–B3.5): embedding + UMAP + HDBSCAN clustering pipeline over `AgentEvent` failures, plus LLM-judge cluster-label evaluation — B3.5 live gate **0.85 agreement (17/20)** at the v0.4.0 cut (2026-05-07), well above the W3 Track B ≥0.7 contract.
 
 Next: W5 (7-day M5 replay, LLM-judge stub approver, approval surface UX polish, meta-eval validated as quality gate, Track B → live failure ingestion path).
 

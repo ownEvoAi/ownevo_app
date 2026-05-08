@@ -86,7 +86,7 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S (human ~1 day / CC ~2 hours, as predicted).
 - **Priority:** P1 — surfaces in YC demo.
 - **Depends on:** clustering pipeline operational (W3 Track B).
-- **Follow-up: run the live gate locally before tagging W3 / v0.4.0** — `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1 --pretty --include-records'` and record the agreement number + per-hint slice in the release notes.
+- **Follow-up: run the live gate locally before each W3-impacting release** — `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1 --pretty --include-records'` and record the agreement number + per-hint slice in the release notes. **2026-05-07 (pre-v0.4.0):** agreement 0.85 (17/20), judge `claude-opus-4-7` vs labeler `claude-sonnet-4-6`, 33.9s wall. Per-hint: under-forecast 5/6, over-forecast 5/5, flat-prediction 4/5, zero-inflated 2/3, high-variance 1/1.
 - **Manual test-plan items deferred from PR #49 (B3.1+B3.2+B3.3) — still outstanding, run when blockers clear:**
   - `OWNEVO_DATABASE_URL=... uv run pytest` clean on a fresh DB
   - `make m5-cluster-failures CLUSTER_ARGS='--no-db --top-k 30 --pretty'` — stub-stages smoke on the in-process M5 baseline
