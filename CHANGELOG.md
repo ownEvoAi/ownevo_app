@@ -66,6 +66,56 @@ fresh `[Unreleased]` block above it.
   styles to the existing CSS classes (smaller component file, mock
   parity).
 
+### Added (W5.2 — LLM-judge stub approver, PLAN.md § W5 § 5.2)
+- `apps/kernel/src/ownevo_kernel/approvers/__init__.py` — new
+  package surface for approver implementations. Today ships only
+  the `llm_judge` subpackage; future enterprise polish (severity-
+  based auto-approve, time-delayed deploy) is documented as
+  out-of-scope.
+- `apps/kernel/src/ownevo_kernel/approvers/llm_judge/judgment.py`
+  — `LLMJudgeApprovalJudgment` Pydantic schema. Three
+  `StructuralElement` fields (`cluster_referenced`, `change_named`,
+  `metric_direction_stated`), each carrying `present: bool` + a
+  ≤400-char `quote` excerpt. Binary `verdict ∈ {admit, reject}` +
+  ≤600-char `rationale` + echoed `proposal_id`. `extra='forbid'`,
+  `frozen=True`, `schema_version="0.1"` until W5-end freeze.
+- `apps/kernel/src/ownevo_kernel/approvers/llm_judge/fixtures.py`
+  — 30 hand-authored `LabeledApprovalCase` fixtures across four
+  buckets: 10 `structural` (admit), 8 `vague-but-positive` (reject),
+  6 `structural-but-wrong-direction` (reject — names cluster +
+  change but states a direction that contradicts the cluster's
+  bias), 6 `hand-wavy` (reject — partial coverage). Module-import
+  invariants pin total count, bucket distribution, unique kebab-
+  case ids, ground-truth alignment with bucket.
+- `apps/kernel/src/ownevo_kernel/approvers/llm_judge/judge.py` —
+  `judge_proposal_explanation(client, case)` via single-turn
+  Anthropic tool-use (mirrors A4.6 / B3.5). Default model
+  `claude-opus-4-7` (W5.2 calibration anchor). Typed errors
+  `LLMJudgeApprovalJudgmentValidationError` /
+  `NoLLMJudgeApprovalToolUseError` /
+  `LLMJudgeApprovalIdMismatchError`. JSON-string-wrapped payload
+  defensive recovery kept (mirrors A4.6 live-smoke quirks).
+- `apps/kernel/src/ownevo_kernel/approvers/llm_judge/runner.py` —
+  `run_llm_judge_approver_eval` drives the judge across the 30
+  fixtures in parallel via `asyncio.Semaphore`, aggregates
+  judge-vs-human agreement + per-bucket slicing + verdict
+  histogram. Retries on transient malformed-JSON returns only
+  (`max_retries_per_call`, default 0).
+- `apps/kernel/scripts/llm_judge_approver_eval.py` + Make target
+  `llm-judge-approver-eval`. CLI flags: `--judge-model` (default
+  opus 4.7), `--max-tokens`, `--concurrency`, `--max-retries-per-
+  call`, `--anthropic-base-url`, `--include-records`,
+  `--require-agreement`, `--pretty`. Exit semantics 0 / 1 (gate
+  miss) / 2 (preflight fail). **The ≥0.85 gate runs on demand
+  only** — project policy is that CI does not consume API keys.
+  Cost ~$0.40/run on default model + 30-case set.
+- `apps/kernel/tests/test_approvers_llm_judge_*.py` — 68 new tests
+  across schema (17), fixtures (10), judge (14, includes the
+  PLAN.md smoke "5 hand-crafted → 3 admit / 2 reject" + adversarial
+  "vague-but-positive → reject"), runner (10, includes per-bucket
+  slicing isolation + retry-on-validation-error), CLI (17). Full
+  kernel suite: 1055 passed, 227 skipped.
+
 ## [0.4.0] — 2026-05-07
 
 W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped

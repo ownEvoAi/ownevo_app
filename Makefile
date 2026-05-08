@@ -7,7 +7,8 @@
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
-        meta-eval m5-cluster-failures cluster-label-eval
+        meta-eval m5-cluster-failures cluster-label-eval \
+        llm-judge-approver-eval
 
 help:
 	@printf 'targets:\n'
@@ -36,6 +37,11 @@ help:
 	@printf '  cluster-label-eval  B3.5: judge labeler vs hand-labeled fixtures; reports\n'
 	@printf '                      agreement (LABEL_EVAL_ARGS=... pass flags; default sonnet\n'
 	@printf '                      judge + haiku labeler; --require-agreement for gate)\n'
+	@printf '  llm-judge-approver-eval  W5.2: LLM-judge stub approver vs 30 hand-labeled\n'
+	@printf '                      (proposal, explanation) pairs; reports judge-vs-human\n'
+	@printf '                      agreement + per-bucket slicing\n'
+	@printf '                      (LLM_JUDGE_APPROVER_ARGS=... pass flags; default opus 4.7\n'
+	@printf '                      judge; --require-agreement 0.85 for the W5.2 gate)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -177,3 +183,15 @@ LABEL_EVAL_ARGS ?=
 cluster-label-eval:
 	cd apps/kernel && uv run --extra agent python scripts/cluster_label_eval.py \
 	    $(LABEL_EVAL_ARGS)
+
+# ----------------------------------------------------------------------------
+# LLM-judge stub approver eval (W5.2)
+# ----------------------------------------------------------------------------
+
+# `LLM_JUDGE_APPROVER_ARGS=...` passes flags through, e.g.
+#   make llm-judge-approver-eval LLM_JUDGE_APPROVER_ARGS='--require-agreement 0.85 --concurrency 6 --pretty'
+LLM_JUDGE_APPROVER_ARGS ?=
+
+llm-judge-approver-eval:
+	cd apps/kernel && uv run --extra agent python scripts/llm_judge_approver_eval.py \
+	    $(LLM_JUDGE_APPROVER_ARGS)
