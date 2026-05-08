@@ -205,11 +205,22 @@ async def test_post_gate_approval_none_returns_none_no_dispatch():
 
 
 @pytest.mark.asyncio
-async def test_post_gate_approval_skips_when_gate_did_not_pass():
+@pytest.mark.parametrize(
+    "gate_decision,expected_gate_decision_str",
+    [
+        (GateDecision.FAIL_REGRESSION, "gate-blocked-regression"),
+        (GateDecision.FAIL_NO_IMPROVEMENT, "gate-blocked-no-improvement"),
+        (GateDecision.SANDBOX_ERROR, "sandbox-error"),
+    ],
+)
+async def test_post_gate_approval_skips_when_gate_did_not_pass(
+    gate_decision: GateDecision, expected_gate_decision_str: str
+):
     """Only ``GateDecision.PASS`` proposals are eligible for approval
     (that's the proposal_state precondition in approve/reject_proposal).
-    Other decisions short-circuit with a ``skipped`` marker."""
-    persisted = _build_persisted(decision=GateDecision.FAIL_REGRESSION)
+    All three non-PASS decisions short-circuit with a ``skipped`` marker
+    and the decision's string value in ``gate_decision``."""
+    persisted = _build_persisted(decision=gate_decision)
     summary = await _run_post_gate_approval(
         conn=object(),
         persisted=persisted,
@@ -221,7 +232,7 @@ async def test_post_gate_approval_skips_when_gate_did_not_pass():
     assert summary == {
         "approver_mode": APPROVER_AUTONOMOUS,
         "skipped": "gate-not-pass",
-        "gate_decision": "gate-blocked-regression",
+        "gate_decision": expected_gate_decision_str,
     }
 
 

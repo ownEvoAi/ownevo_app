@@ -492,3 +492,24 @@ async def test_run_all_conditions_rejects_duplicate_workflow_id():
     ]
     with pytest.raises(ValueError, match="duplicate workflow_id"):
         await run_all_conditions_parallel(specs)
+
+
+# ---------------------------------------------------------------------------
+# run_condition_loop — condition A frozen-baseline early-return
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_condition_loop_condition_a_returns_empty_immediately():
+    """Condition A is the frozen baseline — no agent loop. The orchestrator
+    skips all subprocess work and returns an empty results list so the merge
+    step reads whatever the seeded baseline already wrote to the DB."""
+    from ownevo_kernel.replay import run_condition_loop
+
+    spec = ConditionSpec(
+        condition=CONDITION_A_FROZEN,
+        workflow_id="m5-condition-a",
+        n_iterations=30,
+    )
+    results = await run_condition_loop(spec)
+    assert results == []

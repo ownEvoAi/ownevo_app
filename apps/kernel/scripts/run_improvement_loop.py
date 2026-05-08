@@ -89,6 +89,11 @@ if str(_KERNEL_ROOT) not in sys.path:
 
 from baselines.m5_lightgbm import SKILL_FILES, materialize_skill_v1_dir  # noqa: E402
 from ownevo_kernel.approvals import approve_proposal, reject_proposal  # noqa: E402
+from ownevo_kernel.approvers import (  # noqa: E402
+    APPROVER_AUTONOMOUS,
+    APPROVER_LLM_JUDGE,
+    APPROVER_NONE,
+)
 from ownevo_kernel.approvers.llm_judge import (  # noqa: E402
     LabeledApprovalCase,
     LLMJudgeApproverError,
@@ -136,9 +141,6 @@ _DEFAULT_TMPFS_MB = 512
 _MAX_SUMMARY_CHARS = 280
 
 DEFAULT_JUDGE_MODEL = "claude-opus-4-7"
-APPROVER_NONE = "none"
-APPROVER_AUTONOMOUS = "autonomous"
-APPROVER_LLM_JUDGE = "llm-judge"
 _APPROVER_CHOICES = (APPROVER_NONE, APPROVER_AUTONOMOUS, APPROVER_LLM_JUDGE)
 
 _PROMPT_PATH = Path(__file__).parent / "m5_agent_prompt.md"
@@ -674,9 +676,11 @@ async def _run_post_gate_approval(
                 case,
                 model=judge_model,
             )
-        except LLMJudgeApproverError as exc:
+        except Exception as exc:  # noqa: BLE001
             # Judge errored — safest default is reject so a malformed run
-            # doesn't auto-admit. Comment captures the failure for audit.
+            # doesn't auto-admit. Catches LLM-level errors (validation, no
+            # tool use) and transient Anthropic API errors (rate-limit,
+            # server error) so a transient failure doesn't crash the loop.
             approval = await reject_proposal(
                 conn,
                 proposal_id=persisted.proposal.id,

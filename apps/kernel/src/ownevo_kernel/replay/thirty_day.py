@@ -24,7 +24,7 @@ parallel.
 
 Why a shared Postgres (vs four Docker Compose stacks): the schema is
 already keyed by ``workflow_id``; four conditions use four different IDs
-in the same DB and the merge step is a single ``UNION ALL``. Process
+in the same DB and the merge step issues one parameterized query per condition. Process
 isolation is provided per-iteration by ``run_improvement_loop.py`` (each
 invocation creates its own asyncpg connection + Docker sandbox).
 """
@@ -37,12 +37,14 @@ import logging
 import os
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import asyncpg
+
+from ownevo_kernel.approvers import APPROVER_AUTONOMOUS, APPROVER_LLM_JUDGE, APPROVER_NONE
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +65,17 @@ SUPPORTED_CONDITIONS: tuple[str, ...] = (
     CONDITION_D_LOOP_GATED,
 )
 
+_STDERR_TAIL_CHARS = 500
+
 #: Default workflow_id prefix; full id is f"{prefix}-{condition_letter.lower()}".
 DEFAULT_WORKFLOW_PREFIX = "m5-condition"
 
 #: Default approver mode per condition. Maps onto run_improvement_loop's
 #: ``--approver`` flag.
 _CONDITION_APPROVER: dict[str, str] = {
-    CONDITION_A_FROZEN: "none",
-    CONDITION_C_LOOP_AUTONOMOUS: "autonomous",
-    CONDITION_D_LOOP_GATED: "llm-judge",
+    CONDITION_A_FROZEN: APPROVER_NONE,
+    CONDITION_C_LOOP_AUTONOMOUS: APPROVER_AUTONOMOUS,
+    CONDITION_D_LOOP_GATED: APPROVER_LLM_JUDGE,
 }
 
 
@@ -427,10 +431,19 @@ async def run_improvement_loop_subprocess(
             summary=None,
             stderr_tail=f"timed out after {timeout_s}s",
         )
+    except (asyncio.CancelledError, BaseException):
+        # Task cancelled (e.g. TaskGroup abort) or any unexpected error —
+        # kill the OS subprocess so it doesn't become an orphan.
+        proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+        raise
 
     stdout = stdout_b.decode(errors="replace")
     stderr = stderr_b.decode(errors="replace")
-    stderr_tail = stderr[-500:] if stderr else ""
+    stderr_tail = stderr[-_STDERR_TAIL_CHARS:] if stderr else ""
 
     if proc.returncode != 0:
         return SubprocessResult(
@@ -612,21 +625,20 @@ async def run_all_conditions_parallel(
 
     started_at = datetime.now(timezone.utc)
 
-    await asyncio.gather(
-        *(
-            run_condition_loop(
-                spec,
-                extra_args=extra_loop_args,
-                cwd=cwd,
-                env=env,
-                judge_model=judge_model,
-                iteration_timeout_s=iteration_timeout_s,
-                halt_on_error=halt_on_error,
-                progress=progress,
+    async with asyncio.TaskGroup() as tg:
+        for spec in specs:
+            tg.create_task(
+                run_condition_loop(
+                    spec,
+                    extra_args=extra_loop_args,
+                    cwd=cwd,
+                    env=env,
+                    judge_model=judge_model,
+                    iteration_timeout_s=iteration_timeout_s,
+                    halt_on_error=halt_on_error,
+                    progress=progress,
+                )
             )
-            for spec in specs
-        )
-    )
 
     ended_at = datetime.now(timezone.utc)
 

@@ -20,3 +20,9 @@ Future:
     See `docs/PLAN.md` § "Out of scope" → "Approval-process enterprise
     polish" for the full list.
 """
+
+#: Approver mode string constants — passed as the ``--approver`` CLI flag to
+#: ``run_improvement_loop.py`` and used in ``thirty_day._CONDITION_APPROVER``.
+APPROVER_NONE = "none"
+APPROVER_AUTONOMOUS = "autonomous"
+APPROVER_LLM_JUDGE = "llm-judge"

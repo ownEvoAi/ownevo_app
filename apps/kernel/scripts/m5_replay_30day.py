@@ -61,6 +61,7 @@ ENV_DB_URL = "OWNEVO_DATABASE_URL"
 
 DEFAULT_MAX_ITERATIONS = 30
 DEFAULT_CONDITIONS = ",".join(c.lower() for c in SUPPORTED_CONDITIONS)
+# Keep in sync with run_improvement_loop.py:DEFAULT_JUDGE_MODEL
 DEFAULT_JUDGE_MODEL = "claude-opus-4-7"
 
 
@@ -346,7 +347,7 @@ async def main_async(args: CliArgs) -> int:
 
         try:
             conn = await asyncpg.connect(db_url, timeout=10)
-        except (asyncpg.ConnectionFailureError, OSError) as exc:
+        except (asyncpg.PostgresError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 3
         try:
@@ -366,6 +367,7 @@ async def main_async(args: CliArgs) -> int:
         file=sys.stderr,
     )
 
+    _halted: str | None = None
     try:
         report = await run_all_conditions_parallel(
             specs,
@@ -375,9 +377,13 @@ async def main_async(args: CliArgs) -> int:
             iteration_timeout_s=args.iteration_timeout_s,
             halt_on_error=args.halt_on_error,
         )
-    except RuntimeError as exc:
-        # halt_on_error=True path
-        print(f"error: replay halted: {exc}", file=sys.stderr)
+    except* RuntimeError as eg:
+        # halt_on_error=True path — asyncio.TaskGroup wraps in ExceptionGroup.
+        # `return` is not allowed inside an except* block (PEP 654 restriction).
+        _halted = str(eg.exceptions[0])
+
+    if _halted is not None:
+        print(f"error: replay halted: {_halted}", file=sys.stderr)
         return 1
 
     print(json.dumps(report.to_dict(), indent=2 if args.pretty else None))
