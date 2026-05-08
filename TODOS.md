@@ -93,11 +93,12 @@ backup tracking in case PLAN.md edits drift.
   - (when M5 dataset available) `make m5-cluster-failures` with `OWNEVO_DATABASE_URL` — cluster rows + eval cases land in DB
   - (when network available) `make m5-cluster-failures CLUSTER_ARGS='--real'` — sentence-transformers + UMAP + HDBSCAN + Anthropic end-to-end
 
-### TODO-6: LLM-judge stub eval expansion (W5)
+### TODO-6: LLM-judge stub eval expansion (W5) — ✅ DONE 2026-05-07
 
 - **What:** Expand W5.2's "5 hand-crafted proposals" to ~30 hand-labeled (proposal, explanation) pairs with structural-element ground truth. Run nightly.
+- **Status (2026-05-07):** Shipped in W5.2 (PR #57). 30 hand-authored `LabeledApprovalCase` fixtures across 4 buckets: 10 `structural` (admit), 8 `vague-but-positive` (reject), 6 `structural-but-wrong-direction` (reject), 6 `hand-wavy` (reject). `make llm-judge-approver-eval` with `--require-agreement 0.85` gate (on demand only — project policy; ~$0.40/run on opus 4.7 + 30-case set). 68 new tests.
 - **Why:** Eng review surfaced that 5 cases is a smoke test, not an eval. The stub admits proposals during M5 unattended replay; a false-positive admit drifts the lift chart in the wrong direction.
-- **Effort:** S (human ~1 day / CC ~2 hours).
+- **Effort:** S (human ~1 day / CC ~2 hours, as predicted).
 - **Priority:** P1 — required for unattended M5 replay.
 - **Depends on:** LLM-judge stub operational (W5.2).
 
