@@ -1,10 +1,15 @@
-// W5.5 — `/workflows/preview` route. Renders the "Review what we'll
-// build" surface (mock-04) populated from `GET /api/nl-gen/preview`.
-// Coverage badge is the headliner; the four artifact sections render
-// read-only (no Edit / Regenerate buttons wired). Workflow picker at
-// the top swaps fixtures via the `?workflow_id=` query param.
+// W5.5 → W7 slice 5 — moved from `/workflows/preview` to
+// `/workspaces/[wsId]/workflows/new` so the New Workflow flow lives
+// inside the workspace shell. The old URL still works via a redirect
+// at apps/web/app/(legacy)/workflows/preview/page.tsx.
 //
-// When the live `POST /api/nl-gen/generate` flow lands (W6), this
+// Renders the "Review what we'll build" surface (mock-04) populated
+// from `GET /api/nl-gen/preview`. Coverage badge is the headliner;
+// the four artifact sections render read-only (no Edit / Regenerate
+// buttons wired). Workflow picker at the top swaps fixtures via the
+// `?workflow_id=` query param.
+//
+// When the live `POST /api/nl-gen/generate` flow lands (W8), this
 // route shape is the target — we'll add a write path then.
 
 import Link from 'next/link'
@@ -19,10 +24,12 @@ import {
 import { MetaEvalCoverageBadge } from './coverage-badge'
 
 interface PageProps {
+  params: Promise<{ wsId: string }>
   searchParams: Promise<{ workflow_id?: string }>
 }
 
-export default async function WorkflowPreviewPage({ searchParams }: PageProps) {
+export default async function WorkflowPreviewPage({ params, searchParams }: PageProps) {
+  const { wsId } = await params
   const { workflow_id: requested } = await searchParams
 
   let index
@@ -42,7 +49,7 @@ export default async function WorkflowPreviewPage({ searchParams }: PageProps) {
   // If the requested id isn't in the index, redirect to the fallback
   // rather than serve a 404 — the picker is the obvious recovery path.
   if (!index.items.some((it) => it.workflow_id === workflowId)) {
-    redirect(`/workflows/preview?workflow_id=${encodeURIComponent(fallbackId)}`)
+    redirect(`/workspaces/${wsId}/workflows/new?workflow_id=${encodeURIComponent(fallbackId)}`)
   }
 
   let preview: PreviewResponse
@@ -74,6 +81,7 @@ export default async function WorkflowPreviewPage({ searchParams }: PageProps) {
       <WorkflowPicker
         items={index.items}
         active={preview.workflow_id}
+        wsId={wsId}
       />
 
       <div className="source-quote">
@@ -134,9 +142,11 @@ function Steps() {
 function WorkflowPicker({
   items,
   active,
+  wsId,
 }: {
   items: PreviewIndexEntry[]
   active: string
+  wsId: string
 }) {
   if (items.length <= 1) return null
   return (
@@ -145,7 +155,7 @@ function WorkflowPicker({
       {items.map((it) => (
         <Link
           key={it.workflow_id}
-          href={`/workflows/preview?workflow_id=${encodeURIComponent(it.workflow_id)}`}
+          href={`/workspaces/${wsId}/workflows/new?workflow_id=${encodeURIComponent(it.workflow_id)}`}
           className={`filter-chip ${it.workflow_id === active ? 'active' : ''}`}
         >
           {it.workflow_id}

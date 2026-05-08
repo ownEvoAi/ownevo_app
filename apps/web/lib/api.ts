@@ -243,3 +243,119 @@ export async function getPreview(workflowId: string): Promise<PreviewResponse> {
     `/api/nl-gen/preview/${encodeURIComponent(workflowId)}`,
   )
 }
+
+// W7 slice 2 — workspace Health page + LiftChart
+
+export interface WorkflowSummary {
+  id: string
+  description: string
+  mode: string
+  iteration_count: number
+  best_ever_score: number | null
+  last_improved_at: string | null
+  pending_proposals_count: number
+}
+
+export interface WorkflowList {
+  items: WorkflowSummary[]
+  total: number
+}
+
+export interface IterationPoint {
+  iteration_index: number
+  val_score: number | null
+  best_ever_score_after: number | null
+  state: string
+  has_approved_proposal: boolean
+  ended_at: string | null
+}
+
+export interface IterationList {
+  workflow_id: string
+  items: IterationPoint[]
+}
+
+export async function listWorkflows(): Promise<WorkflowList> {
+  return jsonFetch<WorkflowList>('/api/workflows')
+}
+
+export async function getWorkflowIterations(
+  workflowId: string,
+): Promise<IterationList> {
+  return jsonFetch<IterationList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations`,
+  )
+}
+
+// W7 slice 3 — Failure clusters
+
+export type ClusterSeverity = 'high' | 'medium' | 'low'
+
+export interface FailureClusterSummary {
+  id: string
+  workflow_id: string | null
+  label: string
+  severity: ClusterSeverity
+  cluster_size: number
+  label_eval_score: number | null
+  quality_score: number | null
+  sample_trace_ids: string[]
+  created_at: string
+}
+
+export interface FailureClusterList {
+  workflow_id: string
+  items: FailureClusterSummary[]
+}
+
+export async function getWorkflowFailureClusters(
+  workflowId: string,
+): Promise<FailureClusterList> {
+  return jsonFetch<FailureClusterList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/failure_clusters`,
+  )
+}
+
+// W7 slice 4 — Audit trail + verify-chain
+
+export interface AuditEntryRow {
+  id: string
+  seq: number
+  kind: string
+  actor: string
+  related_id: string | null
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface AuditList {
+  items: AuditEntryRow[]
+  total: number
+  truncated: boolean
+}
+
+export interface AuditVerifyResponse {
+  valid: boolean
+  total_entries: number
+  min_seq: number | null
+  max_seq: number | null
+  missing_seqs: number[]
+  duplicate_seqs: number[]
+  canonical_export_bytes: number
+  checked_at: string
+}
+
+export async function listAudit(
+  params: { kind?: string; sinceSeq?: number; limit?: number } = {},
+): Promise<AuditList> {
+  const qs = new URLSearchParams()
+  if (params.kind) qs.set('kind', params.kind)
+  if (params.sinceSeq !== undefined) qs.set('since_seq', String(params.sinceSeq))
+  if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  const path = qs.toString() ? `/api/audit?${qs}` : '/api/audit'
+  return jsonFetch<AuditList>(path)
+}
+
+export async function verifyAuditChain(): Promise<AuditVerifyResponse> {
+  return jsonFetch<AuditVerifyResponse>('/api/audit/verify', { method: 'POST' })
+}

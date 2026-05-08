@@ -1,11 +1,10 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import './globals.css'
-import { ThemeToggle } from './components/theme-toggle'
 
 export const metadata: Metadata = {
-  title: 'ownEvo — Approval Queue',
-  description: 'Approval queue scaffold (W2.5).',
+  title: 'ownEvo',
+  description: 'ownEvo workspace.',
   robots: { index: false, follow: false },
 }
 
@@ -14,55 +13,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-// Server Component (no client-state). The theme toggle is a thin
-// client island that only flips the data-theme attribute + persists
-// to localStorage; same approach as the static mocks at
-// www/preview/s26-rk7p3/.
+// Bare root layout — owns <html>/<body>/global CSS only. Each subtree
+// renders its own shell:
+//   - app/(legacy)/      — flat W2.5/W5.5 routes (/inbox, /proposals,
+//                          /workflows/preview); simple sidebar
+//   - app/workspaces/[wsId]/  — W7 customer-facing workspace shell.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" data-theme="light">
-      <body>
-        <div className="app-shell">
-          <aside className="nav">
-            <div className="nav-brand">
-              <svg className="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M12 1.75 L20.25 4.75 V12 C20.25 17 16.5 20.75 12 22.25 C7.5 20.75 3.75 17 3.75 12 V4.75 Z"
-                  fill="#3b82f6"
-                />
-                <circle cx="12" cy="12.5" r="3.2" stroke="#07090e" strokeWidth="2" />
-                <path d="M9.6 7 L12 4.5 L14.4 7 Z" fill="#07090e" />
-              </svg>
-              <span className="brand-wordmark">
-                <span className="logo-own">own</span>
-                <span className="logo-evo">Evo</span>
-              </span>
-            </div>
-
-            <div className="nav-section">Activity</div>
-            <a href="/inbox" className="nav-item">
-              <svg className="nav-icon" viewBox="0 0 16 16">
-                <path d="M2 4 L2 12 A1.5 1.5 0 0 0 3.5 13.5 L12.5 13.5 A1.5 1.5 0 0 0 14 12 L14 4 M2 4 L8 9 L14 4 M2 4 L14 4" />
-              </svg>
-              <span className="nav-label">Inbox</span>
-            </a>
-
-            <div className="nav-section">Workflows</div>
-            <a href="/workflows/preview" className="nav-item">
-              <svg className="nav-icon" viewBox="0 0 16 16">
-                <path d="M8 3 L8 13 M3 8 L13 8" />
-              </svg>
-              <span className="nav-label">New workflow</span>
-            </a>
-
-            <div className="nav-footer">
-              <ThemeToggle />
-            </div>
-          </aside>
-
-          <main className="main">{children}</main>
-        </div>
-      </body>
+      <body>{children}</body>
     </html>
   )
 }

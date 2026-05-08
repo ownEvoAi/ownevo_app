@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..db import ENV_VAR
 from .models import HealthResponse
-from .routes import nl_gen, proposals
+from .routes import audit, nl_gen, proposals, workflows
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,8 @@ def create_app(
 
     api.include_router(proposals.router)
     api.include_router(nl_gen.router)
+    api.include_router(workflows.router)
+    api.include_router(audit.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:
