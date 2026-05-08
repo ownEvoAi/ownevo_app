@@ -3,11 +3,14 @@
 TS / Next.js — approval queue UI scaffold (W2.5).
 
 This app is the customer-facing surface for the kernel's improvement
-loop. The first iteration ships two routes:
+loop. The customer-facing routes (W7) live under
+`/workspaces/[wsId]/...`:
 
-- `/inbox` — list of proposals (filtered by state)
+- `/workspaces/acme/inbox` — list of proposals (filtered by state).
+  The legacy `/inbox` URL 307-redirects here.
 - `/proposals/[id]` — proposal detail with skill diff, gate result,
-  and Approve / Reject actions
+  and Approve / Reject actions. Migration into the workspace shell
+  lives on `w7-track1-rest`.
 
 It talks to the kernel REST API at
 `apps/kernel/src/ownevo_kernel/api/` (FastAPI). The browser never holds
@@ -37,8 +40,9 @@ make seed-approval-demo
 # prints the proposal id + a /proposals/<id> link
 ```
 
-Open <http://localhost:3000>. You should land on `/inbox` with the
-seeded proposal under "Awaiting review". Click through, hit "Approve &
+Open <http://localhost:3000>. You should land on
+`/workspaces/acme/inbox` (after a redirect from `/`) with the seeded
+proposal under "Awaiting review". Click through, hit "Approve &
 advance", watch the sidebar swap to "Recorded decision". Re-load the
 inbox — the proposal moves from "Awaiting review" to "Recently decided".
 

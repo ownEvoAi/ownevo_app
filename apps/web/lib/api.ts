@@ -131,6 +131,16 @@ export class KernelApiError extends Error {
   }
 }
 
+// Shared user-facing message helper. Pages catch errors from `jsonFetch`
+// and surface this string in an `.api-banner`. Centralised so the copy
+// stays consistent across Health / Failures / Audit / Audit verify.
+export function kernelErrorMessage(err: unknown): string {
+  if (err instanceof KernelApiError) {
+    return `Kernel API ${err.status}: ${err.detail}`
+  }
+  return 'Could not reach the kernel API. Run `make api` to start it.'
+}
+
 async function jsonFetch<T>(
   path: string,
   init?: RequestInit & { revalidate?: number },

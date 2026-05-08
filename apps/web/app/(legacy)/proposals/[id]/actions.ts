@@ -30,7 +30,11 @@ export async function decideAction(input: DecideInput): Promise<DecideResult> {
       comment: input.comment,
     })
     // Invalidate both routes so the next render picks up the new state.
-    revalidatePath('/inbox')
+    // /inbox is now a 307 redirect to /workspaces/acme/inbox, so the
+    // workspace-shell inbox is the actual cache key — revalidate that
+    // directly. Slug hardcoded to "acme" per the W7_SLICE.md cosmetic-
+    // URL decision; D4 single-tenant means the backend ignores it.
+    revalidatePath('/workspaces/acme/inbox')
     revalidatePath(`/proposals/${input.proposalId}`)
     return { ok: true, state: res.state }
   } catch (err) {

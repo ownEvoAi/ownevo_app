@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import {
-  KernelApiError,
+  kernelErrorMessage,
   verifyAuditChain,
   type AuditVerifyResponse,
 } from '../../../../lib/api'
@@ -27,10 +27,6 @@ export async function verifyAuditChainAction(
     revalidatePath(`/workspaces/${wsId}/audit`)
     return { ok: true, result, error: null }
   } catch (err) {
-    const detail =
-      err instanceof KernelApiError
-        ? `Kernel API ${err.status}: ${err.detail}`
-        : 'Could not reach the kernel API. Run `make api` to start it.'
-    return { ok: false, result: null, error: detail }
+    return { ok: false, result: null, error: kernelErrorMessage(err) }
   }
 }

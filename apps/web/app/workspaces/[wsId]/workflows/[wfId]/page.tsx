@@ -11,6 +11,14 @@ const ACTIVITY_TONE: Record<string, string> = {
   escalation: 'var(--accent)',
 }
 
+// Map the semantic delta tone (positive/negative/neutral business
+// outcome) onto the existing primitives.css colour classes.
+const TONE_CLASS: Record<'positive' | 'negative' | 'neutral', string> = {
+  positive: 'up',
+  negative: 'down',
+  neutral: 'flat',
+}
+
 // Workflow Overview tab.
 //
 // For wfId in {labour, contract, support}: renders mock metrics +
@@ -33,7 +41,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
               <div className="metric-label">{m.label}</div>
               <div className="metric-value">{m.value}</div>
               {m.delta && (
-                <div className={`metric-delta ${m.delta.direction}`}>{m.delta.text}</div>
+                <div className={`metric-delta ${TONE_CLASS[m.delta.tone]}`}>{m.delta.text}</div>
               )}
             </div>
           ))}
