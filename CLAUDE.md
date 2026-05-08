@@ -54,18 +54,24 @@ Code-generating loop on real M5. Supports two API formats via `--api-format`:
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
 - `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
 
-**Multi-turn loop: no validated local-model lift driver on real M5 yet.** `qwen3-coder-30b` on LMS-Anthropic was the only model that drove the loop end-to-end (F5) but writes a deterministic `_long_frame` bug 14/14 attempts (F6, TODO-20 retest). `devstral-small-2:latest` on Ollama drives the loop and clears the 1 GB sandbox memory limit but its codegen quality fails `run_pipeline` validation every round (TODO-21 closed). Sonnet 4.6 on Anthropic cloud is the only confirmed lift driver (B4.2 + B4.3 + Stage C compound lift, ~$1.86 per 7-iter replay).
+**Multi-turn loop: two confirmed lift drivers as of 2026-05-08.** Sonnet 4.6 on Anthropic cloud (B4.2 + B4.3 + Stage C compound lift, ~$1.86 per 7-iter replay) and `qwen3-coder:30b` on Ollama OpenAI + `/no_think` fix (free, ~12 min, +14.9% on TODO-19 Stage D) are both confirmed. `qwen3-coder-30b` on LMS-Anthropic drives the loop but writes a deterministic `_long_frame` bug 14/14 attempts (F6, TODO-20 retest). `devstral-small-2:latest` on Ollama drives the loop and clears the 1 GB sandbox memory limit but its codegen quality fails `run_pipeline` validation every round (TODO-21 closed).
 
 ```bash
-# Sonnet 4.6 — known to lift on real M5, ~$0.30 / iter
+# Sonnet 4.6 — confirmed lift, ~$0.30 / iter
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
   --api-format anthropic \
   --llm-model claude-sonnet-4-6 \
   --no-seed
+
+# qwen3-coder:30b — confirmed lift, free, ~12 min (requires Ollama running)
+uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
+  --api-format openai \
+  --llm-model qwen3-coder:30b \
+  --no-seed
 ```
 
 Local-model attempts on the multi-turn loop and where they fail:
-- `qwen3-coder:30b` (Ollama OpenAI) — needed `/no_think` auto-injection in `run_agent_turn_openai` (added 2026-05-07; mirrors `agent_solver._maybe_no_think_suffix`). Without it the model emitted text and 0 tool calls on the M5 kickoff.
+- `qwen3-coder:30b` (Ollama OpenAI) — **validated lift driver (+14.9%, TODO-19 closed 2026-05-08)**. Requires `/no_think` auto-injection in `run_agent_turn_openai` (added 2026-05-07). Without it the model emits text and 0 tool calls on the M5 kickoff.
 - `qwen3-coder-30b` (LMS Anthropic) — drives the loop but hits F6 deterministically.
 - `devstral-small-2:latest` (Ollama) — drives the loop, runnable Python, but `run_pipeline` validation rejects every diff.
 - `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError.
