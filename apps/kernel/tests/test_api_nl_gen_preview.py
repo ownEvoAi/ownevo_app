@@ -11,6 +11,8 @@ just the nl_gen router on a fresh FastAPI instance.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -20,16 +22,17 @@ from ownevo_kernel.nl_gen.fixtures import FIXTURES
 
 
 @pytest.fixture
-def client() -> httpx.AsyncClient:
+async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
     app = FastAPI()
     app.include_router(router)
-    transport = ASGITransport(app=app)
-    return httpx.AsyncClient(transport=transport, base_url="http://api.test")
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        yield c
 
 
 async def test_preview_index_lists_every_fixture(client: httpx.AsyncClient):
-    async with client:
-        resp = await client.get("/api/nl-gen/preview")
+    resp = await client.get("/api/nl-gen/preview")
     assert resp.status_code == 200
     body = resp.json()
     assert "items" in body
@@ -41,8 +44,7 @@ async def test_preview_index_lists_every_fixture(client: httpx.AsyncClient):
 
 
 async def test_preview_index_carries_descriptions(client: httpx.AsyncClient):
-    async with client:
-        resp = await client.get("/api/nl-gen/preview")
+    resp = await client.get("/api/nl-gen/preview")
     body = resp.json()
     for entry in body["items"]:
         assert isinstance(entry["description"], str)
@@ -54,8 +56,7 @@ async def test_preview_one_returns_full_bundle(
     client: httpx.AsyncClient,
     workflow_id: str,
 ):
-    async with client:
-        resp = await client.get(f"/api/nl-gen/preview/{workflow_id}")
+    resp = await client.get(f"/api/nl-gen/preview/{workflow_id}")
     assert resp.status_code == 200
     body = resp.json()
 
@@ -76,8 +77,7 @@ async def test_preview_one_returns_full_bundle(
 async def test_preview_judgment_shape_matches_schema(
     client: httpx.AsyncClient,
 ):
-    async with client:
-        resp = await client.get("/api/nl-gen/preview/demand-prediction")
+    resp = await client.get("/api/nl-gen/preview/demand-prediction")
     judgment = resp.json()["meta_eval_judgment"]
     assert judgment["workflow_spec_id"] == "demand-prediction"
     assert judgment["overall_verdict"] in ("good", "bad")
@@ -88,12 +88,25 @@ async def test_preview_judgment_shape_matches_schema(
 
 
 async def test_preview_unknown_id_returns_404(client: httpx.AsyncClient):
-    async with client:
-        resp = await client.get("/api/nl-gen/preview/no-such-workflow")
+    resp = await client.get("/api/nl-gen/preview/no-such-workflow")
     assert resp.status_code == 404
     assert "no-such-workflow" in resp.json()["detail"]
     # Available list surfaced so UI can recover.
     assert "available" in resp.json()["detail"]
+
+
+async def test_preview_eval_case_fields_are_flat(client: httpx.AsyncClient):
+    """expected_value and rationale are top-level fields on each case,
+    not nested under expected_behavior. This guards against the
+    expected_behavior wrapper mismatch (page.tsx was using c.expected_behavior)."""
+    resp = await client.get("/api/nl-gen/preview/demand-prediction")
+    cases = resp.json()["eval_case_set"]["cases"]
+    assert len(cases) > 0
+    first = cases[0]
+    assert isinstance(first["expected_value"], bool)
+    assert isinstance(first["rationale"], str)
+    assert len(first["rationale"]) > 0
+    assert "expected_behavior" not in first
 
 
 async def test_preview_workflow_spec_carries_tools(
@@ -102,8 +115,7 @@ async def test_preview_workflow_spec_carries_tools(
     """Spot-check that the spec serialization actually contains the
     tools array — the UI lists tools so a missing field would render
     an empty section."""
-    async with client:
-        resp = await client.get("/api/nl-gen/preview/demand-prediction")
+    resp = await client.get("/api/nl-gen/preview/demand-prediction")
     spec = resp.json()["workflow_spec"]
     assert "tools" in spec
     assert isinstance(spec["tools"], list)

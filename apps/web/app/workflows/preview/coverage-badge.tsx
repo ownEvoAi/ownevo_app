@@ -15,6 +15,8 @@
 
 import type { MetaEvalJudgment } from '@/lib/api'
 
+// Must stay in sync with kernel's dimension_score() in
+// apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/judgment.py
 const DIMENSION_SCORE: Record<'pass' | 'partial' | 'fail', number> = {
   pass: 1.0,
   partial: 0.5,
@@ -23,9 +25,9 @@ const DIMENSION_SCORE: Record<'pass' | 'partial' | 'fail', number> = {
 
 function aggregateScore(j: MetaEvalJudgment): number {
   return (
-    (DIMENSION_SCORE[j.sim_coverage.verdict] +
-      DIMENSION_SCORE[j.eval_case_coverage.verdict] +
-      DIMENSION_SCORE[j.metric_alignment.verdict]) /
+    ((DIMENSION_SCORE[j.sim_coverage.verdict] ?? 0) +
+      (DIMENSION_SCORE[j.eval_case_coverage.verdict] ?? 0) +
+      (DIMENSION_SCORE[j.metric_alignment.verdict] ?? 0)) /
     3.0
   )
 }
@@ -59,7 +61,7 @@ export function MetaEvalCoverageBadge({
   return (
     <div className={`coverage-badge ${isGood ? 'good' : 'bad'}`}>
       <div className="coverage-head">
-        <div className={`coverage-icon ${VERDICT_TONE[overallTone(judgment)]}`}>
+        <div className={`coverage-icon ${isGood ? 'green' : 'red'}`}>
           {isGood ? <CheckGlyph /> : <AlertGlyph />}
         </div>
         <div className="coverage-headline">
@@ -101,15 +103,6 @@ export function MetaEvalCoverageBadge({
       </div>
     </div>
   )
-}
-
-// `overallTone` follows the binary verdict — the per-dimension mix can
-// surface yellow when overall is still "good" (judge calls partial-mix
-// good), so we don't derive tone from the dimensions.
-function overallTone(j: MetaEvalJudgment): 'pass' | 'partial' | 'fail' {
-  if (j.overall_verdict === 'bad') return 'fail'
-  // overall = good — color green even if one dimension is partial.
-  return 'pass'
 }
 
 function CheckGlyph() {

@@ -21,7 +21,6 @@ a "demo data" banner if it ever ships beyond the preview route.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -116,16 +115,24 @@ async def preview_one(workflow_id: str) -> PreviewResponse:
     plan = SIM_PLAN_FIXTURES[workflow_id]
     case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
     metric = METRIC_FIXTURES[workflow_id]
+    if workflow_id not in PREVIEW_JUDGMENT_FIXTURES:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"No preview judgment for {workflow_id!r}; "
+                f"add it to nl_gen/meta_eval/preview_fixtures.py"
+            ),
+        )
     judgment = PREVIEW_JUDGMENT_FIXTURES[workflow_id]
 
     return PreviewResponse(
         workflow_id=workflow_id,
         description=DESCRIPTIONS[workflow_id],
-        workflow_spec=json.loads(spec.model_dump_json()),
-        simulation_plan=json.loads(plan.model_dump_json()),
-        eval_case_set=json.loads(case_set.model_dump_json()),
-        metric_definition=json.loads(metric.model_dump_json()),
-        meta_eval_judgment=json.loads(judgment.model_dump_json()),
+        workflow_spec=spec.model_dump(),
+        simulation_plan=plan.model_dump(),
+        eval_case_set=case_set.model_dump(),
+        metric_definition=metric.model_dump(),
+        meta_eval_judgment=judgment.model_dump(),
     )
 
 

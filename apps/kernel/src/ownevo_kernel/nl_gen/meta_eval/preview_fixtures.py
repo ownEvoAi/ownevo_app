@@ -30,6 +30,7 @@ Why hand-author rather than cache a real judge call:
 
 from __future__ import annotations
 
+from ..fixtures import FIXTURES as _NL_GEN_FIXTURES
 from .judgment import MetaEvalDimension, MetaEvalJudgment
 
 # ---------------------------------------------------------------------------
@@ -177,12 +178,11 @@ PREVIEW_JUDGMENT_FIXTURES: dict[str, MetaEvalJudgment] = {
 # preview API would 500 on a request for that id — fail loudly at
 # import time instead.
 
-_EXPECTED_IDS = {"demand-prediction", "credit-risk", "contract-review"}
-if set(PREVIEW_JUDGMENT_FIXTURES) != _EXPECTED_IDS:
+if set(PREVIEW_JUDGMENT_FIXTURES) != set(_NL_GEN_FIXTURES):
     raise AssertionError(
         f"PREVIEW_JUDGMENT_FIXTURES keys {set(PREVIEW_JUDGMENT_FIXTURES)} "
-        f"diverged from expected workflow ids {_EXPECTED_IDS}; update both "
-        f"this dict and `_EXPECTED_IDS` when adding a fixture."
+        f"diverged from nl_gen FIXTURES keys {set(_NL_GEN_FIXTURES)}; "
+        f"add a judgment here whenever a new fixture lands in nl_gen/fixtures/."
     )
 
 for _wid, _judgment in PREVIEW_JUDGMENT_FIXTURES.items():

@@ -205,7 +205,7 @@ export interface MetaEvalDimension {
 }
 
 export interface MetaEvalJudgment {
-  schema_version: string
+  schema_version: '0.1'
   workflow_spec_id: string
   sim_coverage: MetaEvalDimension
   eval_case_coverage: MetaEvalDimension

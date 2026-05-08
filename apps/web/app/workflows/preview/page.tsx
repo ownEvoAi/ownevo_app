@@ -37,7 +37,7 @@ export default async function WorkflowPreviewPage({ searchParams }: PageProps) {
   }
 
   const fallbackId = index.items[0].workflow_id
-  const workflowId = requested ?? fallbackId
+  const workflowId = requested || fallbackId
 
   // If the requested id isn't in the index, redirect to the fallback
   // rather than serve a 404 — the picker is the obvious recovery path.
@@ -234,27 +234,26 @@ function EvalCasesSection({ caseSet }: { caseSet: Record<string, unknown> }) {
         </div>
         {cases.map((raw, i) => {
           const c = raw as Record<string, unknown>
-          const eb = (c.expected_behavior ?? {}) as Record<string, unknown>
           return (
             <div key={i} className="eval-row">
               <div className="eval-num">{i + 1}</div>
               <div>
                 <div className="eval-name">{asString(c.case_id ?? `case-${i}`)}</div>
-                {typeof eb.rationale === 'string' && (
-                  <div className="eval-source">{eb.rationale}</div>
+                {typeof c.rationale === 'string' && (
+                  <div className="eval-source">{c.rationale}</div>
                 )}
               </div>
               <div>
                 <span
                   className={`pill ${
-                    eb.expected_value === true
+                    c.expected_value === true
                       ? 'green'
-                      : eb.expected_value === false
+                      : c.expected_value === false
                         ? 'red'
                         : 'outline'
                   }`}
                 >
-                  {String(eb.expected_value ?? '—')}
+                  {String(c.expected_value ?? '—')}
                 </span>
               </div>
               <div>
@@ -279,7 +278,6 @@ function SuccessMetricSection({
   const direction = asString(metric.direction ?? '')
   const target = metric.target_value ?? '—'
   const rationale = asString(metric.rationale ?? '')
-  const computation = (metric.computation ?? {}) as Record<string, unknown>
 
   return (
     <section className="gen-section">
@@ -299,12 +297,6 @@ function SuccessMetricSection({
           <span className="key">target_value:</span>{' '}
           <span className="num">{String(target)}</span>
         </div>
-        {Object.keys(computation).length > 0 && (
-          <div>
-            <span className="key">computation:</span>{' '}
-            {asString(computation.label_field ?? computation.formula ?? '')}
-          </div>
-        )}
         <div className="comment"># {rationale}</div>
       </div>
     </section>

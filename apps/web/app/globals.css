@@ -338,6 +338,10 @@
   color: var(--text-muted);
   font-size: 13px;
 }
+.step-label {
+  font-size: 13px;
+  color: inherit;
+}
 .step-num {
   width: 22px;
   height: 22px;
@@ -678,8 +682,8 @@
   color: var(--green);
 }
 .coverage-icon.amber {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 .coverage-icon.red {
   background: var(--red-soft);
@@ -725,6 +729,9 @@
   border-radius: 8px;
   padding: 12px 14px;
 }
+.coverage-dim.pass {
+  border-color: var(--green);
+}
 .coverage-dim.partial {
   border-color: rgba(245, 158, 11, 0.45);
 }
@@ -769,6 +776,11 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+.coverage-footer-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Pill colors (defined in primitives.css for the established set —
