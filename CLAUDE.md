@@ -45,7 +45,11 @@ Use (don't build): Langfuse, ClickHouse, OTel collector, LiteLLM, Inspect AI.
 
 ## Local LLM backend (dev / dogfooding)
 
-The improvement loop (`scripts/run_improvement_loop.py`) supports two API formats via `--api-format`:
+Two distinct tracks; pick the one matching your task before reaching for a model name.
+
+### Multi-turn improvement loop (`scripts/run_improvement_loop.py`)
+
+Code-generating loop on real M5. Supports two API formats via `--api-format`:
 
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
 - `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
@@ -59,10 +63,18 @@ uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop
   --no-seed
 ```
 
-Models tested and **not** working well:
+Models tested and **not** working well on the multi-turn loop:
 - `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError
-- `qwen3-coder:30b` — thinking mode causes it to skip tool calls on first turn
 - `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`
+
+### A4.4 single-turn classification gate (`scripts/nl_gen_smoketest.py --from-fixtures`)
+
+Forced-tool-use `predict_label(value: bool)` per case; orthogonal track from the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama as of the 2026-05-06/07 broader sweep. Source of truth: `docs/local-model-testing.md` § F14a-j (and `apps/kernel/README.md` for the top-pick table). Highlights:
+
+- Fastest desktop 3/3: `granite-4.1-8b` (33 s, LMS) — but **desktop-CUDA-only** per F14j (Apple Metal produces ~0.17 systematic credit-risk drop on the same Q4_K_S blob).
+- Fastest desktop Ollama 3/3: `qwen3-coder:30b` (82 s) — **only with `/no_think` auto-injection** (agent_solver.py auto-appends the directive when model id contains `qwen3`; F14i unlocked 5 desktop Ollama 3/3 passers including this one).
+- API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages` (F14g).
+- qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override; not unlocked by `/no_think`. qwen3-base + qwen3-coder ARE unlocked.
 
 ## Out of scope for MVP (don't build unless asked)
 

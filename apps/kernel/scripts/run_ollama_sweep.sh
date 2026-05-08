@@ -21,6 +21,13 @@ OPENAI_BASE_URL="${OWNEVO_OLLAMA_HOST}/v1"
 OUT_DIR="${REPO_ROOT}/temp/ollama_sweep/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT_DIR"
 
+# Pre-flight: Ollama reachable? Must be before the ALL_MODELS fetch so the
+# error message fires instead of a raw curl failure under set -euo pipefail.
+if ! curl -fsS --max-time 5 "${OWNEVO_OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+  echo "[ollama-sweep] ABORT: Ollama not reachable at ${OWNEVO_OLLAMA_HOST}/api/tags" >&2
+  exit 2
+fi
+
 # Model tags to skip: embedding-only and vision-only models.
 SKIP_PATTERNS=(
   "all-minilm"
@@ -60,11 +67,6 @@ else
   done <<< "$ALL_MODELS"
 fi
 
-if ! curl -fsS --max-time 5 "${OWNEVO_OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
-  echo "[ollama-sweep] ABORT: Ollama not reachable at ${OWNEVO_OLLAMA_HOST}/api/tags" >&2
-  exit 2
-fi
-
 if [[ ${#MODELS[@]} -eq 0 ]]; then
   echo "[ollama-sweep] no models to sweep after filtering" >&2
   exit 2
@@ -96,6 +98,7 @@ for model in "${MODELS[@]}"; do
       --from-fixtures \
       --model "$model" \
       --openai-base-url "$OPENAI_BASE_URL" \
+      --max-tokens "${OLLAMA_SWEEP_MAX_TOKENS:-10000}" \
       --include-outcomes \
     2>&1 | tee "$log" || rc=$?
 
@@ -104,6 +107,13 @@ for model in "${MODELS[@]}"; do
   MODEL="${model}" RC="${rc}" LOG="${log}" \
     python3 "$REPO_ROOT/apps/kernel/scripts/_sweep_parse_log.py" >> "$SUMMARY" \
     || echo "| (summary-gen failed for model) | — | — | — | — | — |" >> "$SUMMARY"
+
+  # Evict the just-tested model so the next one doesn't co-tenant on VRAM
+  # while the prior model is still in its 5-min keep_alive window.
+  curl -fsS --max-time 10 -X POST "${OWNEVO_OLLAMA_HOST}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\": \"${model}\", \"keep_alive\": 0}" \
+    >/dev/null 2>&1 || true
 done
 
 echo

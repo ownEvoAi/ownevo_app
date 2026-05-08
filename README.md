@@ -17,11 +17,18 @@ apps/
   kernel/        Python — agent runtime, eval harness, failure clustering, regression gate
     src/ownevo_kernel/
       agent_tools/   read_skill / write_skill / run_pipeline / read_metrics / analyze_failures
+      api/           REST + SSE seam for the approval/diff surface
+      approvals/     approval service (queue, decisions, expert sign-off)
       audit/         append-only audit log writer (WORM-enforced in DB)
       benchmark/     M5BenchmarkRunner Protocol + synthetic fixture
+      clustering/    failure-clustering pipeline (B3.x — embed, UMAP, HDBSCAN, label LLM)
       datasets/      M5 loader + WRMSSE metric
       eval_cases/    eval case registry
+      eval_runner/   workflow runner (agent solver, fixture/cases mode, OpenAI + Anthropic paths)
+      evolution/     tracker → reflector → curator → proposer (improvement-loop core)
       gate/          3-step regression gate (regression / no-improvement / sandbox-error)
+      middleware/    Claude Agent SDK middleware (trace + tool plumbing)
+      nl_gen/        NL → WorkflowSpec / SimulationPlan / EvalCases / Metric (A3.x + A4.x)
       observability/ loop-stuck Slack alerter + learnings writer
       sandbox/       LocalDockerSandbox + SandboxRuntime Protocol
       skills/        skill registry, SKILL_FORMAT retention contracts
@@ -42,14 +49,15 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 
 ## Status
 
-**W4 complete (Phase 2 Track A) — v0.3.0 + A4.x on `main` (pending v0.4.0 cut, 2026-05-06).** The full natural-language → working agent loop is shipped end-to-end:
+**W4 complete (Phase 2 Track A) — v0.3.0 + A4.x and B3.x on `main` (v0.4.0 cut pending).** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
 
 - **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
 - **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
 - **W3 NL-gen pipeline** (v0.3.0, A3.x): NL description → `WorkflowSpec` → `SimulationPlan` (renderer + AST safety) → sandbox-runnable sim. Schemas frozen at v1.0.
 - **W4 NL-gen pipeline closed** (A4.1–A4.6, on `main` pending tag): NL → eval cases (A4.1), NL → success metric (A4.2), Inspect AI integration + `make eval-replay` (A4.3), `make nl-gen-smoketest` validates 3 workflows end-to-end with a Claude agent in the loop (A4.4), token budget + determinism guardrails (A4.5), and the LLM-as-judge meta-eval with a 10-pair ground-truth set + `make meta-eval` — agreement 0.85 on the live opus 4.7 smoke (A4.6).
+- **W3-W4 Track B failure clustering** (B3.1–B3.5, on `main` pending tag): embedding + UMAP + HDBSCAN clustering pipeline over `AgentEvent` failures, plus LLM-judge cluster-label evaluation as the W3 Track B exit criterion.
 
-Next: W5 (failure clustering pipeline, 7-day M5 replay, LLM-judge stub approver, approval surface UX polish, meta-eval validated as quality gate).
+Next: W5 (7-day M5 replay, LLM-judge stub approver, approval surface UX polish, meta-eval validated as quality gate, Track B → live failure ingestion path).
 
 ## A4.4 NL-gen smoketest — model comparison (2026-05-05)
 
@@ -70,3 +78,5 @@ The Phase-2 quality gate (`make nl-gen-smoketest WORKFLOW=all SMOKE_ARGS='--from
 - **devstral-small-2** is the local reference. 24B open-weight model running on a home Ollama matches/beats Sonnet across all 3 workflows — catches `winter-boot-spike-week-47` (the canonical past-miss Sonnet missed). Local proof that the gate isn't a frontier-only artifact.
 
 Repro the local run: `OWNEVO_OLLAMA_HOST=http://<ollama-host>:11434 bash apps/kernel/scripts/run_a4_4_local_smoke.sh`. Config in `infra/litellm/ollama.yaml`. See [PR #44](https://github.com/ownEvoAi/ownevo_app/pull/44) and [`docs/local-model-testing.md` § F13](docs/local-model-testing.md) for the full diagnosis (sim-difficulty inspection, prompt-fix iteration, calibration story, LiteLLM gotchas).
+
+**Broader local-model sweep (F14, 2026-05-06/07):** 19+ models pass 3/3 across LM Studio (desktop + laptop) and Ollama. Top desktop picks: `granite-4.1-8b` (33s, fastest), `google/gemma-4-e4b` (34s, smallest 3/3 at this tier), `mistralai/ministral-3-14b-reasoning` (47s), `qwen/qwen3.5-9b` via **Anthropic API** (52s — only passes through `/v1/messages`, see F14g), `qwen2.5-coder-32b-instruct` (98s). Laptop picks: `qwen/qwen3-4b-2507` (152s), `qwen/qwen3-1.7b` (826s, smallest 3/3). Full results + recommendations by class in [`apps/kernel/README.md`](apps/kernel/README.md) and [`docs/local-model-testing.md` § F14](docs/local-model-testing.md).
