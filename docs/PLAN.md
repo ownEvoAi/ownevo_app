@@ -364,6 +364,8 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 
 **Goal:** by end of Week 8, the workspace UI from `www/preview/yc-s26-rk7p3/` is wired to the live demand-prediction backend, the τ³-bench head-to-head against NeoSigma is published with the human-approval gate engaged, and the YC video + reproducibility artifacts are shipped.
 
+**Substrate inheritance from W6:** PR #67 (BL.3 in-call conversation compaction) landed during W6 and applies to every multi-turn agent run going forward. The τ³-bench tasks below (W7.3 + W8.3) are 10-30 tool calls per case in the same shape that crashed the M5 30-day replay v1/v2/v3 with `Context size has been exceeded`. The compaction substrate makes those runs viable; per-iter caps like v3's `--max-iterations 12` workaround are no longer needed. Validated on the M5 30-day v4 (27 iterations completed, zero context errors); see `docs/W6_30DAY_REPLAY_NOTES.md`.
+
 ---
 
 ### Week 7 — Customer skin (Track 1) + τ³-bench template (Track 3, parallel)
