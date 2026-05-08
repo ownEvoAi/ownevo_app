@@ -161,6 +161,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — directly feeds B4.2 ("First lift on M5") and B4.4 (Day-7 milestone review).
 - **Depends on:** none — substrate is in place.
 - **Status update (2026-05-04):** Phase 3 closed on Sonnet 4.6 via Anthropic cloud — v10 produced `val_score=0.395143` (+19% over baseline 0.331), v12 demonstrated the gate-blocked regression at 0.385126. B4.2 + B4.3 both achieved on real M5 for ~$0.78. Stage B 7-iter replay (also 2026-05-04) confirmed the gate held `best_ever=0.3958` through 6 consecutive non-pass iterations ($1.84 cost). **Stage C 7-iter replay with F9 fix produced first compound lift: iter 0 0.3859 → iter 2 0.3988, gate held best_ever across 5 non-pass iters, $1.86 cost.** Local-model lift on real M5 is NOT yet achieved — TODO-20/21/23 cover the gaps.
+- **Status update (2026-05-07):** Probe-sweep residue (23 candidates) closed as superseded by the A4.4 broader sweep (PR #52 — 19 local models pass 3/3 across LMS + Ollama). The probe-sweep was looking for BL.3-loop drivers via two single-turn probes; PR #52 delivered a wider list via the actual A4.4 forced-tool-use gate, which is a stronger signal. Headline goal of TODO-19 (a measured local-model lift on real M5) remains open and is now gated on (a) cross-iter failure memory empirically helping qwen3-coder route around F6 — exercise pending the BL.3 OpenAI-loop `/no_think` fix landing — or (b) a non-frontier model with stronger codegen than devstral on M5. Devstral-small-2:latest formally dropped as a candidate (TODO-21 closed; CLAUDE.md no longer recommends it).
 
 ### TODO-20: F6 mitigation effectiveness retest on qwen3-coder-30b
 
@@ -287,6 +288,7 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S (CC ~half day including laptop re-test of qwen3.5:4b/9b/latest, qwen3:8b/14b).
 - **Priority:** P3 — laptop tier didn't ship a qwen3-family 3/3 anyway and isn't blocking. Worth doing before the next major sweep refresh.
 - **Depends on:** none.
+- **Status update (2026-05-07):** Prompt-layer mirror of the agent_solver `_maybe_no_think_suffix` helper landed in `middleware/claude_sdk/runner.py:run_agent_turn_openai` so the BL.3 multi-turn loop now appends `/no_think` to the system prompt for any qwen3-family model. Surfaced because qwen3-coder:30b on Ollama OpenAI emitted 49 text tokens / 0 tool calls on the 2026-05-07 BL.3 retest — agent_solver's helper covered only the A4.4 single-turn gate; the loop runner was missing it. The transport-layer switch (this TODO's actual headline) remains open: qwen3.5/3.6 lineage still hangs on laptop Ollama via `/v1` regardless of the directive, and `/api/chat` with `think:false` is the only reliable suppression there. Prompt-layer fix is a strict subset of the proper transport fix.
 
 ### TODO-26: `--ollama-num-ctx` flag plumbed through `nl_gen_smoketest` to OpenAI-compat call
 

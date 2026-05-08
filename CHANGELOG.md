@@ -17,6 +17,50 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Fixed (BL.3 OpenAI-loop runner — `/no_think` injection for Qwen3 family)
+- `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py` —
+  new `_maybe_no_think_suffix(model)` helper appends `\n\n/no_think`
+  to the system prompt when the model id contains `qwen3` (case-
+  insensitive substring). `run_agent_turn_openai` now applies it
+  before constructing the messages array. Mirrors the existing helper
+  in `eval_runner/agent_solver.py:140` (F14i) which covered only the
+  A4.4 single-turn forced-tool gate; the BL.3 multi-turn loop runner
+  was missing it. Surfaced by the 2026-05-07 BL.3 retest where
+  `qwen3-coder:30b` on Ollama OpenAI-compat emitted 49 text tokens /
+  0 tool calls on the M5 kickoff (3.7K input tokens → end_turn with
+  no `tool_calls` field). Ollama silently strips the `think` request
+  parameter on `/v1/chat/completions`, so the only reliable
+  suppression is the in-prompt `/no_think` directive Qwen models
+  parse natively.
+- `apps/kernel/tests/test_middleware_claude_sdk.py` — three new tests:
+  `test_qwen3_model_gets_no_think_suffix` asserts the directive is
+  appended for `qwen3-coder:30b`; `test_non_qwen3_model_unchanged`
+  asserts `devstral-small-2:latest` passes through unchanged;
+  `test_maybe_no_think_suffix_qwen3_variants` covers the substring
+  match (qwen3, qwen3-coder, qwen3.5, mixed case) and negative cases
+  (llama, devstral, claude).
+
+### Changed (CLAUDE.md + TODOS.md — local-model status corrections)
+- `CLAUDE.md` § Multi-turn improvement loop — the devstral
+  "Confirmed working model" line was misleading for the BL.3
+  multi-turn loop on real M5 (TODO-21 closed devstral as not viable
+  due to codegen quality failing run_pipeline). Replaced with an
+  honest summary: no validated local-model lift driver yet;
+  Sonnet 4.6 cloud is the only confirmed lift driver; per-model
+  failure modes called out (qwen3-coder F6, devstral codegen,
+  granite em-dashes, qwen2.5-coder no tool calls). The qwen3-coder
+  Ollama entry now references the `run_agent_turn_openai` fix.
+- `TODOS.md` TODO-19 — 2026-05-07 status update closing the
+  probe-sweep residue (23 candidates) as superseded by the A4.4
+  broader sweep (PR #52, 19 local models pass 3/3). Headline goal
+  remains open; gated on cross-iter failure memory empirically
+  unblocking qwen3-coder F6 — exercise pending now that the
+  OpenAI-loop `/no_think` fix has landed.
+- `TODOS.md` TODO-25 — status update noting the prompt-layer
+  mirror landed in the BL.3 loop runner. Transport-layer switch
+  (`/api/chat` with `think:false`) remains open for laptop
+  qwen3.5/3.6 lineage which doesn't honor the in-prompt directive.
+
 ## [0.5.0] — 2026-05-07
 
 W5 complete: approval surface polish, LLM-judge stub approver (30 cases, ≥0.85 gate),

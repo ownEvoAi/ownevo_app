@@ -1672,3 +1672,57 @@ class TestRunAgentTurnOpenAI:
         )
         assert result.stop_reason == "max_iterations"
         assert result.iterations == 2
+
+    async def test_qwen3_model_gets_no_think_suffix(self) -> None:
+        """Qwen3-base (`qwen3:*`, `qwen3-coder:*`) ships thinking ON by
+        default and Ollama silently strips the `think` request param —
+        without `/no_think` in the system prompt the model emits a
+        reasoning trace and never reaches `tool_choice=auto` (see F14i +
+        2026-05-07 BL.3 retest where qwen3-coder:30b managed 0 tool calls
+        on the M5 kickoff)."""
+        chunks = [_oai_chunk(text="ok"), _oai_chunk(finish_reason="stop")]
+        client = _FakeOpenAIClient([chunks])
+        await run_agent_turn_openai(
+            client,
+            system="You are a test agent.",
+            user_message="hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="qwen3-coder:30b",
+        )
+        call_kwargs = client._completions.calls[0]
+        assert call_kwargs["messages"][0] == {
+            "role": "system",
+            "content": "You are a test agent.\n\n/no_think",
+        }
+
+    async def test_non_qwen3_model_unchanged(self) -> None:
+        """Non-qwen3 models must not receive the `/no_think` directive —
+        keeps the system-prompt cache key stable for everyone else."""
+        chunks = [_oai_chunk(text="ok"), _oai_chunk(finish_reason="stop")]
+        client = _FakeOpenAIClient([chunks])
+        await run_agent_turn_openai(
+            client,
+            system="You are a test agent.",
+            user_message="hi",
+            kernel_context=_kernel_ctx(),
+            collector=_new_collector(),
+            model="devstral-small-2:latest",
+        )
+        call_kwargs = client._completions.calls[0]
+        assert call_kwargs["messages"][0] == {
+            "role": "system",
+            "content": "You are a test agent.",
+        }
+
+
+def test_maybe_no_think_suffix_qwen3_variants() -> None:
+    from ownevo_kernel.middleware.claude_sdk.runner import _maybe_no_think_suffix
+
+    assert _maybe_no_think_suffix("qwen3-coder:30b") == "\n\n/no_think"
+    assert _maybe_no_think_suffix("qwen/qwen3-coder-30b") == "\n\n/no_think"
+    assert _maybe_no_think_suffix("Qwen3:14B") == "\n\n/no_think"
+    assert _maybe_no_think_suffix("qwen3.5:9b") == "\n\n/no_think"
+    assert _maybe_no_think_suffix("llama3.1:8b") == ""
+    assert _maybe_no_think_suffix("devstral-small-2:latest") == ""
+    assert _maybe_no_think_suffix("claude-opus-4-7") == ""

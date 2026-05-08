@@ -54,25 +54,29 @@ Code-generating loop on real M5. Supports two API formats via `--api-format`:
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
 - `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
 
-**Confirmed working model (2026-05-04):** `devstral-small-2:latest` on Ollama. Calls tools reliably, generates clean Python, gate-pass confirmed.
+**Multi-turn loop: no validated local-model lift driver on real M5 yet.** `qwen3-coder-30b` on LMS-Anthropic was the only model that drove the loop end-to-end (F5) but writes a deterministic `_long_frame` bug 14/14 attempts (F6, TODO-20 retest). `devstral-small-2:latest` on Ollama drives the loop and clears the 1 GB sandbox memory limit but its codegen quality fails `run_pipeline` validation every round (TODO-21 closed). Sonnet 4.6 on Anthropic cloud is the only confirmed lift driver (B4.2 + B4.3 + Stage C compound lift, ~$1.86 per 7-iter replay).
 
 ```bash
+# Sonnet 4.6 — known to lift on real M5, ~$0.30 / iter
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
-  --api-format openai \
-  --llm-model devstral-small-2:latest \
+  --api-format anthropic \
+  --llm-model claude-sonnet-4-6 \
   --no-seed
 ```
 
-Models tested and **not** working well on the multi-turn loop:
-- `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError
-- `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`
+Local-model attempts on the multi-turn loop and where they fail:
+- `qwen3-coder:30b` (Ollama OpenAI) — needed `/no_think` auto-injection in `run_agent_turn_openai` (added 2026-05-07; mirrors `agent_solver._maybe_no_think_suffix`). Without it the model emitted text and 0 tool calls on the M5 kickoff.
+- `qwen3-coder-30b` (LMS Anthropic) — drives the loop but hits F6 deterministically.
+- `devstral-small-2:latest` (Ollama) — drives the loop, runnable Python, but `run_pipeline` validation rejects every diff.
+- `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError.
+- `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`.
 
 ### A4.4 single-turn classification gate (`scripts/nl_gen_smoketest.py --from-fixtures`)
 
 Forced-tool-use `predict_label(value: bool)` per case; orthogonal track from the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama as of the 2026-05-06/07 broader sweep. Source of truth: `docs/local-model-testing.md` § F14a-k (and `apps/kernel/README.md` for the top-pick table). Highlights:
 
 - Fastest desktop 3/3: `granite-4.1-8b` (33 s, LMS). On laptop Apple Metal it sits on the credit-risk gate boundary — F14j flagged a ~0.17 drift, F14k re-test (4 laptop trials: 0.33 / 0.25 / 0.50 / 0.50 vs 0.40 gate) treats it as boundary noise, not systematic kernel drift. For stable laptop iteration use `qwen/qwen3-4b-2507`.
-- Fastest desktop Ollama 3/3: `qwen3-coder:30b` (82 s) — **only with `/no_think` auto-injection** (agent_solver.py auto-appends the directive when model id contains `qwen3`; F14i unlocked 5 desktop Ollama 3/3 passers including this one).
+- Fastest desktop Ollama 3/3: `qwen3-coder:30b` (82 s) — **only with `/no_think` auto-injection** (both `agent_solver.py` for the A4.4 gate and `middleware/claude_sdk/runner.py:run_agent_turn_openai` for the BL.3 multi-turn loop auto-append the directive when model id contains `qwen3`; F14i unlocked 5 desktop Ollama 3/3 passers including this one).
 - API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages` (F14g).
 - qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override; not unlocked by `/no_think`. qwen3-base + qwen3-coder ARE unlocked.
 
