@@ -8,7 +8,8 @@
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
-        llm-judge-approver-eval nl-gen-cluster-failures
+        llm-judge-approver-eval nl-gen-cluster-failures \
+        m5-replay-7day
 
 help:
 	@printf 'targets:\n'
@@ -49,6 +50,10 @@ help:
 	@printf '                      cluster failures (NL_GEN_CLUSTER_ARGS=... pass flags;\n'
 	@printf '                      --strategy controls failure pattern; --real flips to live\n'
 	@printf '                      Anthropic; --require-clusters N gates)\n'
+	@printf '  m5-replay-7day      W5.4: 7-cycle synthetic M5 replay — climbing lift curve,\n'
+	@printf '                      audit log + eval-set growth (REPLAY_ARGS=...; --reset for\n'
+	@printf '                      clean re-runs; --require-climbing / --require-audit-entries\n'
+	@printf '                      / --require-eval-growth gate)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -215,3 +220,16 @@ NL_GEN_CLUSTER_ARGS ?=
 nl-gen-cluster-failures:
 	cd apps/kernel && uv run python scripts/cluster_nl_gen_failures.py \
 	    $(NL_GEN_CLUSTER_ARGS)
+
+# ----------------------------------------------------------------------------
+# 7-day M5 replay (W5.4)
+# ----------------------------------------------------------------------------
+
+# `REPLAY_ARGS=...` passes flags through to scripts/m5_replay_7day.py:
+#   make m5-replay-7day REPLAY_ARGS='--reset --require-climbing --pretty'
+#   make m5-replay-7day REPLAY_ARGS='--cycles 14'
+# DB-required: OWNEVO_DATABASE_URL must point at a migrated database.
+REPLAY_ARGS ?=
+
+m5-replay-7day:
+	cd apps/kernel && uv run python scripts/m5_replay_7day.py $(REPLAY_ARGS)
