@@ -209,6 +209,55 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
   path silently dropped budget tracking, so cumulative usage caps were unenforceable
   on Ollama / LMS / cloud routes). See `0c839b3` + already-published `594bbb4`.
 
+### Added (W5.3 — NL-gen failure clustering wire-up, PLAN.md § W5 § 5.3)
+- `apps/kernel/src/ownevo_kernel/nl_gen/failure_clustering.py` —
+  new module that closes the W5.3 spec loop ("Track A's generated-sim
+  traces flow through the W3 clustering pipeline"). `NLGenFailureSnapshot`
+  is a frozen dataclass that satisfies the W3 `FailureLike` Protocol via
+  `text_signature: str` and an `rmsse: float` property (the protocol
+  attribute name is M5 inertia; we expose a generic severity score
+  under that name for duck-typed reuse). `analyze_nl_gen_failures(
+  case_set, spec, *, decisions)` filters agent decisions to failures
+  only, derives feature-gap hints (`false-negative` / `false-positive`
+  × `derived-miss` / `inferred-miss` × `train-fold` / `test-fold`),
+  ranks worst-first by severity, and builds a one-line text signature
+  per snapshot mirroring the M5 format. Severity boosts: +0.3 for
+  test-fold, +0.2 for derived-provenance (verbatim user-flagged miss).
+- `apps/kernel/scripts/cluster_nl_gen_failures.py` + Make target
+  `nl-gen-cluster-failures`. Drives the 3 hand-authored NL-gen fixtures
+  (demand-prediction + credit-risk + contract-review) through a
+  deliberately-buggy stub agent (4 strategies; default
+  `miss-derived-and-train-fps` produces ≥3 distinct clusters) →
+  `analyze_nl_gen_failures` → W3 `cluster_failures` (stub embedder /
+  identity reducer / by-(workflow, direction) bucketing clusterer /
+  stub labeler by default; `--real` flips to sentence-transformers +
+  UMAP + HDBSCAN + Anthropic over the live `solve_with_agent` path).
+  Persists clusters via `persist_clustering_result` when
+  `OWNEVO_DATABASE_URL` is set. CLI flags: `--strategy {always-false,
+  always-true, miss-derived, miss-derived-and-train-fps}`, `--real`,
+  `--no-db`, `--workflow-id`, `--require-clusters N` (exits 5 when
+  threshold not met), `--pretty`.
+- W5.3 spec gate verified: default strategy yields 24 failures across
+  the 3 fixtures and lands in **5 clusters**; `--strategy always-false`
+  yields 16 failures landing in **3 clusters** (one per workflow's
+  false-negative population). Both clear the ≥3 spec bar.
+- 32 new tests across 2 files
+  (`test_nl_gen_failure_clustering.py` 16 +
+  `test_scripts_cluster_nl_gen_failures.py` 16): snapshot satisfies
+  Protocol; analyze filters / hints / ordering / workflow-id cross-
+  check; severity-boost matrix; text-signature load-bearing fields +
+  provenance-source truncation; end-to-end smoke landing ≥3 clusters;
+  CLI argparse choices + `--require-clusters` exit semantics; per-
+  strategy failure-population pinning. Full kernel suite: 1019 passed,
+  227 skipped.
+- **Cluster → eval-case promotion deferred.** The existing
+  `eval_cases/from_cluster.py` is M5-typed (writes `series_id` +
+  `feature_gap_hints` + `rmsse_at_promotion` per cluster member); the
+  NL-gen-shaped promotion helper (writes `sim_seed` + `n_steps` +
+  `target_step_index` + `target_label_field` + `expected_value` per
+  case) lands as a follow-up so this PR stays focused on the
+  clustering wire-up the W5.3 spec calls for.
+
 ### Added (B3.5 — Cluster-label LLM eval, W3 Track B exit criterion)
 - `apps/kernel/src/ownevo_kernel/clustering/label_eval/judgment.py` —
   `ClusterLabelJudgment` Pydantic schema. Binary verdict (`agree` /

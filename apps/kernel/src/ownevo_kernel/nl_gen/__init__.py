@@ -52,6 +52,10 @@ from .eval_replay import (
     replay_case,
     replay_set,
 )
+from .failure_clustering import (
+    NLGenFailureSnapshot,
+    analyze_nl_gen_failures,
+)
 from .metric_compute import (
     MetricComputeError,
     MetricResult,
@@ -223,4 +227,7 @@ __all__ = [
     # A4.4
     "NLGenPipelineResult",
     "generate_full_pipeline",
+    # W5.3 — failure clustering wire-up
+    "NLGenFailureSnapshot",
+    "analyze_nl_gen_failures",
 ]

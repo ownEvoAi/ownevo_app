@@ -8,7 +8,7 @@
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
-        llm-judge-approver-eval
+        llm-judge-approver-eval nl-gen-cluster-failures
 
 help:
 	@printf 'targets:\n'
@@ -42,6 +42,10 @@ help:
 	@printf '                      agreement + per-bucket slicing\n'
 	@printf '                      (LLM_JUDGE_APPROVER_ARGS=... pass flags; default opus 4.7\n'
 	@printf '                      judge; --require-agreement 0.85 for the W5.2 gate)\n'
+	@printf '  nl-gen-cluster-failures  W5.3: drive NL-gen fixtures through a stub agent →\n'
+	@printf '                      cluster failures (NL_GEN_CLUSTER_ARGS=... pass flags;\n'
+	@printf '                      --strategy controls failure pattern; --real flips to live\n'
+	@printf '                      Anthropic; --require-clusters N gates)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -195,3 +199,16 @@ LLM_JUDGE_APPROVER_ARGS ?=
 llm-judge-approver-eval:
 	cd apps/kernel && uv run --extra agent python scripts/llm_judge_approver_eval.py \
 	    $(LLM_JUDGE_APPROVER_ARGS)
+
+# ----------------------------------------------------------------------------
+# NL-gen failure clustering (W5.3)
+# ----------------------------------------------------------------------------
+
+# `NL_GEN_CLUSTER_ARGS=...` passes flags through, e.g.
+#   make nl-gen-cluster-failures NL_GEN_CLUSTER_ARGS='--require-clusters 3 --pretty'
+#   make nl-gen-cluster-failures NL_GEN_CLUSTER_ARGS='--real'  (live Anthropic)
+NL_GEN_CLUSTER_ARGS ?=
+
+nl-gen-cluster-failures:
+	cd apps/kernel && uv run python scripts/cluster_nl_gen_failures.py \
+	    $(NL_GEN_CLUSTER_ARGS)
