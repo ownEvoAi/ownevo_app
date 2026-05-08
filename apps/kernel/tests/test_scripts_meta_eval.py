@@ -222,3 +222,30 @@ def test_require_agreement_fails_when_judge_is_always_good(
     assert rc == 1
     payload = json.loads(f.getvalue())
     assert payload["agreement"] == 0.5  # always-good gets 10/20
+
+
+# ---------------------------------------------------------------------------
+# Local-routing api_key default
+# ---------------------------------------------------------------------------
+
+
+def test_make_client_uses_local_api_key_when_base_url_set(monkeypatch):
+    """When --anthropic-base-url routes to a local server, the Anthropic
+    SDK still validates that *some* api_key header is present. Default it
+    to ``"local"`` so callers don't need to set ANTHROPIC_API_KEY just to
+    satisfy the SDK validator (regression target — the missing default
+    bit during the 2026-05-08 W5.5 local-meta-eval attempt)."""
+    pytest.importorskip("anthropic")  # CI's default extras don't ship it
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    client = cli._make_client("http://localhost:1234")
+    assert client.api_key == "local"
+    assert str(client.base_url).rstrip("/") == "http://localhost:1234"
+
+
+def test_make_client_respects_explicit_env_key(monkeypatch):
+    """When ANTHROPIC_API_KEY is set, the local-route client must use
+    that value, not stomp it with the ``"local"`` placeholder."""
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "user-supplied")
+    client = cli._make_client("http://localhost:1234")
+    assert client.api_key == "user-supplied"

@@ -245,3 +245,30 @@ def test_require_agreement_unset_ignores_low_score(mocked_always_admit):
     with redirect_stdout(f):
         rc = cli.main([])
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Local-routing api_key default
+# ---------------------------------------------------------------------------
+
+
+def test_make_async_client_uses_local_api_key_when_base_url_set(monkeypatch):
+    """When --anthropic-base-url routes to a local server, the Anthropic
+    SDK still validates that *some* api_key header is present. Default it
+    to ``"local"`` so callers don't need to set ANTHROPIC_API_KEY just to
+    satisfy the SDK validator (regression target — the missing default
+    bit during the 2026-05-08 W5.2 local-judge run)."""
+    pytest.importorskip("anthropic")  # CI's default extras don't ship it
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    client = cli._make_async_client("http://localhost:1234")
+    assert client.api_key == "local"
+    assert str(client.base_url).rstrip("/") == "http://localhost:1234"
+
+
+def test_make_async_client_respects_explicit_env_key(monkeypatch):
+    """When ANTHROPIC_API_KEY is set, the local-route client must use
+    that value, not stomp it with the ``"local"`` placeholder."""
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "user-supplied")
+    client = cli._make_async_client("http://localhost:1234")
+    assert client.api_key == "user-supplied"

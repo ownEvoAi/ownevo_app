@@ -176,10 +176,24 @@ def _print_config(ns: argparse.Namespace) -> None:
 
 
 def _make_async_client(base_url: str | None):
+    """Anthropic client with sensible defaults for local routing.
+
+    When ``base_url`` is set (LM Studio at :1234, LiteLLM proxy, etc.)
+    the SDK still validates that *some* auth header is present even
+    though the local server typically ignores it. Default the api_key
+    to ``"local"`` in that case so callers don't have to remember to
+    set ``ANTHROPIC_API_KEY=anything`` to satisfy the SDK validator —
+    bit during the 2026-05-08 W5.2 local-judge run. Cloud route
+    (``base_url is None``) keeps the SDK's normal env-var discovery
+    so ``ANTHROPIC_API_KEY`` works as before.
+    """
     from anthropic import AsyncAnthropic
 
     if base_url:
-        return AsyncAnthropic(base_url=base_url)
+        return AsyncAnthropic(
+            base_url=base_url,
+            api_key=os.environ.get("ANTHROPIC_API_KEY", "local"),
+        )
     return AsyncAnthropic()
 
 
