@@ -17,6 +17,74 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (W7 Track 1 — workspace customer skin, slices 1-6)
+
+Six PRs (squashed into one) shipping the customer-facing workspace UI
+at `/workspaces/[wsId]/...`. Closes PLAN.md rows 7.1.1, 7.1.2, 7.1.3,
+7.1.5, 7.1.6, 7.1.7, 7.1.8 — six of the thirteen Track 1 rows.
+Slicing plan + resolved open questions in `docs/W7_SLICE.md`.
+
+- **Slice 1 (shell + nav):** new `app/workspaces/[wsId]/layout.tsx`
+  with the full sidebar from `www/preview/s26-rk7p3/01-health.html`
+  (workspace switcher + Activity / Workflows / Library sections +
+  active-state highlighting + theme toggle). Root layout stripped to
+  bare `<html><body>`; W2.5/W5.5 routes (/inbox, /proposals/[id],
+  /workflows/preview) move into a `(legacy)` route group with the
+  pre-W7 simple sidebar — URLs unchanged. `/` now redirects to
+  `/workspaces/acme` (slug cosmetic per D4).
+- **Slice 2 (Health page + LiftChart):** new
+  `GET /api/workflows` + `GET /api/workflows/{id}/iterations` kernel
+  endpoints. Pure-SVG `<LiftChart />` plots `iteration_index ×
+  val_score` with annotated dots on approved-proposal iterations
+  (W7_SLICE.md resolved decision: iteration-keyed, not day-keyed).
+  Workflow-rows table below. Page renders gracefully when the kernel
+  is unreachable.
+- **Slice 3 (Failures view):** new
+  `GET /api/workflows/{id}/failure_clusters` (centroid omitted; sorts
+  by severity then `cluster_size DESC`). `<FailureClusterCard />` +
+  workflow-detail layout with Overview/Failures/Audit tabs.
+- **Slice 4 (Audit trail + verify-chain):** new `GET /api/audit` +
+  `POST /api/audit/verify`. Workspace-level chronological list with
+  expandable `<details>` per row + a verify-chain Server Action +
+  client island that surfaces missing/duplicate seqs + canonical
+  export bytes. D2 alignment: structural integrity check, no crypto
+  yet (TODO-3 extends).
+- **Slice 5 (New Workflow inside workspace):** moves the W5.5 NL-gen
+  flow from `/workflows/preview` into
+  `/workspaces/[wsId]/workflows/new`. Legacy URL 307s to the new
+  path so demo bookmarks still work.
+- **Slice 6 (positioning mocks):** Overview pages for labour /
+  contract / support read from a hand-authored `mocks.ts` (4 metrics
+  + 3 recent-activity entries each, distinct buyer + role + version
+  per workflow). Inline "STATIC MOCK · same loop, NL-gen the rest"
+  banner on every mock surface so reviewers can't confuse them with
+  the live demand-prediction flow.
+
+Backend additions: 4 Pydantic models (`WorkflowSummary`,
+`IterationPoint`, `FailureClusterSummary`, `AuditEntryRow`) + 3
+response-list models + `AuditVerifyResponse`. Two new route files
+(`workflows.py`, `audit.py`). 16 new integration tests in
+`test_api_workflows.py` + `test_api_audit.py` (skip without
+`OWNEVO_DATABASE_URL`).
+
+OpenAPI: `docs/api/openapi.yaml` updated each slice — five new
+schemas (WorkflowListResponse, IterationListResponse,
+FailureClusterListResponse, AuditListResponse, AuditVerifyResponse)
++ matching paths. Replaces the W1 placeholder shapes.
+
+Smoke: typecheck green, kernel imports clean, 7 routes render at
+HTTP 200 (`/`, `/workspaces/acme`, `/workspaces/acme/audit`,
+`/workspaces/acme/workflows/{demand-prediction,labour,contract,support}`,
+`/workspaces/acme/workflows/new`). Pre-existing CSS-minification
+issue on `npm run build` documented but not in W7 scope.
+
+**Deferred to W8** (per slicing plan): 7.1.4 ProposalCard polish,
+7.1.9 per-trace step inspection, 7.1.10/11 per-skill detail (prompt +
+code), 7.1.12 Workflow Agent-anatomy pane, 7.1.13 demo rollback
+runbook. Track 3 (τ³-bench template + NeoSigma reproduction)
+deferred — separate session needed for the Sierra dataset + multi-
+turn agent harness shape.
+
 ### Validated (W5.2 local LLM-judge approver — 2026-05-08)
 - **`granite-4.1-8b` on LM Studio (32k context) hit
   `agreement = 0.9667 ≥ 0.85` on the 30-case W5.2 hand-labeled
