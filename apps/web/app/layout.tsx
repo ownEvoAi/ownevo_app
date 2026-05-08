@@ -47,6 +47,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <span className="nav-label">Inbox</span>
             </a>
 
+            <div className="nav-section">Workflows</div>
+            <a href="/workflows/preview" className="nav-item">
+              <svg className="nav-icon" viewBox="0 0 16 16">
+                <path d="M8 3 L8 13 M3 8 L13 8" />
+              </svg>
+              <span className="nav-label">New workflow</span>
+            </a>
+
             <div className="nav-footer">
               <ThemeToggle />
             </div>
