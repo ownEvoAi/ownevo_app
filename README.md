@@ -49,7 +49,7 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 
 ## Status
 
-**W5 complete (Phase 2 Tracks A + B) — v0.5.0.** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
+**W7 Track 1 complete (workspace customer skin) — pending merge.** The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, watch the audit chain extend. Track 3 (τ³-bench template + prior-art reproduction) is the only open W7 thread.
 
 - **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
 - **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
@@ -57,8 +57,10 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 - **W4 NL-gen pipeline closed** (v0.4.0, A4.1–A4.6): NL → eval cases (A4.1), NL → success metric (A4.2), Inspect AI integration + `make eval-replay` (A4.3), `make nl-gen-smoketest` validates 3 workflows end-to-end with a Claude agent in the loop (A4.4), token budget + determinism guardrails (A4.5), and the LLM-as-judge meta-eval with a 10-pair ground-truth set + `make meta-eval` — agreement 0.85 on the live opus 4.7 smoke (A4.6).
 - **W3-W4 Track B failure clustering** (v0.4.0, B3.1–B3.5): embedding + UMAP + HDBSCAN clustering pipeline over `AgentEvent` failures, plus LLM-judge cluster-label evaluation — B3.5 live gate **0.85 agreement (17/20)** at the v0.4.0 cut (2026-05-07), well above the W3 Track B ≥0.7 contract.
 - **W5 approval surface + benchmark infra** (v0.5.0, W5.1–W5.5): side-by-side diff + per-eval-case gate breakdown (W5.1), LLM-judge stub approver with 30-case ground-truth eval + ≥0.85 gate (W5.2), NL-gen failure clustering wire-up (W5.3), 7-day M5 replay scaffold (W5.4), and meta-eval as quality gate with coverage badge + `/workflows/preview` UI (W5.5).
+- **W6 NL-gen end-to-end demo loop** (row 6.1): demo-day NL-gen surface live at `/workflows/preview` with the meta-eval gate inline.
+- **W7 Track 1 customer-facing workspace skin** (slices 1-12, pending merge on `w7-track1-rest`): app shell + nav under `/workspaces/[wsId]/`, Health page with LiftChart, Failures view, Audit trail + verify-chain, "New workflow" entry, three positioning mocks (labour / contract / support); plus slices 7-12 — proposal moved into the workspace shell with cluster→proposal click-through, per-trace step inspection (all seven AgentEvent variants), per-skill detail (prompt + code variants), Workflow Agent-anatomy pane, and the `make revert-skill` demo rollback runbook.
 
-Next: W6 (full 30-day M5 replay across 4 parallel conditions + NL-gen end-to-end demo in <5 min for external reviewer).
+Next: W7 Track 3 (τ³-bench template + prior-art reproduction) and W8 polish.
 
 ## A4.4 NL-gen smoketest — model comparison (2026-05-05)
 

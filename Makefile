@@ -9,7 +9,7 @@
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
-        m5-replay-7day m5-replay-30day nl-gen-demo-loop
+        m5-replay-7day m5-replay-30day nl-gen-demo-loop revert-skill
 
 help:
 	@printf 'targets:\n'
@@ -126,6 +126,30 @@ web-build:
 
 seed-approval-demo:
 	uv run --package ownevo-kernel python apps/kernel/scripts/seed_approval_demo.py
+
+# ----------------------------------------------------------------------------
+# Demo rollback (W7 slice 12 / PLAN row 7.1.13)
+#
+# Re-points skills.head_version_id at a prior version_seq and writes an
+# append-only audit entry. Documented in docs/runbooks/demo-rollback.md.
+# Required: SKILL=<id> TO_VERSION=<n> REASON="..."
+# Optional: ACTOR=<id> (default human:operator); DRY_RUN=1 to preview.
+# ----------------------------------------------------------------------------
+SKILL ?=
+TO_VERSION ?=
+REASON ?=
+ACTOR ?= human:operator
+DRY_RUN ?=
+
+revert-skill:
+	@if [ -z "$(SKILL)" ] || [ -z "$(TO_VERSION)" ] || [ -z "$(REASON)" ]; then \
+	  printf 'usage: make revert-skill SKILL=<id> TO_VERSION=<n> REASON="..."  [ACTOR=...] [DRY_RUN=1]\n'; \
+	  exit 2; \
+	fi
+	cd apps/kernel && uv run python scripts/revert_skill.py \
+	    --skill '$(SKILL)' --to-version '$(TO_VERSION)' \
+	    --reason '$(REASON)' --actor '$(ACTOR)' \
+	    $(if $(DRY_RUN),--dry-run,)
 
 # ----------------------------------------------------------------------------
 # Bootstrap improvement loop (BL.1 + BL.3 — pre-W3, PLAN.md v3.8)

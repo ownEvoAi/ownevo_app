@@ -24,7 +24,7 @@ interface PageProps {
 // cluster fixtures from `mocks.ts` so the layout matches the Overview
 // tab's STATIC MOCK banner instead of returning a 404 from the kernel.
 export default async function WorkflowFailuresPage({ params }: PageProps) {
-  const { wfId } = await params
+  const { wsId, wfId } = await params
 
   let clusters: FailureClusterList = { workflow_id: wfId, items: [] }
   let apiError: string | null = null
@@ -124,7 +124,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">High · {high.length}</div>
           <div className="clusters">
             {high.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
             ))}
           </div>
         </>
@@ -135,7 +135,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Medium · {medium.length}</div>
           <div className="clusters">
             {medium.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
             ))}
           </div>
         </>
@@ -146,7 +146,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Low · {low.length}</div>
           <div className="clusters">
             {low.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
             ))}
           </div>
         </>

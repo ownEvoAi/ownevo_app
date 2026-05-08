@@ -229,6 +229,25 @@ class WorkflowList(_Strict):
     total: int
 
 
+class WorkflowAnatomy(_Strict):
+    """Full workflow detail backing the W7 slice 11 (7.1.12) anatomy pane.
+
+    `spec` is the frozen-schema JSONB blob written by the NL-gen
+    pipeline (`apps/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec`).
+    The anatomy pane reads `spec.tools[*]`, `spec.reviewer`,
+    `spec.environment`, and renders them alongside skills (separately
+    fetched via `/api/workflows/{wf_id}/skills`). The DTO leaves the
+    spec opaque (`dict[str, Any]`) so spec-version bumps don't break
+    the API contract; the web app does its own field-by-field reads
+    with sensible empty-state fallbacks.
+    """
+
+    id: str
+    description: str
+    mode: str
+    spec: dict[str, Any]
+
+
 class IterationPoint(_Strict):
     """One point on the lift chart.
 
@@ -262,6 +281,12 @@ class FailureClusterSummary(_Strict):
     `centroid` is omitted intentionally — 384 floats per row blow up
     the JSON payload and the UI doesn't render the embedding. If a
     debug view ever needs it, add a separate detail endpoint.
+
+    `latest_proposal_id` (W7 slice 7 / 7.1.4) is the most recent
+    proposal whose iteration was triggered by this cluster
+    (`iterations.cluster_id`). Null when no iteration has yet been
+    spawned against the cluster — the Failures card stays
+    non-interactive in that case.
     """
 
     id: UUID
@@ -273,6 +298,7 @@ class FailureClusterSummary(_Strict):
     quality_score: float | None
     sample_trace_ids: list[UUID]
     created_at: datetime
+    latest_proposal_id: UUID | None
 
 
 class FailureClusterList(_Strict):
@@ -326,6 +352,152 @@ class AuditVerifyResponse(_Strict):
     checked_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Skills (W7 slice 9 + 10 — 7.1.10 / 7.1.11)
+# ---------------------------------------------------------------------------
+
+
+class SkillVersionSummary(_Strict):
+    """One row in a skill's version history pane.
+
+    `diff_summary` is the human-readable change description the agent or
+    nl-gen pipeline writes when proposing the version. Null on bootstrap.
+    """
+
+    id: UUID
+    version_seq: int
+    parent_version_id: UUID | None
+    diff_summary: str | None
+    created_by: str
+    created_at: datetime
+
+
+class SkillSummary(_Strict):
+    """Card-shaped skill row for the per-workflow skills list.
+
+    `head_version_seq` is the active version's sequence number for the
+    Library / anatomy pane "v7" pill. Null if no version exists yet.
+    """
+
+    id: str
+    kind: str  # 'python' | 'instruction' | 'composite'
+    workflow_id: str | None
+    capability_tags: list[str]
+    head_version_id: UUID | None
+    head_version_seq: int | None
+    head_created_at: datetime | None
+
+
+class SkillList(_Strict):
+    items: list[SkillSummary]
+
+
+class SkillRelatedEvalCase(_Strict):
+    """Sparse eval-case row surfaced on the skill detail page.
+
+    For instruction skills: provenance='retention-violation' rows on the
+    skill's workflow. For code skills: any provenance cluster-derived /
+    rejected-feedback that was linked to the iteration which promoted a
+    proposal on this skill. Both reduce to "what test cases is this
+    skill on the hook for" — the page renders them under
+    "Related eval cases".
+    """
+
+    id: UUID
+    workflow_id: str | None
+    provenance: str
+    expected_behavior: dict[str, Any] | None
+    is_test_fold: bool
+    created_at: datetime
+
+
+class SkillDetail(_Strict):
+    """Per-skill detail page DTO.
+
+    Combines `skills`, `skill_versions` (head row inlined + history list),
+    capability tags, the workflow the skill is bound to, and the most
+    recent related eval cases. The web app branches on `kind` to choose
+    between the prompt-variant renderer (W7 slice 9) and the code-variant
+    renderer (W7 slice 10).
+
+    `head_content` is the active version's text. `parent_content` is the
+    immediately-prior version, used by the inline diff in the code
+    renderer. `retention_block` is the parsed YAML frontmatter for
+    instruction skills; null otherwise.
+    """
+
+    id: str
+    kind: str
+    workflow_id: str | None
+    workflow_description: str | None
+    capability_tags: list[str]
+    head_version_id: UUID | None
+    head_version_seq: int | None
+    head_content: str | None
+    head_retention_block: dict[str, Any] | None
+    head_diff_summary: str | None
+    head_created_at: datetime | None
+    head_created_by: str | None
+    parent_content: str | None
+    parent_version_seq: int | None
+    versions: list[SkillVersionSummary]
+    related_eval_cases: list[SkillRelatedEvalCase]
+
+
+# ---------------------------------------------------------------------------
+# Traces (W7 slice 8 — 7.1.9)
+# ---------------------------------------------------------------------------
+
+
+class TraceSummary(_Strict):
+    """Row in the per-workflow trace list view.
+
+    `event_count` and `kind_counts` are computed from the JSONB events
+    array — the list view shows them as quick triage signals (which
+    traces are tool-heavy vs reasoning-heavy, did any monitor signal
+    fire). `iteration_index` is non-null when the trace was produced
+    inside the gate loop; null for production / standalone traces.
+    """
+
+    id: UUID
+    workflow_id: str | None
+    iteration_id: UUID | None
+    iteration_index: int | None
+    skill_version_id: UUID | None
+    started_at: datetime
+    ended_at: datetime | None
+    event_count: int
+    kind_counts: dict[str, int]
+
+
+class TraceList(_Strict):
+    workflow_id: str
+    items: list[TraceSummary]
+
+
+class TraceDetail(_Strict):
+    """Full trace with the AgentEvent stream.
+
+    `events` is passed through verbatim — list of dicts with the
+    discriminated `type` field that the trace-format SPEC defines. The
+    web app renders per-event variants client-side rather than the API
+    typing the union, keeping this DTO frozen-shape if SPEC bumps.
+    """
+
+    id: UUID
+    workflow_id: str | None
+    iteration_id: UUID | None
+    iteration_index: int | None
+    skill_version_id: UUID | None
+    skill_id: str | None
+    skill_version_seq: int | None
+    started_at: datetime
+    ended_at: datetime | None
+    metric_outputs: dict[str, Any] | None
+    token_usage: dict[str, Any] | None
+    events: list[dict[str, Any]]
+
+
 __all__ = [
     "ApprovalDetail",
     "ApproveResponse",
@@ -344,6 +516,15 @@ __all__ = [
     "ProposalDetail",
     "ProposalList",
     "ProposalSummary",
+    "SkillDetail",
+    "SkillList",
+    "SkillRelatedEvalCase",
+    "SkillSummary",
+    "SkillVersionSummary",
+    "TraceDetail",
+    "TraceList",
+    "TraceSummary",
+    "WorkflowAnatomy",
     "WorkflowDetail",
     "WorkflowList",
     "WorkflowSummary",

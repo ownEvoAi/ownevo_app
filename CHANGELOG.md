@@ -17,6 +17,162 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Fixed (W7 Track 1 fix-pass — pre-landing review)
+
+Pre-landing review caught two concrete bugs in slices 7-12 and one
+DRY violation; these fixes ride on the same PR rather than a follow-up.
+
+- **`scripts/revert_skill.py`: read-then-write race closed.** The
+  rollback now uses optimistic concurrency: `UPDATE skills SET
+  head_version_id = $1 WHERE id = $2 AND head_version_id IS NOT
+  DISTINCT FROM $3` against the originally-read head, with rowcount
+  parsed from asyncpg's status string. If a concurrent gate-pass
+  advances HEAD between the read and the UPDATE, the revert aborts
+  with new exit code `4` instead of overwriting the newer head AND
+  writing a stale `from_version_seq` to the audit log. The runbook
+  scenario (operator runs revert while autonomous mode is still
+  emitting iterations) is the demo-eve case this guards.
+- **`/api/skills/{id}`: orphan `head_version_id` raises 500.** When
+  a skill row's `head_version_id` is non-null but the referenced
+  `skill_versions` row is missing, the endpoint now raises 500 with
+  a clear detail string instead of silently returning a 200 that
+  looks identical to a freshly-bootstrapped skill. DB corruption
+  shows up loudly in the operator UI.
+- **`workflows.py`: `best_ever_score` consistency.** The
+  `MAX(best_ever_score_after)` subquery on the Health workflow list
+  now filters `state <> 'running'` to match `iteration_count`. Stops
+  the rare "47 iterations · best score 0.847 from in-flight iter 48"
+  inconsistency on the Health page.
+
+### Refactored
+
+- **`api/jsonb.py`: shared `decode_jsonb_obj` + `decode_jsonb_array`.**
+  The local `_decode_jsonb*` helpers in `proposals.py`, `skills.py`,
+  `traces.py`, and `workflows.py` (each marked "match the
+  proposals.py convention") are now one shared module. Net delete
+  ~20 lines; all four routes import the canonical helpers.
+- **API 404 detail strings consistent.** New `/api/skills`,
+  `/api/traces`, and `/api/workflows/{id}` 404 responses use static
+  detail strings (`"Skill not found"`, `"Trace not found"`, etc.)
+  instead of echoing the user-supplied path param, matching the
+  existing `list_failure_clusters` convention. Removes the
+  reflected-input divergence flagged in the pre-landing review.
+- **TODO-18 widened** to cover the W7 list endpoints (workflows,
+  iterations, failure_clusters, traces, skills) and the trace events
+  truncation. Implementation deferred; the marketing claim is that
+  the gap is tracked, not closed.
+
+### Added (W7 Track 1 — workspace customer skin, slices 7-12)
+
+Six slices (squashed into one PR) closing the remaining seven Track 1
+rows from PLAN.md § Phase 3 W7. Closes 7.1.4, 7.1.9, 7.1.10, 7.1.11,
+7.1.12, 7.1.13 — every deferred Track 1 deliverable. Track 3
+(τ³-bench template + prior-art reproduction) remains the only open
+W7 thread.
+
+- **Slice 7 (7.1.4 — ProposalCard polish + cluster→proposal
+  linkage):** moved `(legacy)/proposals/[id]/` under the workspace
+  shell at `app/workspaces/[wsId]/proposals/[id]/`. The legacy URL
+  redirects to `/workspaces/acme/proposals/{id}` so W5.1 demo links
+  + the kernel's `make demo-print-link` output keep working.
+  Breadcrumb chain now goes Workspace → Workflow → Proposal (was
+  Inbox → Proposal). Server Action `revalidatePath` targets the
+  workspace-scoped routes. **Cluster→proposal click-through:** new
+  `latest_proposal_id` on `FailureClusterSummary` (correlated
+  subquery via `iterations.cluster_id`). FailureClusterCard wraps
+  in `<Link>` when non-null with a "View proposal →" CTA — one
+  click from the Failures view to the proposal review surface.
+  `SkillDiff` promoted from `(legacy)/proposals/` into shared
+  `app/components/` so the skill-detail page can reuse it.
+
+- **Slice 8 (7.1.9 — per-trace step inspection):** new
+  `GET /api/workflows/{id}/traces` + `GET /api/traces/{id}` kernel
+  endpoints. Two new web routes:
+  `app/workspaces/[wsId]/workflows/[wfId]/traces/page.tsx` (list)
+  + `app/workspaces/[wsId]/traces/[traceId]/page.tsx` (detail).
+  All seven AgentEvent variants from
+  `packages/trace-format/SPEC.md` (skill_loaded, content_delta,
+  reasoning_delta, tool_call_start, tool_call_result, citation,
+  monitor_signal) render with offset-from-start timing + per-event
+  expandable input/output (native `<details>`, zero client JS).
+  WorkflowTabs adds a "Traces" tab between Failures and Audit.
+  Closes the LangSmith / LangFuse parallel for the workspace.
+  List endpoint's `kind_counts` derived from the JSONB array via
+  `jsonb_array_elements` lateral so triage signals (tool-heavy vs
+  reasoning-heavy) render without per-row event-stream fetches.
+
+- **Slice 9 + 10 (7.1.10 + 7.1.11 — per-skill detail, prompt + code
+  variants):** new `GET /api/workflows/{id}/skills` +
+  `GET /api/skills/{id}` endpoints. One web route at
+  `app/workspaces/[wsId]/skills/[skillId]/page.tsx` branches on
+  `skill.kind`:
+  - `kind='instruction'` → SKILL.md content + retention-contract
+    sidebar (parsed YAML frontmatter from `skill_versions.retention_block`)
+    + version history + retention-violation eval cases.
+  - `kind='python' | 'composite'` → side-by-side inline diff vs
+    parent version (reuses promoted `SkillDiff`) + extracted
+    function signatures (regex over `def`/`class` declarations) +
+    cluster-derived eval cases for proposals on the skill.
+  Both kinds: capability-tag pills, version history sidebar,
+  diff-summary metadata, "Last edited" + "Created by" provenance.
+
+- **Slice 11 (7.1.12 — Workflow Agent-anatomy pane):** new
+  `GET /api/workflows/{id}` endpoint returning the raw NL-gen
+  `spec` JSONB (frozen at `nl_gen/spec.py:WorkflowSpec` v1.0).
+  New shared component `app/components/agent-anatomy.tsx`
+  rendered above-the-fold on every workflow Overview — three
+  columns: **Skills active** (linked to skill detail) ·
+  **Tools available** (`name(inputs) → outputs` signatures) ·
+  **Topology &amp; review** (single-agent loop framing +
+  `spec.reviewer` + `spec.success_criterion` + environment
+  summary). Mock workflows (labour / contract / support) get
+  hand-authored anatomy data inline in `mocks.ts` so the four-tab
+  strip presents the same architecture story across all workflows;
+  live workflows fetch from the kernel.
+
+- **Slice 12 (7.1.13 — demo rollback runbook):** new
+  `docs/runbooks/demo-rollback.md` covering the
+  identify-regression → dry-run → revert → recompute → audit-verify
+  loop, scoped to a 5-minute time budget for the day-before-investor-meeting case
+  where the lift chart goes negative. Backed by a new
+  `apps/kernel/scripts/revert_skill.py` script that re-points
+  `skills.head_version_id` at a prior `version_seq` inside one
+  transaction with an `audit_kind='proposal-rolled-back'` audit
+  entry (payload disambiguator `rollback_kind="skill-head-revert"`
+  pending a future `skill-rolled-back` enum). New Makefile target
+  `make revert-skill SKILL=<id> TO_VERSION=<n> REASON="..."`
+  with a `DRY_RUN=1` opt-in for the runbook's preview step.
+
+Backend additions: 8 Pydantic models (`TraceSummary`, `TraceList`,
+`TraceDetail`, `SkillSummary`, `SkillList`, `SkillVersionSummary`,
+`SkillRelatedEvalCase`, `SkillDetail`, `WorkflowAnatomy`). One
+extended model (`FailureClusterSummary` gains `latest_proposal_id`).
+Two new route files (`traces.py`, `skills.py`) + extension to
+`workflows.py`. 12 new integration tests across
+`test_api_traces.py`, `test_api_skills.py`, `test_api_workflows.py`.
+
+Frontend additions: 7 new web routes — proposal under workspace
+shell, two trace routes (workflow list + per-trace detail), skill
+detail, plus AgentAnatomy mounting on workflow Overview. Two
+shared components moved/added in `app/components/` (skill-diff
+promoted from proposals; agent-anatomy new). `WorkflowTabs` gains
+a Traces tab. Shared CSS extends `globals.css` with W7-slice-7..11
+sections (cluster click affordance, trace timeline, skill detail,
+agent anatomy).
+
+OpenAPI: `docs/api/openapi.yaml` updated for every new endpoint —
+six new schemas (`TraceListResponse`, `TraceSummary`, `TraceDetail`,
+`SkillListResponse`, `SkillDetailResponse`, `SkillVersionSummary`,
+`SkillRelatedEvalCase`, `SkillSummaryResponse`,
+`WorkflowAnatomyResponse`) + extended `FailureClusterSummary`.
+
+Smoke: typecheck green, kernel imports clean, 1601 tests collect
+(was 1583 — 18 new across traces / skills / workflow-anatomy /
+cluster→proposal). All new endpoints return 404 cleanly when their
+target doesn't exist; FailureClusterCard renders identically when
+`latest_proposal_id` is null (regression-safe for clusters without
+an iteration yet).
+
 ### Added (W7 Track 1 — workspace customer skin, slices 1-6)
 
 Six PRs (squashed into one) shipping the customer-facing workspace UI

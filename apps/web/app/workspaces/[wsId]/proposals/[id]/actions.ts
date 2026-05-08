@@ -5,6 +5,7 @@ import { approveProposal, rejectProposal, KernelApiError } from '@/lib/api'
 
 interface DecideInput {
   proposalId: string
+  wsId: string
   decision: 'approve' | 'reject'
   decidedBy: string
   comment?: string
@@ -29,13 +30,16 @@ export async function decideAction(input: DecideInput): Promise<DecideResult> {
       decided_by: input.decidedBy,
       comment: input.comment,
     })
-    // Invalidate both routes so the next render picks up the new state.
-    // /inbox is now a 307 redirect to /workspaces/acme/inbox, so the
-    // workspace-shell inbox is the actual cache key — revalidate that
-    // directly. Slug hardcoded to "acme" per the W7_SLICE.md cosmetic-
-    // URL decision; D4 single-tenant means the backend ignores it.
-    revalidatePath('/workspaces/acme/inbox')
-    revalidatePath(`/proposals/${input.proposalId}`)
+    // Invalidate every workspace surface that renders this proposal's
+    // state: the proposal page itself, the workspace inbox (where
+    // gate-passed proposals queue), the workflow Failures view (cluster
+    // → proposal click-through), the workspace audit log, and Health.
+    // Legacy /inbox + /proposals/<id> are 307 redirects now, so they
+    // don't need revalidation.
+    revalidatePath(`/workspaces/${input.wsId}/proposals/${input.proposalId}`)
+    revalidatePath(`/workspaces/${input.wsId}/inbox`)
+    revalidatePath(`/workspaces/${input.wsId}/audit`)
+    revalidatePath(`/workspaces/${input.wsId}`)
     return { ok: true, state: res.state }
   } catch (err) {
     if (err instanceof KernelApiError) {

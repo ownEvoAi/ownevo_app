@@ -289,6 +289,65 @@ export async function listWorkflows(): Promise<WorkflowList> {
   return jsonFetch<WorkflowList>('/api/workflows')
 }
 
+// W7 slice 11 (7.1.12) — Workflow anatomy (full spec for the
+// Agent-anatomy pane on the workflow Overview page).
+
+export interface AgentToolParam {
+  name: string
+  type: string
+  description?: string
+  required?: boolean
+}
+
+export interface AgentToolSpec {
+  name: string
+  description?: string
+  inputs?: AgentToolParam[]
+  outputs?: AgentToolParam[]
+}
+
+export interface ReviewerSpec {
+  role: string
+  cadence?: string
+  description?: string
+}
+
+export interface WorkflowEnvironmentSpec {
+  entities?: Array<{ name: string }>
+  data_sources?: Array<{ id: string }>
+  env_generators?: Array<{ name: string }>
+  personas?: Array<{ name?: string }>
+  seasonality?: string[]
+}
+
+export interface WorkflowSpecShape {
+  domain?: string
+  environment?: WorkflowEnvironmentSpec
+  tools?: AgentToolSpec[]
+  reviewer?: ReviewerSpec
+  success_criterion?: {
+    direction?: 'maximize' | 'minimize'
+    target_metric_name?: string
+    description?: string
+  }
+  [key: string]: unknown
+}
+
+export interface WorkflowAnatomy {
+  id: string
+  description: string
+  mode: string
+  spec: WorkflowSpecShape
+}
+
+export async function getWorkflowAnatomy(
+  workflowId: string,
+): Promise<WorkflowAnatomy> {
+  return jsonFetch<WorkflowAnatomy>(
+    `/api/workflows/${encodeURIComponent(workflowId)}`,
+  )
+}
+
 export async function getWorkflowIterations(
   workflowId: string,
 ): Promise<IterationList> {
@@ -311,6 +370,7 @@ export interface FailureClusterSummary {
   quality_score: number | null
   sample_trace_ids: string[]
   created_at: string
+  latest_proposal_id: string | null
 }
 
 export interface FailureClusterList {
@@ -368,4 +428,188 @@ export async function listAudit(
 
 export async function verifyAuditChain(): Promise<AuditVerifyResponse> {
   return jsonFetch<AuditVerifyResponse>('/api/audit/verify', { method: 'POST' })
+}
+
+// W7 slice 8 (7.1.9) — Traces
+
+export interface TraceSummary {
+  id: string
+  workflow_id: string | null
+  iteration_id: string | null
+  iteration_index: number | null
+  skill_version_id: string | null
+  started_at: string
+  ended_at: string | null
+  event_count: number
+  kind_counts: Record<string, number>
+}
+
+export interface TraceList {
+  workflow_id: string
+  items: TraceSummary[]
+}
+
+// AgentEvent variants — discriminated by `type`. Matches
+// packages/trace-format/SPEC.md v1.0. Fields shared via AgentEventBase.
+export interface AgentEventBase {
+  event_id: string
+  trace_id: string
+  iteration_id: string | null
+  timestamp: string
+  parent_span_id: string | null
+}
+
+export interface ContentDelta extends AgentEventBase {
+  type: 'content_delta'
+  text: string
+  model: string
+  cumulative_text: string | null
+}
+
+export interface ReasoningDelta extends AgentEventBase {
+  type: 'reasoning_delta'
+  text: string
+  model: string
+}
+
+export interface ToolCallStart extends AgentEventBase {
+  type: 'tool_call_start'
+  call_id: string
+  name: string
+  args: Record<string, unknown>
+}
+
+export interface ToolCallResult extends AgentEventBase {
+  type: 'tool_call_result'
+  call_id: string
+  name: string
+  status: 'ok' | 'error'
+  output: unknown
+  duration_ms: number
+  error: string | null
+  error_class: 'Timeout' | 'OOM' | 'Crash' | null
+}
+
+export interface SkillLoaded extends AgentEventBase {
+  type: 'skill_loaded'
+  skill_id: string
+  version_seq: number
+  retention_acknowledged: boolean
+}
+
+export interface CitationEvent extends AgentEventBase {
+  type: 'citation'
+  ref: number
+  source: string
+  quote: string
+}
+
+export interface MonitorSignal extends AgentEventBase {
+  type: 'monitor_signal'
+  monitor: 'loop_detection' | 'redundancy' | 'context_near_limit'
+  severity: 'info' | 'warn' | 'error'
+  details: Record<string, unknown> | null
+}
+
+export type AgentEvent =
+  | ContentDelta
+  | ReasoningDelta
+  | ToolCallStart
+  | ToolCallResult
+  | SkillLoaded
+  | CitationEvent
+  | MonitorSignal
+
+export interface TraceDetail {
+  id: string
+  workflow_id: string | null
+  iteration_id: string | null
+  iteration_index: number | null
+  skill_version_id: string | null
+  skill_id: string | null
+  skill_version_seq: number | null
+  started_at: string
+  ended_at: string | null
+  metric_outputs: Record<string, unknown> | null
+  token_usage: Record<string, unknown> | null
+  events: AgentEvent[]
+}
+
+export async function getWorkflowTraces(
+  workflowId: string,
+): Promise<TraceList> {
+  return jsonFetch<TraceList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/traces`,
+  )
+}
+
+export async function getTrace(traceId: string): Promise<TraceDetail> {
+  return jsonFetch<TraceDetail>(`/api/traces/${encodeURIComponent(traceId)}`)
+}
+
+// W7 slices 9 + 10 (7.1.10 + 7.1.11) — Skills
+
+export type SkillKind = 'python' | 'instruction' | 'composite'
+
+export interface SkillSummary {
+  id: string
+  kind: SkillKind
+  workflow_id: string | null
+  capability_tags: string[]
+  head_version_id: string | null
+  head_version_seq: number | null
+  head_created_at: string | null
+}
+
+export interface SkillList {
+  items: SkillSummary[]
+}
+
+export interface SkillVersionSummary {
+  id: string
+  version_seq: number
+  parent_version_id: string | null
+  diff_summary: string | null
+  created_by: string
+  created_at: string
+}
+
+export interface SkillRelatedEvalCase {
+  id: string
+  workflow_id: string | null
+  provenance: string
+  expected_behavior: Record<string, unknown> | null
+  is_test_fold: boolean
+  created_at: string
+}
+
+export interface SkillDetail {
+  id: string
+  kind: SkillKind
+  workflow_id: string | null
+  workflow_description: string | null
+  capability_tags: string[]
+  head_version_id: string | null
+  head_version_seq: number | null
+  head_content: string | null
+  head_retention_block: Record<string, unknown> | null
+  head_diff_summary: string | null
+  head_created_at: string | null
+  head_created_by: string | null
+  parent_content: string | null
+  parent_version_seq: number | null
+  versions: SkillVersionSummary[]
+  related_eval_cases: SkillRelatedEvalCase[]
+}
+
+export async function getWorkflowSkills(
+  workflowId: string,
+): Promise<SkillList> {
+  return jsonFetch<SkillList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/skills`,
+  )
+}
+
+export async function getSkill(skillId: string): Promise<SkillDetail> {
+  return jsonFetch<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}`)
 }

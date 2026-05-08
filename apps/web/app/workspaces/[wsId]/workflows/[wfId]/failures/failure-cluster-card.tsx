@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import type { FailureClusterSummary } from '../../../../../../lib/api'
 
 interface CardProps {
   cluster: FailureClusterSummary
+  wsId: string
 }
 
 const SEVERITY_PILL: Record<string, string> = {
@@ -13,15 +15,20 @@ const SEVERITY_PILL: Record<string, string> = {
 // Card for one failure cluster. Visual target:
 // www/preview/s26-rk7p3/16-failures.html § .cluster.
 //
-// The card is non-interactive in slice 3 (no proposal linkage yet).
-// W8 polish will route the card to /proposals/[id] when a proposal
-// exists for the cluster, and to a cluster-detail view otherwise.
-export function FailureClusterCard({ cluster }: CardProps) {
+// W7 slice 7 (7.1.4) — when a proposal has been spawned against the
+// cluster (`latest_proposal_id` non-null), the whole card becomes a
+// link to the proposal-detail surface so the investor programdemo flow is one
+// click: cluster → proposal → approve. When no proposal exists yet
+// the card stays non-interactive (no spurious 404 click target).
+export function FailureClusterCard({ cluster, wsId }: CardProps) {
   const idShort = cluster.id.slice(0, 8)
   const severityClass = SEVERITY_PILL[cluster.severity] ?? 'pill'
+  const proposalHref = cluster.latest_proposal_id
+    ? `/workspaces/${wsId}/proposals/${cluster.latest_proposal_id}`
+    : null
 
-  return (
-    <div className="cluster" style={{ textDecoration: 'none' }}>
+  const body = (
+    <>
       <div className="cluster-row">
         <div>
           <div className="cluster-title">{cluster.label}</div>
@@ -47,9 +54,32 @@ export function FailureClusterCard({ cluster }: CardProps) {
                 <span>HDBSCAN persistence {cluster.quality_score.toFixed(2)}</span>
               </>
             )}
+            {proposalHref && (
+              <>
+                <span>·</span>
+                <span className="cluster-cta">View proposal →</span>
+              </>
+            )}
           </div>
         </div>
       </div>
+    </>
+  )
+
+  if (proposalHref) {
+    return (
+      <Link
+        href={proposalHref}
+        className="cluster cluster-link"
+        style={{ textDecoration: 'none', display: 'block' }}
+      >
+        {body}
+      </Link>
+    )
+  }
+  return (
+    <div className="cluster" style={{ textDecoration: 'none' }}>
+      {body}
     </div>
   )
 }
