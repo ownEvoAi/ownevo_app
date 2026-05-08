@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { getProposal, KernelApiError, type ProposalDetail } from '@/lib/api'
+import {
+  getProposal,
+  KernelApiError,
+  type GateResultCases,
+  type ProposalDetail,
+} from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
 import { DecideForm } from './decide-form'
 import { SkillDiff } from './skill-diff'
@@ -26,37 +31,17 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
   return (
     <div>
-      <nav
-        className="crumb-row"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 12,
-          color: 'var(--text-muted)',
-          marginBottom: 14,
-        }}
-      >
-        <Link href="/inbox" style={{ color: 'var(--text-3)' }}>
-          Inbox
-        </Link>
-        <span style={{ color: 'var(--text-faint)' }}>/</span>
+      <nav className="crumb-row">
+        <Link href="/inbox">Inbox</Link>
+        <span className="sep">/</span>
         <span>{proposal.workflow.description}</span>
-        <span style={{ color: 'var(--text-faint)' }}>/</span>
+        <span className="sep">/</span>
         <span>Proposal {proposal.id.slice(0, 8)}</span>
       </nav>
 
       <ProposalHeader proposal={proposal} />
 
-      <div
-        className="prop-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 320px',
-          gap: 20,
-          alignItems: 'start',
-        }}
-      >
+      <div className="prop-grid">
         <div>
           <h2 className="section-title">
             Skill diff · {proposal.skill_id}
@@ -67,6 +52,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
           <SkillDiff
             current={proposal.parent_version_content}
             proposed={proposal.proposed_content}
+            parentVersionSeq={proposal.parent_version_seq}
           />
 
           <h2 className="section-title">Why this change</h2>
@@ -99,52 +85,28 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
 function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
   return (
-    <div
-      className="prop-header"
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '22px 26px',
-        marginBottom: 20,
-        boxShadow: 'var(--shadow-sm)',
-      }}
-    >
-      <div className="prop-pills" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        <span className={`pill ${pillVariant(proposal.state)}`}>{proposal.state}</span>
+    <div className="prop-header">
+      <div className="prop-pills">
+        <span className={`pill ${pillVariant(proposal.state)}`}>
+          {proposal.state}
+        </span>
         {proposal.iteration.sandbox_error_class && (
           <span className="pill amber">
             sandbox: {proposal.iteration.sandbox_error_class}
           </span>
         )}
-        <span className="pill outline">iter #{proposal.iteration.iteration_index}</span>
+        <span className="pill outline">
+          iter #{proposal.iteration.iteration_index}
+        </span>
       </div>
-      <h1
-        className="prop-title"
-        style={{
-          fontSize: 22,
-          fontWeight: 600,
-          letterSpacing: '-0.02em',
-          color: 'var(--text)',
-          lineHeight: 1.3,
-          marginBottom: 12,
-        }}
-      >
-        {proposal.plain_language_summary}
-      </h1>
-      <div
-        className="prop-meta-row"
-        style={{
-          display: 'flex',
-          gap: 24,
-          flexWrap: 'wrap',
-          paddingTop: 16,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
+      <h1 className="prop-title">{proposal.plain_language_summary}</h1>
+      <div className="prop-meta-row">
         <Meta label="Workflow" value={proposal.workflow.description} />
         <Meta label="Skill" value={proposal.skill_id} />
-        <Meta label="Created" value={`${relativeTime(proposal.created_at)} · ${formatDateTime(proposal.created_at)}`} />
+        <Meta
+          label="Created"
+          value={`${relativeTime(proposal.created_at)} · ${formatDateTime(proposal.created_at)}`}
+        />
         <Meta label="Workflow mode" value={proposal.workflow.mode} />
       </div>
     </div>
@@ -153,25 +115,9 @@ function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="prop-meta" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span
-        className="prop-meta-label"
-        style={{
-          fontSize: 10.5,
-          fontWeight: 500,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-        }}
-      >
-        {label}
-      </span>
-      <span
-        className="prop-meta-value"
-        style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 500 }}
-      >
-        {value}
-      </span>
+    <div className="prop-meta">
+      <span className="prop-meta-label">{label}</span>
+      <span className="prop-meta-value">{value}</span>
     </div>
   )
 }
@@ -185,40 +131,39 @@ function pillVariant(state: string): string {
 }
 
 function GateResult({ proposal }: { proposal: ProposalDetail }) {
+  const cases = proposal.gate_result_cases
+  const verdict = gateVerdict(proposal, cases)
+
   return (
-    <div
-      className="sidebar-card"
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: 16,
-        boxShadow: 'var(--shadow-sm)',
-        marginBottom: 12,
-      }}
-    >
-      <div
-        className="sidebar-title"
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          marginBottom: 10,
-        }}
-      >
-        Regression gate
+    <div className="sidebar-card">
+      <div className="sidebar-title">Regression gate</div>
+
+      <div className="gate-headline">
+        <div className={`gate-icon ${verdict.tone}`}>
+          <svg viewBox="0 0 16 16" aria-hidden>
+            <path d={verdict.iconPath} />
+          </svg>
+        </div>
+        <div>
+          <div className="gate-status-text">{verdict.headline}</div>
+          <div className="gate-status-meta">
+            val_score: {formatScore(proposal.eval_score)} · best_ever{' '}
+            {formatScore(proposal.iteration.best_ever_score_after)}
+          </div>
+        </div>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
-        val_score: {formatScore(proposal.eval_score)}
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
-        best_ever: {formatScore(proposal.iteration.best_ever_score_after)} (was{' '}
-        {formatScore(proposal.iteration.best_ever_score_before)})
-      </div>
+
+      {cases && !cases.unknown && <CaseBreakdown cases={cases} />}
+
       {proposal.eval_rationale && (
-        <p style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 10, lineHeight: 1.55 }}>
+        <p
+          style={{
+            fontSize: 12.5,
+            color: 'var(--text-3)',
+            marginTop: 12,
+            lineHeight: 1.55,
+          }}
+        >
           {proposal.eval_rationale}
         </p>
       )}
@@ -226,58 +171,128 @@ function GateResult({ proposal }: { proposal: ProposalDetail }) {
   )
 }
 
-function ExpectedImpact({ impact }: { impact: Record<string, unknown> }) {
-  return (
-    <div
-      className="sidebar-card"
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: 16,
-        boxShadow: 'var(--shadow-sm)',
-        marginBottom: 12,
-      }}
-    >
-      <div
-        className="sidebar-title"
+function gateVerdict(
+  proposal: ProposalDetail,
+  cases: GateResultCases | null,
+): { headline: string; tone: '' | 'amber' | 'red'; iconPath: string } {
+  const checkPath = 'M3 8 L7 12 L13 4'
+  const exclamPath = 'M8 3 L8 9 M8 11.5 L8 12.5'
+  if (proposal.iteration.sandbox_error_class) {
+    return {
+      headline: `Sandbox: ${proposal.iteration.sandbox_error_class}`,
+      tone: 'amber',
+      iconPath: exclamPath,
+    }
+  }
+  if (proposal.state === 'gate-failed') {
+    const regressed = cases?.regressed.length ?? 0
+    return {
+      headline: regressed > 0 ? `${regressed} regression(s)` : 'Gate failed',
+      tone: 'red',
+      iconPath: exclamPath,
+    }
+  }
+  // FAIL_REGRESSION and FAIL_NO_IMPROVEMENT both land on 'rejected' (not
+  // 'gate-failed'). Without this check they fall through to the green path.
+  if (proposal.state === 'rejected') {
+    const regressed = cases?.regressed.length ?? 0
+    return {
+      headline: regressed > 0 ? `${regressed} regression(s)` : 'Gate rejected',
+      tone: 'red',
+      iconPath: exclamPath,
+    }
+  }
+  const passed = cases?.passed.length ?? 0
+  const total = passed + (cases?.regressed.length ?? 0)
+  if (total > 0) {
+    return {
+      headline: `${passed} / ${total} prior cases pass`,
+      tone: '',
+      iconPath: checkPath,
+    }
+  }
+  return { headline: 'Gate passed', tone: '', iconPath: checkPath }
+}
+
+function CaseBreakdown({ cases }: { cases: GateResultCases }) {
+  const sections: { label: string; rows: string[]; cls: string }[] = []
+  if (cases.regressed.length > 0) {
+    sections.push({
+      label: `Regressed (${cases.regressed.length})`,
+      rows: cases.regressed,
+      cls: 'fail',
+    })
+  }
+  if (cases.passed.length > 0) {
+    sections.push({
+      label: `Passed (${cases.passed.length})`,
+      rows: cases.passed,
+      cls: '',
+    })
+  }
+  if (cases.newly_admitted.length > 0) {
+    sections.push({
+      label: `Newly admitted (${cases.newly_admitted.length})`,
+      rows: cases.newly_admitted,
+      cls: 'new',
+    })
+  }
+
+  if (sections.length === 0) {
+    return (
+      <p
         style={{
           fontSize: 12,
-          fontWeight: 500,
           color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          marginBottom: 10,
+          marginTop: 6,
         }}
       >
-        Expected impact
-      </div>
-      <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        Gate had no prior eval cases yet (bootstrap iteration).
+      </p>
+    )
+  }
+
+  const checkPath = 'M3 8 L7 12 L13 4'
+  const xPath = 'M4 4 L12 12 M12 4 L4 12'
+
+  return (
+    <div className="gate-list">
+      {sections.map((section) => (
+        <div key={section.label}>
+          <div className="gate-section-label">{section.label}</div>
+          {section.rows.map((row) => (
+            <div
+              key={`${section.label}:${row}`}
+              className={`gate-case ${section.cls}`}
+            >
+              <span className="check">
+                <svg viewBox="0 0 16 16" aria-hidden>
+                  <path d={section.cls === 'fail' ? xPath : checkPath} />
+                </svg>
+              </span>
+              <span className="case-name" title={row}>
+                {row}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ExpectedImpact({ impact }: { impact: Record<string, unknown> }) {
+  return (
+    <div className="sidebar-card">
+      <div className="sidebar-title">Expected impact</div>
+      <div className="impact-grid">
         {Object.entries(impact).map(([k, v]) => (
-          <div key={k}>
-            <dt
-              style={{
-                fontSize: 11,
-                color: 'var(--text-muted)',
-                textTransform: 'lowercase',
-              }}
-            >
-              {k}
-            </dt>
-            <dd
-              style={{
-                fontSize: 14,
-                fontWeight: 500,
-                color: 'var(--text)',
-                marginTop: 2,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {String(v)}
-            </dd>
+          <div key={k} className="impact-cell">
+            <div className="impact-label">{k}</div>
+            <div className="impact-value">{String(v)}</div>
           </div>
         ))}
-      </dl>
+      </div>
     </div>
   )
 }
@@ -285,16 +300,7 @@ function ExpectedImpact({ impact }: { impact: Record<string, unknown> }) {
 function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
   if (!proposal.approval) {
     return (
-      <div
-        className="sidebar-card"
-        style={{
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: 16,
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
+      <div className="sidebar-card">
         <div className="sidebar-title">Decision</div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>
           Proposal is in <code>{proposal.state}</code> — not awaiting review.
@@ -303,34 +309,18 @@ function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
     )
   }
   return (
-    <div
-      className="sidebar-card"
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: 16,
-        boxShadow: 'var(--shadow-sm)',
-      }}
-    >
-      <div
-        className="sidebar-title"
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          marginBottom: 10,
-        }}
-      >
+    <div className="sidebar-card">
+      <div className="sidebar-title">
         {proposal.approval.decision === 'approve' ? 'Approved' : 'Rejected'}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
         {proposal.approval.decided_by}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-        {proposal.approval.approver_type} · {formatDateTime(proposal.approval.decided_at)}
+      <div
+        style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}
+      >
+        {proposal.approval.approver_type} ·{' '}
+        {formatDateTime(proposal.approval.decided_at)}
       </div>
       {proposal.approval.comment && (
         <p
@@ -349,14 +339,10 @@ function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
       )}
       {proposal.approval.became_eval_case_id && (
         <p
-          style={{
-            fontSize: 11.5,
-            color: 'var(--text-muted)',
-            marginTop: 8,
-          }}
+          style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}
         >
           Comment recorded as eval case{' '}
-          <code>{proposal.approval.became_eval_case_id.slice(0, 8)}</code>
+          <code>{proposal.approval.became_eval_case_id.slice(0, 8)}</code>{' '}
           (provenance: rejected-feedback).
         </p>
       )}
@@ -366,16 +352,7 @@ function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
 
 function Rationale({ proposal }: { proposal: ProposalDetail }) {
   return (
-    <div
-      className="rationale"
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: '16px 18px',
-        boxShadow: 'var(--shadow-sm)',
-      }}
-    >
+    <div className="rationale">
       <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
         {proposal.plain_language_summary}
       </p>
