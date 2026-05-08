@@ -33,37 +33,41 @@ export default async function WorkflowPreviewPage({ params, searchParams }: Page
   const { workflow_id: requested } = await searchParams
 
   let index
+  let indexErr: string | null = null
   try {
     index = await listPreviewWorkflows()
   } catch (err) {
-    return <ApiErrorState err={err} />
+    indexErr = toMsg(err)
   }
+  if (indexErr !== null) return <ApiErrorState msg={indexErr} />
 
-  if (index.items.length === 0) {
+  if (index!.items.length === 0) {
     return <EmptyIndexState />
   }
 
-  const fallbackId = index.items[0].workflow_id
+  const fallbackId = index!.items[0].workflow_id
   const workflowId = requested || fallbackId
 
   // If the requested id isn't in the index, redirect to the fallback
   // rather than serve a 404 — the picker is the obvious recovery path.
-  if (!index.items.some((it) => it.workflow_id === workflowId)) {
+  if (!index!.items.some((it) => it.workflow_id === workflowId)) {
     redirect(`/workspaces/${wsId}/workflows/new?workflow_id=${encodeURIComponent(fallbackId)}`)
   }
 
-  let preview: PreviewResponse
+  let preview: PreviewResponse | null = null
+  let previewErr: string | null = null
   try {
     preview = await getPreview(workflowId)
   } catch (err) {
-    return <ApiErrorState err={err} />
+    previewErr = toMsg(err)
   }
+  if (previewErr !== null) return <ApiErrorState msg={previewErr} />
 
   return (
     <div className="preview-wrap">
       <div className="preview-banner-strip">
         <strong>PREVIEW</strong> · demo data from kernel fixtures ·
-        <code> provenance={preview.provenance}</code>
+        <code> provenance={preview!.provenance}</code>
       </div>
 
       <Steps />
@@ -79,8 +83,8 @@ export default async function WorkflowPreviewPage({ params, searchParams }: Page
       </header>
 
       <WorkflowPicker
-        items={index.items}
-        active={preview.workflow_id}
+        items={index!.items}
+        active={preview!.workflow_id}
         wsId={wsId}
       />
 
@@ -88,14 +92,14 @@ export default async function WorkflowPreviewPage({ params, searchParams }: Page
         <span className="source-quote-label">
           From your<br />description
         </span>
-        <p className="source-quote-body">{preview.description}</p>
+        <p className="source-quote-body">{preview!.description}</p>
       </div>
 
-      <MetaEvalCoverageBadge judgment={preview.meta_eval_judgment} />
+      <MetaEvalCoverageBadge judgment={preview!.meta_eval_judgment} />
 
-      <SimulatorSection plan={preview.simulation_plan} />
-      <EvalCasesSection caseSet={preview.eval_case_set} />
-      <SuccessMetricSection metric={preview.metric_definition} />
+      <SimulatorSection plan={preview!.simulation_plan} />
+      <EvalCasesSection caseSet={preview!.eval_case_set} />
+      <SuccessMetricSection metric={preview!.metric_definition} />
 
       <div className="gen-action-row">
         <Link href="/inbox" className="btn btn-secondary">
@@ -376,13 +380,15 @@ function FieldGlyph() {
 // Error / empty states
 // ---------------------------------------------------------------------------
 
-function ApiErrorState({ err }: { err: unknown }) {
-  const msg =
-    err instanceof KernelApiError
-      ? `${err.status}: ${err.detail}`
-      : err instanceof Error
-        ? err.message
-        : String(err)
+function toMsg(err: unknown): string {
+  return err instanceof KernelApiError
+    ? `${err.status}: ${err.detail}`
+    : err instanceof Error
+      ? err.message
+      : String(err)
+}
+
+function ApiErrorState({ msg }: { msg: string }) {
   return (
     <div className="preview-wrap">
       <header className="gen-head">
