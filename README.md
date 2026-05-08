@@ -8,7 +8,7 @@
 
 The improvement loop for core agents: every production failure becomes an eval case, every proposed fix is regression-tested against every prior fix, and a domain expert approves changes in plain language.
 
-Build plan, scope decisions, and stack rationale: [`ownevo_docs/ownEvo_MVP.md`](../ownevo_docs/ownEvo_MVP.md). Release history: [`CHANGELOG.md`](CHANGELOG.md). Deferred work: [`TODOS.md`](TODOS.md).
+Build plan, scope decisions, and stack rationale: [`ownevo_docs/ownEvo_MVP.md`](../ownevo_docs/ownEvo_MVP.md). Release history: [`CHANGELOG.md`](CHANGELOG.md). Deferred work: [`TODOS.md`](TODOS.md). Live demo walk-through: [`docs/W6_DEMO_STORYBOARD.md`](docs/W6_DEMO_STORYBOARD.md).
 
 ## Layout
 

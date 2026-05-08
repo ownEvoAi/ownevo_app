@@ -232,6 +232,54 @@ def test_format_user_message_includes_workflow_id_and_redacts_target():
         assert tool.name in msg
 
 
+def test_format_user_message_omits_guidance_section_when_no_instruction():
+    """Default behavior: the W6 guidance section must not appear in the
+    message when ``per_workflow_instruction`` is None or blank — keeps
+    the A4.4 single-pass shape unchanged."""
+    workflow_id = "demand-prediction"
+    spec = FIXTURES[workflow_id]
+    case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
+    plan = SIM_PLAN_FIXTURES[workflow_id]
+    metric = METRIC_FIXTURES[workflow_id]
+    case = case_set.cases[0]
+
+    ns = _exec_sim_namespace(plan, spec)
+    trajectory = ns["run_simulation"](case.sim_seed, case.n_steps)["trajectory"]
+    events = trajectory[: case.target_step_index + 1]
+
+    for inst in (None, "", "   "):
+        msg = _format_user_message(
+            spec, case, events, metric, per_workflow_instruction=inst,
+        )
+        assert "Workflow-specific guidance" not in msg
+
+
+def test_format_user_message_injects_per_workflow_instruction():
+    """When the W6 demo loop passes a per-cycle instruction, it lands in
+    a labeled section between the tool vocabulary and the trajectory.
+    Position matters: the agent should read it before reasoning over the
+    trajectory."""
+    workflow_id = "demand-prediction"
+    spec = FIXTURES[workflow_id]
+    case_set = EVAL_CASE_SET_FIXTURES[workflow_id]
+    plan = SIM_PLAN_FIXTURES[workflow_id]
+    metric = METRIC_FIXTURES[workflow_id]
+    case = case_set.cases[0]
+
+    ns = _exec_sim_namespace(plan, spec)
+    trajectory = ns["run_simulation"](case.sim_seed, case.n_steps)["trajectory"]
+    events = trajectory[: case.target_step_index + 1]
+    instruction = "Pay closer attention to weeks tagged as `winter-boot-spike`."
+    msg = _format_user_message(
+        spec, case, events, metric, per_workflow_instruction=instruction,
+    )
+
+    assert "Workflow-specific guidance" in msg
+    assert instruction in msg
+    # Guidance precedes the trajectory.
+    assert msg.index("Workflow-specific guidance") < msg.index("Event trajectory")
+
+
 def test_format_user_message_keeps_past_event_labels_visible():
     """Earlier-trajectory labels are training signal — they MUST appear
     in the prompt unredacted."""

@@ -49,6 +49,7 @@ escalation.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -326,6 +327,8 @@ def _format_user_message(
     case: GeneratedEvalCase,
     trajectory: list[dict[str, Any]],
     metric: MetricDefinition,
+    *,
+    per_workflow_instruction: str | None = None,
 ) -> str:
     """Assemble the per-case user message.
 
@@ -337,6 +340,12 @@ def _format_user_message(
         (observed 2026-05-05).
       * Workflow framing (description + domain).
       * Tool vocabulary.
+      * **(W6 demo loop)** Workflow-specific guidance, when the caller
+        passes ``per_workflow_instruction``. Lives in the user message
+        rather than the system prompt so each demo cycle's instruction
+        update doesn't invalidate Anthropic prompt-cache hits on the
+        system prompt across cases — the system prompt stays static,
+        the per-call message carries the cycle's addendum.
       * Trajectory through the target step (target event redacted).
       * The decision ask, naming target_step_index + target_label_field.
     """
@@ -344,19 +353,27 @@ def _format_user_message(
     trajectory_json = json.dumps(redacted, indent=2, sort_keys=True, default=str)
     tools_block = _format_tools_for_context(spec)
     framing = _metric_framing(metric)
-    return (
-        f"{framing}\n\n"
-        f"## Workflow\n"
-        f"id: `{spec.id}`  ·  domain: `{spec.domain}`\n\n"
-        f"## Tools (vocabulary only — do not call them)\n"
-        f"{tools_block}\n\n"
+    parts = [
+        framing,
+        f"## Workflow\nid: `{spec.id}`  ·  domain: `{spec.domain}`",
+        f"## Tools (vocabulary only — do not call them)\n{tools_block}",
+    ]
+    if per_workflow_instruction and per_workflow_instruction.strip():
+        parts.append(
+            "## Workflow-specific guidance (refined from prior-cycle failures)\n"
+            f"{per_workflow_instruction.strip()}"
+        )
+    parts.append(
         f"## Event trajectory through step {case.target_step_index}\n"
         f"(target event has `{case.target_label_field}` redacted)\n"
-        f"```json\n{trajectory_json}\n```\n\n"
-        f"## Decision\n"
+        f"```json\n{trajectory_json}\n```"
+    )
+    parts.append(
+        "## Decision\n"
         f"Predict the redacted value of `{case.target_label_field}` at "
         f"step {case.target_step_index}. Call `predict_label` exactly once."
     )
+    return "\n\n".join(parts)
 
 
 def _build_tool_definition() -> dict[str, Any]:
@@ -499,6 +516,7 @@ async def predict_one(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     openai_client: "AsyncOpenAI | None" = None,
     budget: "TokenBudget | None" = None,
+    per_workflow_instruction: str | None = None,
 ) -> AgentPrediction:
     """Run one agent prediction for one case.
 
@@ -522,7 +540,13 @@ async def predict_one(
             If cumulative usage crosses the cap, raises `TokenBudgetExceededError`.
     """
     trajectory = _trajectory_for_case(case, namespace)
-    user_message = _format_user_message(spec, case, trajectory, metric)
+    user_message = _format_user_message(
+        spec,
+        case,
+        trajectory,
+        metric,
+        per_workflow_instruction=per_workflow_instruction,
+    )
 
     try:
         system_prompt = SYSTEM_PROMPT + _maybe_no_think_suffix(model)
@@ -588,6 +612,7 @@ async def solve_with_agent(
     max_tokens: int | None = None,
     openai_client: "AsyncOpenAI | None" = None,
     budget: "TokenBudget | None" = None,
+    per_workflow_instruction: str | None = None,
 ) -> list[ReplayResult]:
     """Run the agent on every case in the set; return ReplayResults.
 
@@ -647,11 +672,8 @@ async def solve_with_agent(
         else (DEFAULT_MAX_TOKENS_OPENAI if openai_client is not None else DEFAULT_MAX_TOKENS)
     )
 
-    results: list[ReplayResult] = []
-    for case in case_set.cases:
-        prediction = await predict_one(
-            client,
-            case,
+    def _make_kwargs(case: "GeneratedEvalCase") -> dict:
+        return dict(
             spec=spec,
             metric=metric,
             namespace=ns,
@@ -659,7 +681,29 @@ async def solve_with_agent(
             max_tokens=resolved_max_tokens,
             openai_client=openai_client,
             budget=budget,
+            per_workflow_instruction=per_workflow_instruction,
         )
+
+    if budget is None:
+        # No budget to enforce per-case — run all predictions concurrently.
+        # Cases are independent API calls; asyncio.gather preserves order.
+        predictions = await asyncio.gather(
+            *[predict_one(client, case, **_make_kwargs(case)) for case in case_set.cases]
+        )
+        return [
+            ReplayResult(
+                case_id=pred.case_id,
+                passed=pred.value == case.expected_value,
+                actual_value=pred.value,
+                expected_value=case.expected_value,
+            )
+            for pred, case in zip(predictions, case_set.cases)
+        ]
+
+    # Budget path: sequential so we can abort as soon as the cap is hit.
+    results: list[ReplayResult] = []
+    for case in case_set.cases:
+        prediction = await predict_one(client, case, **_make_kwargs(case))
         results.append(
             ReplayResult(
                 case_id=case.case_id,
