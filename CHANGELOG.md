@@ -89,6 +89,15 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
     variance; numerical drift between llama.cpp Metal and CUDA Q4_K_S kernels is
     enough to systematically flip predictions on borderline classification cases.
     Decision: granite-4.1-8b is desktop-only despite being the canonical fastest 3/3.
+  - **F14k** — F14j re-test weakens the systematic-drift hypothesis. 4 laptop
+    trials of `unsloth/granite-4.1-8b` Q4_K_S now show credit-risk 0.33 / 0.25 /
+    0.50 / 0.50 — clustering on the 0.40 gate boundary, not consistently below
+    it. Q4_K_M sibling (`lmstudio-community/granite-4.1-8b`) outperforms on
+    credit-risk (0.58) but fails demand-pred (0.40). FP8 (`granite-4.1-8b-fp8`,
+    `torchSafetensors`) is unloadable in LM Studio. Revised framing: laptop
+    granite is a coin flip on credit-risk, not a hard fail. Documented as
+    boundary noise — kernel-drift hypothesis not falsified, just not above the
+    sampling-stochasticity floor.
 - Top desktop iteration picks added to `apps/kernel/README.md` and main `README.md`:
   `granite-4.1-8b` (33s), `google/gemma-4-e4b` (34s), `mistralai/ministral-3-14b-reasoning`
   (47s), `qwen/qwen3.5-9b` via Anthropic API (52s), `qwen2.5-coder-32b-instruct` (98s).
