@@ -17,8 +17,11 @@ from ownevo_kernel.approvers.llm_judge.fixtures import (
 )
 from ownevo_kernel.approvers.llm_judge.judge import (
     TOOL_NAME,
+    LLMJudgeApprovalIdMismatchError,
     LLMJudgeApprovalJudgmentValidationError,
+    NoLLMJudgeApprovalToolUseError,
 )
+from ownevo_kernel.approvers.llm_judge.judgment import LLMJudgeApprovalJudgment
 from ownevo_kernel.approvers.llm_judge.runner import (
     run_llm_judge_approver_eval,
 )
@@ -29,15 +32,13 @@ from ownevo_kernel.approvers.llm_judge.runner import (
 
 
 def _make_payload(case: LabeledApprovalCase, verdict: str) -> dict:
+    _present = verdict == "admit"
     return {
         "schema_version": "0.1",
         "proposal_id": case.case_id,
-        "cluster_referenced": {"present": verdict == "admit", "quote": ""},
-        "change_named": {"present": verdict == "admit", "quote": ""},
-        "metric_direction_stated": {
-            "present": verdict == "admit",
-            "quote": "",
-        },
+        "cluster_referenced": {"present": _present, "quote": "stub-cluster-ref" if _present else ""},
+        "change_named": {"present": _present, "quote": "stub-change-name" if _present else ""},
+        "metric_direction_stated": {"present": _present, "quote": "stub-direction" if _present else ""},
         "verdict": verdict,
         "rationale": f"Stub judgment: {verdict}",
     }
@@ -275,4 +276,71 @@ async def test_no_retry_when_disabled():
             client,
             eval_set=one_case,
             max_retries_per_call=0,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Retry bypass — non-ValidationError errors must not be retried
+# ---------------------------------------------------------------------------
+
+
+async def test_no_tool_use_error_bypasses_retry():
+    """NoLLMJudgeApprovalToolUseError must propagate immediately,
+    even when max_retries_per_call > 0.  Only ValidationError is retried."""
+    case = LABELED_APPROVAL_CASES[0]
+    call_count = 0
+
+    @dataclass
+    class _NoToolUseMessages:
+        async def create(self, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise NoLLMJudgeApprovalToolUseError(
+                "no tool use", stop_reason="end_turn", content_preview=""
+            )
+
+    @dataclass
+    class _NoToolUseClient:
+        messages: _NoToolUseMessages = field(default_factory=_NoToolUseMessages)
+
+    with pytest.raises(NoLLMJudgeApprovalToolUseError):
+        await run_llm_judge_approver_eval(
+            _NoToolUseClient(),
+            eval_set=(case,),
+            max_retries_per_call=2,
+        )
+    assert call_count == 1, "NoLLMJudgeApprovalToolUseError must not trigger retries"
+
+
+async def test_id_mismatch_error_propagates_through_runner():
+    """LLMJudgeApprovalIdMismatchError from the judge surfaces out of
+    run_llm_judge_approver_eval (not swallowed or retried)."""
+    case = LABELED_APPROVAL_CASES[0]
+
+    @dataclass
+    class _IdMismatchMessages:
+        async def create(self, **kwargs):
+            wrong_judgment = LLMJudgeApprovalJudgment.model_validate({
+                "schema_version": "0.1",
+                "proposal_id": "wrong-id-that-does-not-match",
+                "cluster_referenced": {"present": True, "quote": "x"},
+                "change_named": {"present": True, "quote": "y"},
+                "metric_direction_stated": {"present": True, "quote": "z"},
+                "verdict": "admit",
+                "rationale": "stub",
+            })
+            raise LLMJudgeApprovalIdMismatchError(
+                "id mismatch",
+                judgment=wrong_judgment,
+                expected_id=case.case_id,
+            )
+
+    @dataclass
+    class _IdMismatchClient:
+        messages: _IdMismatchMessages = field(default_factory=_IdMismatchMessages)
+
+    with pytest.raises(LLMJudgeApprovalIdMismatchError):
+        await run_llm_judge_approver_eval(
+            _IdMismatchClient(),
+            eval_set=(case,),
         )

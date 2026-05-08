@@ -653,10 +653,10 @@ if _bucket_counts != _EXPECTED_BUCKET_COUNTS:
         f"diverged from expected {_EXPECTED_BUCKET_COUNTS}."
     )
 
-if len(LABELED_APPROVAL_CASES) != 30:
+if len(LABELED_APPROVAL_CASES) != sum(_EXPECTED_BUCKET_COUNTS.values()):
     raise AssertionError(
         f"LABELED_APPROVAL_CASES has {len(LABELED_APPROVAL_CASES)} entries; "
-        f"expected 30 per the W5.2 spec."
+        f"expected {sum(_EXPECTED_BUCKET_COUNTS.values())} per the W5.2 spec."
     )
 
 

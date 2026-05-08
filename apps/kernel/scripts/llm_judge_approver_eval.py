@@ -198,16 +198,15 @@ async def _async_main(ns: argparse.Namespace) -> int:
         )
         return 2
 
-    judge_client = _make_async_client(ns.anthropic_base_url)
-
     started = time.perf_counter()
-    report = await run_llm_judge_approver_eval(
-        judge_client,
-        judge_model=ns.judge_model,
-        judge_max_tokens=ns.max_tokens,
-        concurrency=ns.concurrency,
-        max_retries_per_call=ns.max_retries_per_call,
-    )
+    async with _make_async_client(ns.anthropic_base_url) as judge_client:
+        report = await run_llm_judge_approver_eval(
+            judge_client,
+            judge_model=ns.judge_model,
+            judge_max_tokens=ns.max_tokens,
+            concurrency=ns.concurrency,
+            max_retries_per_call=ns.max_retries_per_call,
+        )
     wall_seconds = time.perf_counter() - started
 
     payload = report.to_dict()

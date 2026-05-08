@@ -194,7 +194,7 @@ def _build_tool_definition() -> dict[str, Any]:
     `$defs` are hoisted to the input_schema root so any `$ref`
     pointers resolve correctly.
     """
-    j_schema = LLMJudgeApprovalJudgment.model_json_schema()
+    j_schema = dict(LLMJudgeApprovalJudgment.model_json_schema())
     defs = j_schema.pop("$defs", {})
     input_schema: dict[str, Any] = {
         "type": "object",

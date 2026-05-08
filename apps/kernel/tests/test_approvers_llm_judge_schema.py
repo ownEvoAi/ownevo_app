@@ -128,8 +128,24 @@ def test_schema_version_must_be_literal():
 
 
 def test_quote_can_be_empty_when_not_present():
+    # quote="" is valid only when present=False; use reject so the
+    # cross-field validator doesn't fire on the other elements.
     payload = _good_dict()
+    payload["verdict"] = "reject"
     payload["cluster_referenced"] = {"present": False, "quote": ""}
     j = LLMJudgeApprovalJudgment.model_validate(payload)
     assert j.cluster_referenced.present is False
     assert j.cluster_referenced.quote == ""
+
+
+def test_admit_requires_all_elements_present():
+    payload = _good_dict()
+    payload["cluster_referenced"] = {"present": False, "quote": ""}
+    with pytest.raises(ValidationError):
+        LLMJudgeApprovalJudgment.model_validate(payload)
+
+
+def test_present_true_requires_non_empty_quote():
+    from ownevo_kernel.approvers.llm_judge.judgment import StructuralElement
+    with pytest.raises(ValidationError):
+        StructuralElement.model_validate({"present": True, "quote": ""})

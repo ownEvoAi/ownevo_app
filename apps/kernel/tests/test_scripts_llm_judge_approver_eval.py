@@ -35,18 +35,22 @@ from ownevo_kernel.approvers.llm_judge.judgment import (  # noqa: E402
 
 
 def _stamp(case_id: str, verdict: str = "admit") -> LLMJudgeApprovalJudgment:
+    _present = verdict == "admit"
     return LLMJudgeApprovalJudgment.model_validate(
         {
             "schema_version": "0.1",
             "proposal_id": case_id,
             "cluster_referenced": {
-                "present": verdict == "admit",
-                "quote": "",
+                "present": _present,
+                "quote": "stub-cluster-ref" if _present else "",
             },
-            "change_named": {"present": verdict == "admit", "quote": ""},
+            "change_named": {
+                "present": _present,
+                "quote": "stub-change-name" if _present else "",
+            },
             "metric_direction_stated": {
-                "present": verdict == "admit",
-                "quote": "",
+                "present": _present,
+                "quote": "stub-direction" if _present else "",
             },
             "verdict": verdict,
             "rationale": "stamped for test",
@@ -64,7 +68,11 @@ def mocked_perfect_judge(monkeypatch):
     monkeypatch.setattr(runner_module, "judge_proposal_explanation", stamper)
 
     class _FakeAsync:
-        pass
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
 
     monkeypatch.setattr(cli, "_make_async_client", lambda url: _FakeAsync())
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -80,7 +88,11 @@ def mocked_always_admit(monkeypatch):
     monkeypatch.setattr(runner_module, "judge_proposal_explanation", stamper)
 
     class _FakeAsync:
-        pass
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
 
     monkeypatch.setattr(cli, "_make_async_client", lambda url: _FakeAsync())
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")

@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "0.1"
 
@@ -102,6 +102,15 @@ class StructuralElement(_Base):
             "when `present=False`. Used by the audit trail."
         ),
     )
+
+    @model_validator(mode="after")
+    def _quote_required_when_present(self) -> "StructuralElement":
+        if self.present and not self.quote:
+            raise ValueError(
+                "quote must be non-empty when present=True — "
+                "the audit trail requires evidence for each admitted element"
+            )
+        return self
 
 
 class LLMJudgeApprovalJudgment(_Base):
@@ -177,6 +186,25 @@ class LLMJudgeApprovalJudgment(_Base):
             "judge-rejected proposal."
         ),
     )
+
+    @model_validator(mode="after")
+    def _admit_requires_all_elements_present(self) -> "LLMJudgeApprovalJudgment":
+        if self.verdict == "admit":
+            missing = [
+                name
+                for name, el in (
+                    ("cluster_referenced", self.cluster_referenced),
+                    ("change_named", self.change_named),
+                    ("metric_direction_stated", self.metric_direction_stated),
+                )
+                if not el.present
+            ]
+            if missing:
+                raise ValueError(
+                    f"verdict='admit' but present=False on: {missing}. "
+                    "Admit requires all three structural elements present=True."
+                )
+        return self
 
 
 __all__ = [
