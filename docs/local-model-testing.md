@@ -1160,6 +1160,57 @@ granite-4.1-8b in F14e as "desktop CUDA only" not "any 8B-class".
 Laptop tier remains the F14b 3/3 picks (`qwen/qwen3-4b-2507` 152 s,
 `qwen/qwen3-1.7b` 826 s).
 
+#### F14k — F14j re-test: laptop credit-risk gap does not reproduce; treat as boundary noise (2026-05-07 evening)
+
+Re-running `unsloth/granite-4.1-8b` on laptop LMS twice today, plus
+adding two sibling Q4_K_M / FP8 quants for comparison, weakens F14j's
+"systematic ~0.17 Metal-vs-CUDA gap" claim. Credit-risk on laptop now
+clears the 0.40 gate twice in a row instead of failing twice in a row.
+
+| run | host | model | quant | demand | credit | contract | wall | result |
+|---|---|---|---|---:|---:|---:|---:|---|
+| F14j-3 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.60 ✅ | **0.33 ❌** | 0.77 ✅ | 279 s | 2/3 |
+| F14j-4 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.80 ✅ | **0.25 ❌** | 0.91 ✅ | 284 s | 2/3 |
+| F14k-1 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 ✅ | **0.50 ✅** | 0.91 ✅ | 314 s | **3/3** |
+| F14k-2 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 ✅ | **0.50 ✅** | 0.73 ❌ | 281 s | 2/3 |
+| F14k-3 | laptop LMS | `lmstudio-community/granite-4.1-8b` | Q4_K_M | 0.40 ❌ | **0.58 ✅** | 0.80 ✅ | 334 s | 2/3 |
+| F14k-4 | laptop LMS | `granite-4.1-8b-fp8` (ibm-granite) | FP8 | — | — | — | — | **load fail** |
+
+- **Laptop credit-risk across 4 unsloth Q4_K_S trials:** 0.33, 0.25,
+  0.50, 0.50 — mean ≈ 0.40, sitting exactly on the gate threshold.
+  Variance ~0.25 across trials. Not the "consistent failure" F14j
+  reported.
+- **Q4_K_M sibling outperforms Q4_K_S on credit-risk** (0.58) but
+  underperforms on demand-pred recall (0.40 vs 1.00 for Q4_K_S).
+  Different quant, different failure mode — not pure quant ranking.
+- **FP8 (`torchSafetensors`) is unloadable in LM Studio** — no
+  runtime registered for that model format. Infrastructure block,
+  not a quality result.
+- **Desktop verify run today was invalid:** LMS loader couldn't
+  push unsloth/granite-4.1-8b into VRAM at any context (32k → 16k
+  → 8k all returned empty), fell through to a stale ctx=4096
+  instance, demand-pred prompt then hit `n_keep: 4152 >= n_ctx:
+  4096`. Probably another model squatting on RTX 3090 from an
+  earlier sweep.
+
+**Revised conclusion:** F14j's "Apple Metal vs CUDA Q4_K_S kernel
+drift" hypothesis is **suspect, not falsified**. Laptop credit-risk
+on Q4_K_S clusters around the 0.40 gate boundary across 4 trials
+(2 sub-gate, 2 at-gate); the F14j sample of 2 fails happened to land
+on the low side. Hardware drift may still contribute, but the gap is
+inside the per-trial noise, not above it.
+
+**Practical impact on recommendations:**
+
+- Stop calling granite-4.1-8b "desktop-only" in `apps/kernel/README.md`
+  and `CLAUDE.md`. The honest framing is "passes 3/3 reliably on
+  desktop CUDA; on laptop Apple Metal it sits on the credit-risk
+  gate boundary — sometimes 3/3, sometimes 2/3."
+- For laptop iteration, prefer `qwen/qwen3-4b-2507` (F14b, stable
+  3/3 at 152s). Granite on laptop is a coin flip.
+- Determinism follow-up (TODO-24, `temperature=0`) would tighten
+  this — current variance is largely sampling stochasticity.
+
 ---
 
 ## Candidate models — Ollama (8B–40B)
