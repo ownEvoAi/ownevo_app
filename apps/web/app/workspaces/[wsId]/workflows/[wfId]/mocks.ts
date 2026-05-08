@@ -9,6 +9,20 @@
 // confuse them with the live demand-prediction flow. Same shape as a
 // future live Overview so swapping live data in is a one-line change.
 
+import type {
+  AgentToolSpec,
+  ReviewerSpec,
+  SkillSummary,
+  WorkflowSpecShape,
+} from '@/lib/api'
+
+export interface MockAnatomy {
+  // Same shape the live page assembles from the kernel API; the
+  // anatomy pane component is data-shape-agnostic.
+  skills: SkillSummary[]
+  spec: WorkflowSpecShape
+}
+
 export interface WorkflowMock {
   id: string
   title: string
@@ -33,7 +47,40 @@ export interface WorkflowMock {
     body: string
     when: string
   }>
+  anatomy: MockAnatomy
 }
+
+function mockSkill(
+  id: string,
+  kind: SkillSummary['kind'],
+  versionSeq: number,
+  tags: string[],
+): SkillSummary {
+  return {
+    id,
+    kind,
+    workflow_id: null,
+    capability_tags: tags,
+    head_version_id: null,
+    head_version_seq: versionSeq,
+    head_created_at: null,
+  }
+}
+
+function mockTool(
+  name: string,
+  description: string,
+  inputs: AgentToolSpec['inputs'] = [],
+  outputs: AgentToolSpec['outputs'] = [],
+): AgentToolSpec {
+  return { name, description, inputs, outputs }
+}
+
+const SINGLE_AGENT_REVIEWER = (role: string, cadence: string): ReviewerSpec => ({
+  role,
+  cadence,
+  description: '',
+})
 
 export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
   labour: {
@@ -56,6 +103,40 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
       { kind: 'cluster', body: 'New cluster surfaced: “Late-shift swap not flagged for skill mismatch”', when: '6h ago' },
       { kind: 'regression', body: 'Gate blocked v17.3: forecast_overtime regressed on 2 prior cases', when: '1d ago' },
     ],
+    anatomy: {
+      skills: [
+        mockSkill('labour.shift_validator', 'python', 17,
+          ['scheduling', 'compliance']),
+        mockSkill('labour.overtime_cap_policy', 'instruction', 9,
+          ['policy', 'overtime']),
+        mockSkill('labour.swap_eligibility', 'python', 4,
+          ['scheduling', 'fairness']),
+      ],
+      spec: {
+        domain: 'workforce-ops',
+        environment: {
+          entities: [{ name: 'shift' }, { name: 'employee' }, { name: 'site' }],
+          data_sources: [{ id: 'wfm_csv' }, { id: 'cba_clauses' }],
+          seasonality: ['weekly', 'holiday'],
+        },
+        tools: [
+          mockTool('lookup_employee', 'Read employee skills + certifications',
+            [{ name: 'employee_id', type: 'string' }],
+            [{ name: 'profile', type: 'object' }]),
+          mockTool('check_cba_rule', 'Match a proposed shift against CBA clauses',
+            [{ name: 'shift', type: 'object' }],
+            [{ name: 'violations', type: 'array' }]),
+          mockTool('emit_decision', 'Record the validated schedule outcome',
+            [{ name: 'schedule', type: 'object' }, { name: 'rationale', type: 'string' }]),
+        ],
+        reviewer: SINGLE_AGENT_REVIEWER('Workforce Ops Director', 'on regression-only'),
+        success_criterion: {
+          direction: 'minimize',
+          target_metric_name: 'compliance_breach_rate',
+          description: 'Hard violations of CBA + state regs across all 482 weekly schedules.',
+        },
+      },
+    },
   },
   contract: {
     id: 'contract',
@@ -77,6 +158,35 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
       { kind: 'approval', body: 'Approved “Recognize ‘pyramiding’ as discrete pay-stacking pattern”', when: '1d ago' },
       { kind: 'cluster', body: 'New cluster: “Severance triggers for fixed-term renewals”', when: '2d ago' },
     ],
+    anatomy: {
+      skills: [
+        mockSkill('contract.clause_parser', 'python', 6, ['legal', 'parsing']),
+        mockSkill('contract.conflict_policy', 'instruction', 3, ['legal', 'policy']),
+      ],
+      spec: {
+        domain: 'legal',
+        environment: {
+          entities: [{ name: 'contract' }, { name: 'cba' }, { name: 'clause' }],
+          data_sources: [{ id: 'docusign_corpus' }, { id: 'active_cbas' }],
+        },
+        tools: [
+          mockTool('extract_clauses', 'Parse a contract into clause tree',
+            [{ name: 'contract_id', type: 'string' }],
+            [{ name: 'clauses', type: 'array' }]),
+          mockTool('match_against_cba', 'Find CBA clauses that conflict',
+            [{ name: 'clause', type: 'object' }],
+            [{ name: 'conflicts', type: 'array' }]),
+          mockTool('flag_for_counsel', 'Escalate ambiguous clauses to GC',
+            [{ name: 'clause_id', type: 'string' }, { name: 'reason', type: 'string' }]),
+        ],
+        reviewer: SINGLE_AGENT_REVIEWER('General Counsel', 'on escalation'),
+        success_criterion: {
+          direction: 'minimize',
+          target_metric_name: 'false_flag_rate',
+          description: 'Conflict-flags that counsel resolves as non-issues.',
+        },
+      },
+    },
   },
   support: {
     id: 'support',
@@ -98,6 +208,38 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
       { kind: 'cluster', body: 'New cluster: “Refund requests with order-number typos”', when: '5h ago' },
       { kind: 'approval', body: 'Approved “Route enterprise contract questions to legal-cs”', when: '3d ago' },
     ],
+    anatomy: {
+      skills: [
+        mockSkill('support.severity_classifier', 'python', 22,
+          ['triage', 'severity']),
+        mockSkill('support.routing_policy', 'instruction', 14, ['routing']),
+        mockSkill('support.resolution_predictor', 'python', 11,
+          ['triage', 'forecasting']),
+      ],
+      spec: {
+        domain: 'customer-success',
+        environment: {
+          entities: [{ name: 'ticket' }, { name: 'customer' }, { name: 'queue' }],
+          data_sources: [{ id: 'zendesk_threads' }, { id: 'salesforce_accounts' }],
+        },
+        tools: [
+          mockTool('lookup_account_tier', 'Read customer plan + entitlements',
+            [{ name: 'account_id', type: 'string' }],
+            [{ name: 'tier', type: 'string' }]),
+          mockTool('classify_severity', 'Assign P1/P2/P3 from transcript',
+            [{ name: 'transcript', type: 'string' }],
+            [{ name: 'severity', type: 'string' }]),
+          mockTool('route_to_queue', 'Push the ticket onto a specialist queue',
+            [{ name: 'ticket_id', type: 'string' }, { name: 'queue', type: 'string' }]),
+        ],
+        reviewer: SINGLE_AGENT_REVIEWER('VP Customer Success', 'weekly batch'),
+        success_criterion: {
+          direction: 'minimize',
+          target_metric_name: 'p1_misroutes',
+          description: 'P1 tickets routed to the wrong specialist queue.',
+        },
+      },
+    },
   },
 }
 

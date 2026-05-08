@@ -128,14 +128,17 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — fix before W4 unattended M5 replay. Not blocking W2/W3.
 - **Depends on:** none. Self-contained sandbox change.
 
-### TODO-18: Pagination for `export_audit_log` and `list_eval_cases`
+### TODO-18: Pagination + payload caps for unbounded list/detail endpoints
 
-- **What:** Add `limit: int | None` and `offset: int | None` (or keyset `since_seq`) parameters to `export_audit_log` and `list_eval_cases`. Default to returning the full table (current behavior) for now; add a configurable hard cap once real volume exists.
-- **Why:** Both functions do an unbounded `SELECT *` with no LIMIT. `export_audit_log` returns all rows into memory before serializing to canonical JSON; `list_eval_cases` does the same for the gate runner. `audit_entries` is WORM (can't be trimmed), so it grows monotonically. For MVP internal-only usage this is fine. For production with a real customer, a single export call against a multi-month log is an OOM/latency bomb.
-- **Pros / Cons:** Simple to add; keyset pagination (`since_seq`) is already half-built for `export_audit_log`. The gate runner needs the full eval-case list per run — callers that need the full set should pass `limit=None` explicitly so the pattern is auditable.
-- **Context:** `apps/kernel/src/ownevo_kernel/audit/writer.py:export_audit_log` and `apps/kernel/src/ownevo_kernel/eval_cases/registry.py:list_eval_cases`. Flagged in w2-foundations review (2026-05-03) by performance + security specialists.
-- **Effort:** S (human ~half day / CC ~15 min).
-- **Priority:** P2 — triggers before customer #1 has meaningful log volume.
+- **What:** Add `limit: int | None` (or keyset cursor) parameters to:
+  - `export_audit_log` (audit/writer.py) and `list_eval_cases` (eval_cases/registry.py) — original W2 scope.
+  - W7 list endpoints: `GET /api/workflows`, `/api/workflows/{id}/iterations`, `/api/workflows/{id}/failure_clusters`, `/api/workflows/{id}/traces`, `/api/workflows/{id}/skills`. None currently cap result sets.
+  - W7 detail endpoint `GET /api/traces/{id}`: cap the inline JSONB events array (e.g. first 1000 events with `truncated: true`); current shape returns the full unbounded events stream.
+- **Why:** All endpoints do unbounded `SELECT *` / full JSONB returns with no LIMIT. `audit_entries` is WORM (can't be trimmed), `traces.events` is a JSONB array per trace with no upper bound, and the per-trace events lateral (`jsonb_array_elements`) in `list_workflow_traces` is the highest OOM risk. For MVP internal-only usage this is fine. For production with a real customer, a single export call against a multi-month log or a long-running trace with monitor-signal storm becomes an OOM/latency bomb.
+- **Pros / Cons:** Simple to add; keyset pagination (`since_seq`) is already half-built for `export_audit_log`. The gate runner needs the full eval-case list per run — callers that need the full set should pass `limit=None` explicitly so the pattern is auditable. Trace events truncation needs UI affordance (`truncated` banner + "load full trace" link).
+- **Context:** `apps/kernel/src/ownevo_kernel/audit/writer.py:export_audit_log`, `apps/kernel/src/ownevo_kernel/eval_cases/registry.py:list_eval_cases`, and `apps/kernel/src/ownevo_kernel/api/routes/{workflows,traces,skills}.py`. Flagged in w2-foundations review (2026-05-03) by performance + security specialists; W7 endpoints flagged in w7-track1-rest review (2026-05-08) by adversarial + security + api-contract.
+- **Effort:** M (human ~1 day / CC ~30 min once trace truncation UI is decided).
+- **Priority:** P2 — triggers before customer #1 has meaningful log/trace volume.
 - **Depends on:** none. Self-contained API change.
 
 ### TODO-9: Anti-pattern lint enforcement

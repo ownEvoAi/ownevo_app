@@ -9,8 +9,17 @@ import { decideAction } from './actions'
 // collects the comment and dispatches; on success it triggers a
 // router.refresh() so the page re-fetches the proposal (which now
 // shows the recorded decision instead of the form).
+//
+// `wsId` is threaded through so revalidatePath can target the
+// workspace-scoped routes (proposal detail + audit + Health).
 
-export function DecideForm({ proposalId }: { proposalId: string }) {
+export function DecideForm({
+  proposalId,
+  wsId,
+}: {
+  proposalId: string
+  wsId: string
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [comment, setComment] = useState('')
@@ -22,6 +31,7 @@ export function DecideForm({ proposalId }: { proposalId: string }) {
     startTransition(async () => {
       const result = await decideAction({
         proposalId,
+        wsId,
         decision,
         decidedBy,
         comment: comment.trim() || undefined,
