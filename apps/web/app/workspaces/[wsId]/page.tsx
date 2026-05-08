@@ -69,7 +69,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
           </p>
         </div>
         <div className="page-actions">
-          <a href="/workflows/preview" className="btn btn-primary">
+          <a href={`/workspaces/${wsId}/workflows/new`} className="btn btn-primary">
             <svg className="btn-icon" viewBox="0 0 16 16">
               <path d="M8 3 L8 13 M3 8 L13 8" />
             </svg>

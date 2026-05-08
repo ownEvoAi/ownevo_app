@@ -96,7 +96,11 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">Customer support</span>
       </a>
-      <a href="/workflows/preview" className="nav-item" style={{ color: 'var(--text-muted)' }}>
+      <a
+        href={`${root}/workflows/new`}
+        className={cls(`${root}/workflows/new`)}
+        style={isActive(`${root}/workflows/new`) ? undefined : { color: 'var(--text-muted)' }}
+      >
         <svg className="nav-icon" viewBox="0 0 16 16">
           <path d="M8 3 L8 13 M3 8 L13 8" />
         </svg>

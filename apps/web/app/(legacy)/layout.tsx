@@ -33,7 +33,7 @@ export default function LegacyLayout({ children }: { children: ReactNode }) {
         </a>
 
         <div className="nav-section">Workflows</div>
-        <a href="/workflows/preview" className="nav-item">
+        <a href="/workspaces/acme/workflows/new" className="nav-item">
           <svg className="nav-icon" viewBox="0 0 16 16">
             <path d="M8 3 L8 13 M3 8 L13 8" />
           </svg>
