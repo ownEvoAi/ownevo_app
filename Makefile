@@ -9,7 +9,7 @@
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
-        m5-replay-7day m5-replay-30day
+        m5-replay-7day m5-replay-30day nl-gen-demo-loop
 
 help:
 	@printf 'targets:\n'
@@ -54,6 +54,12 @@ help:
 	@printf '                      audit log + eval-set growth (REPLAY_ARGS=...; --reset for\n'
 	@printf '                      clean re-runs; --require-climbing / --require-audit-entries\n'
 	@printf '                      / --require-eval-growth gate)\n'
+	@printf '  nl-gen-demo-loop    W6 (row 6.1): NL-gen end-to-end demo loop — agent solver\n'
+	@printf '                      → cluster failures → propose instruction edit → cycle\n'
+	@printf '                      (DEMO_LOOP_ARGS=...; --workflow / --cycles / --pretty /\n'
+	@printf '                      --include-instructions / --require-climbing /\n'
+	@printf '                      --require-lift / --require-meets-target gates;\n'
+	@printf '                      requires ANTHROPIC_API_KEY)\n'
 	@printf '  m5-replay-30day     W6 (TODO-8): 30-day M5 replay across parallel conditions\n'
 	@printf '                      A=frozen / C=loop autonomous / D=loop gated\n'
 	@printf '                      (REPLAY_30_ARGS=...; --conditions a,c,d --max-iterations N\n'
@@ -254,3 +260,17 @@ REPLAY_30_ARGS ?=
 
 m5-replay-30day:
 	cd apps/kernel && uv run python scripts/m5_replay_30day.py $(REPLAY_30_ARGS)
+
+# ----------------------------------------------------------------------------
+# NL-gen end-to-end demo loop (W6 — PLAN.md row 6.1)
+# ----------------------------------------------------------------------------
+
+# `DEMO_LOOP_ARGS=...` passes flags through to scripts/nl_gen_demo_loop.py:
+#   make nl-gen-demo-loop DEMO_LOOP_ARGS='--pretty'
+#   make nl-gen-demo-loop DEMO_LOOP_ARGS='--workflow credit-risk --cycles 5'
+#   make nl-gen-demo-loop DEMO_LOOP_ARGS='--require-climbing --require-lift 0.1'
+# Requires ANTHROPIC_API_KEY (loaded from .env or shell).
+DEMO_LOOP_ARGS ?=
+
+nl-gen-demo-loop:
+	cd apps/kernel && uv run python scripts/nl_gen_demo_loop.py $(DEMO_LOOP_ARGS)

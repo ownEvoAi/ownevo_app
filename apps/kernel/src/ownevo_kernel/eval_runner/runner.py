@@ -191,6 +191,7 @@ async def run_with_agent(
     max_tokens: int | None = None,
     openai_client: "AsyncOpenAI | None" = None,
     budget: "TokenBudget | None" = None,
+    per_workflow_instruction: str | None = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
 
@@ -246,6 +247,7 @@ async def run_with_agent(
         max_tokens=max_tokens,  # None → solve_with_agent picks path-appropriate default
         openai_client=openai_client,
         budget=budget,
+        per_workflow_instruction=per_workflow_instruction,
     )
     metric_result = compute_metric(metric, results)
 

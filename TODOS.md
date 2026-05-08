@@ -219,6 +219,26 @@ backup tracking in case PLAN.md edits drift.
   - **Post-review fixes (2026-05-05):** LATERAL join replaces bare LEFT JOIN on `proposals` (no UNIQUE constraint on `iteration_id` — plain join would duplicate rows if an iteration ever gains a second proposal); `analyze_failures` sort-after-break bug fixed (early break prevented sandbox-error traces from reaching the sort when k+ newer non-sandbox traces were present — the exact scenario the feature was built for); `_truncate` extended to strip `\r`/`\r\n`; `render_past_attempts_block` call wrapped in exception guard so a DB hiccup degrades gracefully rather than crashing the loop.
   - **Empirical validation pending:** Stage D run on real M5 to confirm the lift curve is steeper with memory in-context than Stage C's 2/7 gate-passes.
 
+### TODO-28: W6 row 6.1 — dogfood / dry-run NL-gen demo loop end-to-end
+
+- **What:** Exercise `apps/kernel/scripts/nl_gen_demo_loop.py` (PR #64) end-to-end against the live `/workflows/preview` UI with a real reviewer flow ("type description → sim+evals+metric → loop runs → lift visible"). Confirm the **<5-minute total wall-time budget** holds for an external reviewer (PLAN.md row 6.1 validation gate). Captures any latency, prompt-clarity, or UI-glue bugs before W8 video record.
+- **Why:** Row 6.1 demo loop shipped on `feat/w6-nl-gen-loop` (PR #64) with unit tests, but the validation gate is "external reviewer can sit through the live demo without intervention; lift chart visibly moves." That requires a human-in-the-loop dry-run, not a pytest pass. Without it, we discover demo-budget overruns during the YC video shoot in W8 — too late.
+- **Pros / Cons:** ~30-60 min if everything works; longer if the loop blows the budget and needs prompt or pacing fixes. Cost: one Anthropic-API end-to-end run (~$0.30 on Sonnet 4.6 per 6.1's design). Output: a recorded run log + wall-time number + a list of any UX gaps that need patching before W8.
+- **Context:** PR #64 / branch `feat/w6-nl-gen-loop`. Demo loop at `apps/kernel/scripts/nl_gen_demo_loop.py` + `apps/kernel/src/ownevo_kernel/nl_gen/loop.py` + `instruction_proposer.py`. Storyboard at `docs/W6_DEMO_STORYBOARD.md`. UI surface lives at `apps/web/app/workflows/preview/`.
+- **Effort:** XS-S (CC ~30-60 min; depends on whether the budget holds first try).
+- **Priority:** P2 — required before W8.1.1 video record but not blocking W7 work.
+- **Depends on:** PR #64 merged.
+
+### TODO-29: W6 row 6.3 — execute 30-day M5 replay + verify success thresholds
+
+- **What:** Run `make m5-replay-30day` (TODO-8 / PR #62 infra — conditions A/C/D in parallel via `asyncio.gather`, optionally B) on real M5 and verify the four W6 success thresholds: ≥+25% RMSE lift Day-1→Day-30 in condition D, ≥50 eval cases generated, ≥15 approved revisions, ≥5 gate-blocked regressions. If any threshold misses, document why + decide between extending Phase 2 or accepting the lower number.
+- **Why:** PLAN.md row 6.3 is the **Phase-2 validation gate** before W7 starts officially. The infrastructure is shipped (PR #62) and conditions C+D both have a free local-model path (TODO-19 closed). The only thing missing is actually executing the run on real M5 and recording the result. Without it, the W8 hero chart in `m5-results-2026-Q3.md` has no data behind it.
+- **Pros / Cons:** Multi-hour wall-time job (PR #62 estimated ~37 hours for the 4-way parallel 30-day replay; condition D alone with `--approver llm-judge` will be the slowest). Cost: condition D on Sonnet 4.6 ~$5-15 across 30 iterations × 4 conditions; condition C on qwen3-coder:30b is free. Best run as an overnight job with a structured checklist.
+- **Context:** Infra at `apps/kernel/src/ownevo_kernel/replay/thirty_day.py` + `apps/kernel/scripts/m5_replay_30day.py` + `make m5-replay-30day`. Each condition writes to its own `workflow_id`; merge is a single `UNION ALL` over `iterations`. PLAN.md § 6.3 has the threshold list. `benchmarks/m5-code-gen-loop.md` has the full Success Criteria spec.
+- **Effort:** M (CC ~30 min to kick off + monitor; ~30+ hours wall-time; ~1 hour to write up the result).
+- **Priority:** P1 — closes Phase 2 validation gate; feeds W8.1.2 `m5-results-2026-Q3.md`.
+- **Depends on:** PR #64 merged (for full W6 surface area).
+
 ---
 
 ## Feature roadmap (Phase 2 / post-MVP)
