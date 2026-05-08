@@ -88,6 +88,17 @@ if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
 from baselines.m5_lightgbm import SKILL_FILES, materialize_skill_v1_dir  # noqa: E402
+from ownevo_kernel.approvals import approve_proposal, reject_proposal  # noqa: E402
+from ownevo_kernel.approvers import (  # noqa: E402
+    APPROVER_AUTONOMOUS,
+    APPROVER_LLM_JUDGE,
+    APPROVER_NONE,
+)
+from ownevo_kernel.approvers.llm_judge import (  # noqa: E402
+    LabeledApprovalCase,
+    LLMJudgeApproverError,
+    judge_proposal_explanation,
+)
 from ownevo_kernel.benchmark import SandboxedM5BenchmarkRunner  # noqa: E402
 from ownevo_kernel.datasets import (  # noqa: E402
     M5DatasetError,
@@ -95,6 +106,7 @@ from ownevo_kernel.datasets import (  # noqa: E402
     make_held_out_fold,
 )
 from ownevo_kernel.gate import persist_gate_run  # noqa: E402
+from ownevo_kernel.gate.result import GateDecision  # noqa: E402
 from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
     KernelContext,
     run_agent_turn,
@@ -103,6 +115,7 @@ from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
 from ownevo_kernel.observability import fetch_past_attempts, format_past_attempts  # noqa: E402
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
+from ownevo_kernel.types import ApproverType  # noqa: E402
 from scripts.seed_m5_baseline import DEFAULT_WORKFLOW_ID  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
@@ -126,6 +139,9 @@ DEFAULT_LLM_API_KEY = "lm-studio"
 DEFAULT_MAX_ITERATIONS = 25
 _DEFAULT_TMPFS_MB = 512
 _MAX_SUMMARY_CHARS = 280
+
+DEFAULT_JUDGE_MODEL = "claude-opus-4-7"
+_APPROVER_CHOICES = (APPROVER_NONE, APPROVER_AUTONOMOUS, APPROVER_LLM_JUDGE)
 
 _PROMPT_PATH = Path(__file__).parent / "m5_agent_prompt.md"
 
@@ -175,6 +191,8 @@ class CliArgs:
     no_stream: bool  # only meaningful when api_format="anthropic"
     ollama_num_ctx: int | None  # only meaningful when api_format="openai" (Ollama)
     sandbox_mem_mb: int
+    approver_mode: str  # "none" | "autonomous" | "llm-judge" — see --approver
+    judge_model: str  # only meaningful when approver_mode == "llm-judge"
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -275,10 +293,39 @@ def parse_args(argv: list[str]) -> CliArgs:
             "(LMS, vLLM) ignore the field."
         ),
     )
+    parser.add_argument(
+        "--approver",
+        choices=_APPROVER_CHOICES,
+        default=APPROVER_NONE,
+        help=(
+            "Post-gate-pass approval mode (W6 30-day replay condition control). "
+            "'none' (default): leave the proposal in gate-passed; matches the "
+            "current bootstrap-loop behavior. 'autonomous': auto-approve every "
+            "gate-pass via the approvals service (condition C — loop autonomous). "
+            "'llm-judge': run the W5.2 LLM-judge stub approver to admit or "
+            "reject (condition D — loop gated). 'llm-judge' requires the "
+            "Anthropic API client (--api-format=anthropic or a separate "
+            "--judge-base-url, not yet wired)."
+        ),
+    )
+    parser.add_argument(
+        "--judge-model",
+        default=DEFAULT_JUDGE_MODEL,
+        help=(
+            f"Anthropic model id for --approver=llm-judge "
+            f"(default: {DEFAULT_JUDGE_MODEL}). Reuses the agent's --llm-base-url + "
+            f"--llm-api-key; see --approver for the constraint."
+        ),
+    )
     ns = parser.parse_args(argv)
 
     if ns.ollama_num_ctx is not None and ns.ollama_num_ctx <= 0:
         parser.error(f"--ollama-num-ctx must be a positive integer; got {ns.ollama_num_ctx}")
+    if ns.approver == APPROVER_LLM_JUDGE and ns.api_format != "anthropic":
+        parser.error(
+            f"--approver={APPROVER_LLM_JUDGE} requires --api-format=anthropic "
+            f"(got {ns.api_format!r}); the LLM judge calls Anthropic /v1/messages directly"
+        )
 
     # Resolve base URL default per api_format when not explicitly supplied
     if ns.llm_base_url is not None:
@@ -303,6 +350,8 @@ def parse_args(argv: list[str]) -> CliArgs:
         no_stream=ns.no_stream,
         ollama_num_ctx=ns.ollama_num_ctx,
         sandbox_mem_mb=ns.sandbox_mem_mb,
+        approver_mode=ns.approver,
+        judge_model=ns.judge_model,
     )
 
 
@@ -525,6 +574,15 @@ async def main_async(args: CliArgs) -> int:
             )
 
         gate = persisted.gate_result
+        approval_summary = await _run_post_gate_approval(
+            conn,
+            persisted=persisted,
+            agent_final_text=agent_result.final_text,
+            approver_mode=args.approver_mode,
+            judge_client=client if args.api_format == "anthropic" else None,
+            judge_model=args.judge_model,
+        )
+
         summary = {
             "iteration_id": str(persisted.iteration.id),
             "iteration_index": persisted.iteration.iteration_index,
@@ -537,11 +595,169 @@ async def main_async(args: CliArgs) -> int:
             "proposal_state": persisted.proposal.state.value,
             "audit_started_id": str(persisted.audit_started_id),
             "audit_completed_id": str(persisted.audit_completed_id),
+            "approval": approval_summary,
         }
         print(json.dumps(summary, indent=2))
         return 0
     finally:
         await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Post-gate-pass approval dispatch (W6 — parallel M5 conditions)
+# ---------------------------------------------------------------------------
+
+_M5_CLUSTER_PLACEHOLDER = "m5-pipeline-improvement"
+
+
+async def _run_post_gate_approval(
+    conn,
+    *,
+    persisted,
+    agent_final_text: str,
+    approver_mode: str,
+    judge_client,
+    judge_model: str,
+) -> dict | None:
+    """Dispatch post-gate-pass approval per ``approver_mode``.
+
+    Returns a serializable summary for inclusion in the loop's stdout JSON,
+    or ``None`` when the approver is disabled. Only ``GateDecision.PASS``
+    proposals are eligible — any other decision short-circuits with a
+    ``skipped`` marker so the caller can attribute condition behavior.
+
+    The 'autonomous' path issues an ``approve_proposal`` row stamped
+    ``approver_type=AUTONOMOUS, decided_by='autonomous'`` — what condition
+    C of the M5 30-day replay needs.
+
+    The 'llm-judge' path constructs a ``LabeledApprovalCase`` from the real
+    proposal (the W5.2 judge was designed to score fixtures; in production
+    the agent loop builds an equivalent shape — see
+    ``_proposal_to_approval_case`` for the field mapping), runs the judge,
+    and writes either ``approve_proposal`` or ``reject_proposal`` based on
+    the verdict. Errors from the judge default to reject for safety.
+    """
+    if approver_mode == APPROVER_NONE:
+        return None
+
+    if persisted.gate_result.decision != GateDecision.PASS:
+        return {
+            "approver_mode": approver_mode,
+            "skipped": "gate-not-pass",
+            "gate_decision": persisted.gate_result.decision.value,
+        }
+
+    if approver_mode == APPROVER_AUTONOMOUS:
+        approval = await approve_proposal(
+            conn,
+            proposal_id=persisted.proposal.id,
+            decided_by="autonomous",
+            approver_type=ApproverType.AUTONOMOUS,
+        )
+        return {
+            "approver_mode": APPROVER_AUTONOMOUS,
+            "decision": "approve",
+            "approval_id": str(approval.id),
+            "decided_by": approval.decided_by,
+        }
+
+    if approver_mode == APPROVER_LLM_JUDGE:
+        if judge_client is None:
+            raise ValueError(
+                f"--approver={APPROVER_LLM_JUDGE} requires an Anthropic client; "
+                f"call the loop with --api-format=anthropic"
+            )
+
+        case = _proposal_to_approval_case(persisted, agent_final_text)
+        decided_by = f"llm-judge:{judge_model}"
+        try:
+            judgment = await judge_proposal_explanation(
+                judge_client,
+                case,
+                model=judge_model,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Judge errored — safest default is reject so a malformed run
+            # doesn't auto-admit. Catches LLM-level errors (validation, no
+            # tool use) and transient Anthropic API errors (rate-limit,
+            # server error) so a transient failure doesn't crash the loop.
+            approval = await reject_proposal(
+                conn,
+                proposal_id=persisted.proposal.id,
+                decided_by=decided_by,
+                approver_type=ApproverType.LLM_JUDGE,
+                comment=f"judge-error: {type(exc).__name__}: {exc}",
+            )
+            return {
+                "approver_mode": APPROVER_LLM_JUDGE,
+                "decision": "reject",
+                "rationale": f"judge-error: {type(exc).__name__}",
+                "approval_id": str(approval.id),
+                "decided_by": decided_by,
+            }
+
+        if judgment.verdict == "admit":
+            approval = await approve_proposal(
+                conn,
+                proposal_id=persisted.proposal.id,
+                decided_by=decided_by,
+                approver_type=ApproverType.LLM_JUDGE,
+                comment=judgment.rationale,
+            )
+            decision = "approve"
+        else:
+            approval = await reject_proposal(
+                conn,
+                proposal_id=persisted.proposal.id,
+                decided_by=decided_by,
+                approver_type=ApproverType.LLM_JUDGE,
+                comment=judgment.rationale,
+            )
+            decision = "reject"
+
+        return {
+            "approver_mode": APPROVER_LLM_JUDGE,
+            "decision": decision,
+            "verdict": judgment.verdict,
+            "rationale": judgment.rationale,
+            "approval_id": str(approval.id),
+            "decided_by": decided_by,
+        }
+
+    raise ValueError(f"unknown approver_mode: {approver_mode!r}")
+
+
+def _proposal_to_approval_case(persisted, agent_final_text: str) -> LabeledApprovalCase:
+    """Adapt a real gate-passed Proposal into the LabeledApprovalCase shape
+    the W5.2 LLM judge expects.
+
+    The judge was designed to score W5.2 fixtures, where ``cluster_name``
+    points at a real failure cluster the proposal addresses. In the
+    bootstrap M5 loop today there is no failure clustering on M5 production
+    traces (W5.3 covered NL-gen-side failure clustering, not M5), so
+    ``cluster_name`` defaults to a sentinel and the judge gates primarily
+    on whether the explanation names a specific change and states a metric
+    direction. ``ground_truth_verdict`` and ``bucket`` are required by the
+    fixture dataclass but are unused at inference time.
+
+    The explanation prefers the agent's narrative (``agent_final_text``)
+    over the proposal's short ``plain_language_summary`` — the judge needs
+    enough text to evaluate the structural elements, and the summary is
+    capped at ``_MAX_SUMMARY_CHARS`` (280) by the gate persistence layer.
+    """
+    proposal = persisted.proposal
+    summary = proposal.plain_language_summary or "agent-proposed change"
+    explanation = (agent_final_text or "").strip() or summary
+
+    return LabeledApprovalCase(
+        case_id=str(proposal.id),
+        proposal_summary=summary,
+        cluster_name=_M5_CLUSTER_PLACEHOLDER,
+        metric_direction_expected="up",
+        explanation=explanation,
+        ground_truth_verdict="admit",  # unused at inference
+        bucket="structural",  # unused at inference
+    )
 
 
 # ---------------------------------------------------------------------------
