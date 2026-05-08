@@ -258,6 +258,58 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
   case) lands as a follow-up so this PR stays focused on the
   clustering wire-up the W5.3 spec calls for.
 
+### Added (W5.5 — Meta-eval as quality gate, PLAN.md § W5 § 5.5)
+- `apps/kernel/src/ownevo_kernel/nl_gen/pipeline.py` —
+  `generate_full_pipeline(...)` gains opt-in W5.5 gate: pass
+  `meta_eval_gate=True` to run the A4.6 meta-eval judge after the four
+  generators and gate on `overall_verdict == "good"`. Gate also
+  supports `meta_eval_min_aggregate_score` (numeric floor on the
+  pass=1.0/partial=0.5/fail=0.0 mean) as a belt-and-braces guard for
+  (partial, partial, partial) bundles the judge might still call good.
+  Independent `meta_eval_model` + `meta_eval_max_tokens` overrides so
+  cheap-NL-gen-+-frontier-judge is a single-flag config.
+  `NLGenPipelineResult.meta_eval_judgment` is `None` when the gate is
+  disabled (back-compat) and the validated `MetaEvalJudgment` when it
+  ran and passed. New `MetaEvalGateFailedError` carries the judgment
+  + threshold so audit-log consumers can record the rejection without
+  re-running the judge. Gate uses the same lazy import boundary as
+  the rest of `meta_eval/` — kernel-runtime callers without the
+  `agent` extra are unaffected.
+- `apps/kernel/scripts/nl_gen_smoketest.py` — three CLI flags wire the
+  gate end-to-end: `--meta-eval-gate` (off by default; preserves the
+  4-call A4.4 shape), `--meta-eval-min-aggregate-score N`, and
+  `--meta-eval-model MODEL`. When the gate is active the JSON output
+  gains a top-level `meta_eval` block (`overall_verdict`,
+  `aggregate_score`, per-dimension `coverage` map) — the
+  "sim covers 11/12 of your description" data the W7 UI badge will
+  render. Gate failures short-circuit the agent solver call and emit
+  a structured `error: "meta_eval_gate_failed"` payload (exit 1,
+  agent cost not burned). The stderr banner prints `meta_eval_gate=on`
+  and the per-workflow call-count tally accounts for the 5th call.
+  `--from-fixtures` ignores the gate flag — the fixtures are
+  pre-validated and deterministic; skipping the judge keeps cheap
+  dev loops cheap.
+- `apps/kernel/tests/test_nl_gen_pipeline_gate.py` — 10 new tests
+  pinning gate behaviour: default-off four-call shape (back-compat),
+  gate-on adds a 5th call to the judge tool, judgment is attached to
+  the result on the happy path, `overall_verdict == "bad"` raises
+  `MetaEvalGateFailedError` with the judgment, numeric floor rejects
+  (partial, partial, partial) bundles, override propagation pins
+  `meta_eval_model`/`meta_eval_max_tokens` to the 5th call only, and
+  the result remains a frozen dataclass when the gate ran. The
+  scripted-client harness extends the existing 4-call pattern to a
+  5-tuple `(tool_name, wrapper_key, payload)` per call so the judge
+  call's `judgment` wrapper coexists with the four generators.
+- `apps/kernel/tests/test_scripts_nl_gen_smoketest.py` — 6 new CLI
+  tests: gate off by default omits the `meta_eval` block;
+  `--from-fixtures --meta-eval-gate` is a no-op; gate pass emits the
+  coverage block; gate failure exits 1 with the structured error
+  payload AND `run_with_agent` is never called; the new flags
+  propagate to `generate_full_pipeline`; stderr banner shows
+  `meta_eval_gate=on`.
+- `Makefile` — `nl-gen-smoketest` help text documents the three new
+  `SMOKE_ARGS` flags (gate, min-aggregate-score, model).
+
 ### Added (B3.5 — Cluster-label LLM eval, W3 Track B exit criterion)
 - `apps/kernel/src/ownevo_kernel/clustering/label_eval/judgment.py` —
   `ClusterLabelJudgment` Pydantic schema. Binary verdict (`agree` /
