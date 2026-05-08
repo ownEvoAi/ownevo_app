@@ -71,7 +71,20 @@ SYSTEM_PROMPT = (
     "direction, and describe what counts as a correct outcome in the "
     "user's words. A later step generates the full metric formula.\n"
     "7. Use kebab-case for `id` (lowercase letters, digits, dashes only).\n"
-    f"8. Set `schema_version` to \"{SCHEMA_VERSION}\". Do not invent extra fields."
+    f"8. Set `schema_version` to \"{SCHEMA_VERSION}\". Do not invent extra fields.\n"
+    "9. **Provenance is ONLY allowed on `tool`, `persona`, `env_generator`, and "
+    "`data_source` objects.** Do NOT add a `provenance` field to entities, "
+    "`environment`, `success_criterion`, `ui`, or any other object. Pydantic "
+    "rejects extra fields with `extra_forbidden`.\n"
+    "10. **Tool `outputs[].type` MUST be one of these 7 literal strings:** "
+    "`string`, `int`, `float`, `bool`, `date`, `datetime`, `category`. "
+    "Do NOT use `array`, `list`, `object`, `dict`, `number`, `text`, or any "
+    "other JSON-Schema type name. If a tool returns a list, model it as a "
+    "single output with `type: \"string\"` and describe the list shape in "
+    "the output's `description` field instead.\n"
+    "11. The same `type` enum constraint applies to "
+    "`environment.entities[].fields[].type` and any other `type` field "
+    "in the spec — same 7 literals only."
 )
 
 

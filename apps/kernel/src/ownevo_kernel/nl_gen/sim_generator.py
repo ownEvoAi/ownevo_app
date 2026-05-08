@@ -99,7 +99,13 @@ SYSTEM_PROMPT = (
     "produces — e.g. for demand-prediction with weekly + holiday seasonality, "
     "your `step` should modulate base demand by a sinusoid keyed off "
     "`step_index`, and at least some events should match the past-miss "
-    "patterns so eval cases can be seeded from them later."
+    "patterns so eval cases can be seeded from them later.\n"
+    "10. **`event_fields[].type` MUST be one of these 6 Python type names:** "
+    "`int`, `float`, `str`, `bool`, `list`, `dict`. These are Python type "
+    "names, NOT JSON-Schema names. Do NOT use `string` (use `str`), "
+    "`integer`, `boolean`, `array`, `object`, `number`, or any JSON-Schema "
+    "vocabulary. Note: this differs from WorkflowSpec.tools.outputs.type "
+    "(which uses `string`/`int`/`float`/`bool`/`date`/`datetime`/`category`)."
 )
 
 

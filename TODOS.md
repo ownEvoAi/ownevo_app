@@ -267,6 +267,46 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P3 — post-Series-A material.
 - **Depends on:** ≥3-5 design partners onboarded.
 
+### TODO-24: A4.4 deterministic decoding (`temperature=0`)
+
+- **What:** Pass `temperature=0` (and `top_p=1.0` / `top_k=1` where backend honors them) on every agent-solver call in `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py:predict_one`. Currently the call relies on backend defaults (Anthropic ~1.0, Ollama ~0.8, LMS instance config), which produces ~0.08–0.20 score variance per workflow across runs of the same model + prompt + ctx (F14j evidence: granite-4.1-8b laptop LMS run-1 vs run-2 swung credit 0.33 → 0.25, demand 0.60 → 0.80 between back-to-back runs).
+- **Why:** Stochastic sampling muddies every A/B comparison we run — same model + same backend on different days can land different sides of a 0.40/0.50/0.75 threshold. Deterministic decoding makes the F14a-j tables reproducible (publishable claim) and lets us cleanly separate "did this prompt patch help?" from "was that just a lucky sample?". F14j credit-risk gap analysis (Apple Metal vs CUDA, ~0.17 systematic) is only believable because we ran multiple times on each host; with `temperature=0` it'd be a single-run claim.
+- **Pros / Cons:** Tiny patch (~5 LOC, one OpenAI extra arg + one Anthropic call arg). Cost: deterministic decoding on classification gates is fine (no diversity needed), but if a future task needs sampling variance we'll need to make it conditional. Trade-off accepted given today's gate is forced-tool-use single-turn.
+- **Context:** F14j writeup in `docs/local-model-testing.md`. CSV column `no_think` already added; could add a `temperature` column too on next sweep refresh.
+- **Effort:** XS (CC ~15 min including a 2-host re-run of granite-4.1-8b to confirm variance collapsed).
+- **Priority:** P2 — unblocks publishable F14 numbers; not on YC critical path.
+- **Depends on:** none. Self-contained `agent_solver.py` change.
+
+### TODO-25: Ollama agent path → `/api/chat` for proper `/no_think` support
+
+- **What:** When `--openai-base-url` resolves to an Ollama daemon (`/v1` suffix at `:11434`), route agent calls through Ollama's native `/api/chat` endpoint instead of the OpenAI-compat `/v1/chat/completions`. Pass `think: false` in the request body for qwen3-family models. Map back to the same `predict_label` tool-use parsing.
+- **Why:** F14h-hang + F14i found that Ollama's OpenAI-compat layer **silently strips** the `think` parameter from the request body, so `/no_think` only works on builds whose Modelfile TEMPLATE contains the `IsThinkSet` parser (desktop's `qwen3:14b` does, laptop's same-tag build doesn't). Going via `/api/chat` with `think: false` always works regardless of Modelfile template — verified by direct curl in F14h-hang ("OK" returned in 700 ms vs OpenAI-compat path emitting empty content + reasoning trace). Today's `agent_solver._maybe_no_think_suffix` injects the directive in user prompt as a fallback that only works on some builds; the proper fix is the API switch.
+- **Pros / Cons:** ~50 LOC for the new branch in `predict_one` (host detection + native API client + tool-call extraction from `/api/chat` response shape). Unlocks reliable laptop Ollama testing of qwen3.5/3.6 family (today they hang regardless of /no_think directive). Cons: another code path to maintain; LiteLLM already does this translation for free if we route through it instead.
+- **Context:** F14h-hang root cause analysis in `docs/local-model-testing.md`. Ollama issue #14502 + Crush #2457 + Qwen3 docs.
+- **Effort:** S (CC ~half day including laptop re-test of qwen3.5:4b/9b/latest, qwen3:8b/14b).
+- **Priority:** P3 — laptop tier didn't ship a qwen3-family 3/3 anyway and isn't blocking. Worth doing before the next major sweep refresh.
+- **Depends on:** none.
+
+### TODO-26: `--ollama-num-ctx` flag plumbed through `nl_gen_smoketest` to OpenAI-compat call
+
+- **What:** Add a `--ollama-num-ctx` CLI flag to `apps/kernel/scripts/nl_gen_smoketest.py` and pass it through `agent_solver.predict_one` to the OpenAI client as `extra_body={"options": {"num_ctx": N}}`. Defaults to None (don't pass — preserves current behavior).
+- **Why:** Ollama's default `num_ctx` per model is determined by the daemon at load time. Laptop Ollama defaults to 8192 for some models even though they support 65536+; the smoketest's prompt (workflow + tools + trajectory) is ~5-7K tokens, so 8K leaves ~1-3K for tool call + thinking trace = guaranteed truncation. Today we work around this with a curl preload to `/api/generate` with explicit `num_ctx`, but that's a pattern, not a feature. Documented in F14j and in F1 (the original Ollama context-truncation finding). LiteLLM proxy config already passes `num_ctx: 65536` for routed paths — direct OpenAI-compat paths don't.
+- **Pros / Cons:** Clean plumbing fix (~10 LOC). Removes the preload-curl workaround for laptop runs. Doesn't help with Ollama's silent stripping of `think` — that's TODO-25.
+- **Context:** F1 + F14j. `temp/run_laptop_4b_ctx32k.sh` is the current preload-hack pattern that this would replace.
+- **Effort:** XS (CC ~15 min).
+- **Priority:** P2 — would have saved hours this session.
+- **Depends on:** none.
+
+### TODO-27: Cloud NL-gen — sim_plan AST safety failures + `nemotron-3-super` workflow_spec validation
+
+- **What:** Two cloud-NL-gen probe failures from F14g/F14j-adjacent work that warrant a follow-up retry once additional prompt mitigations land:
+  - **`qwen3-coder:480b-cloud`** passes workflow_spec ✅ + sim_plan ✅ (both schema-aware patches in commit 594bbb4 helped) but its `init_state_code` violates `_ast_safety_check` rule #7 ("NO imports inside the function bodies") by emitting `from datetime import timedelta` inside the function body. Per-stage prompt rule already exists; cloud model didn't comply. Fix candidates: (a) move `from datetime import timedelta` to the `imports: list` field automatically in the renderer when detected (mechanical fix-up); (b) strengthen prompt rule #7 with an explicit example showing the violation pattern; (c) accept that 480B coder model writes Python the way it knows how and isn't a NL-gen pick.
+  - **`nemotron-3-super:cloud`** still failed workflow_spec validation even after the rules-9-10-11 patch (3 errors in run 1 → 1 error in run 2 = partial improvement, but didn't reach sim_plan). Different failure mode each time; likely needs schema-error feedback loop OR few-shot example.
+- **Why:** Cloud free-tier NL-gen is the cheapest "is there a non-Anthropic NL-gen driver" probe. Two real candidates landed close to passing — worth iterating once.
+- **Effort:** S (CC ~half day to land prompt strengthening + fix-up renderer + re-run).
+- **Priority:** P3 — Opus 4.7 is the validated NL-gen driver; cloud alternatives are nice-to-have unless cost or vendor risk forces the issue.
+- **Depends on:** Ollama Cloud free-tier subscription stays current, OR willingness to subscribe to Pro tier (~$20/mo) to test `deepseek-v4-pro`, `glm-5`, etc.
+
 ### TODO-16: Multi-agent topology graph view
 
 - **What:** n8n / Google Opal style visualization for multi-agent workflows.

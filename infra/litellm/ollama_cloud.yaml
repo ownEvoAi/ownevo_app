@@ -1,0 +1,34 @@
+# LiteLLM proxy config for Ollama Cloud NL-gen probe.
+# Routes Anthropic /v1/messages → ollama_chat/<model>:cloud → local
+# Ollama daemon at http://localhost:11434, which transparently
+# forwards :cloud tags to ollama.com (auth via ~/.ollama/id_ed25519).
+#
+# Used by `temp/run_ollama_cloud_nlgen.sh` to test free-tier cloud
+# models on the NL-gen pipeline (workflow_spec → sim_plan →
+# eval_case_set → metric_definition).
+
+model_list:
+  # NL-gen test candidates.
+  - model_name: qwen3-coder-480b-cloud
+    litellm_params:
+      model: ollama_chat/qwen3-coder:480b-cloud
+      api_base: http://localhost:11434
+      num_ctx: 65536
+
+  - model_name: nemotron-3-super-cloud
+    litellm_params:
+      model: ollama_chat/nemotron-3-super:cloud
+      api_base: http://localhost:11434
+      num_ctx: 65536
+
+  # Agent baseline (our F13 local reference, served from cloud here so
+  # we don't need ANTHROPIC_API_KEY or local VRAM).
+  - model_name: devstral-small-2-cloud
+    litellm_params:
+      model: ollama_chat/devstral-small-2:24b-cloud
+      api_base: http://localhost:11434
+      num_ctx: 65536
+
+litellm_settings:
+  set_verbose: false
+  drop_params: true
