@@ -1104,3 +1104,104 @@
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+/* ---------------------------------------------------------------------
+   W7 slice 4 — Audit trail list (workspace-level).
+   --------------------------------------------------------------------- */
+
+.audit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.audit-row {
+  border-bottom: 1px solid var(--border);
+}
+.audit-row:last-child {
+  border-bottom: 0;
+}
+.audit-row > details > summary {
+  display: grid;
+  grid-template-columns: 70px 200px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 18px;
+  cursor: pointer;
+  font-size: 12.5px;
+  list-style: none;
+}
+.audit-row > details > summary::-webkit-details-marker {
+  display: none;
+}
+.audit-row > details[open] > summary {
+  background: var(--surface);
+}
+.audit-row:hover {
+  background: var(--surface);
+}
+.audit-row .audit-seq {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.audit-row .audit-actor {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.audit-row .audit-when {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.audit-detail {
+  padding: 0 18px 14px;
+  background: var(--surface);
+}
+.audit-related {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.audit-related code {
+  font-family: var(--mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.audit-payload {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.btn-secondary {
+  background: var(--bg);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover {
+  border-color: var(--border-light);
+  color: var(--text);
+}
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

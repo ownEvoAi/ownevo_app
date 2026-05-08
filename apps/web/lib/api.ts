@@ -315,3 +315,47 @@ export async function getWorkflowFailureClusters(
     `/api/workflows/${encodeURIComponent(workflowId)}/failure_clusters`,
   )
 }
+
+// W7 slice 4 — Audit trail + verify-chain
+
+export interface AuditEntryRow {
+  id: string
+  seq: number
+  kind: string
+  actor: string
+  related_id: string | null
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface AuditList {
+  items: AuditEntryRow[]
+  total: number
+  truncated: boolean
+}
+
+export interface AuditVerifyResponse {
+  valid: boolean
+  total_entries: number
+  min_seq: number | null
+  max_seq: number | null
+  missing_seqs: number[]
+  duplicate_seqs: number[]
+  canonical_export_bytes: number
+  checked_at: string
+}
+
+export async function listAudit(
+  params: { kind?: string; sinceSeq?: number; limit?: number } = {},
+): Promise<AuditList> {
+  const qs = new URLSearchParams()
+  if (params.kind) qs.set('kind', params.kind)
+  if (params.sinceSeq !== undefined) qs.set('since_seq', String(params.sinceSeq))
+  if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  const path = qs.toString() ? `/api/audit?${qs}` : '/api/audit'
+  return jsonFetch<AuditList>(path)
+}
+
+export async function verifyAuditChain(): Promise<AuditVerifyResponse> {
+  return jsonFetch<AuditVerifyResponse>('/api/audit/verify', { method: 'POST' })
+}

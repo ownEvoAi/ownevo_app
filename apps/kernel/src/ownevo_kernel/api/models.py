@@ -280,10 +280,59 @@ class FailureClusterList(_Strict):
     items: list[FailureClusterSummary]
 
 
+# ---------------------------------------------------------------------------
+# Audit trail (W7 slice 4)
+# ---------------------------------------------------------------------------
+
+
+class AuditEntryRow(_Strict):
+    """Workspace-level audit entry for the trail view.
+
+    Same shape as `AuditEntry` (proposal-detail), repeated here so the
+    list endpoint contract is independent of proposal-side changes.
+    """
+
+    id: UUID
+    seq: int
+    kind: str
+    actor: str
+    related_id: UUID | None
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class AuditList(_Strict):
+    items: list[AuditEntryRow]
+    total: int  # total count in audit_entries (not just returned items)
+    truncated: bool  # true when total > items length (limit applied)
+
+
+class AuditVerifyResponse(_Strict):
+    """Result of running the chain-integrity check.
+
+    For MVP (D2 — append-only, no crypto) "valid chain" means: every
+    `seq` from 1..max is present (no gaps), no duplicate seqs, count
+    is sane. A future hash-chain (TODO-3) extends this with parent_hash
+    + entry_hash verification.
+    """
+
+    valid: bool
+    total_entries: int
+    min_seq: int | None  # null when total_entries == 0
+    max_seq: int | None
+    missing_seqs: list[int]  # capped at 100 in the API for payload safety
+    duplicate_seqs: list[int]  # likewise
+    canonical_export_bytes: int  # size of `to_canonical_json(...)` output
+    checked_at: datetime
+
+
 __all__ = [
     "ApprovalDetail",
     "ApproveResponse",
     "AuditEntry",
+    "AuditEntryRow",
+    "AuditList",
+    "AuditVerifyResponse",
     "DecideRequest",
     "FailureClusterList",
     "FailureClusterSummary",
