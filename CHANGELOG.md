@@ -116,6 +116,52 @@ fresh `[Unreleased]` block above it.
   slicing isolation + retry-on-validation-error), CLI (17). Full
   kernel suite: 1055 passed, 227 skipped.
 
+### Added (W5.4 — 7-day M5 replay, PLAN.md § W5 § 5.4)
+- `apps/kernel/src/ownevo_kernel/replay/seven_day.py` — new
+  `run_seven_day_replay` orchestrator drives the substrate end-to-end
+  over N cycles. Each cycle: build a `SyntheticBenchmarkRunner` whose
+  cycle-N skill passes one more synthetic task than cycle N-1
+  (lift_per_cycle=1 by default; lift curve climbs by 1/n_total_tasks
+  per cycle); call `persist_gate_run` to write iteration + proposal +
+  2 audit entries; on gate-pass, append a `cluster-derived` eval case
+  for the next cycle's prior suite + a `proposal-approved` audit
+  entry stamped `actor=llm-judge:stub` (the W5.2 hook breadcrumb).
+- `ReplayConfig` controls cycle count, workflow id, prior-set size,
+  total-task universe, lift slope, and cluster cases per cycle.
+  `ReplayReport.lift_curve` + `is_climbing()` + `to_dict()` give the
+  CLI everything it needs to gate / serialize.
+- `apps/kernel/scripts/m5_replay_7day.py` + Make target
+  `m5-replay-7day`. Flags: `--cycles N`, `--workflow-id`,
+  `--n-initial-priors`, `--n-total-tasks`, `--lift-per-cycle`,
+  `--cluster-cases-per-cycle`, `--reset` (drops prior workflow rows
+  for clean re-runs), `--pretty`, plus three opt-in spec gates that
+  exit 1 on miss: `--require-climbing`, `--require-audit-entries N`,
+  `--require-eval-growth N`. Exit 2 when `OWNEVO_DATABASE_URL` is
+  unset; 3 on connect failure.
+- **Substrate-real, score-synthetic.** Every iteration / proposal /
+  audit_entry / eval_case / approval row is committed to the actual
+  database; the score signal comes from a synthetic skill so the loop
+  runs in seconds without sandbox / Anthropic / LightGBM. The W6
+  full-M5 30-day replay swaps the runner — everything else stays.
+- W5.4 spec gate (modeled in tests against the default config): 7
+  cycles → lift curve `[0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]`
+  climbs cleanly; 7 × 3 = 21 audit entries written (well above the
+  spec's ≥7 floor); 7 cluster-derived eval cases land (eval set
+  10 → 17). The judge-admit hook stamps every gate-pass with
+  `actor=llm-judge:stub` so a future report can slice by approver.
+- `apps/kernel/src/ownevo_kernel/replay/__init__.py` — package
+  surface (only the seven-day path today; future replays land here).
+- 37 new pure-Python tests + 7 DB-backed integration tests across 3
+  files (`test_replay_seven_day_helpers.py` 16,
+  `test_replay_seven_day.py` 7 DB-gated,
+  `test_scripts_m5_replay_7day.py` 21). Pure tests cover config
+  validation, lift-curve math, climbing semantics (rejects flat / dip,
+  accepts plateau-at-top, refuses single-cycle), `_task_id_sort_key`
+  numeric-ordering, full CLI argparse + gate-checker matrix. DB tests
+  pin every spec gate end-to-end + idempotency on re-run + 1-cycle
+  smallest-possible run + zero-growth disablement. Full kernel suite:
+  1024 passed, 234 skipped (DB-gated tests included in skip count).
+
 ## [0.4.0] — 2026-05-07
 
 W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped
