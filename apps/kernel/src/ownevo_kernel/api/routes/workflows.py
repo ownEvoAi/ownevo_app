@@ -65,14 +65,14 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
                 FROM proposals p
                 JOIN iterations i ON i.id = p.iteration_id
                 WHERE i.workflow_id = w.id
-                  AND p.state = ANY($1::text[])
+                  AND p.state = ANY($1::proposal_state[])
             )                                           AS last_improved_at,
             (
                 SELECT COUNT(*)::int
                 FROM proposals p
                 JOIN iterations i ON i.id = p.iteration_id
                 WHERE i.workflow_id = w.id
-                  AND p.state = ANY($2::text[])
+                  AND p.state = ANY($2::proposal_state[])
             )                                           AS pending_proposals_count
         FROM workflows w
         ORDER BY w.created_at ASC, w.id ASC
@@ -119,7 +119,7 @@ async def list_iterations(workflow_id: str, conn: ConnDep) -> IterationList:
                 SELECT 1
                 FROM proposals p
                 WHERE p.iteration_id = i.id
-                  AND p.state = ANY($2::text[])
+                  AND p.state = ANY($2::proposal_state[])
             )                                           AS has_approved_proposal
         FROM iterations i
         WHERE i.workflow_id = $1
