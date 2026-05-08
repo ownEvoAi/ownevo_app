@@ -143,27 +143,11 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
 
 async def _reset_workflow_state(conn, workflow_id: str, skill_id: str) -> None:
     """Drop everything tied to the demo workflow + skill so a re-run starts
-    clean. Audit_entries are append-only at the DB level (no UPDATE/DELETE
-    permitted on the production grant); on the test grant the writer-side
-    grants haven't been revoked yet so DELETE is currently legal — we use
-    that here so the demo can be re-run without growing the audit table
-    indefinitely. If the GRANT lockdown ships later, switch this to leave
-    audit_entries alone (the audit count delta the report emits is
-    already since-this-run, so old entries don't poison the spec gate)."""
+    clean. audit_entries is protected by the WORM trigger from 0001_substrate.sql
+    (fires BEFORE DELETE, even for superusers) so we skip it — the audit count
+    delta in ReplayReport is already since-this-run, so old entries don't
+    poison the spec gate."""
     async with conn.transaction():
-        await conn.execute(
-            """
-            DELETE FROM audit_entries
-            WHERE related_id IN (
-                SELECT id FROM iterations WHERE workflow_id = $1
-                UNION
-                SELECT id FROM proposals WHERE iteration_id IN (
-                    SELECT id FROM iterations WHERE workflow_id = $1
-                )
-            )
-            """,
-            workflow_id,
-        )
         await conn.execute(
             "DELETE FROM approvals WHERE proposal_id IN ("
             "SELECT id FROM proposals WHERE iteration_id IN ("
