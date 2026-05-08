@@ -383,47 +383,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/SkillDetailResponse'
 
-  /api/skills/{id}/versions:
-    get:
-      tags: [skills]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: ok
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SkillVersion'
-
-  /api/skills/{id}/revert:
-    post:
-      tags: [skills]
-      summary: Revert to a prior version (W7 demo rollback runbook)
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [to_version_seq, reason]
-              properties:
-                to_version_seq: { type: integer }
-                reason: { type: string }
-      responses:
-        '200':
-          description: Reverted. Audit entry kind=proposal-rolled-back appended.
-
   # ---------- clusters ----------
   /api/clusters:
     get:
@@ -802,22 +761,6 @@ components:
         capability_tags:
           type: array
           items: { type: string }
-
-    SkillVersion:
-      type: object
-      required: [id, skill_id, version_seq, content, created_at, created_by]
-      properties:
-        id: { type: string, format: uuid }
-        skill_id: { type: string }
-        parent_version_id: { type: string, format: uuid }
-        version_seq: { type: integer }
-        content: { type: string }
-        retention_block:
-          type: object
-          description: Parsed YAML frontmatter; see SKILL_FORMAT.md
-        diff_summary: { type: string }
-        created_at: { type: string, format: date-time }
-        created_by: { type: string }
 
     SkillDeployment:
       type: object
