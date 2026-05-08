@@ -785,3 +785,176 @@
 
 /* Pill colors (defined in primitives.css for the established set —
    ensure `green` and `amber` cover what the badge needs) */
+
+/* ---------------------------------------------------------------------
+   W7 slice 2 — Health page (workflow rows table + LiftChart).
+   Layout pieces lifted from www/preview/s26-rk7p3/01-health.html
+   <style> block; LiftChart styles are new.
+   --------------------------------------------------------------------- */
+
+/* Workflow rows table */
+.wf-table {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.wf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 100px 130px 100px 110px 130px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+  color: var(--text);
+}
+.wf-row:last-child {
+  border-bottom: 0;
+}
+.wf-row:hover {
+  background: var(--surface);
+}
+.wf-row.head {
+  background: var(--surface);
+  padding: 10px 18px;
+  cursor: default;
+}
+.wf-row.head:hover {
+  background: var(--surface);
+}
+.wf-row.head > div {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.wf-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wf-name-buyer {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+.wf-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.wf-metric-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.wf-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.wf-pending .count {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+.wf-last {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.wf-table-empty {
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.wf-table-empty code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* LiftChart */
+.lift-chart {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px 14px;
+  box-shadow: var(--shadow-sm);
+}
+.lift-chart-empty {
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px 24px;
+  text-align: center;
+}
+.lift-chart-empty-msg {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.lift-chart-empty-msg code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.lift-chart-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.legend-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.legend-swatch.swatch-best {
+  background: var(--accent);
+  height: 3px;
+}
+.legend-swatch.swatch-val {
+  background: var(--text-faint);
+  height: 2px;
+}
+.legend-swatch.swatch-approved {
+  background: var(--accent);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--accent);
+}

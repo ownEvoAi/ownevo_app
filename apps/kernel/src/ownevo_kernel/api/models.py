@@ -199,6 +199,58 @@ class HealthResponse(_Strict):
     db: str  # 'ok' if the connection pool answers, else error class name
 
 
+# ---------------------------------------------------------------------------
+# Workflow-list + lift-chart endpoints (W7 slice 2)
+# ---------------------------------------------------------------------------
+
+
+class WorkflowSummary(_Strict):
+    """Row in the Health page's workflow-rows table.
+
+    Joined across `workflows` + `iterations` + `proposals` so the Health
+    page renders without N+1 fetches. `iteration_count` is the number of
+    finalized iterations on the workflow (gate-pass / gate-blocked / etc.
+    — anything not 'running'), driving the right-side "Last improved"
+    cell. `pending_proposals_count` covers gate-passed proposals waiting
+    for human/llm-judge approval.
+    """
+
+    id: str
+    description: str
+    mode: str  # 'gated' | 'autonomous'
+    iteration_count: int
+    best_ever_score: float | None
+    last_improved_at: datetime | None  # most recent approved proposal's state_updated_at
+    pending_proposals_count: int
+
+
+class WorkflowList(_Strict):
+    items: list[WorkflowSummary]
+    total: int
+
+
+class IterationPoint(_Strict):
+    """One point on the lift chart.
+
+    Iteration-keyed (not day-keyed) — every iteration is a point per
+    W7_SLICE.md resolved decision. `has_approved_proposal` drives the
+    annotated-dot overlay; `state` lets the UI distinguish gate-pass
+    from gate-blocked-no-improvement vs sandbox-error visually.
+    """
+
+    iteration_index: int
+    val_score: float | None
+    best_ever_score_after: float | None
+    state: str
+    has_approved_proposal: bool
+    ended_at: datetime | None
+
+
+class IterationList(_Strict):
+    workflow_id: str
+    items: list[IterationPoint]
+
+
 __all__ = [
     "ApprovalDetail",
     "ApproveResponse",
@@ -207,8 +259,12 @@ __all__ = [
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",
+    "IterationList",
+    "IterationPoint",
     "ProposalDetail",
     "ProposalList",
     "ProposalSummary",
     "WorkflowDetail",
+    "WorkflowList",
+    "WorkflowSummary",
 ]

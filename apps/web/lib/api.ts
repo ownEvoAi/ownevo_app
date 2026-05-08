@@ -243,3 +243,46 @@ export async function getPreview(workflowId: string): Promise<PreviewResponse> {
     `/api/nl-gen/preview/${encodeURIComponent(workflowId)}`,
   )
 }
+
+// W7 slice 2 — workspace Health page + LiftChart
+
+export interface WorkflowSummary {
+  id: string
+  description: string
+  mode: string
+  iteration_count: number
+  best_ever_score: number | null
+  last_improved_at: string | null
+  pending_proposals_count: number
+}
+
+export interface WorkflowList {
+  items: WorkflowSummary[]
+  total: number
+}
+
+export interface IterationPoint {
+  iteration_index: number
+  val_score: number | null
+  best_ever_score_after: number | null
+  state: string
+  has_approved_proposal: boolean
+  ended_at: string | null
+}
+
+export interface IterationList {
+  workflow_id: string
+  items: IterationPoint[]
+}
+
+export async function listWorkflows(): Promise<WorkflowList> {
+  return jsonFetch<WorkflowList>('/api/workflows')
+}
+
+export async function getWorkflowIterations(
+  workflowId: string,
+): Promise<IterationList> {
+  return jsonFetch<IterationList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations`,
+  )
+}

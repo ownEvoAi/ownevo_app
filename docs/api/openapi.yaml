@@ -56,16 +56,14 @@ paths:
                 $ref: '#/components/schemas/Workflow'
     get:
       tags: [workflows]
-      summary: List workflows
+      summary: List workflows with summary metrics (W7 slice 2 — Health page)
       responses:
         '200':
           description: ok
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Workflow'
+                $ref: '#/components/schemas/WorkflowListResponse'
 
   /api/workflows/{id}:
     get:
@@ -82,6 +80,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Workflow'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/iterations:
+    get:
+      tags: [workflows]
+      summary: Chronological iterations for the LiftChart (W7 slice 2)
+      description: |
+        Returns one point per non-running iteration, sorted by iteration_index
+        ASC. The web UI plots `iteration_index × val_score` and overlays
+        an annotated dot wherever `has_approved_proposal=true`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IterationListResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -456,6 +477,56 @@ components:
       required: [description]
       properties:
         description: { type: string, minLength: 10 }
+
+    # W7 slice 2 — Health page row + LiftChart point
+    WorkflowSummary:
+      type: object
+      required:
+        - id
+        - description
+        - mode
+        - iteration_count
+        - pending_proposals_count
+      properties:
+        id: { type: string }
+        description: { type: string }
+        mode: { $ref: '#/components/schemas/WorkflowMode' }
+        iteration_count: { type: integer }
+        best_ever_score: { type: number, format: float, nullable: true }
+        last_improved_at: { type: string, format: date-time, nullable: true }
+        pending_proposals_count: { type: integer }
+
+    WorkflowListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowSummary' }
+        total: { type: integer }
+
+    IterationPoint:
+      type: object
+      required:
+        - iteration_index
+        - state
+        - has_approved_proposal
+      properties:
+        iteration_index: { type: integer }
+        val_score: { type: number, format: float, nullable: true }
+        best_ever_score_after: { type: number, format: float, nullable: true }
+        state: { $ref: '#/components/schemas/IterationState' }
+        has_approved_proposal: { type: boolean }
+        ended_at: { type: string, format: date-time, nullable: true }
+
+    IterationListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/IterationPoint' }
 
     Approval:
       type: object
