@@ -40,6 +40,8 @@ Design (MVP)
 * The first user message (the kickoff) is always preserved — it
   carries the workflow_id + past_attempts block + agent instructions.
 * System messages (OpenAI shape) are always preserved.
+* Already-archived stubs are never re-archived; the operation is
+  idempotent across repeated calls on the same list.
 
 Future work (not in MVP)
 ------------------------
@@ -57,7 +59,10 @@ Future work (not in MVP)
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_KEEP_LAST_K = 4
 """Number of most-recent tool_result user messages to keep verbatim.
@@ -66,19 +71,32 @@ DEFAULT_KEEP_LAST_K = 4
 → run_pipeline) plus one turn of recovery headroom. Smaller values
 free more context but risk dropping load-bearing recent state."""
 
-DEFAULT_THRESHOLD_CHARS = 80_000
+DEFAULT_THRESHOLD_CHARS = 50_000
 """Compact only when serialized conversation exceeds this many chars.
 
-Approximate token count = chars / 4. 80k chars ≈ 20k tokens — leaves
-~12k tokens of headroom on a 32k context window for the model's
-response + tool definitions + system prompt. Below this threshold,
-short conversations pass through unchanged so caching stays warm."""
+Approximate token count = chars / 4. 50k chars ≈ 12.5k tokens — safe
+for both the 32k-context LMS Anthropic path (leaves ~19.5k tokens for
+output + system + tools) and the OpenAI path where DEFAULT_MAX_TOKENS
+(16,384) reserves half the 32k window, leaving only ~16k tokens for
+input (~64k chars). Below this threshold, short conversations pass
+through unchanged so caching stays warm."""
 
 
-def _compact_stub(tool_use_id: str, original_size: int) -> str:
-    """Compact replacement text for an archived tool_result."""
+def _validate_args(keep_last_k: int, threshold_chars: int) -> None:
+    if keep_last_k < 0:
+        raise ValueError(f"keep_last_k must be >= 0; got {keep_last_k}")
+    if threshold_chars < 0:
+        raise ValueError(f"threshold_chars must be >= 0; got {threshold_chars}")
+
+
+def _indices_to_compact(indices: list[int], keep_last_k: int) -> set[int]:
+    return set(indices[:-keep_last_k]) if keep_last_k > 0 else set(indices)
+
+
+def _compact_stub(call_id: str, original_size: int, *, id_label: str = "tool_use_id") -> str:
+    """Compact replacement text for an archived tool result."""
     return (
-        f"[archived: tool_use_id={tool_use_id}, "
+        f"[archived: {id_label}={call_id}, "
         f"original_size={original_size} bytes; "
         f"full content omitted to fit context]"
     )
@@ -131,13 +149,13 @@ def compact_anthropic_messages(
         ``content`` field replaced with a compact stub.
       * The first user message (the kickoff string) is always
         preserved.
+      * Already-archived stubs (content starting with ``[archived:``)
+        are preserved unchanged — the operation is idempotent.
     """
-    if keep_last_k < 0:
-        raise ValueError(f"keep_last_k must be >= 0; got {keep_last_k}")
-    if threshold_chars < 0:
-        raise ValueError(f"threshold_chars must be >= 0; got {threshold_chars}")
+    _validate_args(keep_last_k, threshold_chars)
 
-    if _messages_size_chars(messages) <= threshold_chars:
+    total_size = _messages_size_chars(messages)
+    if total_size <= threshold_chars:
         return messages
 
     # Find indices of all tool_result user messages (skip the kickoff
@@ -155,12 +173,20 @@ def compact_anthropic_messages(
 
     # Indices to compact: all but the most recent keep_last_k
     if len(tool_result_indices) <= keep_last_k:
-        # Even after threshold trip, fewer-than-keep tool_results means
-        # there's nothing to drop — caller probably needs a different fix
-        # (bigger context, smaller per-iter cap).
+        # Threshold was exceeded but there are too few tool_result messages
+        # to drop. Growth is from non-tool-result content (large kickoff,
+        # validation-recovery messages, etc.) and compaction cannot help.
+        logger.warning(
+            "compact_anthropic: threshold exceeded (%d chars) but only %d "
+            "tool_result message(s) available < keep_last_k=%d; "
+            "overflow will not be prevented by compaction",
+            total_size,
+            len(tool_result_indices),
+            keep_last_k,
+        )
         return messages
 
-    compact_indices = set(tool_result_indices[:-keep_last_k]) if keep_last_k > 0 else set(tool_result_indices)
+    compact_indices = _indices_to_compact(tool_result_indices, keep_last_k)
 
     # Build the compacted list. Each compacted user message gets its
     # tool_result blocks rewritten with stub content; the assistant
@@ -171,21 +197,26 @@ def compact_anthropic_messages(
             new_content: list[dict[str, Any]] = []
             for block in msg.get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_result":
-                    original_size = _content_size(block.get("content", ""))
-                    new_content.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.get("tool_use_id", ""),
-                            "content": _compact_stub(
-                                block.get("tool_use_id", ""), original_size
-                            ),
-                            **(
-                                {"is_error": block["is_error"]}
-                                if "is_error" in block
-                                else {}
-                            ),
-                        }
-                    )
+                    block_content = block.get("content", "")
+                    if isinstance(block_content, str) and block_content.startswith("[archived:"):
+                        # Already compacted on a prior iteration — preserve unchanged.
+                        new_content.append(block)
+                    else:
+                        original_size = _content_size(block_content)
+                        new_content.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.get("tool_use_id", ""),
+                                "content": _compact_stub(
+                                    block.get("tool_use_id", ""), original_size
+                                ),
+                                **(
+                                    {"is_error": block["is_error"]}
+                                    if "is_error" in block
+                                    else {}
+                                ),
+                            }
+                        )
                 else:
                     new_content.append(block)
             out.append({**msg, "content": new_content})
@@ -217,35 +248,50 @@ def compact_openai_messages(
 
     Compaction policy mirrors the Anthropic path: keep the most recent
     ``keep_last_k`` tool messages verbatim; older tool messages have
-    their ``content`` replaced with a compact stub.
+    their ``content`` replaced with a compact stub (labelled
+    ``tool_call_id=`` to match the OpenAI field name).
+    Already-archived stubs are preserved unchanged (idempotent).
     """
-    if keep_last_k < 0:
-        raise ValueError(f"keep_last_k must be >= 0; got {keep_last_k}")
-    if threshold_chars < 0:
-        raise ValueError(f"threshold_chars must be >= 0; got {threshold_chars}")
+    _validate_args(keep_last_k, threshold_chars)
 
-    if _messages_size_chars(messages) <= threshold_chars:
+    total_size = _messages_size_chars(messages)
+    if total_size <= threshold_chars:
         return messages
 
     tool_indices: list[int] = [
         i for i, m in enumerate(messages) if m.get("role") == "tool"
     ]
     if len(tool_indices) <= keep_last_k:
+        logger.warning(
+            "compact_openai: threshold exceeded (%d chars) but only %d "
+            "tool message(s) available < keep_last_k=%d; "
+            "overflow will not be prevented by compaction",
+            total_size,
+            len(tool_indices),
+            keep_last_k,
+        )
         return messages
 
-    compact_indices = set(tool_indices[:-keep_last_k]) if keep_last_k > 0 else set(tool_indices)
+    compact_indices = _indices_to_compact(tool_indices, keep_last_k)
 
     out: list[dict[str, Any]] = []
     for i, msg in enumerate(messages):
         if i in compact_indices:
-            tool_call_id = msg.get("tool_call_id", "")
-            original_size = _content_size(msg.get("content", ""))
-            out.append(
-                {
-                    **msg,
-                    "content": _compact_stub(tool_call_id, original_size),
-                }
-            )
+            content_val = msg.get("content", "")
+            if isinstance(content_val, str) and content_val.startswith("[archived:"):
+                # Already compacted on a prior iteration — preserve unchanged.
+                out.append(msg)
+            else:
+                tool_call_id = msg.get("tool_call_id", "")
+                original_size = _content_size(content_val)
+                out.append(
+                    {
+                        **msg,
+                        "content": _compact_stub(
+                            tool_call_id, original_size, id_label="tool_call_id"
+                        ),
+                    }
+                )
         else:
             out.append(msg)
     return out

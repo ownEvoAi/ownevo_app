@@ -262,10 +262,10 @@ class TestCompactOpenAIMessages:
             _openai_tool("t6", big),  # KEEP
         ]
         out = compact_openai_messages(msgs, threshold_chars=100, keep_last_k=4)
-        # OLD tool messages compacted
-        assert out[3]["content"].startswith("[archived: tool_use_id=t1")
+        # OLD tool messages compacted (OpenAI stubs use tool_call_id label)
+        assert out[3]["content"].startswith("[archived: tool_call_id=t1")
         assert "1000 bytes" in out[3]["content"]
-        assert out[5]["content"].startswith("[archived: tool_use_id=t2")
+        assert out[5]["content"].startswith("[archived: tool_call_id=t2")
         # KEEP tool messages verbatim
         for keep_idx in (7, 9, 11, 13):
             assert out[keep_idx]["content"] == big
@@ -313,8 +313,8 @@ class TestCompactOpenAIMessages:
             _openai_tool("t2", big),
         ]
         out = compact_openai_messages(msgs, threshold_chars=100, keep_last_k=0)
-        assert out[3]["content"].startswith("[archived: tool_use_id=t1")
-        assert out[5]["content"].startswith("[archived: tool_use_id=t2")
+        assert out[3]["content"].startswith("[archived: tool_call_id=t1")
+        assert out[5]["content"].startswith("[archived: tool_call_id=t2")
 
     def test_fewer_tool_messages_than_keep_returns_unchanged(self):
         msgs = [
@@ -344,3 +344,199 @@ def test_default_constants_in_reasonable_range():
     # Sanity — defaults shouldn't drift to absurd values silently
     assert 1 <= DEFAULT_KEEP_LAST_K <= 16
     assert 10_000 <= DEFAULT_THRESHOLD_CHARS <= 1_000_000
+
+
+# ---------------------------------------------------------------------------
+# Identity contract — "fewer results than keep" branch
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_fewer_results_than_keep_returns_same_identity():
+    """Even over threshold, if n <= keep_last_k the same list object is returned."""
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t1", "x" * 5000),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", "x" * 5000),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", "x" * 5000),
+    ]
+    out = compact_anthropic_messages(msgs, threshold_chars=100, keep_last_k=4)
+    assert out is msgs
+
+
+def test_openai_fewer_tool_messages_than_keep_returns_same_identity():
+    """Even over threshold, if n <= keep_last_k the same list object is returned."""
+    msgs = [
+        _openai_system(),
+        _openai_user(),
+        _openai_assistant(),
+        _openai_tool("t1", "x" * 5000),
+        _openai_assistant(),
+        _openai_tool("t2", "x" * 5000),
+    ]
+    out = compact_openai_messages(msgs, threshold_chars=100, keep_last_k=4)
+    assert out is msgs
+
+
+# ---------------------------------------------------------------------------
+# Idempotency — compacting an already-compacted conversation
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_compaction_idempotent():
+    """Re-compacting preserves the original stub unchanged (no size corruption)."""
+    big = "x" * 1000
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t1", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t4", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t5", big),
+    ]
+    first = compact_anthropic_messages(msgs, threshold_chars=100, keep_last_k=4)
+    second = compact_anthropic_messages(first, threshold_chars=100, keep_last_k=4)
+    first_stub = first[2]["content"][0]["content"]
+    second_stub = second[2]["content"][0]["content"]
+    assert first_stub == second_stub, f"Re-compaction changed stub: {first_stub!r} -> {second_stub!r}"
+    assert "1000 bytes" in first_stub
+
+
+# ---------------------------------------------------------------------------
+# List-typed tool_result content (Anthropic allows list content in tool_result)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_tool_result_with_list_content_gets_stubbed():
+    """tool_result whose content is a list of blocks (not a string) is correctly sized and stubbed."""
+    import json as _json
+    list_content = [{"type": "text", "text": "x" * 500}]
+    expected_size = len(_json.dumps(list_content))
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tl1", "content": list_content}]},
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", "x" * 500),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", "x" * 500),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t4", "x" * 500),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t5", "x" * 500),
+    ]
+    out = compact_anthropic_messages(msgs, threshold_chars=100, keep_last_k=4)
+    compacted = out[2]["content"][0]
+    assert isinstance(compacted["content"], str)
+    assert str(expected_size) in compacted["content"]
+    assert compacted["content"].startswith("[archived: tool_use_id=tl1")
+
+
+# ---------------------------------------------------------------------------
+# Mixed-block user message (text block alongside tool_result block)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_non_tool_result_blocks_in_user_message_preserved():
+    """Non-tool_result blocks in a compacted user message are passed through verbatim."""
+    big = "x" * 1000
+    mixed_msg = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "preceding user text"},
+            {"type": "tool_result", "tool_use_id": "tm1", "content": big},
+        ],
+    }
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        mixed_msg,
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t4", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t5", big),
+    ]
+    out = compact_anthropic_messages(msgs, threshold_chars=100, keep_last_k=4)
+    compacted_content = out[2]["content"]
+    assert compacted_content[0] == {"type": "text", "text": "preceding user text"}
+    assert compacted_content[1]["content"].startswith("[archived: tool_use_id=tm1")
+
+
+# ---------------------------------------------------------------------------
+# threshold_chars=0 — "always compact" edge case
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_threshold_zero_always_compacts():
+    """threshold_chars=0 triggers compaction on any non-empty conversation."""
+    big = "x" * 500
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t1", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t4", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t5", big),
+    ]
+    out = compact_anthropic_messages(msgs, threshold_chars=0, keep_last_k=4)
+    assert out[2]["content"][0]["content"].startswith("[archived: tool_use_id=t1")
+    for keep_idx in (4, 6, 8, 10):
+        assert out[keep_idx]["content"][0]["content"] == big
+
+
+# ---------------------------------------------------------------------------
+# Exact n == keep_last_k boundary — must return same identity
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_exactly_keep_last_k_results_returns_same_identity():
+    """When n == keep_last_k, nothing is dropped and the same list object is returned."""
+    big = "x" * 5000
+    msgs = [
+        _anthropic_kickoff(),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t1", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t2", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t3", big),
+        _anthropic_assistant(),
+        _anthropic_tool_result("t4", big),  # exactly 4 == keep_last_k
+    ]
+    out = compact_anthropic_messages(msgs, threshold_chars=100, keep_last_k=4)
+    assert out is msgs
+
+
+def test_openai_exactly_keep_last_k_tool_messages_returns_same_identity():
+    """When n == keep_last_k, nothing is dropped and the same list object is returned."""
+    big = "x" * 5000
+    msgs = [
+        _openai_system(),
+        _openai_user(),
+        _openai_assistant(),
+        _openai_tool("t1", big),
+        _openai_assistant(),
+        _openai_tool("t2", big),
+        _openai_assistant(),
+        _openai_tool("t3", big),
+        _openai_assistant(),
+        _openai_tool("t4", big),  # exactly 4 == keep_last_k
+    ]
+    out = compact_openai_messages(msgs, threshold_chars=100, keep_last_k=4)
+    assert out is msgs

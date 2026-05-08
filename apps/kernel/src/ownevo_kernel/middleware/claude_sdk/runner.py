@@ -57,8 +57,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from .conversation_compaction import (
-    DEFAULT_KEEP_LAST_K,
-    DEFAULT_THRESHOLD_CHARS,
     compact_anthropic_messages,
     compact_openai_messages,
 )
