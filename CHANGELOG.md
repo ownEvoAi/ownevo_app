@@ -17,6 +17,51 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Validated (W5.2 local LLM-judge approver — 2026-05-08)
+- **`granite-4.1-8b` on LM Studio (32k context) hit
+  `agreement = 0.9667 ≥ 0.85` on the 30-case W5.2 hand-labeled
+  approver eval, 39.4 s wall, 29/30 correct.** Per-bucket:
+  `structural` 10/10, `structural-but-wrong-direction` 6/6,
+  `vague-but-positive` 8/8, `hand-wavy` 5/6 (only miss).
+- Run: `make llm-judge-approver-eval LLM_JUDGE_APPROVER_ARGS='--judge-model granite-4.1-8b --anthropic-base-url http://localhost:1234 --concurrency 2 --max-retries-per-call 1 --pretty --require-agreement 0.85'`
+  with `ANTHROPIC_API_KEY=lm-studio` (any non-empty value satisfies the
+  Anthropic SDK's auth-header validator when `--anthropic-base-url`
+  routes to a local server).
+- **Strategic significance:** combined with the 2026-05-08 BL.3
+  Stage D lift driver (qwen3-coder:30b + cross-iter memory + PR #61
+  `/no_think`), Track B condition D (loop + LLM-judge approval gate)
+  can run end-to-end on free local models at the W5.2 contract
+  threshold. PR #62's condition-D smoke fell back to cloud Sonnet
+  4.6 because no local judge had been validated; this finding
+  unblocks a free condition-D 30-day replay.
+
+### Investigated (W5.5 meta-eval not local-viable at ≥0.7 — 2026-05-08)
+- **`granite-4.1-8b` on LM Studio (32k context) hit
+  `agreement = 0.500 < 0.700`** on the 10-pair W5.5 META_EVAL_SET,
+  102 s wall, 20 judge calls. Tool-call mechanics worked end-to-end;
+  the judge simply disagreed with hand-labels at 50% — well below the
+  0.7 contract calibrated against `claude-haiku-4-5`. **W5.5 quality
+  gate is cloud-Anthropic-only in practice.**
+- Why W5.2 passed locally but W5.5 failed: W5.2 is structured
+  admit/reject with explicit per-element checks (cluster_referenced,
+  change_named, direction_stated) over 30 hand-labeled cases. W5.5
+  is NL-gen artifact quality judgment with 3 free-form dimensions ×
+  10 pairs — a harder synthesis task. Local 8B-class can match
+  frontier on structured admit/reject but not on free-form quality
+  grading.
+- **Operational notes captured for the next local meta-eval attempt
+  (none of these are blockers, just gotchas):** (a) LM Studio
+  defaults newly-loaded models to a small context (~4k for
+  granite-4.1-8b), and the meta-eval prompt is ~6.7k tokens — reload
+  via `lmstudio-python` `client.llm.load_new_instance(name,
+  config={'contextLength': 32768})` from the dev box; (b) the
+  Anthropic SDK requires either `api_key=` or `ANTHROPIC_API_KEY=`
+  even when `--anthropic-base-url` is local — pass any non-empty
+  value; both `meta_eval.py:_make_client` and
+  `llm_judge_approver_eval.py:_make_async_client` could pass
+  `api_key="local"` automatically when base_url is set, ergonomics
+  fix.
+
 ### Validated (BL.3 first local-model lift on real M5 — 2026-05-08)
 - **qwen3-coder:30b on Ollama OpenAI + this PR's `/no_think` patch +
   PR #40 cross-iter failure memory produced a +14.9% lift over the
