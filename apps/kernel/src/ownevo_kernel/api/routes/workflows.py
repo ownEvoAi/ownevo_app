@@ -99,9 +99,12 @@ async def list_iterations(workflow_id: str, conn: ConnDep) -> IterationList:
         workflow_id,
     )
     if not workflow_exists:
+        # Static message — never reflect the user-supplied path param,
+        # which has no length cap and could be exploited as an echo
+        # surface for arbitrary user-controlled strings.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow not found: {workflow_id}",
+            detail="Workflow not found",
         )
 
     rows = await conn.fetch(
@@ -165,9 +168,12 @@ async def list_failure_clusters(
         workflow_id,
     )
     if not workflow_exists:
+        # Static message — never reflect the user-supplied path param,
+        # which has no length cap and could be exploited as an echo
+        # surface for arbitrary user-controlled strings.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow not found: {workflow_id}",
+            detail="Workflow not found",
         )
 
     rows = await conn.fetch(

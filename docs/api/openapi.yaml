@@ -604,6 +604,8 @@ components:
       required:
         - valid
         - total_entries
+        - min_seq
+        - max_seq
         - missing_seqs
         - duplicate_seqs
         - canonical_export_bytes

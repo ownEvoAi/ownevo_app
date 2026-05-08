@@ -8,7 +8,10 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import asyncpg
+import httpx
 import pytest
+from httpx import ASGITransport
+from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR, migrate
 from ownevo_kernel.replay import CycleSummary
 
@@ -112,3 +115,28 @@ async def db():
             await admin.execute(f'DROP DATABASE "{dbname}"')
         finally:
             await admin.close()
+
+
+@pytest.fixture
+async def api_client(db: asyncpg.Connection):
+    """In-process FastAPI client bound to the per-test DB.
+
+    Mirrors the per-file fixture that previously lived in
+    test_api_proposals / test_api_workflows / test_api_audit. Tests that
+    need both the raw connection (`db`) and the app (`api_client`) can
+    depend on both — the pool here is independent so the two sessions
+    don't share transaction state.
+    """
+    dbname = await db.fetchval("SELECT current_database()")
+    parsed = urlparse(os.environ[ENV_VAR])
+    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
+    try:
+        app = create_app(pool=pool, cors_origins=[])
+        transport = ASGITransport(app=app)
+        async with app.router.lifespan_context(app), httpx.AsyncClient(
+            transport=transport, base_url="http://api.test",
+        ) as client:
+            yield client
+    finally:
+        await pool.close()

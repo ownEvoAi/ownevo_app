@@ -14,8 +14,10 @@ underlying `export_audit_log` call.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime
 
+import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ...audit.writer import export_audit_log, to_canonical_json
@@ -39,6 +41,7 @@ async def list_audit(
     ),
     kind: str | None = Query(
         default=None,
+        max_length=64,
         description=(
             "Filter to a single audit_kind (proposal-approved, gate-run-completed, "
             "etc.). See SCHEMA.md § audit_kind for the enum."
@@ -55,12 +58,12 @@ async def list_audit(
     """
     try:
         entries = await export_audit_log(conn, since_seq=since_seq, kind=kind)
-    except ValueError as exc:
-        # `kind` is validated against the audit_kind enum in Postgres;
-        # an unknown value bubbles as ValueError per asyncpg's enum cast.
+    except (ValueError, asyncpg.exceptions.InvalidTextRepresentationError) as exc:
+        # asyncpg raises InvalidTextRepresentationError (22P02) for unknown
+        # enum values — not ValueError. Catch both for defence in depth.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=f"Invalid audit_kind value: {kind!r}",
         ) from exc
 
     # `export_audit_log` returns ASC. Reverse + cap for the UI.
@@ -80,7 +83,10 @@ async def list_audit(
     ]
 
     total = await conn.fetchval("SELECT COUNT(*)::int FROM audit_entries") or 0
-    return AuditList(items=items, total=total, truncated=total > len(items))
+    # `truncated` reflects whether the [:limit] cap dropped rows from the
+    # filtered result set — not whether there are more unfiltered entries.
+    truncated = len(entries) > len(sliced)
+    return AuditList(items=items, total=total, truncated=truncated)
 
 
 @router.post("/verify", response_model=AuditVerifyResponse)
@@ -98,7 +104,8 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
     seqs = [e.seq for e in entries]
     seqs_set = set(seqs)
 
-    duplicates = sorted(s for s in seqs_set if seqs.count(s) > 1)[:_MAX_REPORTED_GAPS]
+    counts = Counter(seqs)
+    duplicates = sorted(s for s, n in counts.items() if n > 1)[:_MAX_REPORTED_GAPS]
 
     if not seqs:
         return AuditVerifyResponse(

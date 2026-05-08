@@ -20,7 +20,13 @@ export interface WorkflowMock {
   metrics: Array<{
     label: string
     value: string
-    delta?: { direction: 'up' | 'down' | 'flat'; text: string }
+    // `tone` drives the colour of the delta cell (positive = green,
+    // negative = red, neutral = muted). It describes the BUSINESS
+    // outcome, NOT the numeric direction — fewer compliance breaches
+    // is a positive tone even though the number went ▼ down. The
+    // arrow glyph (▲ / ▼) lives inside `text` and reflects the
+    // raw numeric movement.
+    delta?: { tone: 'positive' | 'negative' | 'neutral'; text: string }
   }>
   recentActivity: Array<{
     kind: 'approval' | 'cluster' | 'regression' | 'escalation'
@@ -40,10 +46,10 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
     description:
       'Shift-validation and overtime-cap enforcement across 480 weekly schedules.',
     metrics: [
-      { label: 'Schedules / week', value: '482', delta: { direction: 'flat', text: 'unchanged' } },
-      { label: 'Compliance breaches', value: '3', delta: { direction: 'up', text: '▼ 11 vs last week' } },
-      { label: 'Approval rate', value: '94.1%', delta: { direction: 'up', text: '▲ 2.3 pts' } },
-      { label: 'Cluster eval cases', value: '24', delta: { direction: 'flat', text: 'auto-promoted' } },
+      { label: 'Schedules / week', value: '482', delta: { tone: 'neutral', text: 'unchanged' } },
+      { label: 'Compliance breaches', value: '3', delta: { tone: 'positive', text: '▼ 11 vs last week' } },
+      { label: 'Approval rate', value: '94.1%', delta: { tone: 'positive', text: '▲ 2.3 pts' } },
+      { label: 'Cluster eval cases', value: '24', delta: { tone: 'neutral', text: 'auto-promoted' } },
     ],
     recentActivity: [
       { kind: 'approval', body: 'Approved “Hard cap on weekend doubles in Pacific NW”', when: '2h ago' },
@@ -61,10 +67,10 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
     description:
       'Clause-by-clause review of bargaining-unit agreements; surfaces conflicts with active CBAs.',
     metrics: [
-      { label: 'Contracts / month', value: '38', delta: { direction: 'up', text: '▲ 6 vs last month' } },
-      { label: 'Reviewer hours saved', value: '162h', delta: { direction: 'up', text: '▲ 28h' } },
-      { label: 'False-flag rate', value: '4.7%', delta: { direction: 'down', text: '▲ 1.1 pts' } },
-      { label: 'Cluster eval cases', value: '11', delta: { direction: 'flat', text: 'auto-promoted' } },
+      { label: 'Contracts / month', value: '38', delta: { tone: 'positive', text: '▲ 6 vs last month' } },
+      { label: 'Reviewer hours saved', value: '162h', delta: { tone: 'positive', text: '▲ 28h' } },
+      { label: 'False-flag rate', value: '4.7%', delta: { tone: 'negative', text: '▲ 1.1 pts' } },
+      { label: 'Cluster eval cases', value: '11', delta: { tone: 'neutral', text: 'auto-promoted' } },
     ],
     recentActivity: [
       { kind: 'escalation', body: 'Counsel escalation: ambiguous overtime clause in Local 218', when: '4h ago' },
@@ -82,10 +88,10 @@ export const WORKFLOW_MOCKS: Record<string, WorkflowMock> = {
     description:
       'Tier-2 ticket triage; assigns severity + routes to specialist queues based on conversation transcript.',
     metrics: [
-      { label: 'Tickets / day', value: '1,820', delta: { direction: 'flat', text: 'unchanged' } },
-      { label: 'P1 mis-routes', value: '7', delta: { direction: 'up', text: '▼ 14 vs last week' } },
-      { label: 'Time-to-route p95', value: '38s', delta: { direction: 'up', text: '▼ 9s' } },
-      { label: 'Cluster eval cases', value: '53', delta: { direction: 'flat', text: 'auto-promoted' } },
+      { label: 'Tickets / day', value: '1,820', delta: { tone: 'neutral', text: 'unchanged' } },
+      { label: 'P1 mis-routes', value: '7', delta: { tone: 'positive', text: '▼ 14 vs last week' } },
+      { label: 'Time-to-route p95', value: '38s', delta: { tone: 'positive', text: '▼ 9s' } },
+      { label: 'Cluster eval cases', value: '53', delta: { tone: 'neutral', text: 'auto-promoted' } },
     ],
     recentActivity: [
       { kind: 'approval', body: 'Approved “Treat ‘billing dispute >30d’ as P1 by default”', when: '1h ago' },
@@ -101,4 +107,99 @@ export function getMock(wfId: string): WorkflowMock | null {
 
 export function isMock(wfId: string): boolean {
   return wfId in WORKFLOW_MOCKS
+}
+
+// Static failure-cluster fixtures for the positioning workflows.
+// Same shape as the API's FailureClusterSummary so the mock and live
+// codepaths render identical components. Keep counts small (2-3 per
+// workflow) so the screenshot reads cleanly.
+export interface MockFailureCluster {
+  id: string
+  workflow_id: string
+  label: string
+  severity: 'high' | 'medium' | 'low'
+  cluster_size: number
+  label_eval_score: number | null
+  quality_score: number | null
+  sample_trace_ids: string[]
+  created_at: string
+}
+
+export const MOCK_FAILURE_CLUSTERS: Record<string, MockFailureCluster[]> = {
+  labour: [
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      workflow_id: 'labour',
+      label: 'Late-shift swap not flagged for skill mismatch',
+      severity: 'high',
+      cluster_size: 8,
+      label_eval_score: 0.82,
+      quality_score: 0.71,
+      sample_trace_ids: [],
+      created_at: '2026-05-06T09:14:00Z',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000002',
+      workflow_id: 'labour',
+      label: 'Overtime cap underestimated on holiday eligibility',
+      severity: 'medium',
+      cluster_size: 5,
+      label_eval_score: 0.75,
+      quality_score: 0.64,
+      sample_trace_ids: [],
+      created_at: '2026-05-04T16:22:00Z',
+    },
+  ],
+  contract: [
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      workflow_id: 'contract',
+      label: 'Severance triggers for fixed-term renewals',
+      severity: 'high',
+      cluster_size: 4,
+      label_eval_score: 0.79,
+      quality_score: 0.68,
+      sample_trace_ids: [],
+      created_at: '2026-05-05T11:00:00Z',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000004',
+      workflow_id: 'contract',
+      label: 'Ambiguous overtime clause across multi-state CBAs',
+      severity: 'low',
+      cluster_size: 3,
+      label_eval_score: 0.72,
+      quality_score: 0.55,
+      sample_trace_ids: [],
+      created_at: '2026-05-02T08:45:00Z',
+    },
+  ],
+  support: [
+    {
+      id: '00000000-0000-4000-8000-000000000005',
+      workflow_id: 'support',
+      label: 'Refund requests with order-number typos',
+      severity: 'medium',
+      cluster_size: 11,
+      label_eval_score: 0.84,
+      quality_score: 0.73,
+      sample_trace_ids: [],
+      created_at: '2026-05-07T13:08:00Z',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000006',
+      workflow_id: 'support',
+      label: 'Enterprise contract questions misrouted to billing',
+      severity: 'low',
+      cluster_size: 6,
+      label_eval_score: 0.81,
+      quality_score: 0.66,
+      sample_trace_ids: [],
+      created_at: '2026-05-03T19:34:00Z',
+    },
+  ],
+}
+
+export function getMockClusters(wfId: string): MockFailureCluster[] | null {
+  return MOCK_FAILURE_CLUSTERS[wfId] ?? null
 }

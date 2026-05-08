@@ -1,10 +1,11 @@
 import {
   getWorkflowIterations,
-  KernelApiError,
+  kernelErrorMessage,
   listWorkflows,
   type IterationList,
   type WorkflowList,
 } from '../../../lib/api'
+import { workspaceLabel } from '../../../lib/format'
 import { LiftChart } from './lift-chart'
 import { WorkflowsTable } from './workflows-table'
 
@@ -27,7 +28,7 @@ interface PageProps {
 export default async function WorkspaceHealthPage({ params }: PageProps) {
   const { wsId } = await params
 
-  const wsLabel = wsId.charAt(0).toUpperCase() + wsId.slice(1)
+  const wsLabel = workspaceLabel(wsId)
 
   let workflows: WorkflowList = { items: [], total: 0 }
   let primaryIterations: IterationList | null = null
@@ -39,14 +40,14 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
       primaryIterations = await getWorkflowIterations(workflows.items[0].id)
     }
   } catch (err) {
-    apiError =
-      err instanceof KernelApiError
-        ? `Kernel API ${err.status}: ${err.detail}`
-        : 'Could not reach the kernel API. Run `make api` to start it.'
+    apiError = kernelErrorMessage(err)
   }
 
   const primary = workflows.items[0]
-  const approvedCount = workflows.items.reduce(
+  // Workflows that have ever shipped at least one approved proposal —
+  // NOT a count of approval events (the API doesn't expose that yet).
+  // Label below should match this scope.
+  const improvedWorkflowsCount = workflows.items.reduce(
     (acc, w) => acc + (w.last_improved_at ? 1 : 0),
     0,
   )
@@ -79,18 +80,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
       </header>
 
       {apiError && (
-        <div
-          role="alert"
-          style={{
-            padding: '12px 16px',
-            margin: '0 0 24px',
-            border: '1px solid var(--banner-border)',
-            background: 'var(--banner-bg)',
-            color: 'var(--banner-text)',
-            borderRadius: 6,
-            fontSize: 12.5,
-          }}
-        >
+        <div role="alert" className="api-banner" style={{ marginBottom: 24 }}>
           <strong>Kernel API not reachable.</strong> {apiError}
         </div>
       )}
@@ -105,8 +95,8 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
           <div className="metric-value">{pendingCount}</div>
         </div>
         <div className="metric">
-          <div className="metric-label">Approved (lifetime)</div>
-          <div className="metric-value">{approvedCount}</div>
+          <div className="metric-label">Workflows improved</div>
+          <div className="metric-value">{improvedWorkflowsCount}</div>
         </div>
         <div className="metric">
           <div className="metric-label">Best val_score</div>

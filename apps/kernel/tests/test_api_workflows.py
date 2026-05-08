@@ -2,42 +2,22 @@
 
 Same in-process httpx + ASGITransport pattern as `test_api_proposals.py`.
 Tests skip when `OWNEVO_DATABASE_URL` is unset so unit-only CI stays
-green.
+green. The `api_client` fixture is shared via `conftest.py`.
 """
 
 from __future__ import annotations
 
 import os
-from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import httpx
 import pytest
-from httpx import ASGITransport
-from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
     reason=f"{ENV_VAR} not set; skipping integration tests",
 )
-
-
-@pytest.fixture
-async def api_client(db: asyncpg.Connection):
-    dbname = await db.fetchval("SELECT current_database()")
-    parsed = urlparse(os.environ[ENV_VAR])
-    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
-    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
-    try:
-        app = create_app(pool=pool, cors_origins=[])
-        transport = ASGITransport(app=app)
-        async with app.router.lifespan_context(app), httpx.AsyncClient(
-            transport=transport, base_url="http://api.test",
-        ) as client:
-            yield client
-    finally:
-        await pool.close()
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +110,7 @@ async def test_list_workflows_summary(
     await _seed_workflow(db, workflow_id="wf-a", description="Alpha")
     await _seed_workflow(db, workflow_id="wf-b", description="Beta")
     # wf-a: 2 iterations, last one improved + has approved proposal
-    iter_a1 = await _seed_iteration(
+    await _seed_iteration(
         db, workflow_id="wf-a", iteration_index=0, val_score=0.30,
         best_ever_score_after=0.30,
     )
@@ -188,6 +168,44 @@ async def test_list_workflows_excludes_running_iterations_from_count(
     body = res.json()
     by_id = {w["id"]: w for w in body["items"]}
     assert by_id["wf-running"]["iteration_count"] == 1
+
+
+async def test_list_workflows_deployed_state_drives_last_improved_at(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Both 'approved-awaiting-deploy' and 'deployed' must contribute
+    to last_improved_at — they are the two states in _APPROVED_STATES."""
+    await _seed_workflow(db, workflow_id="wf-deployed")
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-deployed", iteration_index=0,
+        val_score=0.5, best_ever_score_after=0.5,
+    )
+    await _seed_proposal(
+        db, iteration_id=iter_id, skill_id="skill.deployed",
+        state="deployed",
+    )
+
+    res = await api_client.get("/api/workflows")
+    body = res.json()
+    by_id = {w["id"]: w for w in body["items"]}
+    assert by_id["wf-deployed"]["last_improved_at"] is not None
+
+
+async def test_list_workflows_sort_order_created_at_asc(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """LiftChart hero picks items[0] — sort order is load-bearing."""
+    # Seed in non-alphabetical order to verify the SQL ORDER BY drives
+    # the response, not the insertion order.
+    await _seed_workflow(db, workflow_id="wf-c", description="Charlie")
+    await _seed_workflow(db, workflow_id="wf-a", description="Alpha")
+    await _seed_workflow(db, workflow_id="wf-b", description="Bravo")
+
+    res = await api_client.get("/api/workflows")
+    body = res.json()
+    ids = [w["id"] for w in body["items"]]
+    # created_at ASC — wf-c was inserted first, so it should land first.
+    assert ids[0] == "wf-c"
 
 
 # ---------------------------------------------------------------------------
