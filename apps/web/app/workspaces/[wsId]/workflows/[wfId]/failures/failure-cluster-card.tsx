@@ -2,8 +2,6 @@ import type { FailureClusterSummary } from '../../../../../../lib/api'
 
 interface CardProps {
   cluster: FailureClusterSummary
-  wsId: string
-  wfId: string
 }
 
 const SEVERITY_PILL: Record<string, string> = {

@@ -32,7 +32,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
   return (
     <div>
       <nav className="crumb-row">
-        <Link href="/inbox">Inbox</Link>
+        <Link href="/workspaces/acme/inbox">Inbox</Link>
         <span className="sep">/</span>
         <span>{proposal.workflow.description}</span>
         <span className="sep">/</span>

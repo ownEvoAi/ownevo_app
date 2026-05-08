@@ -1,5 +1,5 @@
 import {
-  KernelApiError,
+  kernelErrorMessage,
   listAudit,
   type AuditEntryRow,
   type AuditList,
@@ -46,10 +46,7 @@ export default async function WorkspaceAuditPage({ params }: PageProps) {
   try {
     audit = await listAudit({ limit: 200 })
   } catch (err) {
-    apiError =
-      err instanceof KernelApiError
-        ? `Kernel API ${err.status}: ${err.detail}`
-        : 'Could not reach the kernel API. Run `make api` to start it.'
+    apiError = kernelErrorMessage(err)
   }
 
   return (

@@ -27,3 +27,9 @@ export function formatDateTime(iso: string): string {
     minute: '2-digit',
   })
 }
+
+// Title-case a workspace slug for display in the nav + page subtitle.
+// Cosmetic only — the slug is ignored by the backend per D4.
+export function workspaceLabel(slug: string): string {
+  return slug.charAt(0).toUpperCase() + slug.slice(1)
+}

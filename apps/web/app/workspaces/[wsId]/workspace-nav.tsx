@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
+import { workspaceLabel } from '../../../lib/format'
 
 interface NavProps {
   wsId: string
@@ -16,6 +17,10 @@ interface NavProps {
 // shows demand-prediction (live) + labour/contract/support (mocks).
 // Multi-tenant retrofit (TODO-1) replaces this with a workspace-
 // scoped query.
+//
+// COUPLING: the IDs `labour`, `contract`, `support` must stay in sync
+// with the keys in `workflows/[wfId]/mocks.ts` (WORKFLOW_MOCKS). If a
+// mock is renamed there, update the matching <a href> below.
 export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
   const pathname = usePathname() ?? ''
   const root = `/workspaces/${wsId}`
@@ -26,9 +31,8 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
   }
   const cls = (href: string) => `nav-item${isActive(href) ? ' active' : ''}`
 
-  // Workspace label is cosmetic until D4 retrofit. Title-case the
-  // slug so /workspaces/acme renders "Acme".
-  const wsLabel = wsId.charAt(0).toUpperCase() + wsId.slice(1)
+  // Workspace label is cosmetic until D4 retrofit.
+  const wsLabel = workspaceLabel(wsId)
   const wsAvatar = wsId.charAt(0).toUpperCase()
 
   return (

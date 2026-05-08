@@ -40,21 +40,18 @@ export function LiftChart({ points, workflowId, height = 220 }: LiftChartProps) 
     p.best_ever_score_after ?? p.val_score,
   ])
   const xMin = Math.min(...xs)
-  const xMax = Math.max(xs.length === 1 ? xMin + 1 : Math.max(...xs))
+  const xMax = xs.length === 1 ? xMin + 1 : Math.max(...xs)
   const yMinRaw = Math.min(...ys)
   const yMaxRaw = Math.max(...ys)
   const yPad = Math.max((yMaxRaw - yMinRaw) * 0.12, 0.02)
   const yMin = yMinRaw - yPad
   const yMax = yMaxRaw + yPad
 
+  const VIEWBOX_WIDTH = 720
   const padding = { top: 20, right: 24, bottom: 32, left: 56 }
-  const innerWidth = 720 // viewBox width; SVG scales to container
-  const width = innerWidth
-  const totalWidth = width
-  const totalHeight = height
 
   const xScale = (x: number) =>
-    padding.left + ((x - xMin) / Math.max(xMax - xMin, 1)) * (width - padding.left - padding.right)
+    padding.left + ((x - xMin) / Math.max(xMax - xMin, 1)) * (VIEWBOX_WIDTH - padding.left - padding.right)
   const yScale = (y: number) =>
     padding.top + (1 - (y - yMin) / Math.max(yMax - yMin, 1e-6)) * (height - padding.top - padding.bottom)
 
@@ -84,18 +81,18 @@ export function LiftChart({ points, workflowId, height = 220 }: LiftChartProps) 
   return (
     <div className="lift-chart">
       <svg
-        viewBox={`0 0 ${totalWidth} ${totalHeight}`}
-        preserveAspectRatio="none"
+        viewBox={`0 0 ${VIEWBOX_WIDTH} ${height}`}
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label={`Lift chart for ${workflowId}: val_score across ${valid.length} iterations`}
-        style={{ width: '100%', height: totalHeight, display: 'block' }}
+        style={{ width: '100%', height, display: 'block' }}
       >
         {/* Y gridlines */}
         {yTicks.map((t, i) => (
           <line
             key={`yg-${i}`}
             x1={padding.left}
-            x2={totalWidth - padding.right}
+            x2={VIEWBOX_WIDTH - padding.right}
             y1={yScale(t)}
             y2={yScale(t)}
             stroke="var(--border)"
@@ -124,7 +121,7 @@ export function LiftChart({ points, workflowId, height = 220 }: LiftChartProps) 
           <text
             key={`xt-${i}`}
             x={xScale(t)}
-            y={totalHeight - padding.bottom + 16}
+            y={height - padding.bottom + 16}
             textAnchor="middle"
             fontFamily="var(--mono)"
             fontSize={10.5}

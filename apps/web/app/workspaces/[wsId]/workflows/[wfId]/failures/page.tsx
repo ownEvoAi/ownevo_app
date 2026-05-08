@@ -1,9 +1,12 @@
 import {
   getWorkflowFailureClusters,
   KernelApiError,
+  kernelErrorMessage,
   type FailureClusterList,
+  type FailureClusterSummary,
 } from '../../../../../../lib/api'
 import { FailureClusterCard } from './failure-cluster-card'
+import { getMockClusters, isMock } from '../mocks'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -16,22 +19,29 @@ interface PageProps {
 // Cluster cards are read-only for slice 3 — clicking a card lands on
 // the proposal-detail page once cluster→proposal linkage is in place
 // (W8 polish).
+//
+// Mock workflows (labour / contract / support) render hand-authored
+// cluster fixtures from `mocks.ts` so the layout matches the Overview
+// tab's STATIC MOCK banner instead of returning a 404 from the kernel.
 export default async function WorkflowFailuresPage({ params }: PageProps) {
-  const { wsId, wfId } = await params
+  const { wfId } = await params
 
   let clusters: FailureClusterList = { workflow_id: wfId, items: [] }
   let apiError: string | null = null
   let notFound = false
 
-  try {
-    clusters = await getWorkflowFailureClusters(wfId)
-  } catch (err) {
-    if (err instanceof KernelApiError && err.status === 404) {
-      notFound = true
-    } else if (err instanceof KernelApiError) {
-      apiError = `Kernel API ${err.status}: ${err.detail}`
-    } else {
-      apiError = 'Could not reach the kernel API. Run `make api` to start it.'
+  if (isMock(wfId)) {
+    const mockItems = getMockClusters(wfId) ?? []
+    clusters = { workflow_id: wfId, items: mockItems as FailureClusterSummary[] }
+  } else {
+    try {
+      clusters = await getWorkflowFailureClusters(wfId)
+    } catch (err) {
+      if (err instanceof KernelApiError && err.status === 404) {
+        notFound = true
+      } else {
+        apiError = kernelErrorMessage(err)
+      }
     }
   }
 
@@ -114,7 +124,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">High · {high.length}</div>
           <div className="clusters">
             {high.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
+              <FailureClusterCard key={c.id} cluster={c} />
             ))}
           </div>
         </>
@@ -125,7 +135,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Medium · {medium.length}</div>
           <div className="clusters">
             {medium.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
+              <FailureClusterCard key={c.id} cluster={c} />
             ))}
           </div>
         </>
@@ -136,7 +146,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Low · {low.length}</div>
           <div className="clusters">
             {low.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
+              <FailureClusterCard key={c.id} cluster={c} />
             ))}
           </div>
         </>
