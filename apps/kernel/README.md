@@ -35,10 +35,12 @@ Two model-specific caveats:
   (`stop_reason='stop'`, no tool emitted), 3/3 on Anthropic path. See
   `../../docs/local-model-testing.md` § F14g (also lifts `qwen3.6-27b` and
   `gemma-4-26b-a4b` from 0/3 to 2/3).
-- **`granite-4.1-8b` is desktop-CUDA-only** — same Q4_K_S blob on Apple Metal
-  produces a ~0.17 systematic credit-risk drop, flipping the desktop 3/3 into
-  laptop 2/3. See § F14j. Don't promote granite as a laptop pick despite being
-  the canonical fastest 3/3.
+- **`granite-4.1-8b` on laptop Apple Metal sits on the credit-risk gate
+  boundary** — same Q4_K_S blob clears 3/3 reliably on desktop CUDA but on
+  laptop varies across trials (4 trials: credit-risk 0.33 / 0.25 / 0.50 /
+  0.50 vs the 0.40 gate). For laptop iteration prefer `qwen/qwen3-4b-2507`
+  (stable 3/3, 152s). See § F14j (initial gap finding) + § F14k (re-test
+  weakens the systematic-drift hypothesis, treats it as boundary noise).
 
 The agent solver auto-injects `/no_think` for any model id containing `qwen3`
 (suppresses Qwen3-base thinking traces that exhaust `max_tokens` before tool

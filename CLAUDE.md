@@ -69,9 +69,9 @@ Models tested and **not** working well on the multi-turn loop:
 
 ### A4.4 single-turn classification gate (`scripts/nl_gen_smoketest.py --from-fixtures`)
 
-Forced-tool-use `predict_label(value: bool)` per case; orthogonal track from the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama as of the 2026-05-06/07 broader sweep. Source of truth: `docs/local-model-testing.md` § F14a-j (and `apps/kernel/README.md` for the top-pick table). Highlights:
+Forced-tool-use `predict_label(value: bool)` per case; orthogonal track from the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama as of the 2026-05-06/07 broader sweep. Source of truth: `docs/local-model-testing.md` § F14a-k (and `apps/kernel/README.md` for the top-pick table). Highlights:
 
-- Fastest desktop 3/3: `granite-4.1-8b` (33 s, LMS) — but **desktop-CUDA-only** per F14j (Apple Metal produces ~0.17 systematic credit-risk drop on the same Q4_K_S blob).
+- Fastest desktop 3/3: `granite-4.1-8b` (33 s, LMS). On laptop Apple Metal it sits on the credit-risk gate boundary — F14j flagged a ~0.17 drift, F14k re-test (4 laptop trials: 0.33 / 0.25 / 0.50 / 0.50 vs 0.40 gate) treats it as boundary noise, not systematic kernel drift. For stable laptop iteration use `qwen/qwen3-4b-2507`.
 - Fastest desktop Ollama 3/3: `qwen3-coder:30b` (82 s) — **only with `/no_think` auto-injection** (agent_solver.py auto-appends the directive when model id contains `qwen3`; F14i unlocked 5 desktop Ollama 3/3 passers including this one).
 - API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages` (F14g).
 - qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override; not unlocked by `/no_think`. qwen3-base + qwen3-coder ARE unlocked.
