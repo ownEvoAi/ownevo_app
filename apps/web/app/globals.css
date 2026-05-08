@@ -1205,3 +1205,63 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------
+   W7 slice 6 — Workflow Overview (mock + live).
+   --------------------------------------------------------------------- */
+
+.mock-banner {
+  display: inline-block;
+  font-size: 11.5px;
+  color: var(--banner-text);
+  background: var(--banner-bg);
+  border: 1px solid var(--banner-border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  letter-spacing: 0.02em;
+}
+.mock-banner strong {
+  letter-spacing: 0.07em;
+  font-weight: 600;
+}
+
+/* Recent-activity feed (mock workflows). Lifted from
+   www/preview/s26-rk7p3/01-health.html § activity. */
+.activity {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  box-shadow: var(--shadow-sm);
+}
+.activity-item {
+  display: flex;
+  gap: 10px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-item:last-child {
+  border-bottom: 0;
+}
+.activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 7px;
+  flex-shrink: 0;
+}
+.activity-body {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+  min-width: 0;
+}
+.activity-body strong {
+  font-weight: 500;
+  color: var(--text);
+}
+.activity-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
