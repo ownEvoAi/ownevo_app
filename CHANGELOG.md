@@ -17,6 +17,49 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (BL.3 in-call conversation compaction — keeps multi-turn agent runs in context)
+- `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/conversation_compaction.py` —
+  new module exporting `compact_anthropic_messages(messages, *,
+  keep_last_k=4, threshold_chars=80_000)` and the OpenAI-shape sibling
+  `compact_openai_messages`. Pure mechanical replacement: when the
+  serialized conversation exceeds `threshold_chars` (~20k tokens),
+  walks the message list and replaces older `tool_result` content
+  with a compact stub `[archived: tool_use_id={id}, original_size={n}
+  bytes; full content omitted to fit context]`. The most recent
+  `keep_last_k=4` tool_results stay verbatim; assistant `tool_use`
+  blocks are always preserved (the action history). Kickoff user
+  message + system message are always preserved. Returns the same
+  list identity when below threshold (no-op fast path).
+- `run_agent_turn` (Anthropic) and `run_agent_turn_openai` now call
+  the compaction helper at the top of each loop iteration before
+  building `call_kwargs`. Most calls are no-ops; only kicks in when
+  the conversation has actually grown.
+- `apps/kernel/tests/test_middleware_conversation_compaction.py` —
+  17 unit tests covering: under-threshold no-op (identity preserved);
+  over-threshold compacts oldest pairs; kickoff string preserved;
+  assistant tool_use blocks preserved; `keep_last_k=0` compacts all;
+  fewer-results-than-keep is unchanged; `is_error` flag preserved on
+  compacted blocks; OpenAI shape parity; argparse-style validation.
+- **Why:** the BL.3 multi-turn loop appends an assistant block
+  (tool_use + reasoning) and a user block (tool_result) per turn, up
+  to 25 turns per iteration. Tool results are the big offenders —
+  `read_skill` returns full skill bodies (1-3 KB), `run_pipeline`
+  returns trace + scores (~5-15 KB), `analyze_failures` returns
+  top-K failure tables. Conversation grows monotonically and the
+  runner doesn't trim — observed during the 2026-05-08 free
+  condition-D 30-day replay where 28 of 30 iterations across
+  conditions C and D failed with `Context size has been exceeded.`
+  on LMS Anthropic at 32k context. Past_attempts cross-iter memory
+  is bounded at 8 entries (~2 KB total), so this is purely an
+  in-call growth problem.
+- **Mechanical, not LLM-summary:** the agent on BL.3 acts on the
+  most recent state — by the time it's deciding what to write, the
+  early `read_skill` results are stale. Dropping their content (but
+  preserving the tool_use chain) preserves enough for the model to
+  remember its action history without paying for stale text. LLM
+  summarization (Mastra-style) is a future option but adds latency
+  and cost; mechanical drop is enough for the BL.3 shape.
+
 ### Fixed (W7 Track 1 fix-pass — pre-landing review)
 
 Pre-landing review caught two concrete bugs in slices 7-12 and one
