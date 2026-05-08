@@ -49,6 +49,7 @@ escalation.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -671,11 +672,8 @@ async def solve_with_agent(
         else (DEFAULT_MAX_TOKENS_OPENAI if openai_client is not None else DEFAULT_MAX_TOKENS)
     )
 
-    results: list[ReplayResult] = []
-    for case in case_set.cases:
-        prediction = await predict_one(
-            client,
-            case,
+    def _make_kwargs(case: "GeneratedEvalCase") -> dict:
+        return dict(
             spec=spec,
             metric=metric,
             namespace=ns,
@@ -685,6 +683,27 @@ async def solve_with_agent(
             budget=budget,
             per_workflow_instruction=per_workflow_instruction,
         )
+
+    if budget is None:
+        # No budget to enforce per-case — run all predictions concurrently.
+        # Cases are independent API calls; asyncio.gather preserves order.
+        predictions = await asyncio.gather(
+            *[predict_one(client, case, **_make_kwargs(case)) for case in case_set.cases]
+        )
+        return [
+            ReplayResult(
+                case_id=pred.case_id,
+                passed=pred.value == case.expected_value,
+                actual_value=pred.value,
+                expected_value=case.expected_value,
+            )
+            for pred, case in zip(predictions, case_set.cases)
+        ]
+
+    # Budget path: sequential so we can abort as soon as the cap is hit.
+    results: list[ReplayResult] = []
+    for case in case_set.cases:
+        prediction = await predict_one(client, case, **_make_kwargs(case))
         results.append(
             ReplayResult(
                 case_id=case.case_id,

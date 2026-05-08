@@ -41,6 +41,7 @@ from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     SIM_PLAN_FIXTURES,
 )
 from ownevo_kernel.nl_gen.instruction_proposer import (  # noqa: E402
+    DEFAULT_MAX_TOKENS as DEFAULT_PROPOSER_MAX_TOKENS,
     DEFAULT_MODEL as DEFAULT_PROPOSER_MODEL,
 )
 from ownevo_kernel.nl_gen.loop import (  # noqa: E402
@@ -70,6 +71,13 @@ class CliArgs:
     require_climbing: bool
     require_lift: float | None
     require_meets_target: bool
+
+    def __repr__(self) -> str:
+        return (
+            f"CliArgs(workflow={self.workflow!r}, cycles={self.cycles}, "
+            f"agent_model={self.agent_model!r}, proposer_model={self.proposer_model!r}, "
+            f"base_url={self.base_url!r}, api_key=<redacted>)"
+        )
 
 
 def _positive_int(s: str) -> int:
@@ -122,7 +130,7 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
     parser.add_argument(
         "--proposer-max-tokens",
         type=_positive_int,
-        default=1_500,
+        default=DEFAULT_PROPOSER_MAX_TOKENS,
         help="Output cap on each proposer call. Default 1,500.",
     )
     parser.add_argument(
@@ -174,6 +182,9 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
     )
 
     ns = parser.parse_args(argv)
+
+    if ns.require_lift is not None and ns.require_lift <= 0:
+        parser.error("--require-lift must be > 0 (use a positive threshold)")
 
     api_key = ns.anthropic_api_key or os.environ.get(ENV_API_KEY)
     if not api_key:
@@ -229,7 +240,7 @@ def _redact_instructions_in_dict(d: dict, *, include: bool) -> dict:
     if include:
         return d
     out = dict(d)
-    out["cycles"] = [_redact_cycle(c) for c in d["cycles"]]
+    out["cycles"] = [_redact_cycle(c) for c in d.get("cycles", [])]
     return out
 
 

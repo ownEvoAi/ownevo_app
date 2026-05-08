@@ -35,8 +35,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -61,6 +62,7 @@ from .failure_clustering import (
     analyze_nl_gen_failures,
 )
 from .instruction_proposer import (
+    DEFAULT_MAX_TOKENS as DEFAULT_PROPOSER_MAX_TOKENS,
     DEFAULT_MODEL as DEFAULT_PROPOSER_MODEL,
     FailureExample,
     InstructionEdit,
@@ -88,6 +90,27 @@ to the proposer. The instruction-proposer's user message budgets
 INSTRUCTION_SEPARATOR = "\n\n"
 """Cumulative instructions concatenate with a blank line so each cycle's
 addendum is visually separable in the agent's user message."""
+
+_STUB_CLUSTER_PERSISTENCE = 0.6
+"""Nominal stub persistence score for the demo clusterer. Not a real
+HDBSCAN persistence value — just a placeholder so the ClusterSummary
+threshold check passes in tests + demo runs."""
+
+_MAX_CUMULATIVE_INSTRUCTION_CHARS = 5_000
+"""Soft cap on the cumulative instruction string injected into each cycle's
+agent user message. If the concatenation would exceed this, the oldest content
+is trimmed and a warning is logged. Prevents quadratic token-cost growth on
+long (>5 cycle) demo runs where each cycle appends up to 1,000 chars."""
+
+_CYCLE_TIMEOUT_SECONDS = 180
+"""Per-cycle wall-clock timeout. Covers the agent-solver pass (N concurrent
+API calls) + the proposer call. 3 minutes is well above normal latency for
+a 12-case set; this catches genuine API hangs."""
+
+_H2_HEADER_RE = re.compile(r"^##\s+", re.MULTILINE)
+"""Matches markdown H2 headers (lines starting with '## '). Used to strip
+proposer output that could inject fake section headings into the agent's
+user message (LLM-to-LLM injection guard)."""
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +160,7 @@ def _build_default_clusterer(snapshots: list[NLGenFailureSnapshot]) -> Clusterer
         labels.append(seen[k])
 
     arr = np.asarray(labels, dtype=np.int64)
-    persistence = {lbl: 0.6 for lbl in seen.values()}
+    persistence = {lbl: _STUB_CLUSTER_PERSISTENCE for lbl in seen.values()}
 
     class _Pluggable:
         def cluster(self, reduced: np.ndarray) -> RawClusterAssignment:
@@ -326,6 +349,11 @@ def _failure_examples_from_cluster(
     """
     examples: list[FailureExample] = []
     for idx in cluster.member_indices[:limit]:
+        if idx >= len(snapshots):
+            raise ValueError(
+                f"cluster member_index {idx} is out of bounds for "
+                f"snapshots list of length {len(snapshots)}"
+            )
         s = snapshots[idx]
         direction = (
             "false-negative"
@@ -355,7 +383,7 @@ def _pick_dominant_cluster(
     so we just pick the largest)."""
     if result.signal != ClusteringSignal.OK or not result.clusters:
         return None
-    return max(result.clusters, key=lambda c: (len(c.member_indices), -ord(c.label[0]) if c.label else 0))
+    return max(result.clusters, key=lambda c: (len(c.member_indices), c.label))
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +396,7 @@ def _pick_dominant_cluster(
 # always identity for the demo (the stub embedder is already at
 # EMBEDDING_DIM).
 
-EmbedderFactory = Callable[[], Embedder]
 ClustererFactory = Callable[[list[NLGenFailureSnapshot]], Clusterer]
-LabelerFactory = Callable[[], Labeler]
 
 
 async def run_nl_gen_demo_loop(
@@ -383,7 +409,7 @@ async def run_nl_gen_demo_loop(
     n_cycles: int = DEFAULT_N_CYCLES,
     agent_model: str | None = None,
     proposer_model: str = DEFAULT_PROPOSER_MODEL,
-    proposer_max_tokens: int = 1_500,
+    proposer_max_tokens: int = DEFAULT_PROPOSER_MAX_TOKENS,
     n_failure_examples_per_cluster: int = DEFAULT_FAILURE_EXAMPLES_PER_CLUSTER,
     embedder: Embedder | None = None,
     reducer: Reducer | None = None,
@@ -464,86 +490,101 @@ async def run_nl_gen_demo_loop(
 
         instruction_before = cumulative_instruction
 
-        # 1. Run the agent over the full case set with the cumulative
-        #    instruction (None on cycle 0).
-        report = await run_with_agent(
-            case_set,
-            plan,
-            spec,
-            metric,
-            client=client,
-            model=agent_model,
-            per_workflow_instruction=instruction_before,
-        )
-        metric_value = report.value
-        meets_target = report.meets_target
-
-        # 2. Build (case_id, predicted) decisions → failure snapshots.
-        decisions = [(o.case_id, o.actual_value) for o in report.outcomes]
-        snapshots = analyze_nl_gen_failures(
-            case_set,
-            spec,
-            decisions=decisions,
-        )
-
-        # 3. Cluster the failures via the W5.3 pipeline. Empty failures
-        #    → empty clustering result (signal=insufficient-data).
-        clustering_result: ClusteringResult
-        if snapshots:
-            clusterer = clusterer_factory_resolved(snapshots)
-            clustering_result = cluster_failures(
-                snapshots,
-                embedder=embedder_inst,
-                reducer=reducer_inst,
-                clusterer=clusterer,
-                labeler=labeler_inst,
+        async with asyncio.timeout(_CYCLE_TIMEOUT_SECONDS):
+            # 1. Run the agent over the full case set with the cumulative
+            #    instruction (None on cycle 0).
+            report = await run_with_agent(
+                case_set,
+                plan,
+                spec,
+                metric,
+                client=client,
+                model=agent_model,
+                per_workflow_instruction=instruction_before,
             )
-        else:
-            clustering_result = ClusteringResult(
-                signal=ClusteringSignal.INSUFFICIENT_DATA,
-                clusters=(),
-                n_inputs=0,
-                n_noise=0,
-                insufficient_data_reason="no-failures",
+            metric_value = report.value
+            meets_target = report.meets_target
+
+            # 2. Build (case_id, predicted) decisions → failure snapshots.
+            decisions = [(o.case_id, o.actual_value) for o in report.outcomes]
+            snapshots = analyze_nl_gen_failures(
+                case_set,
+                spec,
+                decisions=decisions,
             )
 
-        top_cluster = _pick_dominant_cluster(clustering_result)
-        top_cluster_label = top_cluster.label if top_cluster is not None else None
-        top_cluster_size = (
-            len(top_cluster.member_indices) if top_cluster is not None else 0
-        )
-
-        # 4. Propose an instruction edit (skip on last cycle — no next
-        #    cycle to inject into; skip when no clusters).
-        edit: InstructionEdit | None = None
-        instruction_after = instruction_before
-        if not is_last and top_cluster is not None:
-            examples = _failure_examples_from_cluster(
-                top_cluster,
-                snapshots,
-                limit=n_failure_examples_per_cluster,
-            )
-            edit = await propose_instruction_edit(
-                client,
-                spec=spec,
-                metric=metric,
-                cluster_label=top_cluster_label or "",
-                cluster_size=top_cluster_size,
-                failure_examples=examples,
-                current_instruction=instruction_before,
-                model=proposer_model,
-                max_tokens=proposer_max_tokens,
-            )
-            new_addendum = edit.appended_text.strip()
-            if instruction_before:
-                instruction_after = (
-                    instruction_before.strip()
-                    + INSTRUCTION_SEPARATOR
-                    + new_addendum
+            # 3. Cluster the failures via the W5.3 pipeline. Empty failures
+            #    → empty clustering result (signal=insufficient-data).
+            clustering_result: ClusteringResult
+            if snapshots:
+                clusterer = clusterer_factory_resolved(snapshots)
+                clustering_result = cluster_failures(
+                    snapshots,
+                    embedder=embedder_inst,
+                    reducer=reducer_inst,
+                    clusterer=clusterer,
+                    labeler=labeler_inst,
                 )
             else:
-                instruction_after = new_addendum
-            cumulative_instruction = instruction_after
+                clustering_result = ClusteringResult(
+                    signal=ClusteringSignal.INSUFFICIENT_DATA,
+                    clusters=(),
+                    n_inputs=0,
+                    n_noise=0,
+                    insufficient_data_reason="no-failures",
+                )
+
+            top_cluster = _pick_dominant_cluster(clustering_result)
+            top_cluster_label = top_cluster.label if top_cluster is not None else None
+            top_cluster_size = (
+                len(top_cluster.member_indices) if top_cluster is not None else 0
+            )
+
+            # 4. Propose an instruction edit (skip on last cycle — no next
+            #    cycle to inject into; skip when no clusters).
+            edit: InstructionEdit | None = None
+            instruction_after = instruction_before
+            if not is_last and top_cluster is not None:
+                examples = _failure_examples_from_cluster(
+                    top_cluster,
+                    snapshots,
+                    limit=n_failure_examples_per_cluster,
+                )
+                edit = await propose_instruction_edit(
+                    client,
+                    spec=spec,
+                    metric=metric,
+                    cluster_label=top_cluster_label or "",
+                    cluster_size=top_cluster_size,
+                    failure_examples=examples,
+                    current_instruction=instruction_before,
+                    model=proposer_model,
+                    max_tokens=proposer_max_tokens,
+                )
+                # Strip markdown H2 headers from proposer output before
+                # injecting into the agent's user message — prevents the
+                # proposer from inserting fake section headings (e.g. a
+                # spurious "## Decision" block) that could shift the agent's
+                # classification boundary in an uncontrolled way.
+                new_addendum = _H2_HEADER_RE.sub("", edit.appended_text).strip()
+                if instruction_before:
+                    instruction_after = (
+                        instruction_before.strip()
+                        + INSTRUCTION_SEPARATOR
+                        + new_addendum
+                    )
+                else:
+                    instruction_after = new_addendum
+                # Warn + trim if the cumulative instruction has grown too large.
+                if instruction_after and len(instruction_after) > _MAX_CUMULATIVE_INSTRUCTION_CHARS:
+                    logger.warning(
+                        "cumulative_instruction exceeded %d chars (%d); "
+                        "trimming to the most recent content to control token cost.",
+                        _MAX_CUMULATIVE_INSTRUCTION_CHARS,
+                        len(instruction_after),
+                    )
+                    instruction_after = instruction_after[-_MAX_CUMULATIVE_INSTRUCTION_CHARS:]
+                cumulative_instruction = instruction_after
 
         cycle_ended = datetime.now(timezone.utc)
         cycles.append(

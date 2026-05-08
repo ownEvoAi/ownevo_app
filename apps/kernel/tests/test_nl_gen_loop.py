@@ -35,6 +35,7 @@ from ownevo_kernel.nl_gen.fixtures import (
     SIM_PLAN_FIXTURES,
 )
 from ownevo_kernel.nl_gen.instruction_proposer import (
+    NoInstructionEditToolUseError,
     SCHEMA_VERSION,
     TOOL_NAME as PROPOSER_TOOL,
 )
@@ -285,6 +286,34 @@ async def test_loop_rejects_workflow_id_mismatch():
     with pytest.raises(ValueError, match="metric.workflow_spec_id"):
         await run_nl_gen_demo_loop(
             spec=spec, plan=plan, case_set=case_set, metric=other_metric,
+            client=client,  # type: ignore[arg-type]
+            n_cycles=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_case_set_workflow_id_mismatch():
+    """case_set from a different workflow raises ValueError immediately."""
+    spec, plan, _, metric = _fixture_bundle("demand-prediction")
+    other_case_set = EVAL_CASE_SET_FIXTURES["credit-risk"]
+    client = _ScriptedClient()
+    with pytest.raises(ValueError, match="case_set.workflow_spec_id"):
+        await run_nl_gen_demo_loop(
+            spec=spec, plan=plan, case_set=other_case_set, metric=metric,
+            client=client,  # type: ignore[arg-type]
+            n_cycles=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_plan_workflow_id_mismatch():
+    """plan from a different workflow raises ValueError immediately."""
+    spec, _, case_set, metric = _fixture_bundle("demand-prediction")
+    other_plan = SIM_PLAN_FIXTURES["credit-risk"]
+    client = _ScriptedClient()
+    with pytest.raises(ValueError, match="plan.workflow_spec_id"):
+        await run_nl_gen_demo_loop(
+            spec=spec, plan=other_plan, case_set=case_set, metric=metric,
             client=client,  # type: ignore[arg-type]
             n_cycles=2,
         )
@@ -568,3 +597,114 @@ async def test_is_climbing_false_on_dip():
     )
     assert report.is_climbing() is False  # dip in cycle 2
     assert report.lift_curve[-1] > report.lift_curve[0]
+
+
+# ---------------------------------------------------------------------------
+# Error propagation
+# ---------------------------------------------------------------------------
+
+
+class _ProposerRaisingMessages:
+    """Fake client.messages that always succeeds for predict_label but
+    raises NoInstructionEditToolUseError for propose_instruction_edit."""
+
+    async def create(self, **kwargs: Any) -> SimpleNamespace:
+        tc = kwargs.get("tool_choice")
+        tool_name = tc["name"] if isinstance(tc, dict) and tc.get("type") == "tool" else ""
+        if tool_name == "predict_label":
+            # Return a valid prediction (the value doesn't matter for this test).
+            return SimpleNamespace(
+                content=[
+                    SimpleNamespace(
+                        type="tool_use",
+                        name="predict_label",
+                        input={"value": False, "rationale": "stub"},
+                        id="tu_p",
+                    ),
+                ],
+                stop_reason="tool_use",
+            )
+        # Simulate the proposer failing to call its tool.
+        raise NoInstructionEditToolUseError(
+            "stub: model did not call propose_instruction_edit",
+            stop_reason="end_turn",
+            content_preview="",
+        )
+
+
+class _RaisingClient:
+    @property
+    def messages(self) -> "_ProposerRaisingMessages":
+        return _ProposerRaisingMessages()
+
+
+@pytest.mark.asyncio
+async def test_proposer_error_propagates_out_of_loop():
+    """If the proposer raises NoInstructionEditToolUseError mid-loop,
+    the exception must escape run_nl_gen_demo_loop rather than being
+    swallowed. The loop explicitly does not retry on LLM failures."""
+    spec, plan, case_set, metric = _fixture_bundle()
+    client = _RaisingClient()
+
+    with pytest.raises(NoInstructionEditToolUseError):
+        await run_nl_gen_demo_loop(
+            spec=spec, plan=plan, case_set=case_set, metric=metric,
+            client=client,  # type: ignore[arg-type]
+            n_cycles=2,  # cycle 0 fires the proposer, which raises
+            clusterer_factory=_two_cluster_factory,
+            labeler=_FixedLabeler(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Instruction preservation on no-edit cycle with prior instruction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_no_edit_cycle_preserves_prior_instruction():
+    """When a cycle produces no clusters (all-noise), the loop must carry
+    the prior cycle's instruction forward unchanged into instruction_after.
+    Regression guard for loop.py line: ``instruction_after = instruction_before``."""
+    spec, plan, case_set, metric = _fixture_bundle()
+    n = len(case_set.cases)
+
+    # Cycle 0: failures + edit → sets cumulative instruction.
+    # Cycle 1: all-noise → no proposer call → prior instruction preserved.
+    # Cycle 2: last cycle → no proposer call regardless.
+    client = _ScriptedClient(
+        predictions_by_cycle=[
+            _all_wrong_predictions(case_set),   # cycle 0: all fail → proposer fires
+            _all_wrong_predictions(case_set),   # cycle 1: all fail but all-noise → no proposer
+            _all_wrong_predictions(case_set),   # cycle 2: last cycle → no proposer
+        ],
+        proposer_payloads=[_good_edit(text="Lean True on winter weeks.")],
+        n_cases_per_cycle=n,
+    )
+
+    # Factory tracks its own call count; the client's cycle_index is
+    # driven by per-case agent calls, not loop cycles.
+    factory_calls = {"n": 0}
+
+    def per_cycle_factory(snaps):
+        i = factory_calls["n"]
+        factory_calls["n"] += 1
+        return _TwoClusterClusterer() if i == 0 else _AllNoiseClusterer()
+
+    report = await run_nl_gen_demo_loop(
+        spec=spec, plan=plan, case_set=case_set, metric=metric,
+        client=client,  # type: ignore[arg-type]
+        n_cycles=3,
+        clusterer_factory=per_cycle_factory,
+        labeler=_FixedLabeler(),
+    )
+
+    assert client.proposer_calls == 1  # only cycle 0 triggered it
+    cycle_0_instruction_after = report.cycles[0].instruction_after
+    assert cycle_0_instruction_after is not None
+    # Cycle 1: instruction_before == cycle 0's instruction_after; no edit
+    assert report.cycles[1].instruction_before == cycle_0_instruction_after
+    assert report.cycles[1].instruction_after == cycle_0_instruction_after
+    assert report.cycles[1].instruction_edit is None
+    # Cycle 2: same instruction carries forward
+    assert report.cycles[2].instruction_before == cycle_0_instruction_after
