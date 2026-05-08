@@ -17,6 +17,13 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-07
+
+W5 complete: approval surface polish, LLM-judge stub approver (30 cases, ≥0.85 gate),
+NL-gen failure clustering, 7-day M5 replay scaffold, and meta-eval as quality gate
+with coverage badge + `/workflows/preview` UI.
+PRs: #54, #55, #56, #57, #58, #59.
+
 ### Added (W5.1 — approval surface polish, PLAN.md § W5 § 5.1)
 - `apps/kernel/src/ownevo_kernel/api/models.py` — new
   `GateResultCases` Pydantic model exposed on `ProposalDetail` as
@@ -161,99 +168,6 @@ fresh `[Unreleased]` block above it.
   pin every spec gate end-to-end + idempotency on re-run + 1-cycle
   smallest-possible run + zero-growth disablement. Full kernel suite:
   1024 passed, 234 skipped (DB-gated tests included in skip count).
-
-## [0.4.0] — 2026-05-07
-
-W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped
-(B3.1–B3.5) on `main`, plus the broader A4.4 local-model sweep (19+ models pass
-3/3 across LM Studio + Ollama on desktop and laptop).
-PRs: #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #52.
-
-W3 Track B exit gate run before the cut (2026-05-07): `make cluster-label-eval
-LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1
---pretty --include-records'` → **agreement 0.85 (17/20)** with judge
-`claude-opus-4-7` vs labeler `claude-sonnet-4-6`, 33.9s wall. Verdict
-distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
-`under-forecast` 5/6, `over-forecast` 5/5, `flat-prediction` 4/5,
-`zero-inflated` 2/3, `high-variance` 1/1. Above the W3 Track B ≥0.7 contract.
-
-### Added (A4.4 broader local-model sweep — 19+ models pass 3/3 across LMS + Ollama)
-- `apps/kernel/scripts/run_lmstudio_sweep.sh` + `apps/kernel/scripts/run_ollama_sweep.sh` —
-  drive the A4.4 forced-tool-use gate (`predict_label`) against every text-capable
-  model on a given backend via direct OpenAI-compat `/v1/chat/completions`. The LMS
-  script auto-loads each model via REST `/api/v1/models/load` with a context-fallback
-  ladder (32k → 16k → 8k) so VRAM-tight 30B+ models still complete; the Ollama script
-  auto-evicts each model between iterations via `keep_alive: 0` so the next model
-  doesn't co-tenant on VRAM during the prior model's 5-min keep-alive window.
-- `apps/kernel/scripts/_sweep_parse_log.py` — parses smoketest jsonl into a single
-  markdown table row for the per-host summary.md.
-- `apps/kernel/scripts/nl_gen_smoketest.py` — new `--max-tokens` flag plumbs an
-  output cap through `_smoke_one` → `run_with_agent` (overrides the 1k Anthropic / 8k
-  OpenAI per-call defaults). Used by Ollama sweeps at 10k to give thinking/reasoning
-  models room before tool-call commit.
-- `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py:_maybe_no_think_suffix` —
-  auto-appends `/no_think` to the system prompt when the model id contains `qwen3`.
-  Suppresses Qwen3-family thinking traces that previously consumed `max_tokens` before
-  any tool call landed (root cause of F14h-hang in `docs/local-model-testing.md`).
-  No-op on non-Qwen models.
-- `apps/kernel/src/ownevo_kernel/nl_gen/workflow_spec_generator.py:SYSTEM_PROMPT` —
-  added rules 9-11: provenance is only allowed on `tool` / `persona` / `env_generator`
-  / `data_source` (entities and other objects reject extras); tool `outputs[].type`
-  must be one of 7 literals (`string` / `int` / `float` / `bool` / `date` /
-  `datetime` / `category`); same enum applies to `environment.entities[].fields[].type`.
-- `apps/kernel/src/ownevo_kernel/nl_gen/sim_generator.py:SYSTEM_PROMPT` — added rule
-  10: `event_fields[].type` must be one of 6 Python type names (`int` / `float` /
-  `str` / `bool` / `list` / `dict`), explicitly NOT JSON-Schema names. Notes the
-  vocabulary divergence from `WorkflowSpec.tools.outputs.type`.
-- `infra/litellm/ollama_cloud.yaml` — proxy config exposing Ollama Cloud free-tier
-  models via Anthropic `/v1/messages` format on port 4001. Routes through local
-  Ollama daemon at `:11434` (which transparently forwards `:cloud` tags to ollama.com
-  via `~/.ollama/id_ed25519`). Used by cloud NL-gen probe.
-- `docs/local-model-testing.md` — F14a-j sections (~700 new lines):
-  - **F14a** — Desktop LMS (32k context, 8k max-tokens) — 7/42 pass 3/3, with
-    `granite-4.1-8b` at 33s wall as the fastest 3/3 in any sweep.
-  - **F14b** — Laptop LMS (32k context, 8k max-tokens) — 8/62 pass 3/3.
-  - **F14c** — Desktop Ollama (10k max-tokens) — 4/51 pass 3/3.
-  - **F14d** — Zero-result categories (tool-reject 400, NoPredictTool, OOM).
-  - **F14e** — Recommendations by class (laptop / desktop / hybrid / avoid).
-  - **F14f** — Workarounds for Ollama "does not support tools" 400 (3 documented
-    options + decision to defer).
-  - **F14g** — LMS Anthropic-API retry recovers tool-shy models. `qwen/qwen3.5-9b`
-    went 0/3 (OpenAI, NoPredictTool) → 3/3 via Anthropic `/v1/messages` in 52s.
-    Two more models lifted to 2/3.
-  - **F14h** — Laptop Ollama sweep results (0/15 passers; nemotron-3-nano:4b
-    standout at 2/3 with highest 4B-class credit-risk score) + F14h-hang root
-    cause for qwen3.x/3.5.x thinking-mode-default.
-  - **F14i** — `/no_think` auto-injection unlocks 5 desktop Ollama 3/3 passers:
-    `qwen3:14b` (551s), `qwen3:30b-a3b` (786s), `qwen3:32b` (1007s),
-    `qwen3-coder:30b` (82s — new fast Ollama 3/3, 4× faster than prior best),
-    `qwen3-coder-next:latest` (382s).
-  - **F14j** — granite-4.1-8b Apple Metal vs CUDA hardware-correlated quality gap.
-    Same Q4_K_S blob, same 32k context, same prompt — desktop CUDA mean credit
-    0.46, laptop Apple Metal mean 0.29. Gap larger than within-host stochastic
-    variance; numerical drift between llama.cpp Metal and CUDA Q4_K_S kernels is
-    enough to systematically flip predictions on borderline classification cases.
-    Decision: granite-4.1-8b is desktop-only despite being the canonical fastest 3/3.
-  - **F14k** — F14j re-test weakens the systematic-drift hypothesis. 4 laptop
-    trials of `unsloth/granite-4.1-8b` Q4_K_S now show credit-risk 0.33 / 0.25 /
-    0.50 / 0.50 — clustering on the 0.40 gate boundary, not consistently below
-    it. Q4_K_M sibling (`lmstudio-community/granite-4.1-8b`) outperforms on
-    credit-risk (0.58) but fails demand-pred (0.40). FP8 (`granite-4.1-8b-fp8`,
-    `torchSafetensors`) is unloadable in LM Studio. Revised framing: laptop
-    granite is a coin flip on credit-risk, not a hard fail. Documented as
-    boundary noise — kernel-drift hypothesis not falsified, just not above the
-    sampling-stochasticity floor.
-- Top desktop iteration picks added to `apps/kernel/README.md` and main `README.md`:
-  `granite-4.1-8b` (33s), `google/gemma-4-e4b` (34s), `mistralai/ministral-3-14b-reasoning`
-  (47s), `qwen/qwen3.5-9b` via Anthropic API (52s), `qwen2.5-coder-32b-instruct` (98s).
-  `qwen3-coder:30b` (82s) added as the new fast Ollama 3/3 alternative.
-
-### Fixed (A4.4 — TokenBudget OpenAI-compat path)
-- `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py:predict_one` — OpenAI
-  branch now reads `prompt_tokens` / `completion_tokens` from the response usage and
-  records them on the `TokenBudget` accumulator (was Anthropic-only before; the OpenAI
-  path silently dropped budget tracking, so cumulative usage caps were unenforceable
-  on Ollama / LMS / cloud routes). See `0c839b3` + already-published `594bbb4`.
 
 ### Added (W5.3 — NL-gen failure clustering wire-up, PLAN.md § W5 § 5.3)
 - `apps/kernel/src/ownevo_kernel/nl_gen/failure_clustering.py` —
@@ -407,6 +321,99 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
 - `apps/web/app/layout.tsx` — added a "New workflow" sidebar link
   pointing at `/workflows/preview` so the route is reachable from
   the existing inbox.
+
+## [0.4.0] — 2026-05-07
+
+W4 NL-gen pipeline closed (A4.1–A4.6) and W3 Track B failure clustering shipped
+(B3.1–B3.5) on `main`, plus the broader A4.4 local-model sweep (19+ models pass
+3/3 across LM Studio + Ollama on desktop and laptop).
+PRs: #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #52.
+
+W3 Track B exit gate run before the cut (2026-05-07): `make cluster-label-eval
+LABEL_EVAL_ARGS='--require-agreement 0.7 --concurrency 4 --max-retries-per-call 1
+--pretty --include-records'` → **agreement 0.85 (17/20)** with judge
+`claude-opus-4-7` vs labeler `claude-sonnet-4-6`, 33.9s wall. Verdict
+distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
+`under-forecast` 5/6, `over-forecast` 5/5, `flat-prediction` 4/5,
+`zero-inflated` 2/3, `high-variance` 1/1. Above the W3 Track B ≥0.7 contract.
+
+### Added (A4.4 broader local-model sweep — 19+ models pass 3/3 across LMS + Ollama)
+- `apps/kernel/scripts/run_lmstudio_sweep.sh` + `apps/kernel/scripts/run_ollama_sweep.sh` —
+  drive the A4.4 forced-tool-use gate (`predict_label`) against every text-capable
+  model on a given backend via direct OpenAI-compat `/v1/chat/completions`. The LMS
+  script auto-loads each model via REST `/api/v1/models/load` with a context-fallback
+  ladder (32k → 16k → 8k) so VRAM-tight 30B+ models still complete; the Ollama script
+  auto-evicts each model between iterations via `keep_alive: 0` so the next model
+  doesn't co-tenant on VRAM during the prior model's 5-min keep-alive window.
+- `apps/kernel/scripts/_sweep_parse_log.py` — parses smoketest jsonl into a single
+  markdown table row for the per-host summary.md.
+- `apps/kernel/scripts/nl_gen_smoketest.py` — new `--max-tokens` flag plumbs an
+  output cap through `_smoke_one` → `run_with_agent` (overrides the 1k Anthropic / 8k
+  OpenAI per-call defaults). Used by Ollama sweeps at 10k to give thinking/reasoning
+  models room before tool-call commit.
+- `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py:_maybe_no_think_suffix` —
+  auto-appends `/no_think` to the system prompt when the model id contains `qwen3`.
+  Suppresses Qwen3-family thinking traces that previously consumed `max_tokens` before
+  any tool call landed (root cause of F14h-hang in `docs/local-model-testing.md`).
+  No-op on non-Qwen models.
+- `apps/kernel/src/ownevo_kernel/nl_gen/workflow_spec_generator.py:SYSTEM_PROMPT` —
+  added rules 9-11: provenance is only allowed on `tool` / `persona` / `env_generator`
+  / `data_source` (entities and other objects reject extras); tool `outputs[].type`
+  must be one of 7 literals (`string` / `int` / `float` / `bool` / `date` /
+  `datetime` / `category`); same enum applies to `environment.entities[].fields[].type`.
+- `apps/kernel/src/ownevo_kernel/nl_gen/sim_generator.py:SYSTEM_PROMPT` — added rule
+  10: `event_fields[].type` must be one of 6 Python type names (`int` / `float` /
+  `str` / `bool` / `list` / `dict`), explicitly NOT JSON-Schema names. Notes the
+  vocabulary divergence from `WorkflowSpec.tools.outputs.type`.
+- `infra/litellm/ollama_cloud.yaml` — proxy config exposing Ollama Cloud free-tier
+  models via Anthropic `/v1/messages` format on port 4001. Routes through local
+  Ollama daemon at `:11434` (which transparently forwards `:cloud` tags to ollama.com
+  via `~/.ollama/id_ed25519`). Used by cloud NL-gen probe.
+- `docs/local-model-testing.md` — F14a-j sections (~700 new lines):
+  - **F14a** — Desktop LMS (32k context, 8k max-tokens) — 7/42 pass 3/3, with
+    `granite-4.1-8b` at 33s wall as the fastest 3/3 in any sweep.
+  - **F14b** — Laptop LMS (32k context, 8k max-tokens) — 8/62 pass 3/3.
+  - **F14c** — Desktop Ollama (10k max-tokens) — 4/51 pass 3/3.
+  - **F14d** — Zero-result categories (tool-reject 400, NoPredictTool, OOM).
+  - **F14e** — Recommendations by class (laptop / desktop / hybrid / avoid).
+  - **F14f** — Workarounds for Ollama "does not support tools" 400 (3 documented
+    options + decision to defer).
+  - **F14g** — LMS Anthropic-API retry recovers tool-shy models. `qwen/qwen3.5-9b`
+    went 0/3 (OpenAI, NoPredictTool) → 3/3 via Anthropic `/v1/messages` in 52s.
+    Two more models lifted to 2/3.
+  - **F14h** — Laptop Ollama sweep results (0/15 passers; nemotron-3-nano:4b
+    standout at 2/3 with highest 4B-class credit-risk score) + F14h-hang root
+    cause for qwen3.x/3.5.x thinking-mode-default.
+  - **F14i** — `/no_think` auto-injection unlocks 5 desktop Ollama 3/3 passers:
+    `qwen3:14b` (551s), `qwen3:30b-a3b` (786s), `qwen3:32b` (1007s),
+    `qwen3-coder:30b` (82s — new fast Ollama 3/3, 4× faster than prior best),
+    `qwen3-coder-next:latest` (382s).
+  - **F14j** — granite-4.1-8b Apple Metal vs CUDA hardware-correlated quality gap.
+    Same Q4_K_S blob, same 32k context, same prompt — desktop CUDA mean credit
+    0.46, laptop Apple Metal mean 0.29. Gap larger than within-host stochastic
+    variance; numerical drift between llama.cpp Metal and CUDA Q4_K_S kernels is
+    enough to systematically flip predictions on borderline classification cases.
+    Decision: granite-4.1-8b is desktop-only despite being the canonical fastest 3/3.
+  - **F14k** — F14j re-test weakens the systematic-drift hypothesis. 4 laptop
+    trials of `unsloth/granite-4.1-8b` Q4_K_S now show credit-risk 0.33 / 0.25 /
+    0.50 / 0.50 — clustering on the 0.40 gate boundary, not consistently below
+    it. Q4_K_M sibling (`lmstudio-community/granite-4.1-8b`) outperforms on
+    credit-risk (0.58) but fails demand-pred (0.40). FP8 (`granite-4.1-8b-fp8`,
+    `torchSafetensors`) is unloadable in LM Studio. Revised framing: laptop
+    granite is a coin flip on credit-risk, not a hard fail. Documented as
+    boundary noise — kernel-drift hypothesis not falsified, just not above the
+    sampling-stochasticity floor.
+- Top desktop iteration picks added to `apps/kernel/README.md` and main `README.md`:
+  `granite-4.1-8b` (33s), `google/gemma-4-e4b` (34s), `mistralai/ministral-3-14b-reasoning`
+  (47s), `qwen/qwen3.5-9b` via Anthropic API (52s), `qwen2.5-coder-32b-instruct` (98s).
+  `qwen3-coder:30b` (82s) added as the new fast Ollama 3/3 alternative.
+
+### Fixed (A4.4 — TokenBudget OpenAI-compat path)
+- `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py:predict_one` — OpenAI
+  branch now reads `prompt_tokens` / `completion_tokens` from the response usage and
+  records them on the `TokenBudget` accumulator (was Anthropic-only before; the OpenAI
+  path silently dropped budget tracking, so cumulative usage caps were unenforceable
+  on Ollama / LMS / cloud routes). See `0c839b3` + already-published `594bbb4`.
 
 ### Added (B3.5 — Cluster-label LLM eval, W3 Track B exit criterion)
 - `apps/kernel/src/ownevo_kernel/clustering/label_eval/judgment.py` —
