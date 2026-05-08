@@ -51,6 +51,7 @@ from .judgment import (
     OverallVerdict,
     dimension_score,
 )
+from .preview_fixtures import PREVIEW_JUDGMENT_FIXTURES
 
 __all__ = [
     # Schema
@@ -73,6 +74,8 @@ __all__ = [
     # Eval set
     "MetaEvalPair",
     "META_EVAL_SET",
+    # Preview fixtures (W5.5 UI badge)
+    "PREVIEW_JUDGMENT_FIXTURES",
     # Judge — lazy (agent extra)
     "DEFAULT_MODEL",
     "DEFAULT_MAX_TOKENS",
