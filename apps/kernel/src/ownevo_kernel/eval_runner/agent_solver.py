@@ -138,16 +138,20 @@ SYSTEM_PROMPT = (
 
 
 def _maybe_no_think_suffix(model: str) -> str:
-    """Suppress thinking traces on Qwen3-family models via `/no_think` directive.
+    """Suppress thinking traces on Qwen3-base models via `/no_think` directive.
 
-    Qwen3 / Qwen3.5 / Qwen3.6 ship with thinking mode ON by default. Without
-    suppression, the `<think>...</think>` reasoning trace consumes the entire
-    max_tokens budget before the model commits to a `predict_label` tool call
-    (see Ollama issue #14502, Crush #2457, F14h-hang in
-    docs/local-model-testing.md). The `/no_think` soft-switch disables
+    Qwen3-base builds (qwen3:*, qwen3-coder:*) ship with thinking mode ON by
+    default. Without suppression, the `<think>...</think>` reasoning trace
+    consumes the entire max_tokens budget before the model commits to a
+    `predict_label` tool call (see Ollama issue #14502, Crush #2457, F14h-hang
+    in docs/local-model-testing.md). The `/no_think` soft-switch disables
     thinking for the current turn — appended to the system prompt where Qwen
-    parses it. No-op on non-Qwen models (just extra text), so safe to leave
-    in even on cross-family runs.
+    parses it.
+
+    Note: the match also covers qwen3.5 and qwen3.6 variants (substring), but
+    those lineages embed thinking more deeply and are not reliably suppressed
+    by this directive (see F14i). Applying it to them is harmless — the
+    directive is treated as plain text by models that don't parse it.
     """
     if "qwen3" in model.lower():
         return "\n\n/no_think"

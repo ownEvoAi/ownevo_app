@@ -21,6 +21,13 @@ OPENAI_BASE_URL="${OWNEVO_OLLAMA_HOST}/v1"
 OUT_DIR="${REPO_ROOT}/temp/ollama_sweep/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT_DIR"
 
+# Pre-flight: Ollama reachable? Must be before the ALL_MODELS fetch so the
+# error message fires instead of a raw curl failure under set -euo pipefail.
+if ! curl -fsS --max-time 5 "${OWNEVO_OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+  echo "[ollama-sweep] ABORT: Ollama not reachable at ${OWNEVO_OLLAMA_HOST}/api/tags" >&2
+  exit 2
+fi
+
 # Model tags to skip: embedding-only and vision-only models.
 SKIP_PATTERNS=(
   "all-minilm"
@@ -58,11 +65,6 @@ else
     done
     [[ $skip -eq 0 ]] && MODELS+=("$model")
   done <<< "$ALL_MODELS"
-fi
-
-if ! curl -fsS --max-time 5 "${OWNEVO_OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
-  echo "[ollama-sweep] ABORT: Ollama not reachable at ${OWNEVO_OLLAMA_HOST}/api/tags" >&2
-  exit 2
 fi
 
 if [[ ${#MODELS[@]} -eq 0 ]]; then

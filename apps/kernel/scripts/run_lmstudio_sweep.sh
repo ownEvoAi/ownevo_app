@@ -128,7 +128,11 @@ for model in "${MODELS[@]}"; do
 
   echo "[lmstudio-sweep] loading ${model} ctx=${LMS_CTX}..."
   instance_id=$(lms_load "$model")
-  echo "[lmstudio-sweep] loaded instance_id=${instance_id}"
+  if [[ -n "$instance_id" ]]; then
+    echo "[lmstudio-sweep] loaded instance_id=${instance_id}"
+  else
+    echo "[lmstudio-sweep] load failed or instance_id empty — falling back to model name '${model}' (context may be wrong)" >&2
+  fi
 
   # Use instance_id as model name so LM Studio routes to our 32k instance,
   # not the default-context one that may already be loaded.
