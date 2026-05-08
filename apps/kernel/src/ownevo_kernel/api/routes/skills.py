@@ -12,13 +12,11 @@ without a separate fetch.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
 from ..deps import ConnDep
+from ..jsonb import decode_jsonb_obj
 from ..models import (
     SkillDetail,
     SkillList,
@@ -51,9 +49,10 @@ async def list_workflow_skills(workflow_id: str, conn: ConnDep) -> SkillList:
         "SELECT 1 FROM workflows WHERE id = $1", workflow_id,
     )
     if not workflow_exists:
+        # Static message — never reflect the user-supplied path param.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow not found: {workflow_id}",
+            detail="Workflow not found",
         )
 
     rows = await conn.fetch(
@@ -104,7 +103,7 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
     if skill is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill not found: {skill_id}",
+            detail="Skill not found",
         )
 
     head = None
@@ -119,6 +118,15 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             """,
             skill["head_version_id"],
         )
+        if head is None:
+            # head_version_id pointer exists but the referenced row is
+            # gone — DB-level corruption. Surface loudly instead of
+            # degrading to the empty-state UI shape (which would lie
+            # to the operator that the skill has no version yet).
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Skill head_version_id references missing row",
+            )
 
     parent_content = None
     parent_version_seq = None
@@ -168,7 +176,7 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         head_version_id=skill["head_version_id"],
         head_version_seq=head["version_seq"] if head else None,
         head_content=head["content"] if head else None,
-        head_retention_block=_decode_jsonb_obj(head["retention_block"])
+        head_retention_block=decode_jsonb_obj(head["retention_block"])
         if head
         else None,
         head_diff_summary=head["diff_summary"] if head else None,
@@ -239,7 +247,7 @@ async def _related_eval_cases(
             id=r["id"],
             workflow_id=r["workflow_id"],
             provenance=r["provenance"],
-            expected_behavior=_decode_jsonb_obj(r["expected_behavior"]),
+            expected_behavior=decode_jsonb_obj(r["expected_behavior"]),
             is_test_fold=bool(r["is_test_fold"]),
             created_at=r["created_at"],
         )
@@ -259,11 +267,3 @@ def _row_to_skill_summary(row: asyncpg.Record) -> SkillSummary:
     )
 
 
-def _decode_jsonb_obj(value: Any) -> dict[str, Any] | None:
-    """asyncpg returns jsonb as `str` unless a codec is set — match the
-    proposals.py convention."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return json.loads(value)
-    return value

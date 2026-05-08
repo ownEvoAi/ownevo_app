@@ -12,13 +12,11 @@ count.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
 from ..deps import ConnDep
+from ..jsonb import decode_jsonb_obj
 from ..models import (
     FailureClusterList,
     FailureClusterSummary,
@@ -63,6 +61,7 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
                 SELECT MAX(i.best_ever_score_after)
                 FROM iterations i
                 WHERE i.workflow_id = w.id
+                  AND i.state <> 'running'
             )                                           AS best_ever_score,
             (
                 SELECT MAX(p.state_updated_at)
@@ -108,11 +107,12 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         workflow_id,
     )
     if row is None:
+        # Static message — never reflect the user-supplied path param.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow not found: {workflow_id}",
+            detail="Workflow not found",
         )
-    spec = _decode_jsonb_obj(row["spec"]) or {}
+    spec = decode_jsonb_obj(row["spec"]) or {}
     return WorkflowAnatomy(
         id=row["id"],
         description=row["description"],
@@ -273,16 +273,6 @@ async def list_failure_clusters(
         for r in rows
     ]
     return FailureClusterList(workflow_id=workflow_id, items=items)
-
-
-def _decode_jsonb_obj(value: Any) -> dict[str, Any] | None:
-    """asyncpg returns jsonb as `str` unless a codec is set — match the
-    proposals.py convention."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return json.loads(value)
-    return value
 
 
 def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:

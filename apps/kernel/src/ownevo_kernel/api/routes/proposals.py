@@ -17,7 +17,6 @@ Status code conventions
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import UUID
 
@@ -32,6 +31,7 @@ from ...approvals import (
 )
 from ...types import ApproverType
 from ..deps import ConnDep
+from ..jsonb import decode_jsonb_obj
 from ..models import (
     ApprovalDetail,
     ApproveResponse,
@@ -230,7 +230,7 @@ async def get_proposal(
             seq=r["seq"],
             kind=r["kind"],
             actor=r["actor"],
-            payload=_decode_jsonb(r["payload"]) or {},
+            payload=decode_jsonb_obj(r["payload"]) or {},
             created_at=r["created_at"],
         )
 
@@ -249,7 +249,7 @@ async def get_proposal(
         plain_language_summary=proposal_row["plain_language_summary"],
         eval_score=_to_float(proposal_row["eval_score"]),
         eval_rationale=proposal_row["eval_rationale"],
-        expected_impact=_decode_jsonb(proposal_row["expected_impact"]),
+        expected_impact=decode_jsonb_obj(proposal_row["expected_impact"]),
         created_at=proposal_row["created_at"],
         state_updated_at=proposal_row["state_updated_at"],
         iteration=IterationDetail(
@@ -396,7 +396,7 @@ def _row_to_summary(row: asyncpg.Record) -> ProposalSummary:
         plain_language_summary=row["plain_language_summary"],
         eval_score=_to_float(row["eval_score"]),
         eval_rationale=row["eval_rationale"],
-        expected_impact=_decode_jsonb(row["expected_impact"]),
+        expected_impact=decode_jsonb_obj(row["expected_impact"]),
         created_at=row["created_at"],
         state_updated_at=row["state_updated_at"],
     )
@@ -412,15 +412,6 @@ def _approval_from_row(row: asyncpg.Record) -> ApprovalDetail:
         became_eval_case_id=row["became_eval_case_id"],
         decided_at=row["decided_at"],
     )
-
-
-def _decode_jsonb(value: Any) -> dict[str, Any] | None:
-    """asyncpg returns jsonb as `str` unless a codec is set — accept both."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return json.loads(value)
-    return value
 
 
 def _to_float(value: Any) -> float | None:

@@ -24,6 +24,8 @@ Exit codes
 0  rollback completed; audit entry seq printed
 2  unknown skill / version / DB not configured
 3  no-op (head was already at the target version) — exits clean
+4  concurrent head update detected (head moved between read and write —
+   safer to abort than overwrite a newer head + lie in the audit log)
 """
 
 from __future__ import annotations
@@ -101,12 +103,30 @@ async def _run(args: argparse.Namespace) -> int:
             print("  no DB writes performed.")
             return 0
 
+        prior_head_id = skill["head_version_id"]
         async with conn.transaction():
-            await conn.execute(
-                "UPDATE skills SET head_version_id = $1 WHERE id = $2",
+            # Optimistic concurrency: only flip the head if it still
+            # matches what we observed before the txn started. If a
+            # gate-pass deploy advanced the head between our read and
+            # this UPDATE, abort instead of silently overwriting it
+            # (which would also write a stale `from_version_seq` to
+            # the audit log).
+            update_result = await conn.execute(
+                "UPDATE skills SET head_version_id = $1 "
+                "WHERE id = $2 AND head_version_id IS NOT DISTINCT FROM $3",
                 target["id"],
                 args.skill,
+                prior_head_id,
             )
+            # asyncpg returns a status string like 'UPDATE 1'; parse the count.
+            updated = int(update_result.rsplit(" ", 1)[-1])
+            if updated != 1:
+                print(
+                    f"abort: skill {args.skill} head changed since read "
+                    f"(was v{from_seq}); rerun revert with the current head.",
+                    file=sys.stderr,
+                )
+                return 4
             entry = await append_audit_entry(
                 conn,
                 kind="proposal-rolled-back",

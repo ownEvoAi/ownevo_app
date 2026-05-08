@@ -14,6 +14,10 @@ interface PageProps {
   params: Promise<{ wsId: string; id: string }>
 }
 
+const CHECK_ICON_PATH = 'M3 8 L7 12 L13 4'
+const X_ICON_PATH = 'M4 4 L12 12 M12 4 L4 12'
+const EXCLAM_ICON_PATH = 'M8 3 L8 9 M8 11.5 L8 12.5'
+
 // W7 slice 7 (7.1.4) — proposal detail under the workspace shell.
 // Inherits the workspace sidebar from `app/workspaces/[wsId]/layout.tsx`,
 // breadcrumb chain links back through the workspace + the workflow's
@@ -185,13 +189,11 @@ function gateVerdict(
   proposal: ProposalDetail,
   cases: GateResultCases | null,
 ): { headline: string; tone: '' | 'amber' | 'red'; iconPath: string } {
-  const checkPath = 'M3 8 L7 12 L13 4'
-  const exclamPath = 'M8 3 L8 9 M8 11.5 L8 12.5'
   if (proposal.iteration.sandbox_error_class) {
     return {
       headline: `Sandbox: ${proposal.iteration.sandbox_error_class}`,
       tone: 'amber',
-      iconPath: exclamPath,
+      iconPath: EXCLAM_ICON_PATH,
     }
   }
   if (proposal.state === 'gate-failed') {
@@ -199,7 +201,7 @@ function gateVerdict(
     return {
       headline: regressed > 0 ? `${regressed} regression(s)` : 'Gate failed',
       tone: 'red',
-      iconPath: exclamPath,
+      iconPath: EXCLAM_ICON_PATH,
     }
   }
   // FAIL_REGRESSION and FAIL_NO_IMPROVEMENT both land on 'rejected' (not
@@ -209,7 +211,7 @@ function gateVerdict(
     return {
       headline: regressed > 0 ? `${regressed} regression(s)` : 'Gate rejected',
       tone: 'red',
-      iconPath: exclamPath,
+      iconPath: EXCLAM_ICON_PATH,
     }
   }
   const passed = cases?.passed.length ?? 0
@@ -218,10 +220,10 @@ function gateVerdict(
     return {
       headline: `${passed} / ${total} prior cases pass`,
       tone: '',
-      iconPath: checkPath,
+      iconPath: CHECK_ICON_PATH,
     }
   }
-  return { headline: 'Gate passed', tone: '', iconPath: checkPath }
+  return { headline: 'Gate passed', tone: '', iconPath: CHECK_ICON_PATH }
 }
 
 function CaseBreakdown({ cases }: { cases: GateResultCases }) {
@@ -262,9 +264,6 @@ function CaseBreakdown({ cases }: { cases: GateResultCases }) {
     )
   }
 
-  const checkPath = 'M3 8 L7 12 L13 4'
-  const xPath = 'M4 4 L12 12 M12 4 L4 12'
-
   return (
     <div className="gate-list">
       {sections.map((section) => (
@@ -277,7 +276,7 @@ function CaseBreakdown({ cases }: { cases: GateResultCases }) {
             >
               <span className="check">
                 <svg viewBox="0 0 16 16" aria-hidden>
-                  <path d={section.cls === 'fail' ? xPath : checkPath} />
+                  <path d={section.cls === 'fail' ? X_ICON_PATH : CHECK_ICON_PATH} />
                 </svg>
               </span>
               <span className="case-name" title={row}>

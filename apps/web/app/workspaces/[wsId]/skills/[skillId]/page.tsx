@@ -37,7 +37,7 @@ export default async function SkillDetailPage({ params }: PageProps) {
   return (
     <div>
       <SkillCrumbs wsId={wsId} skill={skill} />
-      <SkillHeader skill={skill} wsId={wsId} />
+      <SkillHeader skill={skill} />
 
       <div className="skill-grid">
         <div>
@@ -81,7 +81,7 @@ function SkillCrumbs({ wsId, skill }: { wsId: string; skill: SkillDetail }) {
   )
 }
 
-function SkillHeader({ skill, wsId: _wsId }: { skill: SkillDetail; wsId: string }) {
+function SkillHeader({ skill }: { skill: SkillDetail }) {
   const kindPill =
     skill.kind === 'instruction'
       ? 'pill accent'
@@ -185,6 +185,7 @@ function CodeBody({ skill }: { skill: SkillDetail }) {
 // Python source body. Regex-only — Pyodide / AST parse would be
 // heavier than the cost of a few false positives in pathological
 // strings. Mock parity: 18a-skill-detail-code.html § signatures list.
+const MAX_SIGNATURES = 50
 function extractSignatures(source: string): string[] {
   const out: string[] = []
   const re = /^[ \t]*(?:async\s+)?(def|class)\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)(\s*->\s*[^:]+)?:/gm
@@ -195,7 +196,7 @@ function extractSignatures(source: string): string[] {
     const args = m[3].replace(/\s+/g, ' ').trim()
     const ret = (m[4] ?? '').trim()
     out.push(ret ? `${kw} ${name}(${args}) ${ret}` : `${kw} ${name}(${args})`)
-    if (out.length > 50) break
+    if (out.length > MAX_SIGNATURES) break
   }
   return out
 }

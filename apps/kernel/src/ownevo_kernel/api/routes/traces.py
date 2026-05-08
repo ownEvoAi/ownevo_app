@@ -17,7 +17,6 @@ real customers push the count.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +24,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
 from ..deps import ConnDep
+from ..jsonb import decode_jsonb_array, decode_jsonb_obj
 from ..models import TraceDetail, TraceList, TraceSummary
 
 workflow_traces_router = APIRouter(
@@ -48,9 +48,10 @@ async def list_workflow_traces(workflow_id: str, conn: ConnDep) -> TraceList:
         "SELECT 1 FROM workflows WHERE id = $1", workflow_id,
     )
     if not workflow_exists:
+        # Static message — never reflect the user-supplied path param.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow not found: {workflow_id}",
+            detail="Workflow not found",
         )
 
     rows = await conn.fetch(
@@ -116,10 +117,10 @@ async def get_trace(trace_id: UUID, conn: ConnDep) -> TraceDetail:
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trace not found: {trace_id}",
+            detail="Trace not found",
         )
 
-    events_raw: Any = _decode_jsonb_array(row["events"])
+    events_raw: Any = decode_jsonb_array(row["events"])
     if not isinstance(events_raw, list):
         # Schema violation upstream — every trace must have an array,
         # even an empty one. Surface as 500 so the corrupted row is
@@ -139,14 +140,14 @@ async def get_trace(trace_id: UUID, conn: ConnDep) -> TraceDetail:
         skill_version_seq=row["skill_version_seq"],
         started_at=row["started_at"],
         ended_at=row["ended_at"],
-        metric_outputs=_decode_jsonb_obj(row["metric_outputs"]),
-        token_usage=_decode_jsonb_obj(row["token_usage"]),
+        metric_outputs=decode_jsonb_obj(row["metric_outputs"]),
+        token_usage=decode_jsonb_obj(row["token_usage"]),
         events=events_raw,
     )
 
 
 def _row_to_summary(row: asyncpg.Record) -> TraceSummary:
-    kc = _decode_jsonb_obj(row["kind_counts"]) or {}
+    kc = decode_jsonb_obj(row["kind_counts"]) or {}
     return TraceSummary(
         id=row["id"],
         workflow_id=row["workflow_id"],
@@ -160,19 +161,3 @@ def _row_to_summary(row: asyncpg.Record) -> TraceSummary:
     )
 
 
-def _decode_jsonb_obj(value: Any) -> dict[str, Any] | None:
-    """asyncpg returns jsonb as `str` unless a codec is set — match the
-    proposals.py decoder convention."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return json.loads(value)
-    return value
-
-
-def _decode_jsonb_array(value: Any) -> list[Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return json.loads(value)
-    return value

@@ -80,6 +80,15 @@ If the output says **`error: skill not found`** or **`has no
 version_seq=N`**, the inputs are wrong. Don't proceed; recheck the
 skill id and version_seq from the UI.
 
+If the **apply** step (next) ever exits with `abort: skill <id> head
+changed since read`, that's exit code `4` — a concurrent gate-pass
+advanced the skill HEAD between the dry-run read and the UPDATE.
+Don't retry blindly: re-read the current HEAD off the skill detail
+page, decide whether the new HEAD is still bad, and re-run the
+dry-run + apply with refreshed inputs. The optimistic-concurrency
+guard exists so a rollback never silently overwrites a newer head
+or writes a stale `from_version_seq` to the audit log.
+
 ### 3. Apply the revert
 
 Drop the `DRY_RUN=1` flag and re-run:

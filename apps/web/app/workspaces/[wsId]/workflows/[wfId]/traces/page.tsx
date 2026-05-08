@@ -4,8 +4,8 @@ import {
   KernelApiError,
   type TraceList,
   type TraceSummary,
-} from '../../../../../../lib/api'
-import { formatDateTime, relativeTime } from '../../../../../../lib/format'
+} from '@/lib/api'
+import { formatDateTime, relativeTime } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>

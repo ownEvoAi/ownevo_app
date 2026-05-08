@@ -17,6 +17,51 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Fixed (W7 Track 1 fix-pass — pre-landing review)
+
+Pre-landing review caught two concrete bugs in slices 7-12 and one
+DRY violation; these fixes ride on the same PR rather than a follow-up.
+
+- **`scripts/revert_skill.py`: read-then-write race closed.** The
+  rollback now uses optimistic concurrency: `UPDATE skills SET
+  head_version_id = $1 WHERE id = $2 AND head_version_id IS NOT
+  DISTINCT FROM $3` against the originally-read head, with rowcount
+  parsed from asyncpg's status string. If a concurrent gate-pass
+  advances HEAD between the read and the UPDATE, the revert aborts
+  with new exit code `4` instead of overwriting the newer head AND
+  writing a stale `from_version_seq` to the audit log. The runbook
+  scenario (operator runs revert while autonomous mode is still
+  emitting iterations) is the demo-eve case this guards.
+- **`/api/skills/{id}`: orphan `head_version_id` raises 500.** When
+  a skill row's `head_version_id` is non-null but the referenced
+  `skill_versions` row is missing, the endpoint now raises 500 with
+  a clear detail string instead of silently returning a 200 that
+  looks identical to a freshly-bootstrapped skill. DB corruption
+  shows up loudly in the operator UI.
+- **`workflows.py`: `best_ever_score` consistency.** The
+  `MAX(best_ever_score_after)` subquery on the Health workflow list
+  now filters `state <> 'running'` to match `iteration_count`. Stops
+  the rare "47 iterations · best score 0.847 from in-flight iter 48"
+  inconsistency on the Health page.
+
+### Refactored
+
+- **`api/jsonb.py`: shared `decode_jsonb_obj` + `decode_jsonb_array`.**
+  The local `_decode_jsonb*` helpers in `proposals.py`, `skills.py`,
+  `traces.py`, and `workflows.py` (each marked "match the
+  proposals.py convention") are now one shared module. Net delete
+  ~20 lines; all four routes import the canonical helpers.
+- **API 404 detail strings consistent.** New `/api/skills`,
+  `/api/traces`, and `/api/workflows/{id}` 404 responses use static
+  detail strings (`"Skill not found"`, `"Trace not found"`, etc.)
+  instead of echoing the user-supplied path param, matching the
+  existing `list_failure_clusters` convention. Removes the
+  reflected-input divergence flagged in the pre-landing review.
+- **TODO-18 widened** to cover the W7 list endpoints (workflows,
+  iterations, failure_clusters, traces, skills) and the trace events
+  truncation. Implementation deferred; the marketing claim is that
+  the gap is tracked, not closed.
+
 ### Added (W7 Track 1 — workspace customer skin, slices 7-12)
 
 Six slices (squashed into one PR) closing the remaining seven Track 1
