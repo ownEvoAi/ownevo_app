@@ -335,6 +335,15 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P3 — Opus 4.7 is the validated NL-gen driver; cloud alternatives are nice-to-have unless cost or vendor risk forces the issue.
 - **Depends on:** Ollama Cloud free-tier subscription stays current, OR willingness to subscribe to Pro tier (~$20/mo) to test `deepseek-v4-pro`, `glm-5`, etc.
 
+### TODO-28: `revert_skill.py` forward-revert guard
+
+- **What:** Add a guard that rejects `to_version_seq >= current head version_seq` before executing the revert. Currently the script validates that the target version exists but not that it is older than HEAD, so `make revert-skill TO_VERSION=99` when HEAD is at v8 silently advances the skill forward while writing a `proposal-rolled-back` audit entry with misleading semantics.
+- **Why:** Under demo-eve pressure (the primary use case for this script), an operator fat-fingering the version number could advance HEAD instead of rolling back, corrupting the audit trail and leaving the skill in a worse state than before. The fix is a two-line guard at the top of the revert transaction.
+- **Context:** `apps/kernel/scripts/revert_skill.py` — add `if target["version_seq"] >= from_seq: raise ValueError("to_version_seq must be less than current head; use the gate loop to advance forward")` before the dry-run block. Surfaced by adversarial review on `fix/openapi-skill-stubs` (2026-05-08).
+- **Effort:** S (CC ~15 min / human ~30 min).
+- **Priority:** P2 — demo runbook risk; triggers only under operator error but the error mode is invisible without this guard.
+- **Depends on:** none.
+
 ### TODO-16: Multi-agent topology graph view
 
 - **What:** n8n / Google Opal style visualization for multi-agent workflows.

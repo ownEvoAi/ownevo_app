@@ -6,9 +6,9 @@ info:
     REST + Server-Sent Events contract between the Python kernel (`apps/kernel/`)
     and the TS web app (`apps/web/`). Locked 2026-05-03 by eng review (D2).
 
-    Generated artifacts:
+    Reference artifacts (hand-maintained, not auto-generated):
       - Python Pydantic models: `apps/kernel/src/ownevo_kernel/api/models.py`
-      - TypeScript client: `apps/web/lib/api/client.ts` (via openapi-typescript)
+      - TypeScript types: `apps/web/lib/api.ts` (hand-maintained; no codegen step)
 
     Auth model (MVP, single-tenant per D4): no auth in development;
     dev-token middleware in staging. Production auth is Phase 2.
