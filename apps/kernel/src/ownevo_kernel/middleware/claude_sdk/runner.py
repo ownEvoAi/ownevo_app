@@ -56,6 +56,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
+from .conversation_compaction import (
+    DEFAULT_KEEP_LAST_K,
+    DEFAULT_THRESHOLD_CHARS,
+    compact_anthropic_messages,
+    compact_openai_messages,
+)
 from .event_router import FinalizedBlock, FinalizedToolCall, StreamEventRouter, _OpenAIStreamAccumulator
 from .tool_definitions import (
     KernelContext,
@@ -364,6 +370,13 @@ async def run_agent_turn(
     for _ in range(max_iterations):
         iterations += 1
         router = StreamEventRouter(collector=collector, model=model)
+
+        # Compact older tool_result content if the conversation has grown
+        # past threshold. Most calls are no-ops (under threshold). When
+        # the conversation is long the older results get a stub stand-in
+        # so the call fits in the model's context window. See
+        # conversation_compaction.py for policy details.
+        messages = compact_anthropic_messages(messages)
 
         call_kwargs: dict[str, Any] = {
             "model": model,
@@ -745,6 +758,10 @@ async def run_agent_turn_openai(
     for _ in range(max_iterations):
         iterations += 1
         acc = _OpenAIStreamAccumulator(collector=collector, model=model)
+
+        # Compact older tool_result content if the conversation has grown
+        # past threshold. See conversation_compaction.py for policy.
+        messages = compact_openai_messages(messages)
 
         stream = await client.chat.completions.create(
             model=model,
