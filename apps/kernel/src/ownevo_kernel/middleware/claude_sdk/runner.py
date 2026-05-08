@@ -109,6 +109,29 @@ _VALIDATION_RECOVERY_ASSISTANT_PLACEHOLDER = (
 )
 
 
+def _maybe_no_think_suffix(model: str) -> str:
+    """Suppress thinking traces on Qwen3-base models via `/no_think` directive.
+
+    Qwen3-base builds (`qwen3:*`, `qwen3-coder:*`) ship with thinking mode ON
+    by default. On Ollama's OpenAI-compatible endpoint the `think` request
+    parameter is silently stripped, so the only reliable suppression is the
+    `/no_think` soft-switch appended to the system prompt where Qwen parses
+    it. Without suppression the model burns its tool-call decision on the
+    `<think>...</think>` trace and `tool_choice="auto"` resolves to a plain
+    text response with zero tool calls — observed on `qwen3-coder:30b` against
+    the M5 BL.3 kickoff (2026-05-07). Mirrors the helper in
+    `ownevo_kernel.eval_runner.agent_solver._maybe_no_think_suffix` (F14i).
+
+    Note: the substring match also covers qwen3.5 / qwen3.6, which embed
+    thinking more deeply and are not reliably suppressed by the directive
+    (F14i). Applying it there is harmless — non-parsing models treat the
+    suffix as plain text.
+    """
+    if "qwen3" in model.lower():
+        return "\n\n/no_think"
+    return ""
+
+
 def _is_validation_recovery_error(exc: BaseException) -> bool:
     """Detect 'malformed tool call' errors (LMS Anthropic strict
     validation) by substring-matching the exception's str(). We don't
@@ -697,8 +720,9 @@ async def run_agent_turn_openai(
         )
 
     tools = kernel_tool_definitions_openai()
+    system_prompt = system + _maybe_no_think_suffix(model)
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
 
