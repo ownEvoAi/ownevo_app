@@ -265,3 +265,73 @@ async def test_iterations_excludes_running(
     body = res.json()
     assert len(body["items"]) == 1
     assert body["items"][0]["iteration_index"] == 0
+
+
+# ---------------------------------------------------------------------------
+# GET /api/workflows/{id}/failure_clusters
+# ---------------------------------------------------------------------------
+
+
+async def _seed_cluster(
+    conn: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    label: str,
+    severity: str = "medium",
+    cluster_size: int = 5,
+):
+    return await conn.fetchval(
+        """
+        INSERT INTO failure_clusters (
+            workflow_id, label, severity, cluster_size
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        """,
+        workflow_id,
+        label,
+        severity,
+        cluster_size,
+    )
+
+
+async def test_failure_clusters_404_on_unknown(api_client: httpx.AsyncClient):
+    res = await api_client.get("/api/workflows/nope/failure_clusters")
+    assert res.status_code == 404
+
+
+async def test_failure_clusters_severity_then_size(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-clusters")
+    await _seed_cluster(
+        db, workflow_id="wf-clusters", label="low-3", severity="low", cluster_size=3,
+    )
+    await _seed_cluster(
+        db, workflow_id="wf-clusters", label="high-7", severity="high", cluster_size=7,
+    )
+    await _seed_cluster(
+        db, workflow_id="wf-clusters", label="med-12", severity="medium", cluster_size=12,
+    )
+    await _seed_cluster(
+        db, workflow_id="wf-clusters", label="high-3", severity="high", cluster_size=3,
+    )
+
+    res = await api_client.get("/api/workflows/wf-clusters/failure_clusters")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["workflow_id"] == "wf-clusters"
+
+    labels = [c["label"] for c in body["items"]]
+    # high-7 (high, size 7), high-3 (high, size 3), med-12 (medium), low-3 (low)
+    assert labels == ["high-7", "high-3", "med-12", "low-3"]
+
+
+async def test_failure_clusters_empty(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-no-clusters")
+    res = await api_client.get("/api/workflows/wf-no-clusters/failure_clusters")
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"workflow_id": "wf-no-clusters", "items": []}

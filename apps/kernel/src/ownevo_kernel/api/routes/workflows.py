@@ -17,6 +17,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from ..deps import ConnDep
 from ..models import (
+    FailureClusterList,
+    FailureClusterSummary,
     IterationList,
     IterationPoint,
     WorkflowList,
@@ -141,6 +143,81 @@ async def list_iterations(workflow_id: str, conn: ConnDep) -> IterationList:
         for r in rows
     ]
     return IterationList(workflow_id=workflow_id, items=points)
+
+
+@router.get(
+    "/{workflow_id}/failure_clusters",
+    response_model=FailureClusterList,
+)
+async def list_failure_clusters(
+    workflow_id: str,
+    conn: ConnDep,
+) -> FailureClusterList:
+    """Return the active failure clusters for a workflow.
+
+    Sorted by severity (high → low) then `cluster_size DESC` so the most
+    impactful cluster lands at the top of the Failures view. The
+    `centroid` column is excluded — 384 floats per row aren't useful to
+    the UI and the JSON payload is much smaller without them.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow not found: {workflow_id}",
+        )
+
+    rows = await conn.fetch(
+        """
+        SELECT
+            id,
+            workflow_id,
+            label,
+            severity,
+            cluster_size,
+            label_eval_score,
+            quality_score,
+            sample_trace_ids,
+            created_at
+        FROM failure_clusters
+        WHERE workflow_id = $1
+        ORDER BY
+            CASE severity
+                WHEN 'high'   THEN 0
+                WHEN 'medium' THEN 1
+                WHEN 'low'    THEN 2
+                ELSE 3
+            END,
+            cluster_size DESC,
+            created_at DESC
+        """,
+        workflow_id,
+    )
+
+    items = [
+        FailureClusterSummary(
+            id=r["id"],
+            workflow_id=r["workflow_id"],
+            label=r["label"],
+            severity=r["severity"],
+            cluster_size=r["cluster_size"],
+            label_eval_score=(
+                float(r["label_eval_score"])
+                if r["label_eval_score"] is not None
+                else None
+            ),
+            quality_score=(
+                float(r["quality_score"]) if r["quality_score"] is not None else None
+            ),
+            sample_trace_ids=list(r["sample_trace_ids"] or []),
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+    return FailureClusterList(workflow_id=workflow_id, items=items)
 
 
 def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:

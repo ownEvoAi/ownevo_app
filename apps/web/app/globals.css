@@ -958,3 +958,149 @@
   border: 2px solid var(--bg);
   box-shadow: 0 0 0 1px var(--accent);
 }
+
+/* ---------------------------------------------------------------------
+   W7 slice 3 — Workflow detail (header + tabs) and Failures view.
+   Lifted from www/preview/s26-rk7p3/16-failures.html <style> block.
+   --------------------------------------------------------------------- */
+
+.wf-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.wf-back:hover {
+  color: var(--text-2);
+}
+.wf-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.wf-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.wf-buyer {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tab {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-3);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.clusters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cluster {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.12s;
+}
+.cluster:hover {
+  border-color: var(--border-light);
+}
+.cluster-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.cluster-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.cluster-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+.cluster-meta-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.group-head {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 24px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.group-head:first-child {
+  margin-top: 0;
+}
+
+/* Reusable banner for kernel-API-not-reachable / not-found states. */
+.api-banner {
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  border: 1px solid var(--banner-border);
+  background: var(--banner-bg);
+  color: var(--banner-text);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.api-banner code {
+  font-family: var(--mono);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+}

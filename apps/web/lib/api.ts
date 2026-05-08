@@ -286,3 +286,32 @@ export async function getWorkflowIterations(
     `/api/workflows/${encodeURIComponent(workflowId)}/iterations`,
   )
 }
+
+// W7 slice 3 — Failure clusters
+
+export type ClusterSeverity = 'high' | 'medium' | 'low'
+
+export interface FailureClusterSummary {
+  id: string
+  workflow_id: string | null
+  label: string
+  severity: ClusterSeverity
+  cluster_size: number
+  label_eval_score: number | null
+  quality_score: number | null
+  sample_trace_ids: string[]
+  created_at: string
+}
+
+export interface FailureClusterList {
+  workflow_id: string
+  items: FailureClusterSummary[]
+}
+
+export async function getWorkflowFailureClusters(
+  workflowId: string,
+): Promise<FailureClusterList> {
+  return jsonFetch<FailureClusterList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/failure_clusters`,
+  )
+}

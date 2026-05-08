@@ -251,11 +251,42 @@ class IterationList(_Strict):
     items: list[IterationPoint]
 
 
+# ---------------------------------------------------------------------------
+# Failure clusters (W7 slice 3)
+# ---------------------------------------------------------------------------
+
+
+class FailureClusterSummary(_Strict):
+    """Card-shaped row for the workflow Failures view.
+
+    `centroid` is omitted intentionally — 384 floats per row blow up
+    the JSON payload and the UI doesn't render the embedding. If a
+    debug view ever needs it, add a separate detail endpoint.
+    """
+
+    id: UUID
+    workflow_id: str | None
+    label: str
+    severity: str  # 'high' | 'medium' | 'low'
+    cluster_size: int
+    label_eval_score: float | None
+    quality_score: float | None
+    sample_trace_ids: list[UUID]
+    created_at: datetime
+
+
+class FailureClusterList(_Strict):
+    workflow_id: str
+    items: list[FailureClusterSummary]
+
+
 __all__ = [
     "ApprovalDetail",
     "ApproveResponse",
     "AuditEntry",
     "DecideRequest",
+    "FailureClusterList",
+    "FailureClusterSummary",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

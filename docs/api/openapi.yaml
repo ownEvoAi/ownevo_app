@@ -106,6 +106,29 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/workflows/{id}/failure_clusters:
+    get:
+      tags: [workflows]
+      summary: Failure clusters for a workflow (W7 slice 3 — Failures view)
+      description: |
+        Sorted by severity (high → low) then `cluster_size DESC`. The
+        `centroid` column is intentionally excluded from the response —
+        384 floats per row aren't useful to the UI.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailureClusterListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/workflows/{id}/stream:
     get:
       tags: [workflows]
@@ -527,6 +550,40 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/IterationPoint' }
+
+    # W7 slice 3 — Failure cluster card (centroid omitted)
+    FailureClusterSummary:
+      type: object
+      required:
+        - id
+        - label
+        - severity
+        - cluster_size
+        - sample_trace_ids
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string, nullable: true }
+        label: { type: string }
+        severity:
+          type: string
+          enum: [high, medium, low]
+        cluster_size: { type: integer }
+        label_eval_score: { type: number, format: float, nullable: true }
+        quality_score: { type: number, format: float, nullable: true }
+        sample_trace_ids:
+          type: array
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    FailureClusterListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FailureClusterSummary' }
 
     Approval:
       type: object
