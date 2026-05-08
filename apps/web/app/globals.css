@@ -31,6 +31,11 @@
 .crumb-row a:hover {
   color: var(--text);
 }
+.crumb-row a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .crumb-row .sep {
   color: var(--text-faint);
 }
@@ -95,12 +100,9 @@
   }
 }
 
-/* Diff line layout inside .side-body.code — full-row highlight */
-.diff-line {
-  display: block;
-  padding: 1px 8px;
-  margin: 0 -8px;
-}
+/* Diff line layout inside .side-body.code — full-row highlight.
+   .diff-line base rule (display:block + padding + margin + border-radius) lives
+   in primitives.css; we don't redeclare it here to avoid clobbering border-radius. */
 .ctx {
   display: block;
   color: var(--text-3);
@@ -160,8 +162,8 @@
   flex-shrink: 0;
 }
 .gate-icon.amber {
-  background: var(--amber-soft, rgba(245, 158, 11, 0.12));
-  color: var(--amber, #d97706);
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 .gate-icon.red {
   background: var(--red-soft);

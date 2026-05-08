@@ -199,6 +199,21 @@ async def get_proposal(
         proposal_id,
     )
 
+    # Gate audit entries are fetched in a separate, uncapped query so that
+    # they're never silently dropped by the LIMIT 500 display cap above.
+    # Gate entries are written last (highest seq) for any iteration — the
+    # display cap can exclude them for proposals with many preceding entries.
+    gate_audit_rows = await conn.fetch(
+        """
+        SELECT id, seq, kind::text AS kind, actor, payload, created_at
+        FROM audit_entries
+        WHERE related_id = $1
+          AND kind IN ('gate-run-started', 'gate-run-completed')
+        ORDER BY seq ASC
+        """,
+        proposal_row["iter_id"],
+    )
+
     approval_row = await conn.fetchrow(
         """
         SELECT id, decided_by, approver_type::text AS approver_type, decision,
@@ -209,8 +224,8 @@ async def get_proposal(
         proposal_id,
     )
 
-    audit_entries = [
-        AuditEntry(
+    def _make_audit_entry(r: Any) -> AuditEntry:
+        return AuditEntry(
             id=r["id"],
             seq=r["seq"],
             kind=r["kind"],
@@ -218,8 +233,9 @@ async def get_proposal(
             payload=_decode_jsonb(r["payload"]) or {},
             created_at=r["created_at"],
         )
-        for r in audit_rows
-    ]
+
+    audit_entries = [_make_audit_entry(r) for r in audit_rows]
+    gate_audit_entries = [_make_audit_entry(r) for r in gate_audit_rows]
 
     return ProposalDetail(
         id=proposal_row["id"],
@@ -254,7 +270,7 @@ async def get_proposal(
         ),
         audit_entries=audit_entries,
         approval=_approval_from_row(approval_row) if approval_row else None,
-        gate_result_cases=_gate_result_cases_from_audit(audit_entries),
+        gate_result_cases=_gate_result_cases_from_audit(gate_audit_entries),
     )
 
 
@@ -447,7 +463,7 @@ def _gate_result_cases_from_audit(
         passed=passed,
         regressed=failed,
         newly_admitted=promotable,
-        unknown=completed is None,
+        unknown=(completed is None) or (started is None),
     )
 
 

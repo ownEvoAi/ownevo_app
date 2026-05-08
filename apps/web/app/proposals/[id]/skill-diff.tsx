@@ -52,23 +52,33 @@ function lcsDiff(a: string[], b: string[]): DiffSegment[] {
   return out
 }
 
+// Skills beyond this line count trigger a single-column fallback to avoid
+// O(n×m) LCS memory pressure on the Next.js server process.
+const MAX_LCS_LINES = 500
+
 function partition(segments: DiffSegment[]): {
   left: SidePart[]
   right: SidePart[]
+  adds: number
+  removes: number
 } {
   const left: SidePart[] = []
   const right: SidePart[] = []
+  let adds = 0
+  let removes = 0
   for (const s of segments) {
     if (s.kind === 'context') {
       left.push({ kind: 'context', text: s.text })
       right.push({ kind: 'context', text: s.text })
     } else if (s.kind === 'remove') {
       left.push({ kind: 'diff', text: s.text })
+      removes++
     } else {
       right.push({ kind: 'diff', text: s.text })
+      adds++
     }
   }
-  return { left, right }
+  return { left, right, adds, removes }
 }
 
 export function SkillDiff({
@@ -102,10 +112,28 @@ export function SkillDiff({
     )
   }
 
-  const segments = lcsDiff(current.split('\n'), proposed.split('\n'))
-  const adds = segments.filter((s) => s.kind === 'add').length
-  const removes = segments.filter((s) => s.kind === 'remove').length
-  const { left, right } = partition(segments)
+  const currentLines = current.split('\n')
+  const proposedLines = proposed.split('\n')
+
+  if (currentLines.length > MAX_LCS_LINES || proposedLines.length > MAX_LCS_LINES) {
+    return (
+      <div className="side-by-side" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="side">
+          <div className="side-header">
+            <span>Proposed · {proposedLines.length} lines (diff omitted — too large)</span>
+          </div>
+          <pre className="side-body code" style={codeBoxStyle}>
+            {proposedLines.map((line, i) => (
+              <Line key={i} kind="context" side="right" text={line} />
+            ))}
+          </pre>
+        </div>
+      </div>
+    )
+  }
+
+  const segments = lcsDiff(currentLines, proposedLines)
+  const { left, right, adds, removes } = partition(segments)
 
   const currentLabel =
     parentVersionSeq !== null ? `Current · v${parentVersionSeq}` : 'Current'

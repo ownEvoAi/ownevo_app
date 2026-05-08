@@ -192,8 +192,18 @@ function gateVerdict(
       iconPath: exclamPath,
     }
   }
+  // FAIL_REGRESSION and FAIL_NO_IMPROVEMENT both land on 'rejected' (not
+  // 'gate-failed'). Without this check they fall through to the green path.
+  if (proposal.state === 'rejected') {
+    const regressed = cases?.regressed.length ?? 0
+    return {
+      headline: regressed > 0 ? `${regressed} regression(s)` : 'Gate rejected',
+      tone: 'red',
+      iconPath: exclamPath,
+    }
+  }
   const passed = cases?.passed.length ?? 0
-  const total = (cases?.passed.length ?? 0) + (cases?.regressed.length ?? 0)
+  const total = passed + (cases?.regressed.length ?? 0)
   if (total > 0) {
     return {
       headline: `${passed} / ${total} prior cases pass`,

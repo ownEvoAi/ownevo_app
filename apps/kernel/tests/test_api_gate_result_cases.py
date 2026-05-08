@@ -112,8 +112,9 @@ def test_started_only_marks_unknown_true():
 
 
 def test_handles_missing_prior_list():
-    """Earlier audit shapes may not carry `prior_eval_task_ids`; the
-    helper should default to an empty list rather than raise."""
+    """A completed-only audit (e.g. `gate-run-started` fell outside the
+    LIMIT 500 window) must mark `unknown=True` — we can't accurately
+    report the prior-case breakdown without the started entry."""
     completed = _audit(
         "gate-run-completed",
         {
@@ -129,7 +130,7 @@ def test_handles_missing_prior_list():
     assert cases.passed == []
     assert cases.regressed == []
     assert cases.newly_admitted == ["case-X"]
-    assert cases.unknown is False
+    assert cases.unknown is True
 
 
 def test_coerces_non_string_task_ids_to_str():
@@ -153,3 +154,4 @@ def test_coerces_non_string_task_ids_to_str():
     cases = _gate_result_cases_from_audit([started, completed])
     assert cases is not None
     assert cases.passed == ["42", "case-A"]
+    assert cases.unknown is False
