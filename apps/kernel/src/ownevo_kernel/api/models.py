@@ -199,16 +199,152 @@ class HealthResponse(_Strict):
     db: str  # 'ok' if the connection pool answers, else error class name
 
 
+# ---------------------------------------------------------------------------
+# Workflow-list + lift-chart endpoints (W7 slice 2)
+# ---------------------------------------------------------------------------
+
+
+class WorkflowSummary(_Strict):
+    """Row in the Health page's workflow-rows table.
+
+    Joined across `workflows` + `iterations` + `proposals` so the Health
+    page renders without N+1 fetches. `iteration_count` is the number of
+    finalized iterations on the workflow (gate-pass / gate-blocked / etc.
+    — anything not 'running'), driving the right-side "Last improved"
+    cell. `pending_proposals_count` covers gate-passed proposals waiting
+    for human/llm-judge approval.
+    """
+
+    id: str
+    description: str
+    mode: str  # 'gated' | 'autonomous'
+    iteration_count: int
+    best_ever_score: float | None
+    last_improved_at: datetime | None  # most recent approved proposal's state_updated_at
+    pending_proposals_count: int
+
+
+class WorkflowList(_Strict):
+    items: list[WorkflowSummary]
+    total: int
+
+
+class IterationPoint(_Strict):
+    """One point on the lift chart.
+
+    Iteration-keyed (not day-keyed) — every iteration is a point per
+    W7_SLICE.md resolved decision. `has_approved_proposal` drives the
+    annotated-dot overlay; `state` lets the UI distinguish gate-pass
+    from gate-blocked-no-improvement vs sandbox-error visually.
+    """
+
+    iteration_index: int
+    val_score: float | None
+    best_ever_score_after: float | None
+    state: str
+    has_approved_proposal: bool
+    ended_at: datetime | None
+
+
+class IterationList(_Strict):
+    workflow_id: str
+    items: list[IterationPoint]
+
+
+# ---------------------------------------------------------------------------
+# Failure clusters (W7 slice 3)
+# ---------------------------------------------------------------------------
+
+
+class FailureClusterSummary(_Strict):
+    """Card-shaped row for the workflow Failures view.
+
+    `centroid` is omitted intentionally — 384 floats per row blow up
+    the JSON payload and the UI doesn't render the embedding. If a
+    debug view ever needs it, add a separate detail endpoint.
+    """
+
+    id: UUID
+    workflow_id: str | None
+    label: str
+    severity: str  # 'high' | 'medium' | 'low'
+    cluster_size: int
+    label_eval_score: float | None
+    quality_score: float | None
+    sample_trace_ids: list[UUID]
+    created_at: datetime
+
+
+class FailureClusterList(_Strict):
+    workflow_id: str
+    items: list[FailureClusterSummary]
+
+
+# ---------------------------------------------------------------------------
+# Audit trail (W7 slice 4)
+# ---------------------------------------------------------------------------
+
+
+class AuditEntryRow(_Strict):
+    """Workspace-level audit entry for the trail view.
+
+    Same shape as `AuditEntry` (proposal-detail), repeated here so the
+    list endpoint contract is independent of proposal-side changes.
+    """
+
+    id: UUID
+    seq: int
+    kind: str
+    actor: str
+    related_id: UUID | None
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class AuditList(_Strict):
+    items: list[AuditEntryRow]
+    total: int  # total count in audit_entries (not just returned items)
+    truncated: bool  # true when total > items length (limit applied)
+
+
+class AuditVerifyResponse(_Strict):
+    """Result of running the chain-integrity check.
+
+    For MVP (D2 — append-only, no crypto) "valid chain" means: every
+    `seq` from 1..max is present (no gaps), no duplicate seqs, count
+    is sane. A future hash-chain (TODO-3) extends this with parent_hash
+    + entry_hash verification.
+    """
+
+    valid: bool
+    total_entries: int
+    min_seq: int | None  # null when total_entries == 0
+    max_seq: int | None
+    missing_seqs: list[int]  # capped at 100 in the API for payload safety
+    duplicate_seqs: list[int]  # likewise
+    canonical_export_bytes: int  # size of `to_canonical_json(...)` output
+    checked_at: datetime
+
+
 __all__ = [
     "ApprovalDetail",
     "ApproveResponse",
     "AuditEntry",
+    "AuditEntryRow",
+    "AuditList",
+    "AuditVerifyResponse",
     "DecideRequest",
+    "FailureClusterList",
+    "FailureClusterSummary",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",
+    "IterationList",
+    "IterationPoint",
     "ProposalDetail",
     "ProposalList",
     "ProposalSummary",
     "WorkflowDetail",
+    "WorkflowList",
+    "WorkflowSummary",
 ]

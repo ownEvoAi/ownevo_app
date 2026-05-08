@@ -56,16 +56,14 @@ paths:
                 $ref: '#/components/schemas/Workflow'
     get:
       tags: [workflows]
-      summary: List workflows
+      summary: List workflows with summary metrics (W7 slice 2 — Health page)
       responses:
         '200':
           description: ok
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Workflow'
+                $ref: '#/components/schemas/WorkflowListResponse'
 
   /api/workflows/{id}:
     get:
@@ -82,6 +80,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Workflow'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/iterations:
+    get:
+      tags: [workflows]
+      summary: Chronological iterations for the LiftChart (W7 slice 2)
+      description: |
+        Returns one point per non-running iteration, sorted by iteration_index
+        ASC. The web UI plots `iteration_index × val_score` and overlays
+        an annotated dot wherever `has_approved_proposal=true`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IterationListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/failure_clusters:
+    get:
+      tags: [workflows]
+      summary: Failure clusters for a workflow (W7 slice 3 — Failures view)
+      description: |
+        Sorted by severity (high → low) then `cluster_size DESC`. The
+        `centroid` column is intentionally excluded from the response —
+        384 floats per row aren't useful to the UI.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailureClusterListResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -236,58 +280,47 @@ paths:
   /api/audit:
     get:
       tags: [audit]
-      summary: Audit log (paginated by seq)
+      summary: Audit trail (W7 slice 4 — workspace-scoped, newest first)
+      description: |
+        Returns up to `limit` audit entries ordered by `seq DESC`. The
+        `total` field reports the unfiltered DB count so the UI can
+        render "showing N of total". `kind` filters to a single
+        audit_kind enum value.
       parameters:
-        - name: cursor
+        - name: since_seq
           in: query
-          description: Last seq from previous page; returns rows with seq > cursor.
-          schema: { type: integer }
+          description: Return only entries with seq > since_seq (keyset pagination, ASC source).
+          schema: { type: integer, minimum: 0 }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/AuditKind' }
         - name: limit
           in: query
-          schema: { type: integer, default: 100, maximum: 500 }
-        - name: kinds
-          in: query
-          schema:
-            type: array
-            items:
-              $ref: '#/components/schemas/AuditKind'
+          schema: { type: integer, default: 200, minimum: 1, maximum: 500 }
       responses:
         '200':
           description: ok
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuditPage'
-
-  /api/audit/export:
-    get:
-      tags: [audit]
-      summary: Full audit log export (canonical JSON, customer-controlled per D2)
-      responses:
-        '200':
-          description: Canonical JSON dump of audit_entries ordered by seq
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AuditEntry'
+                $ref: '#/components/schemas/AuditListResponse'
 
   /api/audit/verify:
     post:
       tags: [audit]
-      summary: Verify the append-only chain (no gaps, no out-of-order seq)
+      summary: Verify the append-only chain (W7 slice 4)
+      description: |
+        Structural integrity check: every seq from min..max present
+        (no gaps), no duplicates, canonical-JSON export round-trips.
+        D2 (append-only, no crypto). TODO-3 extends with parent_hash /
+        entry_hash verification when first regulated buyer evaluates.
       responses:
         '200':
-          description: ok or details on broken integrity
+          description: ok
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status: { type: string, enum: [ok, broken] }
-                  broken_at_seq: { type: integer }
-                  message: { type: string }
+                $ref: '#/components/schemas/AuditVerifyResponse'
 
   # ---------- skills ----------
   /api/skills:
@@ -456,6 +489,140 @@ components:
       required: [description]
       properties:
         description: { type: string, minLength: 10 }
+
+    # W7 slice 2 — Health page row + LiftChart point
+    WorkflowSummary:
+      type: object
+      required:
+        - id
+        - description
+        - mode
+        - iteration_count
+        - pending_proposals_count
+      properties:
+        id: { type: string }
+        description: { type: string }
+        mode: { $ref: '#/components/schemas/WorkflowMode' }
+        iteration_count: { type: integer }
+        best_ever_score: { type: number, format: float, nullable: true }
+        last_improved_at: { type: string, format: date-time, nullable: true }
+        pending_proposals_count: { type: integer }
+
+    WorkflowListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowSummary' }
+        total: { type: integer }
+
+    IterationPoint:
+      type: object
+      required:
+        - iteration_index
+        - state
+        - has_approved_proposal
+      properties:
+        iteration_index: { type: integer }
+        val_score: { type: number, format: float, nullable: true }
+        best_ever_score_after: { type: number, format: float, nullable: true }
+        state: { $ref: '#/components/schemas/IterationState' }
+        has_approved_proposal: { type: boolean }
+        ended_at: { type: string, format: date-time, nullable: true }
+
+    IterationListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/IterationPoint' }
+
+    # W7 slice 3 — Failure cluster card (centroid omitted)
+    FailureClusterSummary:
+      type: object
+      required:
+        - id
+        - label
+        - severity
+        - cluster_size
+        - sample_trace_ids
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string, nullable: true }
+        label: { type: string }
+        severity:
+          type: string
+          enum: [high, medium, low]
+        cluster_size: { type: integer }
+        label_eval_score: { type: number, format: float, nullable: true }
+        quality_score: { type: number, format: float, nullable: true }
+        sample_trace_ids:
+          type: array
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    FailureClusterListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FailureClusterSummary' }
+
+    # W7 slice 4 — Audit trail row + verify response
+    AuditEntryRow:
+      type: object
+      required: [id, seq, kind, actor, payload, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seq: { type: integer }
+        kind: { $ref: '#/components/schemas/AuditKind' }
+        actor: { type: string }
+        related_id: { type: string, format: uuid, nullable: true }
+        payload:
+          type: object
+          additionalProperties: true
+        created_at: { type: string, format: date-time }
+
+    AuditListResponse:
+      type: object
+      required: [items, total, truncated]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntryRow' }
+        total: { type: integer }
+        truncated: { type: boolean }
+
+    AuditVerifyResponse:
+      type: object
+      required:
+        - valid
+        - total_entries
+        - missing_seqs
+        - duplicate_seqs
+        - canonical_export_bytes
+        - checked_at
+      properties:
+        valid: { type: boolean }
+        total_entries: { type: integer }
+        min_seq: { type: integer, nullable: true }
+        max_seq: { type: integer, nullable: true }
+        missing_seqs:
+          type: array
+          items: { type: integer }
+          description: Capped at 100 entries by the API.
+        duplicate_seqs:
+          type: array
+          items: { type: integer }
+          description: Capped at 100 entries by the API.
+        canonical_export_bytes: { type: integer }
+        checked_at: { type: string, format: date-time }
 
     Approval:
       type: object
