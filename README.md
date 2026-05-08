@@ -49,7 +49,7 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 
 ## Status
 
-**W4 complete (Phase 2 Track A) — v0.4.0 staged on `main`, tag pending.** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
+**W4 complete (Phase 2 Track A) — v0.4.0.** The full natural-language → working agent loop is shipped end-to-end, alongside the failure-clustering pipeline that closes the loop on production-failure ingestion:
 
 - **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
 - **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
