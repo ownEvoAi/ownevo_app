@@ -12,6 +12,9 @@ count.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
@@ -21,6 +24,7 @@ from ..models import (
     FailureClusterSummary,
     IterationList,
     IterationPoint,
+    WorkflowAnatomy,
     WorkflowList,
     WorkflowSummary,
 )
@@ -83,6 +87,38 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
 
     items = [_row_to_summary(r) for r in rows]
     return WorkflowList(items=items, total=len(items))
+
+
+@router.get("/{workflow_id}", response_model=WorkflowAnatomy)
+async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
+    """Workflow detail with the full NL-gen `spec` JSONB.
+
+    Drives the W7 slice 11 (7.1.12) Agent-anatomy pane. Returns the
+    raw spec dict; the web app branches on which spec fields are
+    populated rather than the API typing the spec union (the spec
+    schema is frozen at `nl_gen/spec.py` v1.0 — bumps will require
+    web parity but not an API DTO change).
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT id, description, mode::text AS mode, spec
+        FROM workflows
+        WHERE id = $1
+        """,
+        workflow_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow not found: {workflow_id}",
+        )
+    spec = _decode_jsonb_obj(row["spec"]) or {}
+    return WorkflowAnatomy(
+        id=row["id"],
+        description=row["description"],
+        mode=row["mode"],
+        spec=spec,
+    )
 
 
 @router.get("/{workflow_id}/iterations", response_model=IterationList)
@@ -176,29 +212,41 @@ async def list_failure_clusters(
             detail="Workflow not found",
         )
 
+    # `latest_proposal_id` (W7 slice 7 / 7.1.4): correlated subquery
+    # picks the newest proposal whose iteration was spawned against
+    # the cluster. The Failures-card click-through opens that proposal.
+    # Null when the loop hasn't yet produced one for the cluster.
     rows = await conn.fetch(
         """
         SELECT
-            id,
-            workflow_id,
-            label,
-            severity,
-            cluster_size,
-            label_eval_score,
-            quality_score,
-            sample_trace_ids,
-            created_at
-        FROM failure_clusters
-        WHERE workflow_id = $1
+            fc.id,
+            fc.workflow_id,
+            fc.label,
+            fc.severity,
+            fc.cluster_size,
+            fc.label_eval_score,
+            fc.quality_score,
+            fc.sample_trace_ids,
+            fc.created_at,
+            (
+                SELECT p.id
+                FROM proposals p
+                JOIN iterations i ON i.id = p.iteration_id
+                WHERE i.cluster_id = fc.id
+                ORDER BY p.created_at DESC
+                LIMIT 1
+            )                                           AS latest_proposal_id
+        FROM failure_clusters fc
+        WHERE fc.workflow_id = $1
         ORDER BY
-            CASE severity
+            CASE fc.severity
                 WHEN 'high'   THEN 0
                 WHEN 'medium' THEN 1
                 WHEN 'low'    THEN 2
                 ELSE 3
             END,
-            cluster_size DESC,
-            created_at DESC
+            fc.cluster_size DESC,
+            fc.created_at DESC
         """,
         workflow_id,
     )
@@ -220,10 +268,21 @@ async def list_failure_clusters(
             ),
             sample_trace_ids=list(r["sample_trace_ids"] or []),
             created_at=r["created_at"],
+            latest_proposal_id=r["latest_proposal_id"],
         )
         for r in rows
     ]
     return FailureClusterList(workflow_id=workflow_id, items=items)
+
+
+def _decode_jsonb_obj(value: Any) -> dict[str, Any] | None:
+    """asyncpg returns jsonb as `str` unless a codec is set — match the
+    proposals.py convention."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
 
 
 def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:

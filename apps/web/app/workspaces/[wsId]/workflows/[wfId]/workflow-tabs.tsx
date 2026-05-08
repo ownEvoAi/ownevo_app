@@ -7,9 +7,9 @@ interface TabsProps {
   wfId: string
 }
 
-// Simple tab strip — Overview / Failures / Audit. Active state from
-// usePathname. Fewer tabs than the mock (`05-workflow-overview.html`)
-// since W7 only covers the demo critical path.
+// Tab strip — Overview / Failures / Traces / Audit. Active state from
+// usePathname. Traces tab added in W7 slice 8 (7.1.9). Mock parity:
+// `05-workflow-overview.html`.
 export function WorkflowTabs({ wsId, wfId }: TabsProps) {
   const pathname = usePathname() ?? ''
   const root = `/workspaces/${wsId}/workflows/${wfId}`
@@ -17,6 +17,7 @@ export function WorkflowTabs({ wsId, wfId }: TabsProps) {
   const tabs: Array<{ href: string; label: string }> = [
     { href: root, label: 'Overview' },
     { href: `${root}/failures`, label: 'Failures' },
+    { href: `${root}/traces`, label: 'Traces' },
     { href: `${root}/audit`, label: 'Audit' },
   ]
 

@@ -1,3 +1,11 @@
+import {
+  getWorkflowAnatomy,
+  getWorkflowSkills,
+  KernelApiError,
+  type SkillSummary,
+  type WorkflowSpecShape,
+} from '@/lib/api'
+import { AgentAnatomy } from '@/app/components/agent-anatomy'
 import { getMock } from './mocks'
 
 interface PageProps {
@@ -26,8 +34,10 @@ const TONE_CLASS: Record<'positive' | 'negative' | 'neutral', string> = {
 // surfaces a placeholder pointing at Failures + Audit until the
 // W8.1.1 wiring lands.
 //
-// The shape is intentionally identical between mock and live so
-// swapping data sources is one read call away.
+// W7 slice 11 (7.1.12) — both branches mount the AgentAnatomy pane
+// above the fold so reviewers see "what the agent CAN do" before
+// scrolling to metrics. Mock surfaces feed hand-authored
+// skills+spec from mocks.ts; live surfaces fetch from the kernel.
 export default async function WorkflowOverviewPage({ params }: PageProps) {
   const { wsId, wfId } = await params
   const mock = getMock(wfId)
@@ -35,7 +45,14 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   if (mock) {
     return (
       <>
-        <div className="metrics glance" style={{ marginBottom: 24 }}>
+        <AgentAnatomy
+          wsId={wsId}
+          workflowId={null}
+          skills={mock.anatomy.skills}
+          spec={mock.anatomy.spec}
+        />
+
+        <div className="metrics glance" style={{ marginBottom: 24, marginTop: 24 }}>
           {mock.metrics.map((m) => (
             <div key={m.label} className="metric">
               <div className="metric-label">{m.label}</div>
@@ -97,35 +114,71 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   }
 
   // Live workflow (demand-prediction or any other backend-registered id).
+  let skills: SkillSummary[] = []
+  let spec: WorkflowSpecShape | null = null
+  let apiError: string | null = null
+  try {
+    const [anatomy, skillList] = await Promise.all([
+      getWorkflowAnatomy(wfId),
+      getWorkflowSkills(wfId),
+    ])
+    spec = anatomy.spec
+    skills = skillList.items
+  } catch (err) {
+    if (err instanceof KernelApiError) {
+      apiError = `Kernel API ${err.status}: ${err.detail}`
+    } else {
+      apiError = 'Could not reach the kernel API. Run `make api` to start it.'
+    }
+  }
+
   return (
-    <section
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: 24,
-        boxShadow: 'var(--shadow-sm)',
-      }}
-    >
-      <h2 style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Overview</h2>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-        Live workflow Overview lands in W8.1.1 (workspace UI wired to the demand-
-        prediction backend). For now use{' '}
-        <a
-          href={`/workspaces/${wsId}/workflows/${wfId}/failures`}
-          style={{ color: 'var(--accent)' }}
-        >
-          Failures
-        </a>{' '}
-        for the cluster list and{' '}
-        <a
-          href={`/workspaces/${wsId}/workflows/${wfId}/audit`}
-          style={{ color: 'var(--accent)' }}
-        >
-          Audit
-        </a>{' '}
-        for the chain — both read live from the kernel API.
-      </p>
-    </section>
+    <>
+      {apiError && (
+        <div role="alert" className="api-banner">
+          <strong>Kernel API not reachable.</strong> {apiError}
+        </div>
+      )}
+
+      <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
+
+      <section
+        style={{
+          marginTop: 24,
+          background: 'var(--bg)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          padding: 24,
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Live metrics</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+          Live workflow Overview metrics land in W8.1.1 (workspace UI wired to the
+          demand-prediction backend). For now use{' '}
+          <a
+            href={`/workspaces/${wsId}/workflows/${wfId}/failures`}
+            style={{ color: 'var(--accent)' }}
+          >
+            Failures
+          </a>{' '}
+          for the cluster list,{' '}
+          <a
+            href={`/workspaces/${wsId}/workflows/${wfId}/traces`}
+            style={{ color: 'var(--accent)' }}
+          >
+            Traces
+          </a>{' '}
+          for per-step inspection, and{' '}
+          <a
+            href={`/workspaces/${wsId}/workflows/${wfId}/audit`}
+            style={{ color: 'var(--accent)' }}
+          >
+            Audit
+          </a>{' '}
+          for the chain.
+        </p>
+      </section>
+    </>
   )
 }

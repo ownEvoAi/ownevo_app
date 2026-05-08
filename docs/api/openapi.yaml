@@ -68,6 +68,13 @@ paths:
   /api/workflows/{id}:
     get:
       tags: [workflows]
+      summary: Workflow detail with full NL-gen spec (W7 slice 11 / 7.1.12)
+      description: |
+        Drives the Agent-anatomy pane on the workflow Overview page.
+        Returns the raw NL-gen `spec` JSONB (frozen schema at
+        `apps/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec`)
+        so the web app can read `spec.tools[*]`, `spec.reviewer`,
+        `spec.environment`, etc. without an additional fetch.
       parameters:
         - name: id
           in: path
@@ -79,7 +86,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Workflow'
+                $ref: '#/components/schemas/WorkflowAnatomyResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -343,6 +350,39 @@ paths:
                 items:
                   $ref: '#/components/schemas/Skill'
 
+  # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail + per-workflow list
+  /api/workflows/{workflow_id}/skills:
+    get:
+      tags: [skills]
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillListResponse'
+
+  /api/skills/{skill_id}:
+    get:
+      tags: [skills]
+      parameters:
+        - name: skill_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillDetailResponse'
+
   /api/skills/{id}/versions:
     get:
       tags: [skills]
@@ -403,12 +443,28 @@ paths:
                 items:
                   $ref: '#/components/schemas/FailureCluster'
 
-  # ---------- traces ----------
-  /api/traces/{id}:
+  # ---------- traces (W7 slice 8 / 7.1.9) ----------
+  /api/workflows/{workflow_id}/traces:
     get:
       tags: [traces]
       parameters:
-        - name: id
+        - name: workflow_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceListResponse'
+
+  /api/traces/{trace_id}:
+    get:
+      tags: [traces]
+      parameters:
+        - name: trace_id
           in: path
           required: true
           schema: { type: string, format: uuid }
@@ -418,7 +474,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Trace'
+                $ref: '#/components/schemas/TraceDetail'
 
 components:
   schemas:
@@ -550,6 +606,7 @@ components:
         - cluster_size
         - sample_trace_ids
         - created_at
+        - latest_proposal_id
       properties:
         id: { type: string, format: uuid }
         workflow_id: { type: string, nullable: true }
@@ -564,6 +621,13 @@ components:
           type: array
           items: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
+        # W7 slice 7 (7.1.4) — most recent proposal_id whose iteration
+        # was triggered by this cluster. Drives the Failures-card
+        # click-through; null when no proposal has spawned yet.
+        latest_proposal_id:
+          type: string
+          format: uuid
+          nullable: true
 
     FailureClusterListResponse:
       type: object
@@ -802,6 +866,159 @@ components:
         started_at: { type: string, format: date-time }
         ended_at: { type: string, format: date-time }
         token_usage: { type: object }
+
+    # W7 slice 8 (7.1.9) — trace inspection DTOs
+    TraceSummary:
+      type: object
+      required:
+        - id
+        - started_at
+        - event_count
+        - kind_counts
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string, nullable: true }
+        iteration_id: { type: string, format: uuid, nullable: true }
+        iteration_index: { type: integer, nullable: true }
+        skill_version_id: { type: string, format: uuid, nullable: true }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time, nullable: true }
+        event_count: { type: integer }
+        kind_counts:
+          type: object
+          additionalProperties: { type: integer }
+
+    TraceListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TraceSummary' }
+
+    # W7 slice 11 (7.1.12) — workflow anatomy DTO
+    WorkflowAnatomyResponse:
+      type: object
+      required: [id, description, mode, spec]
+      properties:
+        id: { type: string }
+        description: { type: string }
+        mode:
+          type: string
+          enum: [gated, autonomous]
+        spec:
+          type: object
+          description: |
+            Raw NL-gen spec JSONB. Conforms to
+            packages/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec
+            v1.0 — keys: domain, environment, tools, reviewer,
+            success_criterion, ui.
+
+    # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail DTOs
+    SkillSummaryResponse:
+      type: object
+      required: [id, kind, capability_tags]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [python, instruction, composite]
+        workflow_id: { type: string, nullable: true }
+        capability_tags:
+          type: array
+          items: { type: string }
+        head_version_id: { type: string, format: uuid, nullable: true }
+        head_version_seq: { type: integer, nullable: true }
+        head_created_at: { type: string, format: date-time, nullable: true }
+
+    SkillListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SkillSummaryResponse' }
+
+    SkillVersionSummary:
+      type: object
+      required: [id, version_seq, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        version_seq: { type: integer }
+        parent_version_id: { type: string, format: uuid, nullable: true }
+        diff_summary: { type: string, nullable: true }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SkillRelatedEvalCase:
+      type: object
+      required: [id, provenance, is_test_fold, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string, nullable: true }
+        provenance: { type: string }
+        expected_behavior: { type: object, nullable: true }
+        is_test_fold: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    SkillDetailResponse:
+      type: object
+      required: [id, kind, capability_tags, versions, related_eval_cases]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [python, instruction, composite]
+        workflow_id: { type: string, nullable: true }
+        workflow_description: { type: string, nullable: true }
+        capability_tags:
+          type: array
+          items: { type: string }
+        head_version_id: { type: string, format: uuid, nullable: true }
+        head_version_seq: { type: integer, nullable: true }
+        head_content: { type: string, nullable: true }
+        head_retention_block: { type: object, nullable: true }
+        head_diff_summary: { type: string, nullable: true }
+        head_created_at: { type: string, format: date-time, nullable: true }
+        head_created_by: { type: string, nullable: true }
+        parent_content: { type: string, nullable: true }
+        parent_version_seq: { type: integer, nullable: true }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/SkillVersionSummary' }
+        related_eval_cases:
+          type: array
+          items: { $ref: '#/components/schemas/SkillRelatedEvalCase' }
+
+    TraceDetail:
+      type: object
+      required:
+        - id
+        - started_at
+        - events
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string, nullable: true }
+        iteration_id: { type: string, format: uuid, nullable: true }
+        iteration_index: { type: integer, nullable: true }
+        skill_version_id: { type: string, format: uuid, nullable: true }
+        skill_id: { type: string, nullable: true }
+        skill_version_seq: { type: integer, nullable: true }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time, nullable: true }
+        metric_outputs: { type: object, nullable: true }
+        token_usage: { type: object, nullable: true }
+        events:
+          type: array
+          description: |
+            Typed AgentEvent stream — discriminated by `type`. See
+            packages/trace-format/SPEC.md for the variant set
+            (skill_loaded, content_delta, reasoning_delta,
+            tool_call_start, tool_call_result, citation,
+            monitor_signal).
+          items:
+            type: object
 
     # ---------- SSE event types ----------
     SSEEvent:

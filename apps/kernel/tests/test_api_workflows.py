@@ -7,6 +7,7 @@ green. The `api_client` fixture is shared via `conftest.py`.
 
 from __future__ import annotations
 
+import json
 import os
 
 import asyncpg
@@ -50,12 +51,14 @@ async def _seed_iteration(
     state: str = "gate-pass",
     val_score: float | None = 0.42,
     best_ever_score_after: float | None = 0.42,
+    cluster_id=None,
 ):
     return await conn.fetchval(
         """
         INSERT INTO iterations (workflow_id, iteration_index, state,
-                                val_score, best_ever_score_after, ended_at)
-        VALUES ($1, $2, $3::iteration_state, $4, $5, now())
+                                val_score, best_ever_score_after, ended_at,
+                                cluster_id)
+        VALUES ($1, $2, $3::iteration_state, $4, $5, now(), $6)
         RETURNING id
         """,
         workflow_id,
@@ -63,6 +66,7 @@ async def _seed_iteration(
         state,
         val_score,
         best_ever_score_after,
+        cluster_id,
     )
 
 
@@ -353,3 +357,98 @@ async def test_failure_clusters_empty(
     assert res.status_code == 200
     body = res.json()
     assert body == {"workflow_id": "wf-no-clusters", "items": []}
+
+
+# W7 slice 7 (7.1.4) — latest_proposal_id surface
+
+
+async def test_failure_clusters_latest_proposal_null_without_proposal(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Bare cluster with no iteration → latest_proposal_id is null."""
+    await _seed_workflow(db, workflow_id="wf-bare")
+    await _seed_cluster(
+        db, workflow_id="wf-bare", label="bare", severity="medium", cluster_size=1,
+    )
+    res = await api_client.get("/api/workflows/wf-bare/failure_clusters")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["latest_proposal_id"] is None
+
+
+async def test_get_workflow_anatomy_404_on_unknown(api_client: httpx.AsyncClient):
+    """W7 slice 11 (7.1.12) — anatomy endpoint 404s on unknown id."""
+    res = await api_client.get("/api/workflows/nope")
+    assert res.status_code == 404
+
+
+async def test_get_workflow_anatomy_returns_spec(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Spec round-trips through JSONB and surfaces in the response."""
+    spec = {
+        "schema_version": "1.0",
+        "id": "wf-anatomy",
+        "domain": "supply-chain",
+        "tools": [
+            {"name": "lookup_supplier", "description": "fetch profile",
+             "inputs": [], "outputs": []},
+        ],
+        "reviewer": {"role": "Supply Chain VP", "cadence": "weekly"},
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec, mode) "
+        "VALUES ($1, $2, $3::jsonb, 'gated'::workflow_mode)",
+        "wf-anatomy",
+        "Demand prediction workflow",
+        json.dumps(spec),
+    )
+
+    res = await api_client.get("/api/workflows/wf-anatomy")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == "wf-anatomy"
+    assert body["description"] == "Demand prediction workflow"
+    assert body["mode"] == "gated"
+    assert body["spec"]["domain"] == "supply-chain"
+    assert body["spec"]["tools"][0]["name"] == "lookup_supplier"
+    assert body["spec"]["reviewer"]["role"] == "Supply Chain VP"
+
+
+async def test_failure_clusters_latest_proposal_picks_newest(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Two iterations on the same cluster → latest_proposal_id is the
+    most-recently-created proposal's id (cluster → iteration via
+    iterations.cluster_id → proposal via proposals.iteration_id).
+    """
+    await _seed_workflow(db, workflow_id="wf-latest")
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-latest", label="cluster-a",
+        severity="high", cluster_size=4,
+    )
+    iter_old = await _seed_iteration(
+        db, workflow_id="wf-latest", iteration_index=0,
+        cluster_id=cluster_id,
+    )
+    iter_new = await _seed_iteration(
+        db, workflow_id="wf-latest", iteration_index=1,
+        cluster_id=cluster_id,
+    )
+    prop_old = await _seed_proposal(
+        db, iteration_id=iter_old, skill_id="skill.cluster.old",
+    )
+    prop_new = await _seed_proposal(
+        db, iteration_id=iter_new, skill_id="skill.cluster.new",
+    )
+
+    res = await api_client.get("/api/workflows/wf-latest/failure_clusters")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["items"]) == 1
+    latest = body["items"][0]["latest_proposal_id"]
+    # `proposals.created_at` defaults to now() — prop_new was inserted
+    # second so it wins. The id is rendered as a UUID string.
+    assert latest == str(prop_new)
+    assert latest != str(prop_old)

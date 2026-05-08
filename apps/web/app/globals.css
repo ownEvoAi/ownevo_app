@@ -1265,3 +1265,493 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+/* ---------------------------------------------------------------------
+   W7 slice 7 (7.1.4) — Failure cluster card click-through affordance.
+   --------------------------------------------------------------------- */
+
+.cluster-link {
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+.cluster-link:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+.cluster-cta {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------------
+   W7 slice 8 (7.1.9) — Trace list + per-trace timeline.
+   Visual target: www/preview/s26-rk7p3/15-traces.html.
+   --------------------------------------------------------------------- */
+
+.trace-list {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.trace-list-head {
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.trace-row {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.trace-row:last-child {
+  border-bottom: 0;
+}
+.trace-row:hover {
+  background: var(--surface);
+}
+.trace-id {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.trace-summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-top: 3px;
+}
+.trace-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.trace-detail-head {
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.trace-detail-head-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.trace-detail-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.trace-detail-summary {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-top: 4px;
+}
+.trace-detail-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.trace-detail-meta strong {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.timeline {
+  padding: 16px 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  margin-top: -1px;
+}
+.timeline-row {
+  display: grid;
+  grid-template-columns: 80px 130px minmax(0, 1fr);
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+.timeline-row:last-child {
+  border-bottom: 0;
+}
+.timeline-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 4px;
+}
+.timeline-type {
+  padding-top: 2px;
+}
+.event-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.event-chip.tool_call_start {
+  background: rgba(59, 130, 246, 0.10);
+  color: var(--accent);
+}
+.event-chip.tool_call_result {
+  background: rgba(34, 197, 94, 0.10);
+  color: #16a34a;
+}
+.event-chip.tool_call_result.error {
+  background: rgba(239, 68, 68, 0.10);
+  color: #dc2626;
+}
+.event-chip.content_delta {
+  background: var(--surface);
+  color: var(--text-3);
+}
+.event-chip.reasoning_delta {
+  background: rgba(99, 102, 241, 0.10);
+  color: #4f46e5;
+}
+.event-chip.skill_loaded {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+.event-chip.citation {
+  background: rgba(13, 148, 136, 0.12);
+  color: #0d9488;
+}
+.event-chip.monitor_signal {
+  background: rgba(168, 85, 247, 0.10);
+  color: #9333ea;
+}
+.timeline-headline {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.timeline-subline {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+.timeline-payload {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.timeline-payload > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 11.5px;
+  user-select: none;
+}
+.timeline-payload-pre {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------------------------------------------------------------------
+   W7 slices 9 + 10 (7.1.10 + 7.1.11) — per-skill detail page.
+   Visual targets: 18-skill-detail.html + 18a-skill-detail-code.html.
+   --------------------------------------------------------------------- */
+
+.skill-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .skill-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.skill-content-pre {
+  margin: 0 0 24px;
+  padding: 18px 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: var(--shadow-sm);
+}
+
+.skill-signatures {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.skill-signatures code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--surface);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.retention-block {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.retention-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  align-items: baseline;
+}
+.retention-row dt {
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10.5px;
+  margin: 0;
+}
+.retention-row dd {
+  margin: 0;
+  color: var(--text-2);
+  word-break: break-word;
+}
+.retention-row code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.version-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.version-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+}
+.version-row:last-child {
+  border-bottom: 0;
+}
+.version-seq {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.version-summary {
+  grid-column: 2;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.version-meta {
+  grid-column: 2;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.eval-case-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.eval-case-table th,
+.eval-case-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.eval-case-table tr:last-child td {
+  border-bottom: 0;
+}
+.eval-case-table th {
+  background: var(--surface);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.eval-case-table code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* ---------------------------------------------------------------------
+   W7 slice 11 (7.1.12) — Agent-anatomy pane on workflow Overview.
+   --------------------------------------------------------------------- */
+
+.anatomy {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 8px;
+}
+.anatomy-lede {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 4px 0 18px;
+  line-height: 1.55;
+}
+.anatomy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 1100px) {
+  .anatomy-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.anatomy-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  min-height: 110px;
+}
+.anatomy-col-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.anatomy-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.anatomy-row {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.anatomy-row-name {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+a.anatomy-row-name:hover {
+  color: var(--accent);
+}
+.anatomy-row-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.anatomy-row-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+.anatomy-row-sig {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  word-break: break-all;
+}
+.anatomy-tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.anatomy-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.anatomy-footnote {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 14px 0 0;
+}
+.anatomy-footnote a {
+  color: var(--accent);
+}
