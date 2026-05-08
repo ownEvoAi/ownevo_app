@@ -5,8 +5,9 @@
 #   - packages/trace-format: full pytest suite
 #   - Schema freeze guards catch structural drift before it reaches main
 #
-# Docker-gated tests (test_nl_gen_sim_sandbox.py, test_baselines_m5_lightgbm_sandboxed.py)
-# require the sandbox image and are handled by m5-replay-nightly.yml instead.
+# Docker-gated tests (test_sandbox.py, test_nl_gen_sim_sandbox.py,
+# test_baselines_m5_lightgbm_sandboxed.py) require the sandbox image and are
+# handled by m5-replay-nightly.yml instead.
 
 name: ci
 
@@ -50,6 +51,7 @@ jobs:
         # marker exclusion keeps the output clean and the intent clear.
         run: |
           uv run pytest apps/kernel/tests/ \
+            --ignore=apps/kernel/tests/test_sandbox.py \
             --ignore=apps/kernel/tests/test_nl_gen_sim_sandbox.py \
             --ignore=apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py \
             --ignore=apps/kernel/tests/test_agent_tools_run_pipeline.py \
