@@ -111,13 +111,14 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — blocks reproducibility CI being green at full 30-day replay scale (current scope: synthetic fixture only).
 - **Depends on:** M5 pipeline operational (W2).
 
-### TODO-8: Parallel τ³/M5 conditions strategy (W6/W8)
+### TODO-8: Parallel τ³/M5 conditions strategy (W6/W8) — ✅ DONE 2026-05-08 (PR #62)
 
 - **What:** Run the 4 M5 conditions (frozen / static-LLM / loop-autonomous / loop-gated) in parallel on separate Docker compose stacks (each with its own Postgres + sandbox); merge results in `iterations` table at the end. Same pattern for τ³ A/B/C.
 - **Why:** Sequential 30-day replay = ~150 hours wall time. 4-way parallel ≈ 37 hours. Without parallel strategy, W6 budget is too tight.
 - **Effort:** M (human ~2-3 days / CC ~half day).
 - **Priority:** P1 — required for W6/W8 timelines.
 - **Depends on:** M5 pipeline + reproducibility rig operational (W4).
+- **Status (2026-05-08):** Shipped in PR #62. Topology revised from 4 Docker Compose stacks to one Postgres / four `workflow_id`s — schema is already keyed by `workflow_id`, merge is a single `UNION ALL`, sandbox isolation stays per-iteration via Docker. New `replay/thirty_day.py` + `scripts/m5_replay_30day.py` + `make m5-replay-30day` drive condition A (frozen) / C (loop autonomous) / D (loop + LLM-judge) via `asyncio.gather`. `run_improvement_loop.py` gained `--approver {none|autonomous|llm-judge}`. Condition B (static frontier LLM) deferred as no-op slot — not load-bearing for the YC demo. 94 new unit tests; kernel suite 1323 passing. Live-system smoke covered C on granite-4.1-8b LMS and D on Sonnet 4.6 cloud. **Combined with the 2026-05-08 W5.2 / BL.3 local validations (TODO-19 closure + W5.2 local 0.9667 ≥ 0.85), conditions C and D both have free local-model paths now.**
 
 ### TODO-17: Sandbox classifier hardening — runner exit-code spoof — ✅ DONE 2026-05-03
 
