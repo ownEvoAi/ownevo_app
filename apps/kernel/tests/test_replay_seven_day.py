@@ -150,3 +150,20 @@ async def test_cluster_cases_per_cycle_zero_disables_growth(
     report = await run_seven_day_replay(db, config=cfg)
     assert report.cluster_derived_count == 0
     assert report.eval_set_size_initial == report.eval_set_size_final
+
+
+async def test_no_cluster_growth_when_all_tasks_pass_from_cycle_0(
+    db: asyncpg.Connection,
+):
+    """When n_initial_priors == n_total_tasks the skill passes every task
+    on cycle 0. Failure list is empty → _grow_eval_set_from_failures
+    early-returns → eval set never grows despite cluster_cases_per_cycle=1."""
+    cfg = ReplayConfig(
+        n_cycles=3,
+        n_initial_priors=5,
+        n_total_tasks=5,
+        cluster_cases_per_cycle=1,
+    )
+    report = await run_seven_day_replay(db, config=cfg)
+    assert report.cluster_derived_count == 0
+    assert report.eval_set_size_initial == report.eval_set_size_final

@@ -56,6 +56,7 @@ DEFAULT_WORKFLOW_ID = "m5-replay-7day"
 DEFAULT_SKILL_ID = "m5-replay.demand-prediction"
 DEFAULT_ACTOR = "agent:m5-replay-stub"
 DEFAULT_JUDGE_ACTOR = "llm-judge:stub"
+DEFAULT_CLUSTER_MIN_REWARD = 0.30
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,7 @@ async def run_seven_day_replay(
                 gate_failed_task_ids=_synthetic_failures_for_cycle(
                     cfg, cycle_index=i
                 ),
+                existing_task_ids=frozenset(priors),
             )
             cluster_derived_count += added_cluster_cases
             admitted = await _judge_admit_audit(
@@ -429,16 +431,26 @@ async def _grow_eval_set_from_failures(
     cfg: ReplayConfig,
     cycle_index: int,
     gate_failed_task_ids: Sequence[str],
+    existing_task_ids: frozenset[str] | None = None,
 ) -> int:
     """Append `cluster_cases_per_cycle` cluster-derived eval cases.
 
     Only cases whose `task_id` is *not* already in the eval set get
     inserted — keeps re-runs idempotent and prevents the cluster-derived
     list from carrying duplicates of priors.
+
+    `existing_task_ids` can be pre-supplied by the caller to skip a
+    redundant DB fetch (the caller already has the priors list for this
+    cycle). Falls back to a fresh fetch when not provided.
     """
     if cfg.cluster_cases_per_cycle <= 0 or not gate_failed_task_ids:
         return 0
-    existing = set(await _list_workflow_eval_task_ids(conn, cfg.workflow_id))
+    if existing_task_ids is None:
+        existing: frozenset[str] = frozenset(
+            await _list_workflow_eval_task_ids(conn, cfg.workflow_id)
+        )
+    else:
+        existing = existing_task_ids
     candidates = [tid for tid in gate_failed_task_ids if tid not in existing]
     chosen = candidates[: cfg.cluster_cases_per_cycle]
     if not chosen:
@@ -451,7 +463,7 @@ async def _grow_eval_set_from_failures(
                 provenance=ProvenanceKind.CLUSTER_DERIVED,
                 input={"task_id": tid, "synthetic_cluster": True},
                 expected_behavior={
-                    "min_reward": 0.30,
+                    "min_reward": DEFAULT_CLUSTER_MIN_REWARD,
                     "rationale": (
                         f"Synthetic cluster-derived case from cycle "
                         f"{cycle_index} failure on {tid!r}"
@@ -532,6 +544,7 @@ __all__ = [
     "DEFAULT_SKILL_ID",
     "DEFAULT_ACTOR",
     "DEFAULT_JUDGE_ACTOR",
+    "DEFAULT_CLUSTER_MIN_REWARD",
     "CycleSummary",
     "ReplayConfig",
     "ReplayReport",

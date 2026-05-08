@@ -99,9 +99,10 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
         "--reset",
         action="store_true",
         help=(
-            "Drop existing iterations / proposals / audit_entries / "
-            "eval_cases / approvals / skill_versions for the workflow + "
-            "skill before running. Useful for clean demo runs."
+            "Drop existing iterations / proposals / eval_cases / approvals / "
+            "skill_versions for the workflow + skill before running. "
+            "audit_entries are append-only (WORM) and are never cleared. "
+            "Useful for clean demo runs."
         ),
     )
     parser.add_argument("--pretty", action="store_true")
@@ -218,16 +219,15 @@ async def main_async(args: CliArgs) -> int:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 3
 
-    cfg = ReplayConfig(
-        n_cycles=args.cycles,
-        workflow_id=args.workflow_id,
-        n_initial_priors=args.n_initial_priors,
-        n_total_tasks=args.n_total_tasks,
-        lift_per_cycle=args.lift_per_cycle,
-        cluster_cases_per_cycle=args.cluster_cases_per_cycle,
-    )
-
     try:
+        cfg = ReplayConfig(
+            n_cycles=args.cycles,
+            workflow_id=args.workflow_id,
+            n_initial_priors=args.n_initial_priors,
+            n_total_tasks=args.n_total_tasks,
+            lift_per_cycle=args.lift_per_cycle,
+            cluster_cases_per_cycle=args.cluster_cases_per_cycle,
+        )
         if args.reset:
             await _reset_workflow_state(conn, cfg.workflow_id, cfg.skill_id)
         report = await run_seven_day_replay(conn, config=cfg)

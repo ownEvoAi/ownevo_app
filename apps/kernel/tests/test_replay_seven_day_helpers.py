@@ -9,8 +9,8 @@ DB isn't around.
 from __future__ import annotations
 
 import pytest
+from conftest import stub_cycle
 from ownevo_kernel.replay import (
-    CycleSummary,
     ReplayConfig,
     ReplayReport,
 )
@@ -18,6 +18,7 @@ from ownevo_kernel.replay.seven_day import (
     DEFAULT_WORKFLOW_ID,
     _task_id,
     _task_id_sort_key,
+    _synthetic_failures_for_cycle,
 )
 
 
@@ -76,19 +77,8 @@ def test_task_id_helper():
 # ---------------------------------------------------------------------------
 
 
-def _stub_cycle(idx: int, *, val_score: float | None) -> CycleSummary:
-    return CycleSummary(
-        cycle_index=idx,
-        iteration_id=f"iter-{idx}",
-        proposal_id=f"prop-{idx}",
-        decision="gate-pass",
-        val_score=val_score,
-        best_ever_score_after=val_score,
-        n_prior_cases=10 + idx,
-        n_promotable=1,
-        n_cluster_cases_added=1,
-        judge_admitted=True,
-    )
+def _stub_cycle(idx: int, *, val_score: float | None):
+    return stub_cycle(idx, val_score=val_score, n_prior_cases=10 + idx)
 
 
 def _stub_report(
@@ -190,3 +180,19 @@ def test_to_dict_includes_lift_curve_and_cycles():
     assert cycle0["cycle_index"] == 0
     assert cycle0["val_score"] == 0.5
     assert cycle0["judge_admitted"] is True
+
+
+def test_synthetic_failures_empty_when_all_tasks_pass_from_cycle_0():
+    """When n_initial_priors == n_total_tasks, the skill passes every task
+    from cycle 0. No failures → _grow_eval_set_from_failures returns 0."""
+    cfg = ReplayConfig(n_cycles=3, n_initial_priors=5, n_total_tasks=5)
+    failures = _synthetic_failures_for_cycle(cfg, cycle_index=0)
+    assert failures == ()
+
+
+def test_synthetic_failures_shrinks_each_cycle():
+    """Each cycle, one more task passes — failure set shrinks."""
+    cfg = ReplayConfig(n_initial_priors=2, n_total_tasks=5, lift_per_cycle=1)
+    assert len(_synthetic_failures_for_cycle(cfg, cycle_index=0)) == 3  # tasks 3-5
+    assert len(_synthetic_failures_for_cycle(cfg, cycle_index=1)) == 2  # tasks 4-5
+    assert len(_synthetic_failures_for_cycle(cfg, cycle_index=2)) == 1  # task 5

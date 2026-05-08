@@ -19,7 +19,8 @@ if str(_KERNEL_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT / "scripts"))
 
 import m5_replay_7day as cli  # noqa: E402
-from ownevo_kernel.replay import CycleSummary, ReplayReport  # noqa: E402
+from conftest import stub_cycle  # noqa: E402
+from ownevo_kernel.replay import ReplayReport  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Argparse
@@ -111,24 +112,41 @@ def test_missing_db_env_emits_helpful_stderr(monkeypatch):
     assert cli.ENV_DB_URL in err.getvalue()
 
 
+def test_db_connect_failure_returns_exit_3(monkeypatch):
+    import asyncpg
+
+    monkeypatch.setenv(cli.ENV_DB_URL, "postgresql://fake/fake")
+
+    async def _fail(*_, **__):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(asyncpg, "connect", _fail)
+    rc = cli.main([])
+    assert rc == 3
+
+
+def test_db_connect_failure_emits_stderr(monkeypatch):
+    import asyncpg
+
+    monkeypatch.setenv(cli.ENV_DB_URL, "postgresql://fake/fake")
+
+    async def _fail(*_, **__):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(asyncpg, "connect", _fail)
+    err = io.StringIO()
+    with redirect_stderr(err):
+        cli.main([])
+    assert "could not connect" in err.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # _check_gates
 # ---------------------------------------------------------------------------
 
 
-def _stub_cycle(idx: int, *, val_score: float | None) -> CycleSummary:
-    return CycleSummary(
-        cycle_index=idx,
-        iteration_id=f"iter-{idx}",
-        proposal_id=f"prop-{idx}",
-        decision="gate-pass",
-        val_score=val_score,
-        best_ever_score_after=val_score,
-        n_prior_cases=10,
-        n_promotable=1,
-        n_cluster_cases_added=1,
-        judge_admitted=True,
-    )
+def _stub_cycle(idx: int, *, val_score: float | None):
+    return stub_cycle(idx, val_score=val_score)
 
 
 def _stub_report(

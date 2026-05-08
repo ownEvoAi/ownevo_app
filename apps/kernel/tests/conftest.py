@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urlunparse
 import asyncpg
 import pytest
 from ownevo_kernel.db import ENV_VAR, migrate
+from ownevo_kernel.replay import CycleSummary
 
 
 def _load_dotenv() -> None:
@@ -53,6 +54,24 @@ def _load_dotenv() -> None:
 
 
 _load_dotenv()
+
+
+def stub_cycle(
+    idx: int, *, val_score: float | None, n_prior_cases: int = 10
+) -> CycleSummary:
+    """Shared factory for CycleSummary test stubs."""
+    return CycleSummary(
+        cycle_index=idx,
+        iteration_id=f"iter-{idx}",
+        proposal_id=f"prop-{idx}",
+        decision="gate-pass",
+        val_score=val_score,
+        best_ever_score_after=val_score,
+        n_prior_cases=n_prior_cases,
+        n_promotable=1,
+        n_cluster_cases_added=1,
+        judge_admitted=True,
+    )
 
 
 def _admin_url() -> str:
