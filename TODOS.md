@@ -242,6 +242,16 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — closes Phase 2 validation gate; feeds W8.1.2 `m5-results-2026-Q3.md`.
 - **Depends on:** PR #64 merged (for full W6 surface area).
 
+### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction`
+
+- **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.
+- **Why:** Reviewer clicking the sidebar's primary workflow lands on a near-empty page; the real BL.3 lift curve, skill diffs, and approval queue all live on a workflow only reachable via Inbox or the Health table. For the W8.1.1 YC video, "click Demand prediction → see lift" needs to land on the actual lift workflow.
+- **Pros / Cons:** (a) is a one-line nav fix, leaves DB unchanged, but workflow IDs read as kernel-internal (`m5-demand-prediction`) in the URL bar. (b) cleanest URL + cleanest demo state, but the rename touches every FK that references `workflow_id` and the audit chain entries become stale (related_id still resolves, but human-readable workflow IDs in payload JSON drift). (c) requires no code change but the YC narrative gets diluted (two workflows look like duplicates).
+- **Context:** Surfaced 2026-05-08 during the Inbox → proposal `7006094e-…` chase that ended with 3 stale `m5-condition-*` workflows deleted. Seed source: `apps/kernel/scripts/seed_approval_demo.py:37` writes `demo-demand-prediction`. Sidebar nav: `apps/web/app/workspaces/[wsId]/workspace-nav.tsx:77` (just patched to the demo id). Post-cleanup workspace state: 2 workflows, 7 pending proposals, all 6 of the `m5-*` proposals still routing into Inbox.
+- **Effort:** XS for (a); S for (b) (CC ~30 min — one transactional UPDATE plus drop of the empty shell).
+- **Priority:** P2 — demo polish; blocks W8.1.1 video record cleanly. Not blocking W7 closeout.
+- **Depends on:** none.
+
 ---
 
 ## Feature roadmap (Phase 2 / post-MVP)

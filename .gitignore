@@ -56,3 +56,4 @@ data/
 .temp
 data/m5/
 temp/
+.gstack/

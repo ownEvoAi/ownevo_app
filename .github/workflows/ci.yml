@@ -4,6 +4,7 @@
 #   - apps/kernel: full pytest suite (excl. Docker-gated sandbox tests)
 #   - packages/trace-format: full pytest suite
 #   - Schema freeze guards catch structural drift before it reaches main
+#   - apps/web: production build (catches Lightning CSS parse errors invisible to next dev)
 #
 # Docker-gated tests (test_sandbox.py, test_nl_gen_sim_sandbox.py,
 # test_baselines_m5_lightgbm_sandboxed.py) require the sandbox image and are
@@ -59,3 +60,25 @@ jobs:
 
       - name: Run trace-format tests
         run: uv run pytest packages/trace-format/tests/ -v --tb=short
+
+  web-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: apps/web
+
+      - name: Build web (production)
+        run: npm run build
+        working-directory: apps/web
