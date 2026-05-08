@@ -193,3 +193,53 @@ export async function rejectProposal(
     body: JSON.stringify(body),
   })
 }
+
+// W5.5 — NL-gen preview surface
+
+export type DimensionVerdict = 'pass' | 'partial' | 'fail'
+export type OverallVerdict = 'good' | 'bad'
+
+export interface MetaEvalDimension {
+  verdict: DimensionVerdict
+  rationale: string
+}
+
+export interface MetaEvalJudgment {
+  schema_version: '0.1'
+  workflow_spec_id: string
+  sim_coverage: MetaEvalDimension
+  eval_case_coverage: MetaEvalDimension
+  metric_alignment: MetaEvalDimension
+  overall_verdict: OverallVerdict
+  overall_rationale: string
+}
+
+export interface PreviewResponse {
+  workflow_id: string
+  description: string
+  workflow_spec: Record<string, unknown>
+  simulation_plan: Record<string, unknown>
+  eval_case_set: Record<string, unknown>
+  metric_definition: Record<string, unknown>
+  meta_eval_judgment: MetaEvalJudgment
+  provenance: 'preview-fixture'
+}
+
+export interface PreviewIndexEntry {
+  workflow_id: string
+  description: string
+}
+
+export interface PreviewIndex {
+  items: PreviewIndexEntry[]
+}
+
+export async function listPreviewWorkflows(): Promise<PreviewIndex> {
+  return jsonFetch<PreviewIndex>('/api/nl-gen/preview')
+}
+
+export async function getPreview(workflowId: string): Promise<PreviewResponse> {
+  return jsonFetch<PreviewResponse>(
+    `/api/nl-gen/preview/${encodeURIComponent(workflowId)}`,
+  )
+}

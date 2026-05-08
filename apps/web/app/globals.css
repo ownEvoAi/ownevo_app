@@ -291,3 +291,497 @@
 .section-title:first-of-type {
   margin-top: 0;
 }
+
+   W5.5 — /workflows/preview page (mock-04 layout) + meta-eval coverage
+   badge. Lifted from www/preview/s26-rk7p3/04-new-workflow-step2.html
+   <style> block, slimmed to what the React preview page actually
+   renders (no UI-primitives picker, no source-quote edit link, no per-
+   row Edit/Regenerate buttons — those land with the W6 write path).
+   --------------------------------------------------------------------- */
+
+.preview-wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 0 80px;
+}
+
+.preview-banner-strip {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-size: 11.5px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border: 1px solid var(--accent);
+}
+.preview-banner-strip code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+/* Step indicator */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 32px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.step-label {
+  font-size: 13px;
+  color: inherit;
+}
+.step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.step.active {
+  color: var(--text);
+}
+.step.active .step-num {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+.step.done {
+  color: var(--text-3);
+}
+.step.done .step-num {
+  border-color: var(--green);
+  background: var(--green);
+  color: white;
+  font-size: 11px;
+}
+.step-connector {
+  flex: 1;
+  height: 1.5px;
+  background: var(--border);
+  margin: 0 14px;
+  max-width: 80px;
+}
+.step.done + .step-connector {
+  background: var(--green);
+}
+
+/* Page header */
+.gen-head {
+  margin-bottom: 22px;
+}
+.gen-title {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--text);
+}
+.gen-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  max-width: 760px;
+  line-height: 1.55;
+}
+
+/* Workflow picker (chip strip beneath the header) */
+.workflow-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.workflow-picker-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+/* Source-quote card (echoes the user's plain-English description) */
+.source-quote {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.source-quote-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.source-quote-body {
+  font-size: 13.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  font-style: italic;
+  flex: 1;
+  margin: 0;
+}
+
+/* Generated artifact section card */
+.gen-section {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.gen-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.gen-section-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gen-section-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-muted);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gen-section-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+}
+.gen-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.gen-section-meta {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Artifact rows (sim event-fields list) */
+.artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.artifact {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--surface);
+  align-items: start;
+}
+.artifact-icon {
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+.artifact-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+.artifact-body {
+  min-width: 0;
+}
+.artifact-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.artifact-title code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.artifact-type {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.artifact-desc {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* Eval cases compact table */
+.eval-table {
+  background: var(--surface);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.eval-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 110px 80px;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.eval-row:last-child {
+  border-bottom: 0;
+}
+.eval-row.head {
+  background: var(--surface-2);
+  padding: 8px 14px;
+}
+.eval-row.head > div {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.eval-num {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.eval-name {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
+}
+.eval-source {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Metric definition pre-block */
+.metric-def {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 14px 18px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.metric-def .key {
+  color: var(--accent);
+}
+.metric-def .num {
+  color: var(--green);
+}
+.metric-def .comment {
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 6px;
+}
+
+/* Bottom action row */
+.gen-action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.gen-action-row .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------
+   Coverage badge — the W5.5 headliner.
+   --------------------------------------------------------------------- */
+
+.coverage-badge {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  background: var(--bg);
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+.coverage-badge.good {
+  border-color: var(--green);
+  background: linear-gradient(
+    180deg,
+    var(--green-soft) 0%,
+    var(--bg) 60%
+  );
+}
+.coverage-badge.bad {
+  border-color: var(--red);
+  background: linear-gradient(180deg, var(--red-soft) 0%, var(--bg) 60%);
+}
+.coverage-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.coverage-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.coverage-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.coverage-icon.green {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.coverage-icon.amber {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.coverage-icon.red {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.coverage-headline {
+  flex: 1;
+  min-width: 0;
+}
+.coverage-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.coverage-score {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.coverage-sub {
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.55;
+  margin: 6px 0 0;
+}
+
+.coverage-dims {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.coverage-dim {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.coverage-dim.pass {
+  border-color: var(--green);
+}
+.coverage-dim.partial {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.coverage-dim.fail {
+  border-color: var(--red);
+}
+.coverage-dim-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.coverage-dim-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.coverage-dim-helper {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0 0 6px;
+}
+.coverage-dim-rationale {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.coverage-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.coverage-footer-label {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.coverage-footer-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pill colors (defined in primitives.css for the established set —
+   ensure `green` and `amber` cover what the badge needs) */

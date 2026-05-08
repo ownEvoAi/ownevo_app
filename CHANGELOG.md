@@ -310,6 +310,58 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
 - `Makefile` — `nl-gen-smoketest` help text documents the three new
   `SMOKE_ARGS` flags (gate, min-aggregate-score, model).
 
+### Added (W5.5 — meta-eval coverage badge UI, PLAN.md § W5 § 5.5)
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/preview_fixtures.py`
+  — hand-authored `MetaEvalJudgment` per production NL-gen fixture
+  (demand-prediction = all pass, credit-risk = pass / partial / pass
+  to give the badge UI a non-trivial mid-state to render, contract-
+  review = all pass). Module-import-time invariants pin
+  key-set parity with `FIXTURES` and `workflow_spec_id` agreement
+  with the dict key.
+- `apps/kernel/src/ownevo_kernel/nl_gen/meta_eval/__init__.py` —
+  re-exports `PREVIEW_JUDGMENT_FIXTURES`.
+- `apps/kernel/src/ownevo_kernel/api/routes/nl_gen.py` — new
+  `GET /api/nl-gen/preview` (lists available demo workflow ids +
+  descriptions) and `GET /api/nl-gen/preview/{workflow_id}` (returns
+  the four-artifact bundle + `MetaEvalJudgment` as JSON, with
+  `provenance="preview-fixture"` baked in). DB-free + Anthropic-
+  free — runs in CI without `OWNEVO_DATABASE_URL` and without
+  consuming API tokens.
+- `apps/kernel/src/ownevo_kernel/api/app.py` — wired the new router
+  alongside `/api/proposals`.
+- `apps/kernel/tests/test_nl_gen_preview_fixtures.py` — 15 tests
+  pinning fixture invariants (one judgment per workflow, schema
+  round-trip, aggregate score in [0,1], all-good overall, demand-
+  prediction all-pass aggregates 1.0, credit-risk partial aggregates
+  to (1+0.5+1)/3).
+- `apps/kernel/tests/test_api_nl_gen_preview.py` — 8 HTTP-level tests
+  via `httpx.ASGITransport` covering the index endpoint
+  (every-fixture-listed, sorted, descriptions present), per-id GET
+  (all bundle keys present, judgment shape, spec.tools non-empty),
+  and 404 on unknown id.
+- `apps/web/lib/api.ts` — added `MetaEvalDimension`, `MetaEvalJudgment`,
+  `PreviewResponse`, `PreviewIndex` types + `listPreviewWorkflows()`
+  and `getPreview(id)` fetchers.
+- `apps/web/app/workflows/preview/page.tsx` — new route (mock-04
+  layout: 3-step indicator, source-quote card, coverage badge,
+  Simulator / Eval cases / Success metric sections, disabled
+  "Run baseline" button). Workflow picker chip-strip swaps fixtures
+  via `?workflow_id=`. Unknown id redirects to the first available
+  fixture (UX recovery rather than 404 wall).
+- `apps/web/app/workflows/preview/coverage-badge.tsx` — the W5.5
+  headliner. Single card: overall verdict + aggregate-score %, three
+  per-dimension cards with verdict pill + helper line + judge
+  rationale, footer with the per-verdict scoring legend. Pure server
+  component, no client JS.
+- `apps/web/app/globals.css` — added page-level CSS for the preview
+  surface (`.preview-wrap`, `.steps`, `.gen-section`, `.eval-table`,
+  `.metric-def`, `.workflow-picker`) and the `.coverage-badge`
+  family (good/bad gradient borders, `.coverage-dim.partial/.fail`
+  edge tones, dim-label/helper/rationale typography).
+- `apps/web/app/layout.tsx` — added a "New workflow" sidebar link
+  pointing at `/workflows/preview` so the route is reachable from
+  the existing inbox.
+
 ### Added (B3.5 — Cluster-label LLM eval, W3 Track B exit criterion)
 - `apps/kernel/src/ownevo_kernel/clustering/label_eval/judgment.py` —
   `ClusterLabelJudgment` Pydantic schema. Binary verdict (`agree` /
