@@ -9,7 +9,7 @@
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
-        m5-replay-7day
+        m5-replay-7day m5-replay-30day
 
 help:
 	@printf 'targets:\n'
@@ -54,6 +54,10 @@ help:
 	@printf '                      audit log + eval-set growth (REPLAY_ARGS=...; --reset for\n'
 	@printf '                      clean re-runs; --require-climbing / --require-audit-entries\n'
 	@printf '                      / --require-eval-growth gate)\n'
+	@printf '  m5-replay-30day     W6 (TODO-8): 30-day M5 replay across parallel conditions\n'
+	@printf '                      A=frozen / C=loop autonomous / D=loop gated\n'
+	@printf '                      (REPLAY_30_ARGS=...; --conditions a,c,d --max-iterations N\n'
+	@printf '                      --halt-on-error / --reset / --require-lift gate)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -233,3 +237,20 @@ REPLAY_ARGS ?=
 
 m5-replay-7day:
 	cd apps/kernel && uv run python scripts/m5_replay_7day.py $(REPLAY_ARGS)
+
+# ----------------------------------------------------------------------------
+# 30-day M5 replay across parallel conditions (W6 — TODO-8)
+# ----------------------------------------------------------------------------
+
+# `REPLAY_30_ARGS=...` passes flags through to scripts/m5_replay_30day.py:
+#   make m5-replay-30day REPLAY_30_ARGS='--conditions a,c,d --max-iterations 30 --pretty'
+#   make m5-replay-30day REPLAY_30_ARGS='--reset --require-lift 0.05'
+#   make m5-replay-30day REPLAY_30_ARGS='--halt-on-error -- --m5-dir /data/m5'
+# DB-required: OWNEVO_DATABASE_URL must point at a migrated database.
+# Each condition's iterations spawn run_improvement_loop subprocesses; the
+# loop's env vars (OWNEVO_M5_DIR, OWNEVO_LLM_BASE_URL, etc.) propagate
+# through.
+REPLAY_30_ARGS ?=
+
+m5-replay-30day:
+	cd apps/kernel && uv run python scripts/m5_replay_30day.py $(REPLAY_30_ARGS)
