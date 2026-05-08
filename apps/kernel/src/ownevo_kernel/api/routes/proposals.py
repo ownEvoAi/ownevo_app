@@ -37,6 +37,7 @@ from ..models import (
     ApproveResponse,
     AuditEntry,
     DecideRequest,
+    GateResultCases,
     IterationDetail,
     ProposalDetail,
     ProposalList,
@@ -198,6 +199,21 @@ async def get_proposal(
         proposal_id,
     )
 
+    # Gate audit entries are fetched in a separate, uncapped query so that
+    # they're never silently dropped by the LIMIT 500 display cap above.
+    # Gate entries are written last (highest seq) for any iteration — the
+    # display cap can exclude them for proposals with many preceding entries.
+    gate_audit_rows = await conn.fetch(
+        """
+        SELECT id, seq, kind::text AS kind, actor, payload, created_at
+        FROM audit_entries
+        WHERE related_id = $1
+          AND kind IN ('gate-run-started', 'gate-run-completed')
+        ORDER BY seq ASC
+        """,
+        proposal_row["iter_id"],
+    )
+
     approval_row = await conn.fetchrow(
         """
         SELECT id, decided_by, approver_type::text AS approver_type, decision,
@@ -207,6 +223,19 @@ async def get_proposal(
         """,
         proposal_id,
     )
+
+    def _make_audit_entry(r: Any) -> AuditEntry:
+        return AuditEntry(
+            id=r["id"],
+            seq=r["seq"],
+            kind=r["kind"],
+            actor=r["actor"],
+            payload=_decode_jsonb(r["payload"]) or {},
+            created_at=r["created_at"],
+        )
+
+    audit_entries = [_make_audit_entry(r) for r in audit_rows]
+    gate_audit_entries = [_make_audit_entry(r) for r in gate_audit_rows]
 
     return ProposalDetail(
         id=proposal_row["id"],
@@ -239,18 +268,9 @@ async def get_proposal(
             description=proposal_row["workflow_description"],
             mode=proposal_row["workflow_mode"],
         ),
-        audit_entries=[
-            AuditEntry(
-                id=r["id"],
-                seq=r["seq"],
-                kind=r["kind"],
-                actor=r["actor"],
-                payload=_decode_jsonb(r["payload"]) or {},
-                created_at=r["created_at"],
-            )
-            for r in audit_rows
-        ],
+        audit_entries=audit_entries,
         approval=_approval_from_row(approval_row) if approval_row else None,
+        gate_result_cases=_gate_result_cases_from_audit(gate_audit_entries),
     )
 
 
@@ -405,3 +425,49 @@ def _decode_jsonb(value: Any) -> dict[str, Any] | None:
 
 def _to_float(value: Any) -> float | None:
     return None if value is None else float(value)
+
+
+def _gate_result_cases_from_audit(
+    entries: list[AuditEntry],
+) -> GateResultCases | None:
+    """Reconstruct the per-eval-case breakdown from gate audit payloads.
+
+    `gate-run-started` carries the prior suite (`prior_eval_task_ids`).
+    `gate-run-completed` carries the outcome lists
+    (`failed_prior_task_ids`, `promotable_task_ids`). The set difference
+    `prior - failed` is the passing prior cases. No DB schema change —
+    we read what the gate already audits.
+
+    Returns None when neither audit kind is present (e.g. a hand-seeded
+    proposal that bypassed the gate persistence path).
+    """
+    started = next((e for e in entries if e.kind == "gate-run-started"), None)
+    completed = next(
+        (e for e in entries if e.kind == "gate-run-completed"), None
+    )
+    if started is None and completed is None:
+        return None
+
+    prior = _string_list(
+        (started.payload if started else {}).get("prior_eval_task_ids")
+    )
+    failed = _string_list(
+        (completed.payload if completed else {}).get("failed_prior_task_ids")
+    )
+    promotable = _string_list(
+        (completed.payload if completed else {}).get("promotable_task_ids")
+    )
+    failed_set = set(failed)
+    passed = [t for t in prior if t not in failed_set]
+    return GateResultCases(
+        passed=passed,
+        regressed=failed,
+        newly_admitted=promotable,
+        unknown=(completed is None) or (started is None),
+    )
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(x) for x in value]

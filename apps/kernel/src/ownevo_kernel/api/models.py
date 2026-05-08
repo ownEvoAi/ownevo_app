@@ -102,6 +102,29 @@ class ApprovalDetail(_Strict):
     decided_at: datetime
 
 
+class GateResultCases(_Strict):
+    """W5.1 — per-eval-case breakdown for the proposal sidebar.
+
+    Reconstructed from the `gate-run-started` + `gate-run-completed`
+    audit payloads (`prior_eval_task_ids`, `failed_prior_task_ids`,
+    `promotable_task_ids`); no schema change required. Only the gate's
+    own task-id strings are exposed — they double as the human-readable
+    case label since the benchmark code (m5, labour, synthetic) mints
+    them as meaningful identifiers, not UUIDs.
+
+    `passed` counts cases the prior suite kept passing under the
+    candidate. `regressed` is non-empty only on FAIL_REGRESSION.
+    `newly_admitted` is non-empty only on PASS (the W3 cluster→eval-case
+    promotion list). `unknown` is True when the gate hasn't completed
+    (rare race — UI should hide the breakdown).
+    """
+
+    passed: list[str]
+    regressed: list[str]
+    newly_admitted: list[str]
+    unknown: bool = False
+
+
 class ProposalDetail(_Strict):
     id: UUID
     iteration_id: UUID
@@ -121,6 +144,7 @@ class ProposalDetail(_Strict):
     workflow: WorkflowDetail
     audit_entries: list[AuditEntry]
     approval: ApprovalDetail | None
+    gate_result_cases: GateResultCases | None
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +204,7 @@ __all__ = [
     "ApproveResponse",
     "AuditEntry",
     "DecideRequest",
+    "GateResultCases",
     "HealthResponse",
     "IterationDetail",
     "ProposalDetail",

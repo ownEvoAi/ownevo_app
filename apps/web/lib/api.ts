@@ -99,6 +99,14 @@ export interface ProposalDetail {
   workflow: WorkflowDetail
   audit_entries: AuditEntry[]
   approval: ApprovalDetail | null
+  gate_result_cases: GateResultCases | null
+}
+
+export interface GateResultCases {
+  passed: string[]
+  regressed: string[]
+  newly_admitted: string[]
+  unknown: boolean
 }
 
 export interface ApproveResponse {
