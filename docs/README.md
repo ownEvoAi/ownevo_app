@@ -11,5 +11,5 @@ Use this directory for things that only make sense once you're inside the code: 
 - [`SKILL_FORMAT.md`](SKILL_FORMAT.md) — `SkillRecord` spec + retention contract conventions.
 - [`STATE_MACHINES.md`](STATE_MACHINES.md) — proposal lifecycle + gate-runner state diagrams.
 - [`SPIKE-RESULT.md`](SPIKE-RESULT.md) — pre-W1 spike notes (lift candidates from `startup2026/`, archive value).
-- [`local-model-testing.md`](local-model-testing.md) — methodology + findings for the local-model dogfood track. Largest doc by far (F1-F14j); the source of truth for "which local model can drive this gate / loop". Read this before any local-model sweep.
+- [`local-model-testing.md`](local-model-testing.md) — methodology + findings for the local-model dogfood track. Largest doc by far (F1-F14k); the source of truth for "which local model can drive this gate / loop". Read this before any local-model sweep.
 - [`api/openapi.yaml`](api/openapi.yaml) — OpenAPI spec for the kernel REST + SSE seam.
