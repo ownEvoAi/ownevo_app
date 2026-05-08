@@ -17,6 +17,33 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Validated (BL.3 first local-model lift on real M5 — 2026-05-08)
+- **qwen3-coder:30b on Ollama OpenAI + this PR's `/no_think` patch +
+  PR #40 cross-iter failure memory produced a +14.9% lift over the
+  M5 baseline on real data, free, ~12 min wall-clock.** Stage D
+  7-invocation replay against fresh DB
+  `ownevo_phase3_realm5_v22_qwen_memretest`:
+  - iter 0 — gate-pass at val_score 0.330346 (baseline confirmation)
+  - iter 1 — gate-blocked-no-improvement at 0.329868 (gate held;
+    best_ever stayed 0.330346)
+  - iters 2-3 — sandbox-error (failure signatures now in memory)
+  - iter 4 — **gate-pass at val_score 0.379663 = +14.9% over
+    baseline**. Agent diff: "Added is_weekend boolean feature to
+    capture weekly seasonality patterns" on
+    `m5.baseline.v1.feature_engineer` (version_seq 8 of 8 attempts).
+  - 2 of 7 wrapper invocations exited with "no skill change" (F4
+    stall pattern); 5 produced iteration rows.
+- This closes TODO-19's headline goal — the first measured
+  local-model lift on real M5. Prior runs on the same model (v7-v11
+  + TODO-20 retest) deterministically hit F6 `_long_frame` 14
+  consecutive times; with cross-iter memory in context, the agent
+  routed around the bug on iter 4 by proposing an entirely
+  different feature class (boolean is_weekend vs the lag/rolling
+  patterns prior attempts kept rediscovering).
+- B4.2 (first lift on M5) and B4.3 (gate-blocked regression) both
+  empirically reproduced on a free local model — previously only
+  Sonnet 4.6 had cleared either bar.
+
 ### Fixed (BL.3 OpenAI-loop runner — `/no_think` injection for Qwen3 family)
 - `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py` —
   new `_maybe_no_think_suffix(model)` helper appends `\n\n/no_think`
