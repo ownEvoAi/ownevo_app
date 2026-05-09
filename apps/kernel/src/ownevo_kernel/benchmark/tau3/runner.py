@@ -185,11 +185,15 @@ for sim in results.simulations:
         # fails permanently (see tau2/runner/progress.py:retry path).
         info = getattr(sim, "info", None) or {}
         if isinstance(info, dict):
-            for k in ("error", "error_type", "error_traceback",
-                     "failed_after_attempts"):
+            for k in ("error", "error_type", "failed_after_attempts"):
                 v = info.get(k)
                 if v is not None:
                     diag[k] = str(v)[:600]
+            # Full traceback — truncation here hides the actual error
+            # frame, so allow a larger budget on this single field.
+            tb = info.get("error_traceback")
+            if tb is not None:
+                diag["error_traceback"] = str(tb)[:4000]
         diag["n_messages"] = str(len(getattr(sim, "messages", None) or []))
         infra_diag.append(diag)
     else:
