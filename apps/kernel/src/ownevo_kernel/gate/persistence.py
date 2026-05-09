@@ -366,6 +366,48 @@ async def persist_gate_run(
             gate_result.rationale,
         )
 
+        # 7b. Persist per-task traces if the runner exposes them. The
+        # τ³ runner sets `last_simulations` to a list of per-task dicts
+        # (messages, reward_info, termination_reason, info). One traces
+        # row per simulation, linked to this iteration so we can
+        # re-analyze any failure without re-running the gate. Pre-fix
+        # iterations have no traces — that data is permanently lost.
+        # Other runners (M5) don't expose this attribute and skip silently.
+        per_task_sims = getattr(runner, "last_simulations", None)
+        if isinstance(per_task_sims, list) and per_task_sims:
+            for sim in per_task_sims:
+                if not isinstance(sim, dict):
+                    continue
+                task_id = str(sim.get("task_id", ""))
+                if not task_id:
+                    continue
+                events_json = json.dumps({
+                    "task_id": task_id,
+                    "messages": sim.get("messages") or [],
+                    "termination_reason": sim.get("termination_reason"),
+                    "info": sim.get("info"),
+                })
+                metric_json = json.dumps({
+                    "task_id": task_id,
+                    "reward": sim.get("reward"),
+                    "reward_info": sim.get("reward_info"),
+                    "duration_seconds": sim.get("duration_seconds"),
+                })
+                await conn.execute(
+                    """
+                    INSERT INTO traces (
+                        workflow_id, iteration_id, skill_version_id,
+                        events, started_at, ended_at, metric_outputs
+                    )
+                    VALUES ($1, $2, $3, $4::jsonb, now(), now(), $5::jsonb)
+                    """,
+                    workflow_id,
+                    iteration_id,
+                    proposed_skill_version_id,
+                    events_json,
+                    metric_json,
+                )
+
         # 8. Audit gate-run-completed.
         completed_entry = await append_audit_entry(
             conn,

@@ -213,6 +213,45 @@ if sims_root.is_dir():
     if runs:
         raw_run_dir = str(runs[-1])
 
+# Serialize each simulation's full conversation back to the host. The
+# container's tmpfs-backed /tau2_data/simulations dir is destroyed when
+# the container exits, so without this we lose the per-task message
+# history forever and can never re-analyze a failure (task 33 / 49 in
+# iter 11 are exactly the case that motivated this — see
+# /Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/README.md
+# § Schema note for the postmortem). pydantic objects → JSON via
+# `.model_dump(mode="json")` to keep enums / datetimes serializable.
+def _dump_sim(sim):
+    def _maybe_dump(obj):
+        if obj is None:
+            return None
+        if hasattr(obj, "model_dump"):
+            try:
+                return obj.model_dump(mode="json")
+            except Exception:
+                pass
+        if hasattr(obj, "__dict__"):
+            return {k: str(v) for k, v in obj.__dict__.items()}
+        return str(obj)
+    return {
+        "task_id": str(sim.task_id),
+        "reward": (
+            float(sim.reward_info.reward) if sim.reward_info is not None else None
+        ),
+        "reward_info": _maybe_dump(sim.reward_info),
+        "termination_reason": (
+            str(sim.termination_reason)
+            if getattr(sim, "termination_reason", None) is not None else None
+        ),
+        "info": (
+            sim.info if isinstance(getattr(sim, "info", None), dict) else None
+        ),
+        "messages": [_maybe_dump(m) for m in (getattr(sim, "messages", None) or [])],
+        "duration_seconds": getattr(sim, "duration", None),
+    }
+
+simulations = [_dump_sim(s) for s in results.simulations]
+
 sys.stdout.write(json.dumps({
     "rewards": rewards,
     "n_simulations": len(results.simulations),
@@ -220,6 +259,7 @@ sys.stdout.write(json.dumps({
     "infra_errors": infra_errors,
     "infra_diag": infra_diag,
     "raw_run_dir": raw_run_dir,
+    "simulations": simulations,
 }))
 '''
 
@@ -296,6 +336,13 @@ class SandboxedTauBenchRunner:
     )
     last_raw_run_dir: str | None = field(default=None, init=False, repr=False)
     last_summary: dict[str, Any] | None = field(default=None, init=False, repr=False)
+    # Per-task tau2 simulations: full message history, reward_info,
+    # termination_reason, info. Populated from the entrypoint's
+    # `simulations` JSON. Read by `persist_gate_run` to write per-task
+    # `traces` rows so failures can be re-analyzed without re-running.
+    last_simulations: list[dict[str, Any]] | None = field(
+        default=None, init=False, repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.skill_override_dir is not None:
@@ -401,5 +448,7 @@ class SandboxedTauBenchRunner:
             "infra_diag": outputs.get("infra_diag") or [],
             "raw_run_dir": self.last_raw_run_dir,
         }
+        sims = outputs.get("simulations")
+        self.last_simulations = sims if isinstance(sims, list) else None
 
         return BenchmarkResult(rewards=coerced)
