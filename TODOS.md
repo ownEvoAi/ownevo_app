@@ -276,6 +276,17 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P2 — directly informs whether P3 condition-C work targets concrete misses or punts on Sonnet's capability ceiling.
 - **Depends on:** trace persistence (✅ shipped). One re-run of v38 to populate traces.
 
+### TODO-34: Deploy / Rollback action on the skill detail page — ✅ DONE 2026-05-09
+
+- **What:** Wire the `approved-awaiting-deploy → deployed → rolled-back` proposal-state-machine transitions end-to-end (service + API + UI) so the operator can ship an approved skill version into production from the skill detail page and revert it if needed. Adds `skills.deployed_version_id` as the production pointer, separate from `head_version_id` (best gate-validated, advanced atomically by the gate runner per TODO-31).
+- **Why:** The proposal state machine in `docs/STATE_MACHINES.md` already named the transitions and `AuditKind` already reserved `proposal-deployed` / `proposal-rolled-back`, but no implementation existed. Approved proposals stalled in `approved-awaiting-deploy` with no operator-driven path forward. For the YC demo "click Approve → click Deploy → see live skill swap" needs to actually work. With TODO-31 splitting validated state from agent's-last-write, the production pointer fits cleanly as a third column on `skills`.
+- **Status (2026-05-09):** Shipped on `worktree-deploy-rollback`. Migration `0004_skills_deployed.sql` adds the column. New service module `ownevo_kernel.approvals.deploy` exposes `deploy_proposal()` and `rollback_proposal()`; rollback walks the audit log to restore the immediately-prior deployment (or NULL if none). New endpoints `POST /api/proposals/{id}/deploy` and `/rollback`; `GET /api/skills/{id}` exposes `deployed_version_id`, `deployable_proposal_id`, `deployed_proposal_id`. Skill detail page shows a "Production" sidebar card with Deploy/Rollback buttons (Server Action `deployAction`) and Validated/Deployed pills in the header. 20 new tests (13 service + 7 API), full kernel suite 1667 passed.
+- **Effort:** S (CC ~3 hr).
+- **Priority:** P0 — closed.
+- **Depends on:** TODO-31 (split-pointer schema). Done.
+
+---
+
 ### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction` — ✅ DONE 2026-05-09
 
 - **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.

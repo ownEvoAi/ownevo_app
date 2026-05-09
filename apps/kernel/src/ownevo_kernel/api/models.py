@@ -18,10 +18,10 @@ columns are added or renamed.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Strict(BaseModel):
@@ -192,6 +192,44 @@ class ApproveResponse(_Strict):
     proposal_id: UUID
     state: str  # the new proposal state
     approval: ApprovalDetail
+
+
+class DeployRequest(BaseModel):
+    """Body for /deploy and /rollback. The path verb encodes the action;
+    the body carries the actor for the audit log."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decided_by: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description=(
+            "Convention: 'human:<userid>' for human, 'autonomous' for the "
+            "workflow.mode='autonomous' auto-deploy path."
+        ),
+    )
+
+    @field_validator("decided_by")
+    @classmethod
+    def decided_by_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("decided_by must not be blank")
+        return v
+
+
+class DeployResponse(_Strict):
+    """Result of a deploy / rollback transition.
+
+    `state` is the new proposal state ('deployed' | 'rolled-back').
+    `skill_deployed_version_id` is the skill's production pointer after
+    the transition — null after a rollback that left no prior deployment.
+    """
+
+    proposal_id: UUID
+    state: Literal["deployed", "rolled-back"]
+    skill_id: str
+    skill_deployed_version_id: UUID | None
 
 
 class HealthResponse(_Strict):
@@ -440,6 +478,17 @@ class SkillDetail(_Strict):
     head_created_by: str | None
     parent_content: str | None
     parent_version_seq: int | None
+    # Production pointer (separate from head_version_id, which tracks the
+    # best gate-validated version). Null until the operator deploys an
+    # approved proposal; advanced/reverted by /api/proposals/{id}/deploy
+    # and /rollback. The UI uses these to show "Deployed: vN" and to gate
+    # the visibility of the Deploy button (only one deployed proposal per
+    # skill at a time).
+    deployed_version_id: UUID | None
+    deployed_version_seq: int | None
+    deployable_proposal_id: UUID | None  # approved-awaiting-deploy proposal, if any
+    deployable_proposal_version_seq: int | None
+    deployed_proposal_id: UUID | None  # the proposal currently deployed (rollback target)
     versions: list[SkillVersionSummary]
     related_eval_cases: list[SkillRelatedEvalCase]
 

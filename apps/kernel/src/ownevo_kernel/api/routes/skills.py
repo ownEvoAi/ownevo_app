@@ -12,6 +12,8 @@ without a separate fetch.
 
 from __future__ import annotations
 
+import asyncio
+
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
@@ -93,9 +95,12 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             s.workflow_id,
             s.capability_tags,
             s.head_version_id,
+            s.deployed_version_id,
+            sv_dep.version_seq  AS deployed_version_seq,
             w.description       AS workflow_description
         FROM skills s
         LEFT JOIN workflows w ON w.id = s.workflow_id
+        LEFT JOIN skill_versions sv_dep ON sv_dep.id = s.deployed_version_id
         WHERE s.id = $1
         """,
         skill_id,
@@ -139,15 +144,50 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             parent_content = parent["content"]
             parent_version_seq = parent["version_seq"]
 
-    history_rows = await conn.fetch(
-        """
-        SELECT id, version_seq, parent_version_id, diff_summary,
-               created_by, created_at
-        FROM skill_versions
-        WHERE skill_id = $1
-        ORDER BY version_seq DESC
-        """,
-        skill_id,
+    # history_rows, deploy affordances, and related eval cases are all
+    # independent of each other after `skill` is fetched. asyncio.gather
+    # communicates that and is ready for a pool-per-coroutine upgrade.
+    history_rows, deployable_row, deployed_proposal_id, related = (
+        await asyncio.gather(
+            conn.fetch(
+                """
+                SELECT id, version_seq, parent_version_id, diff_summary,
+                       created_by, created_at
+                FROM skill_versions
+                WHERE skill_id = $1
+                ORDER BY version_seq DESC
+                """,
+                skill_id,
+            ),
+            conn.fetchrow(
+                """
+                SELECT p.id, i.proposed_skill_version_id, sv.version_seq
+                FROM proposals p
+                JOIN iterations i ON i.id = p.iteration_id
+                LEFT JOIN skill_versions sv ON sv.id = i.proposed_skill_version_id
+                WHERE p.skill_id = $1
+                  AND p.state = 'approved-awaiting-deploy'::proposal_state
+                ORDER BY p.state_updated_at DESC
+                LIMIT 1
+                """,
+                skill_id,
+            ),
+            conn.fetchval(
+                """
+                SELECT id FROM proposals
+                WHERE skill_id = $1
+                  AND state = 'deployed'::proposal_state
+                ORDER BY state_updated_at DESC
+                LIMIT 1
+                """,
+                skill_id,
+            ),
+            _related_eval_cases(
+                conn, skill_id=skill_id,
+                kind=skill["kind"],
+                workflow_id=skill["workflow_id"],
+            ),
+        )
     )
     versions = [
         SkillVersionSummary(
@@ -160,12 +200,6 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         )
         for r in history_rows
     ]
-
-    related = await _related_eval_cases(
-        conn, skill_id=skill_id,
-        kind=skill["kind"],
-        workflow_id=skill["workflow_id"],
-    )
 
     return SkillDetail(
         id=skill["id"],
@@ -184,6 +218,15 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         head_created_by=head["created_by"] if head else None,
         parent_content=parent_content,
         parent_version_seq=parent_version_seq,
+        deployed_version_id=skill["deployed_version_id"],
+        deployed_version_seq=skill["deployed_version_seq"],
+        deployable_proposal_id=(
+            deployable_row["id"] if deployable_row is not None else None
+        ),
+        deployable_proposal_version_seq=(
+            deployable_row["version_seq"] if deployable_row is not None else None
+        ),
+        deployed_proposal_id=deployed_proposal_id,
         versions=versions,
         related_eval_cases=related,
     )

@@ -598,8 +598,44 @@ export interface SkillDetail {
   head_created_by: string | null
   parent_content: string | null
   parent_version_seq: number | null
+  deployed_version_id: string | null
+  deployed_version_seq: number | null
+  deployable_proposal_id: string | null
+  deployable_proposal_version_seq: number | null
+  deployed_proposal_id: string | null
   versions: SkillVersionSummary[]
   related_eval_cases: SkillRelatedEvalCase[]
+}
+
+export interface DeployRequest {
+  decided_by: string
+}
+
+export interface DeployResponse {
+  proposal_id: string
+  state: ProposalState
+  skill_id: string
+  skill_deployed_version_id: string | null
+}
+
+export async function deployProposal(
+  id: string,
+  body: DeployRequest,
+): Promise<DeployResponse> {
+  return jsonFetch<DeployResponse>(`/api/proposals/${id}/deploy`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function rollbackProposal(
+  id: string,
+  body: DeployRequest,
+): Promise<DeployResponse> {
+  return jsonFetch<DeployResponse>(`/api/proposals/${id}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 export async function getWorkflowSkills(
