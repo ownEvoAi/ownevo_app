@@ -46,7 +46,7 @@ running locally for free**.
 | **P0 — Plumbing smoke tests** | Verify tau2 + LiteLLM + Ollama route works | ✅ done | $0 |
 | **Sanity-A/B/D — Local task agent** | Try local model as τ³ task agent (qwen3-coder Ollama, qwen3-coder LMS, ministral-14b LMS) | ✅ done — all 0/3 | $0 |
 | **Sanity-C — Cloud task agent** | Verify Sonnet 4.6 + Haiku user sim works end-to-end | ✅ done — 3/3 PASS | $0.67 |
-| **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks) → **val_score_A = 0.8000** | ✅ done | $9.27, 16 min |
+| **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks) → **val_score_A = 0.8500** (patched substrate; orig auto-harness 0.80 superseded) | ✅ done | $9.27 + ~$9, 16 min each |
 | **P1.5 — Kernel migration** | Pull tau2 into `apps/kernel`, build native `TauBenchRunner` (`BenchmarkRunner` Protocol), register tau3-retail-v1 workflow + skill, ingest failure clusters, retire auto-harness dependency. M1-M10 substeps. | ✅ done | ~1 day CC actual (much faster than estimated 3-5 days due to existing M5 substrate) |
 | **P2 — Condition B autonomous loop** | qwen3-coder:30b local as loop agent; edits `agent/agent.py`; gates with NeoSigma's `gating.py`; **15-20 iterations** (matches Meta-Harness 20+ and NeoSigma 18) | ☐ | ~$45-90, ~5-10 hr |
 | **P3 — Condition C gated loop** | Same loop, ownEvo LLM-judge approval gate engaged; ≥5 human re-approvals | ☐ | ~$45-90, ~5-10 hr |
@@ -427,18 +427,39 @@ gives the best balance of credibility and cost. Future local-task-agent attempts
 
 ## Phase 1 — Condition A baseline on full retail TEST split ✅ done (2026-05-08)
 
-**Status:** ✅ — `val_score_A = 0.8000`  
+**Status:** ✅ — `val_score_A = 0.8500` (patched substrate, 2026-05-08 22:51 PT)  
+**Original P1 (auto-harness, unpatched substrate):** `0.8000` — superseded.  
 **Depends on:** sanity-C ✅ — completed end-to-end via auto-harness fork
 
-### Result
+### Result (kernel substrate, post-fix)
 
 | Metric | Value |
 |---|---|
-| **val_score_A** | **0.8000** (32 pass / 8 fail-or-error of 40) |
-| Pass / fail / infra-err breakdown | 32 / 4 / 4 |
-| Total cost | $9.27 ($0.23 / task average) |
+| **val_score_A** | **0.8500** (34 pass / 6 fail of 40) |
+| Pass / fail / infra-err breakdown | 34 / 6 / 0 |
+| Total cost | ~$9 ($0.22 / task average) |
 | Wall time | ~16 min at concurrency=3 |
+| Trace dir | `tau2_data/simulations/20260509_055122_retail_custom_agent_claude-sonnet-4-6_user_simulator_claude-haiku-4-5-20251001/` |
+| Substrate | `ownevo-sandbox-tau3:0.1.0` w/ `tau2_patches.py` json-loads shims (commit `0a1f1cf`) |
+
+**Anchor for % lift:** `val_score_A = 0.8500` is the frozen baseline used by all
+condition-B / condition-C lift calculations. The 0.80 from the auto-harness P1 run
+is preserved below for archaeology only.
+
+### Earlier P1 result (auto-harness, unpatched — archived)
+
+| Metric | Value |
+|---|---|
+| val_score_A | 0.8000 (32 pass / 8 fail-or-error of 40) |
+| Pass / fail / infra-err breakdown | 32 / 4 / 4 |
+| Cost | $9.27 |
 | Trace dir | `tau2_data/simulations/20260509_000808_retail_custom_agent_claude-sonnet-4-6_user_simulator_claude-haiku-4-5-20251001/` |
+
+The 5pp gap between the two runs is explained entirely by infra errors — the auto-harness
+substrate had 4 sims hit `JSONDecodeError` (LiteLLM tool-args / NL-evaluator parse path)
+that retry-thrashed and died as `INFRASTRUCTURE_ERROR`. The kernel substrate's
+`tau2_patches.py` shims those `json.loads` sites, so the same 4 sims now evaluate to
+real rewards — 2 of which happen to pass. See PR #77 for the patch details.
 
 **Versus NeoSigma's published baseline (0.56 with GPT-5.4):** Sonnet 4.6 is **+24pp**
 stronger out of the box on retail. This means:
