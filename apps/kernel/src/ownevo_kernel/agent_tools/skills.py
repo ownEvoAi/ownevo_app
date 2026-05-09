@@ -79,11 +79,26 @@ async def write_skill(
     The `created_by` arg overrides whatever the file declares — used by
     the gate runner to stamp the actual emitting model.
     """
-    fm = parse_skill(content).frontmatter
+    parsed = parse_skill(content)
+    fm = parsed.frontmatter
     if fm.id != skill_id:
         raise SkillFormatError(
             f"skill_id {skill_id!r} does not match frontmatter id {fm.id!r}",
         )
+    # Compile-check Python skills before accepting. A proposed skill that
+    # is syntactically broken would cost a full gate run (~$10 for τ³)
+    # and surface as sandbox-error well after the agent could correct
+    # itself. Failing at write time gives the loop agent a structured
+    # error in the same turn so it can retry with a fixed body.
+    if fm.kind == "python":
+        try:
+            compile(content, f"<skill:{skill_id}>", "exec")
+        except SyntaxError as exc:
+            raise SkillFormatError(
+                f"proposed Python skill {skill_id!r} has a SyntaxError "
+                f"on line {exc.lineno}: {exc.msg}. "
+                f"Offending text: {(exc.text or '').rstrip()!r}",
+            ) from exc
     return await register_skill(
         conn,
         content,
