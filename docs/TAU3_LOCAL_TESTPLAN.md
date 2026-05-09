@@ -1,13 +1,56 @@
 # τ³-bench Local Model Test Plan
 
 **Branch:** `feat/tau3-local-bench`
-**Goal:** run all three conditions (A frozen / B autonomous loop / C gated loop) on tau-bench
-using `qwen3-coder:30b` on Ollama at `192.168.1.50` — no cloud API required.
+**Original goal:** run all three conditions (A frozen / B autonomous loop / C gated loop) on
+tau-bench retail using `qwen3-coder:30b` on Ollama at `192.168.1.50` — no cloud API required.
+**Revised architecture (2026-05-08):** **hybrid** — Sonnet 4.6 cloud as task agent (preserves
+NeoSigma comparison; local 30Bs failed on complex writes); `qwen3-coder:30b` local as
+**improvement loop agent** (proposes prompt edits, free).
 **Results target:** `ownevo_docs/benchmarks/tau3-results-2026-Q3.md`
 
-**Honest framing:** task agent = `qwen3-coder:30b` local (not GPT-5.4). Absolute scores
-will be lower than NeoSigma's (0.56 baseline with GPT-5.4). Claim is % lift A→C from
-the ownEvo loop with regression gate and approval, running entirely locally.
+**Honest framing:**
+- Task agent: `claude-sonnet-4-6` (cloud) — same role NeoSigma used GPT-5.4 for
+- User simulator: `claude-haiku-4-5-20251001` (cloud) — cheaper, simpler role
+- Improvement loop agent: `qwen3-coder:30b` (Ollama desktop, free) — proposes edits to `agent/agent.py`
+- Cost story: ~$0.22/task at gate eval; loop agent is free; total run ~$50-150 across all conditions
+
+NeoSigma reference: 0.56 → 0.78 (+39.3%) on retail, fully autonomous. Our claim with this
+architecture: matchable on absolute score (same task agent class) with the **loop agent
+running locally for free**.
+
+---
+
+## Recent learnings from papers (2026-04 / 05) — load-bearing design choices
+
+| Source | Finding | Applied to this plan as |
+|---|---|---|
+| Meta-Harness (Stanford/MIT/KRAFTON, 2026-03) | **Full execution traces beat summaries 34.6 → 50.0** in their loop's diagnostic ablation. Median 82 files read per iteration across 20+ candidates. | **P1.5 must preserve full message history**, not summaries. tau2's auto-saved `results.json` (21+ messages per sim, full tool_calls) is the right shape. Don't reduce it before insertion into `iterations`/`failure_clusters`. |
+| Meta-Harness | Causal reasoning at iter 3: proposer correctly diagnosed *"prompt template changes caused agent to delete necessary state"* by reading the full chain across iterations. | Loop agent in P2 needs cross-iteration trace access (NeoSigma's `workspace/traces/baseline/` + `latest/` + `learnings.md` already provides this). |
+| Meta-Harness | Reference lift numbers: +7.7pp text classification (4× fewer ctx tokens), +4.7pp IMO math, #1 Haiku on TerminalBench-2 at 37.6% | Cite alongside ownEvo's M5 lift in P4 results doc to show "automated harness improvement is a real category." Position carefully — Meta-Harness optimizes the harness layer, ownEvo optimizes the workflow-skill layer above it. |
+| NLAH (Tsinghua, 2026-03) | **Self-evolution is the highest-value single module: +4.8% SWE-bench Verified.** Verifier alone: −0.8%. Multi-candidate: −2.4%. | Validates condition B (autonomous loop) as the headline result. Don't over-invest in verification scaffolding for P3 — the loop itself is the load-bearing piece. |
+| NLAH | More structure can hurt when modules diverge from the evaluator's acceptance condition. | Don't add ownEvo-specific scaffolding to `agent/agent.py` baseline; let the loop discover what works. Keep the starting point minimal (the auto-harness template is fine). |
+| NLAH | File-backed durable state: +1.6% SWE-bench. | Audit chain design (P1.5 layer) is reinforced — durable state isn't just compliance, it's a measurable behavioral lift. |
+| Claw-Eval (PKU/HKU, 2026-04) | **Trajectory-opaque eval misses 44% of safety violations.** Hybrid full-trace eval is required. | Full-trace storage in P1.5 is correct design. tau-bench's eval is trajectory-aware (it inspects DB Match + action sequence), so it's already on the right side of this. |
+| Claw-Eval | **Pass³ vs Pass@3 gap = 24pp under perturbation.** Reliability ≠ peak capability. | P4 stretch: re-run condition C top-N tasks 3× and report **Pass³** in the results doc — more honest than tau-bench's single-trial mean reward. |
+| Claw-Eval | Sonnet 4.6 leads average score; Opus 4.6 leads Pass³ across 14 frontier models. | Sonnet 4.6 task agent is the avg-score-optimal choice. P4 stretch: re-run the same conditions with Opus 4.7 to see if Pass³ improves. |
+| Claw-Eval | Multi-turn: question precision explains 76% of Pass³ variance; conversation length <1%. | When building approval UI in P3, optimize for precise steering (one good directive) over volume (many small approvals). |
+
+**Net effect on this plan:** P1.5 trace preservation gets stronger language ("full history, not summaries"). P2 iteration budget bumped to **15-20** to match prior art (Meta-Harness 20+, NeoSigma 18). P4 gains a Pass³ stretch metric. No structural changes to phases.
+
+---
+
+## Phase tracker
+
+| Phase | Goal | Status | Wall / cost |
+|---|---|---|---|
+| **P0 — Plumbing smoke tests** | Verify tau2 + LiteLLM + Ollama route works | ✅ done | $0 |
+| **Sanity-A/B/D — Local task agent** | Try local model as τ³ task agent (qwen3-coder Ollama, qwen3-coder LMS, ministral-14b LMS) | ✅ done — all 0/3 | $0 |
+| **Sanity-C — Cloud task agent** | Verify Sonnet 4.6 + Haiku user sim works end-to-end | ✅ done — 3/3 PASS | $0.67 |
+| **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks); establish `val_score_A` | ☐ next | ~$9, ~10 min |
+| **P1.5 — Kernel migration** | Pull tau2 into `apps/kernel`, build native `TauBenchRunner` (`BenchmarkRunner` Protocol), register tau3-retail-v1 workflow + skill, ingest failure clusters, retire auto-harness dependency. M1-M10 substeps. | ☐ before P2 (must) | ~3-5 days CC |
+| **P2 — Condition B autonomous loop** | qwen3-coder:30b local as loop agent; edits `agent/agent.py`; gates with NeoSigma's `gating.py`; **15-20 iterations** (matches Meta-Harness 20+ and NeoSigma 18) | ☐ | ~$45-90, ~5-10 hr |
+| **P3 — Condition C gated loop** | Same loop, ownEvo LLM-judge approval gate engaged; ≥5 human re-approvals | ☐ | ~$45-90, ~5-10 hr |
+| **P4 — Results doc + Pass³ stretch** | Write `tau3-results-2026-Q3.md` with three-condition table + audit chain export; **Pass³ stretch:** re-run condition C top-N tasks 3× | ☐ | XS-S |
 
 ---
 
@@ -281,6 +324,38 @@ B/C, OR change the framing (binary: did any task get fixed at all?).
 success, no empty-message infra errors. But **same 0% val_score** — both runtimes hit the same
 ceiling: qwen3-coder:30b can't construct the complex nested-array write call.
 
+## Sanity-D — LMS ministral-3-14b-reasoning on retail train tasks 0/1/2 ✅ done (2026-05-08)
+
+**Run:** `--task-ids 0 1 2 --split train --concurrency 1`, agent_model = user_model =
+`openai/mistralai/ministral-3-14b-reasoning`, OPENAI_API_BASE=http://192.168.1.50:1234/v1.
+
+| Metric | Result |
+|---|---|
+| val_score | **0.0000** (0/3 passed) |
+| Infra errors | **3 (all 3 tasks)** ✗ |
+| Messages exchanged | **0 per task** — died at first request |
+| Duration | 0.0s per task |
+
+**Failure mode:**
+```
+litellm.BadRequestError: Error rendering prompt with jinja template:
+"After the optional system message, conversation roles must alternate user and assistant"
+```
+
+The Mistral/ministral chat template enforces strict role alternation. tau2's conversation
+inserts `tool` messages between user and assistant, which the template rejects. **Not a
+capability issue — a template incompatibility.** ministral can't run tau-bench at all
+through LMS's OpenAI-compat layer.
+
+**Implication:** the `ollama_chat/` route (which uses Ollama's `/api/chat`) handled the
+tool messages correctly because LiteLLM translates the message structure for that route.
+LMS OpenAI-compat passes messages through to the model's native chat template, which is
+template-version-specific. Local-model attempts on tau-bench are now exhausted with the
+desktop-available models.
+
+**Decision:** task agent stays cloud Sonnet 4.6. Local models still play a role as the
+**improvement loop agent** in P2/P3.
+
 ## Sanity-C — Cloud Sonnet 4.6 + Haiku user sim ✅ done (2026-05-08)
 
 **Pivot:** user decision to switch task agent to cloud Sonnet 4.6 (preserves NeoSigma
@@ -332,27 +407,39 @@ cd /Users/jit/code/try_ext/auto-harness
 # Re-run --task-ids 0 1 2
 ```
 
-## Sanity-C — Try a different local model if A and B both 0%
+## Sanity-D / future local-model retries (closed)
 
-**Status:** ☐ contingent
+ministral-3-14b-reasoning was the strongest small candidate; failed on chat template (above).
+Other unexplored desktop options that *might* work via LMS OpenAI-compat (template depending):
 
-Candidates from F14 sweep (passed A4.4 3/3) sorted by likely retail-task strength:
-- `mistralai/ministral-3-14b-reasoning` (LMS, 47s on A4.4 — reasoning-tuned, may handle multi-step better)
-- `qwen2.5-coder-32b-instruct` (LMS, 98s on A4.4 — bigger code-coder, better arg construction?)
-- `gpt-oss:20b` (laptop LMS only — desktop LMS variant has variance issues)
-- `Qwq:32b` (Ollama, 38 min on A4.4 — explicit reasoning, slow but may improve write actions)
+- `qwen2.5-coder-32b-instruct` (LMS, 98s on A4.4 — bigger coder, qwen-family template should
+  match qwen3-coder which DID work)
+- `qwen/qwen3-32b` (LMS, 96s on A4.4 — same template family)
+- `Qwq:32b` (Ollama, 38 min on A4.4 — explicit reasoning, would route through `ollama_chat/`
+  which we know handles tool messages)
 
-Selection criteria: pick whichever produces non-zero retail score on tasks 0/1/2.
+**Decision (deferred):** revisit only if cloud baseline turns out unaffordable or if the
+local-only narrative becomes load-bearing. For now the hybrid (cloud task agent + local loop)
+gives the best balance of credibility and cost. Future local-task-agent attempts should:
+1. Use `ollama_chat/` route (proven path for tool messages)
+2. Pick qwen-family models (template match with successful qwen3-coder run)
+3. Test on a single task first before committing to 3+ task runs
 
-## Phase 1 — Baseline (Condition A, frozen)
+## Phase 1 — Condition A baseline on full retail TEST split
 
-**Status:** ☐ not started  
-**Depends on:** P0 passes
+**Status:** ☐ next  
+**Depends on:** sanity-C ✅ + this user decision
 
-**Goal:** establish `val_score_A` (frozen baseline) for retail domain with qwen3-coder:30b.
-This is the anchor for % lift calculation.
+**Goal:** establish `val_score_A` (frozen baseline) for retail TEST split with Sonnet 4.6
++ Haiku user sim. This is the anchor for % lift calculation in conditions B and C.
 
-**Domain choice:** retail (114 tasks, largest split, most comparable to NeoSigma's run).
+**Domain choice:** retail TEST split (40 tasks, comparable to NeoSigma's published 0.56
+baseline). Train (74 tasks) is for the loop's failure analysis; gate scores on test.
+
+**Trace storage:** tau2 auto-saves to
+`/tau2_data/simulations/<auto_run_name>/results.json` — full per-conversation traces
+(messages, tool calls, costs, rewards, effect timeline). Verified during sanity-C. **No
+DB integration yet** — that's P1.5.
 
 ### Config
 
@@ -407,6 +494,145 @@ local model (~30s/task).
 **Recording:** update this doc with `val_score_A`, wall time, dominant failure patterns.
 
 ---
+
+## Phase 1.5 — Kernel migration: τ³ benchmark capability into `ownevo_kernel`
+
+**Status:** ☐ before P2 (must — P2 should not depend on auto-harness fork)  
+**Depends on:** P1 baseline complete (gives a known-good run to validate the migration against)
+
+**See [`BENCHMARK_ARCHITECTURE.md`](BENCHMARK_ARCHITECTURE.md)** for the cross-benchmark
+substrate design (τ³ is the first; terminal-bench / BIRD-Interact / SWE-bench / claw-eval
+follow the same recipe). That doc defines the `BenchmarkRunner` Protocol, `SandboxProfile`
+abstraction, and the 7-step recipe for adding a new benchmark. **τ³ is the reference
+implementation that proves the pattern.**
+
+**Why:** the auto-harness fork at `/Users/jit/code/try_ext/auto-harness/` was scaffolding to
+get unblocked. For durable IP + the YC demo + ownEvo's web UI / audit chain / regression-gate
+to work natively on τ³, the benchmark capability must live in `apps/kernel/src/ownevo_kernel/`.
+
+**Strategy:** depend on **tau2** (the upstream Sierra benchmark library) directly. Don't pull
+the auto-harness layers (`benchmark.py`, `gating.py`, `prepare.py`, `record.py`, `agent/agent.py`)
+— ownEvo already has equivalents:
+
+| auto-harness layer | ownEvo replacement |
+|---|---|
+| `benchmark.py:TauBenchRunner` | `ownevo_kernel.benchmarks.tau3.TauBenchRunner` (implements existing `BenchmarkRunner` Protocol) |
+| `gating.py:run_gate` | `ownevo_kernel.gate.run_gate` (existing — already 3-step with regression / improvement / sandbox-error) |
+| `record.py` → `results.tsv` | `iterations` table inserts via existing `persist_gate_run` |
+| `workspace/suite.json` regression suite | `eval_cases` table with `is_test_fold=true` |
+| `agent/agent.py` editable skill | Skill registry entry (`kind=code`, SKILL_FORMAT frontmatter) under workflow `tau3-retail-v1` |
+| `workspace/learnings.md` | `failure_clusters` table + agent's `analyze_failures` tool |
+| `workspace/traces/baseline/` + `latest/` | DB-backed traces (full message history per Meta-Harness ablation) |
+
+### Sandbox: yes, Docker — different profile than M5
+
+Earlier in this doc I claimed τ³ doesn't need a Docker sandbox. Reversed (2026-05-08, post
+multi-benchmark-architecture decision). Two reasons:
+
+1. **The agent-proposed skill IS user-generated Python.** Each iteration's new
+   `HarnessAgent` class gets imported and executed by the gate. Same threat model as M5's
+   LightGBM code. M5 mitigates with `LocalDockerSandbox`; τ³ should too.
+2. **Defense-in-depth across benchmarks** — terminal-bench has shell access, BIRD-Interact
+   talks to Postgres, future SWE-bench runs LLM-generated Python. A consistent sandbox
+   substrate (`SandboxRuntime` Protocol with per-benchmark profiles) is durable IP and
+   makes the security story coherent.
+
+τ³'s sandbox profile differs from M5's:
+
+| Setting | M5 profile | τ³ profile |
+|---|---|---|
+| Image | `ownevo-sandbox-m5:0.1.0` | `ownevo-sandbox-tau3:0.1.0` (tau2 + LiteLLM + kernel) |
+| Network | `--network=none` (offline LightGBM) | egress-allowlist (api.anthropic.com, 192.168.1.50:11434) |
+| Memory | 1024 MB | 512 MB (LLM HTTP client + tau2, no model in-process) |
+| Timeout | 600s | 1800s (multi-turn LLM calls slow) |
+| Other hardening | read-only rootfs, cap-drop=ALL, pids limit, tmpfs /tmp | same — defense-in-depth constants |
+
+**Implementation:** extend `LocalDockerSandbox` to accept a `SandboxProfile`. See
+`BENCHMARK_ARCHITECTURE.md` for the Protocol shape.
+
+### File layout to add
+
+```
+apps/kernel/pyproject.toml
+  [project.optional-dependencies]
+  tau3 = ["tau2 @ git+https://github.com/sierra-research/tau2-bench.git@73dc24445d"]
+
+apps/kernel/src/ownevo_kernel/benchmarks/tau3/
+├── __init__.py
+├── runner.py              # TauBenchRunner: BenchmarkRunner Protocol impl, wraps tau2.run_domain
+├── skill.py               # SKILL_FORMAT-compliant baseline HarnessAgent + dynamic skill loader
+│                          #   (loads agent.py content from skill registry, registers as tau2 agent)
+├── failure_analyzer.py    # parse sub-0.5 sims → text_signature (mirrors M5 m5_failure_analyzer.py)
+├── ingest.py              # read tau2 results.json → iterations + failure_clusters rows
+└── tau2_patches.py        # consolidate the 4 monkey-patches from agent/agent.py into one importable
+                           #   (DEFAULT_LLM_NL_ASSERTIONS + DEFAULT_LLM_ENV_INTERFACE)
+
+apps/kernel/baselines/tau3_retail_v1/
+├── README.md              # what this skill is + its retention contract
+└── agent.py               # HarnessAgent baseline content in SKILL_FORMAT (frontmatter wrapped)
+
+apps/kernel/scripts/
+├── tau3_baseline.py       # condition A: run frozen baseline against test split
+├── tau3_register.py       # one-time: register `tau3-retail-v1` workflow + seed eval cases
+├── tau3_ingest.py         # backfill helper: ingest existing tau2_data/simulations/* dirs
+└── (extend) run_improvement_loop.py  # add --workflow tau3-retail support
+
+apps/kernel/migrations/
+└── (no schema changes needed — existing iterations / failure_clusters / skills tables)
+
+Makefile additions:
+- tau3-register
+- tau3-baseline
+- tau3-loop
+- tau3-ingest
+```
+
+### Step-by-step migration
+
+| Step | What | Effort | Validates |
+|---|---|---|---|
+| **M1** | Add `tau3` extra to `apps/kernel/pyproject.toml`. Verify `uv sync --extra tau3` installs tau2. | XS — 15 min | tau2 import + version pinned |
+| **M2a** | Build `apps/kernel/sandbox/Dockerfile.tau3` (python:3.12-slim + pinned tau2 + LiteLLM + kernel + retail/airline/telecom data). Build via Buildx with GHA cache `m5-sandbox`-style. | S — half day | `make sandbox-image-tau3` produces `ownevo-sandbox-tau3:0.1.0` |
+| **M2b** | Extend `LocalDockerSandbox` to accept `SandboxProfile` (image, network, mem, timeout, extra_volumes). Implement `EGRESS_ALLOWLIST` network mode (Docker bridge + iptables OUTPUT chain or HTTP_PROXY env). | S — half day | M5 profile keeps current behavior; τ³ profile reaches Anthropic API but blocks arbitrary egress |
+| **M2c** | Build `tau2_patches.py` consolidating the 4 monkey-patches (NL_ASSERTIONS + ENV_INTERFACE on both `tau2.config` and consuming modules). Bake into `Dockerfile.tau3` so they apply at sandbox boot. | XS — 30 min | One import patches everything; no per-call patching needed |
+| **M3** | Build `TauBenchRunner` wrapping `tau2.run_domain`. Implements `BenchmarkRunner` Protocol. Takes `skill_override_dir` (M5 pattern). Runs INSIDE `LocalDockerSandbox` with the τ³ profile — invokes `tau2.run.run_domain` via the sandbox's stdin/stdout marshal pattern (mirrors `SandboxedM5BenchmarkRunner` from PR #11c). | M — 1 day | Substitutable for `M5BenchmarkRunner` in test fixtures; sandboxed run produces same val_score as auto-harness P1 ±5pp |
+| **M4** | Build `tau3_retail_v1` baseline skill. Wrap auto-harness template content in SKILL_FORMAT frontmatter (id, kind=code, schema_version, retention). | XS — 30 min | `read_skill` tool returns it cleanly |
+| **M5** | `scripts/tau3_register.py`: one-time CLI to register `tau3-retail-v1` workflow + initial skill version + 5-10 seed eval cases (sample of retail tasks expressed as `EvalCase` rows). | S — 2-3 hr | Workflow + skill + eval cases visible in DB |
+| **M6** | `scripts/tau3_baseline.py`: run condition A frozen baseline via sandboxed `TauBenchRunner` + `persist_gate_run`. | S — 2-3 hr | iterations row + audit chain entries appear; matches auto-harness P1 val_score ±5pp (sanity check) |
+| **M7** | `failure_analyzer.py`: parse sub-0.5 reward sims; extract `text_signature` (failed-tool-call signature, premature-termination signature, etc.). Mirrors `m5_failure_analyzer.py`. **Preserves full message history** (Meta-Harness +15.4pp ablation). | M — half day | Failure clusters from baseline run land in `failure_clusters` table |
+| **M8** | `ingest.py`: backfill helper to read existing `tau2_data/simulations/<run_dir>/results.json` files and create iteration rows retroactively. | S — 2-3 hr | Existing 7 trace dirs from sanity runs become DB rows |
+| **M9** | Extend `run_improvement_loop.py` with `--workflow tau3-retail` branch. Loop agent (qwen3-coder:30b on Ollama desktop) reads current skill + recent failure clusters via `analyze_failures`, proposes new skill version via `write_skill`. Gate runs sandboxed `TauBenchRunner` against test split. | M — 1 day | One end-to-end loop iteration on tau3 produces a valid `iterations` row |
+| **M10** | Web UI: register tau3-retail workflow in the workspace nav. The W7-shipped detail pages (Health, Failures, Audit, Skills, Traces) work as-is once `workflow_id` is set. | S — 2-3 hr | `/workspaces/acme/workflows/tau3-retail-v1` renders the lift chart, audit chain, failure clusters, skill diff |
+
+**Total effort:** ~4-6 days CC (sandbox profile work adds ~1 day vs the no-sandbox plan).
+**~1.5-2.5 weeks human.**
+
+### Sequencing relative to other phases
+
+```
+P1 (auto-harness) ──→ P1 baseline number captured
+                      ↓
+                      M1-M2 (deps + patches) ──→ M3 (TauBenchRunner) ──→ M6 (re-run baseline natively)
+                                                                          ↓
+                                                                          (validates migration: native val_score = auto-harness val_score ± 5pp)
+                      M4-M5 (skill + workflow) ─────────────────────────→ M7-M8 (failure clusters + ingest)
+                                                                          ↓
+                                                                          M9 (loop integration) ──→ P2 starts here, NOT on auto-harness
+                                                                          ↓
+                                                                          M10 (web UI) ──→ visible by P3 / W8 demo
+```
+
+P1 still runs on the auto-harness fork (fast, gives us the number now). Migration runs in
+parallel with P1 analysis. **P2 onward must run on ownEvo native** — that's the whole reason
+for the migration.
+
+### Auto-harness retirement
+
+After M9 lands and P2 condition B has produced one successful gate-pass natively, the
+auto-harness fork at `/Users/jit/code/try_ext/auto-harness/` becomes a **reference repo
+only** (we may grep its `notes_jit.txt` for prior-art improvements, but never run it again).
+Trace dirs at `tau2_data/simulations/` still useful as historical traces — ingest them via
+M8.
 
 ## Phase 2 — Condition B: Autonomous loop (no approval gate)
 
