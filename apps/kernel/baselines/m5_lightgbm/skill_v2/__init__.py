@@ -1,10 +1,10 @@
 """V2 stronger-baseline skill bodies for the M5 LightGBM pipeline.
 
 Differences from v1 (see `m5_lightgbm/skill_v1/`):
-  * `feature_engineer.py` — ~14 features (vs v1's 3): lag_{28,56,91,182,364},
-    rolling_mean/std at windows {7,28,56,91} all lagged 28 days,
-    day_of_week + is_weekend, encoded categoricals for cat/dept/store/
-    state/item.
+  * `feature_engineer.py` — 20 features (vs v1's 3): 5 lag offsets
+    {28,56,91,182,364}, rolling_mean + rolling_std at windows
+    {7,28,56,91} all lagged 28 days (4+4), day_of_week + is_weekend,
+    and 5 encoded categoricals for cat/dept/store/state/item.
   * `model_trainer.py` — Tweedie loss (variance_power=1.1), num_leaves
     128, num_boost_round 800, tuned min_data_in_leaf / lambda_l2.
   * `data_loader.py`, `outlier_handler.py`, `predictor.py`,
