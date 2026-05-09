@@ -97,6 +97,9 @@ if skill_override_path:
         )
         sys.exit(1)
     module = importlib.util.module_from_spec(spec)
+    # Register before exec so @dataclass inside the loaded file can
+    # resolve cls.__module__ via sys.modules — Python stdlib idiom.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     HarnessAgent = getattr(module, "HarnessAgent", None)
     if HarnessAgent is None:
@@ -164,11 +167,31 @@ except Exception as e:
 rewards: dict[str, float | None] = {}
 infra_errors = 0
 n_evaluated = 0
+infra_diag: list[dict[str, str]] = []
 for sim in results.simulations:
     tid = str(sim.task_id)
     if sim.reward_info is None:
         rewards[tid] = None
         infra_errors += 1
+        # Surface why the sim died: tau2 attaches termination_reason +
+        # an exception/error string to the simulation object. Without
+        # this, infra_errors is opaque (the gate gets a None reward
+        # and can't tell crash from rate-limit from agent stall).
+        diag: dict[str, str] = {"task_id": tid}
+        tr = getattr(sim, "termination_reason", None)
+        if tr is not None:
+            diag["termination_reason"] = str(tr)[:300]
+        # tau2 stores the actual exception in sim.info when the task
+        # fails permanently (see tau2/runner/progress.py:retry path).
+        info = getattr(sim, "info", None) or {}
+        if isinstance(info, dict):
+            for k in ("error", "error_type", "error_traceback",
+                     "failed_after_attempts"):
+                v = info.get(k)
+                if v is not None:
+                    diag[k] = str(v)[:600]
+        diag["n_messages"] = str(len(getattr(sim, "messages", None) or []))
+        infra_diag.append(diag)
     else:
         rewards[tid] = float(sim.reward_info.reward)
         n_evaluated += 1
@@ -191,6 +214,7 @@ sys.stdout.write(json.dumps({
     "n_simulations": len(results.simulations),
     "n_evaluated": n_evaluated,
     "infra_errors": infra_errors,
+    "infra_diag": infra_diag,
     "raw_run_dir": raw_run_dir,
 }))
 '''
@@ -370,6 +394,7 @@ class SandboxedTauBenchRunner:
             "n_simulations": int(outputs.get("n_simulations", 0)),
             "n_evaluated": int(outputs.get("n_evaluated", 0)),
             "infra_errors": int(outputs.get("infra_errors", 0)),
+            "infra_diag": outputs.get("infra_diag") or [],
             "raw_run_dir": self.last_raw_run_dir,
         }
 

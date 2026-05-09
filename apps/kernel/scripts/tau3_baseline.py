@@ -134,7 +134,7 @@ def parse_args(argv: list[str]) -> CliArgs:
 # ---------------------------------------------------------------------------
 
 
-_DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"  # ownevo_app/.env
+_DOTENV_PATH = Path(__file__).resolve().parents[3] / ".env"  # ownevo_app/.env
 
 
 def _load_dotenv_into_environ() -> None:

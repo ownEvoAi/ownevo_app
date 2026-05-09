@@ -184,7 +184,11 @@ def parse_args(argv: list[str]) -> CliArgs:
                              "simulator. Defaults to a cheaper model.")
     parser.add_argument("--task-concurrency", type=int, default=3,
                         help="tau2 max_concurrency for the gate run.")
-    parser.add_argument("--task-timeout-seconds", type=float, default=1800.0)
+    parser.add_argument("--task-timeout-seconds", type=float, default=2400.0,
+                        help="Wall-clock budget for the entire gate sandbox "
+                             "run (covers all tasks at given concurrency). "
+                             "P1 baseline (40 tasks @ c=3) was 960s on Sonnet; "
+                             "default 2400s leaves headroom for slower runs.")
     parser.add_argument("--task-memory-mb", type=int, default=1024)
     # Loop-agent flags — same shape as run_improvement_loop.py
     parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL,
@@ -237,7 +241,7 @@ def parse_args(argv: list[str]) -> CliArgs:
 # ---------------------------------------------------------------------------
 
 
-_DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+_DOTENV_PATH = Path(__file__).resolve().parents[3] / ".env"  # ownevo_app/.env
 
 
 def _load_dotenv_into_environ() -> None:
@@ -589,10 +593,16 @@ async def main_async(args: CliArgs) -> int:
                 best_ever_score=None,
             )
 
+        gr = persisted.gate_result
+        val_score_str = f"{gr.val_score:.4f}" if gr.val_score is not None else "None"
+        best_after = (
+            f"{gr.best_ever_score_after:.4f}"
+            if gr.best_ever_score_after is not None else "None"
+        )
         print(
-            f"\ngate: decision={persisted.gate.decision.name} "
-            f"val_score={persisted.gate.val_score:.4f} "
-            f"best_ever_after={persisted.iteration.best_ever_score_after}",
+            f"\ngate: decision={gr.decision.name} "
+            f"val_score={val_score_str} "
+            f"best_ever_after={best_after}",
         )
         print(
             f"  iteration_index={persisted.iteration.iteration_index} "

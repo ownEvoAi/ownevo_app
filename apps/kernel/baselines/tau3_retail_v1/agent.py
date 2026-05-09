@@ -10,12 +10,17 @@ capability_tags:
   - agent
 retention:
   stateless: true
-  improvement_target: tau3_retail_test_val_score
-  readonly_sections: []
-  eval_invariants:
-    - HarnessAgent must subclass tau2.agent.llm_agent.LLMAgent
-    - generate_next_message must return AssistantMessage with content or tool_calls
 ---
+
+Improvement-loop contract (informational; not enforced by SKILL_FORMAT
+schema, which only validates retention.stateless today):
+
+  improvement_target: tau3_retail_test_val_score
+  invariants:
+    - Class name MUST stay `HarnessAgent` (runner imports by name)
+    - MUST subclass tau2.agent.llm_agent.LLMAgent
+    - generate_next_message MUST return AssistantMessage with content
+      or tool_calls (tau2's strict validator rejects empty)
 """
 
 from __future__ import annotations
