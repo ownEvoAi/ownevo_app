@@ -15,8 +15,10 @@ retention:
   stateless: true
 ---
 
-V2 stronger-baseline feature engineer. Bumps v1's 3 features to ~12
-without breaking the substrate's no-recursive-prediction contract.
+V2 stronger-baseline feature engineer. Bumps v1's 3 features to 20
+without breaking the substrate's no-recursive-prediction contract:
+5 lag offsets + 4 rolling means + 4 rolling stds + day_of_week +
+is_weekend + 5 encoded categoricals.
 
 Design notes
 ------------
