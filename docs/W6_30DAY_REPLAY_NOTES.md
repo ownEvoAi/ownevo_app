@@ -44,7 +44,8 @@ the full per-step narrative; this file keeps the load-bearing findings.
 | `ownevo_30day_v2` | Same, qwen reloaded @ 48k ctx | A,C,D | 15+16 | C got +14.7% on iter 7; 86 min wall; same context-overflow problem. |
 | `ownevo_30day_v3` | Same, `--max-iterations 12` workaround | A,C,D | 19+16 | C: 2 gate-pass; D: 2 gate-pass / 2 judge-reject. Mock-cap. |
 | `ownevo_30day_v4` | Same, PR #67 compaction (no cap) | A,C,D | 15+12 | Compaction works (zero context errors). All 27 proposals fail with `M5SandboxError`: F6 binding constraint exposed. |
-| `ownevo_30day_v5` | **Ollama OpenAI** qwen3-coder:30b | A,C | _running_ | Validated lift driver from Stage D. Condition D omitted pending judge-base-url wiring. |
+| `ownevo_30day_v5` | **Ollama OpenAI** qwen3-coder:30b | A,C | killed at 7 iters | F6 / `M5SandboxError` 7/7 even on Ollama OpenAI; Stage D's +14.9% lift looks like a lucky outlier rather than reproducible. F6 is a qwen3-coder property, not an LMS-Anthropic-transport property. |
+| `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30 ✓ (machine restarted post-completion)** | **Hero artifact.** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 60 paid iters). |
 
 ## Operational gotchas (would have saved hours)
 
