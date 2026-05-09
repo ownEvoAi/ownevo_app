@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -19,6 +19,7 @@ help:
 	@printf '                      OWNEVO_DATABASE_URL is set\n'
 	@printf '  m5-baseline-no-db   same, but skip DB writes even when the URL is set\n'
 	@printf '  sandbox-image-m5    build the M5 sandbox Docker image (W2.6 #11c)\n'
+	@printf '  sandbox-image-tau3  build the τ³ sandbox Docker image (P1.5 / M2a)\n'
 	@printf '  api                 run the kernel REST API (uvicorn) on :8000 (W2.5)\n'
 	@printf '  web-dev             run the Next.js dev server on :3000 (W2.5)\n'
 	@printf '  web-build           production build of the Next.js app (W2.5)\n'
@@ -106,6 +107,17 @@ sandbox-image-m5:
 	docker build \
 	    -f apps/kernel/sandbox/Dockerfile.m5 \
 	    -t $(M5_SANDBOX_IMAGE) \
+	    .
+
+# τ³-bench sandbox image — P1.5 / M2a. Bakes tau2 + LiteLLM + the
+# kernel into a python:3.12-slim base. tau2 is pinned to the same
+# git rev NeoSigma's auto-harness uses for prior-art parity.
+TAU3_SANDBOX_IMAGE ?= ownevo-sandbox-tau3:0.1.0
+
+sandbox-image-tau3:
+	docker build \
+	    -f apps/kernel/sandbox/Dockerfile.tau3 \
+	    -t $(TAU3_SANDBOX_IMAGE) \
 	    .
 
 # ----------------------------------------------------------------------------

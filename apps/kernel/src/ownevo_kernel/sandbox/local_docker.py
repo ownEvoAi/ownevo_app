@@ -171,11 +171,22 @@ class LocalDockerSandbox:
         cpus: float = 1.0,
         pids_limit: int = 256,
         tmpfs_size_mb: int = 64,
+        network: str = "none",
     ) -> None:
+        """
+        `network` is the Docker `--network` value. M5 (and any sandbox running
+        agent-generated code with no API needs) uses ``"none"`` for full
+        isolation. τ³ and other LLM-driven benchmarks need outbound HTTPS
+        for cloud / local-LLM endpoints — pass ``"bridge"`` (default Docker
+        bridge network, unrestricted egress). Egress-allowlist via iptables
+        OUTPUT chain is a future hardening; today's tradeoff is documented
+        in `docs/BENCHMARK_ARCHITECTURE.md` § SandboxProfile.
+        """
         self.image = image
         self.cpus = cpus
         self.pids_limit = pids_limit
         self.tmpfs_size_mb = tmpfs_size_mb
+        self.network = network
 
     async def run(
         self,
@@ -184,6 +195,7 @@ class LocalDockerSandbox:
         timeout_seconds: float,
         memory_mb: int,
         extra_volumes: dict[str, str] | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> SandboxResult:
         """Execute `code` in a hardened container.
 
@@ -195,6 +207,12 @@ class LocalDockerSandbox:
         should pass it. Container paths must be absolute and cannot
         collide with `/sandbox` or its subpaths — `/sandbox` is reserved
         for the runner + user-code mount.
+
+        `extra_env` is the same shape: kernel-internal-only. τ³ uses
+        it to pass `AGENT_MODEL` (drives the sitecustomize patches
+        in the τ³ image) and `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
+        `OLLAMA_API_BASE` for LiteLLM routing. Values are passed
+        verbatim to `docker run -e KEY=VALUE`.
         """
         if memory_mb <= 0:
             raise ValueError(f"memory_mb must be positive, got {memory_mb}")
@@ -217,6 +235,7 @@ class LocalDockerSandbox:
             cmd = self._build_command(
                 container_name, host_dir, memory_mb,
                 extra_volumes=validated_extras,
+                extra_env=extra_env,
             )
 
             start = time.monotonic()
@@ -285,6 +304,7 @@ class LocalDockerSandbox:
         memory_mb: int,
         *,
         extra_volumes: list[tuple[str, str]] | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> list[str]:
         cmd: list[str] = [
             "docker",
@@ -292,7 +312,7 @@ class LocalDockerSandbox:
             "--name",
             container_name,
             "--network",
-            "none",
+            self.network,
             "--read-only",
             "--tmpfs",
             f"/tmp:size={self.tmpfs_size_mb}m,mode=1777",
@@ -313,6 +333,8 @@ class LocalDockerSandbox:
         ]
         for host_path, container_path in extra_volumes or ():
             cmd.extend(["--volume", f"{host_path}:{container_path}:ro"])
+        for key, value in (extra_env or {}).items():
+            cmd.extend(["-e", f"{key}={value}"])
         cmd.extend([
             "--workdir",
             "/sandbox",

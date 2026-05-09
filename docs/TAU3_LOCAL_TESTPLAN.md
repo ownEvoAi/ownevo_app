@@ -46,7 +46,7 @@ running locally for free**.
 | **P0 — Plumbing smoke tests** | Verify tau2 + LiteLLM + Ollama route works | ✅ done | $0 |
 | **Sanity-A/B/D — Local task agent** | Try local model as τ³ task agent (qwen3-coder Ollama, qwen3-coder LMS, ministral-14b LMS) | ✅ done — all 0/3 | $0 |
 | **Sanity-C — Cloud task agent** | Verify Sonnet 4.6 + Haiku user sim works end-to-end | ✅ done — 3/3 PASS | $0.67 |
-| **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks); establish `val_score_A` | ☐ next | ~$9, ~10 min |
+| **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks) → **val_score_A = 0.8000** | ✅ done | $9.27, 16 min |
 | **P1.5 — Kernel migration** | Pull tau2 into `apps/kernel`, build native `TauBenchRunner` (`BenchmarkRunner` Protocol), register tau3-retail-v1 workflow + skill, ingest failure clusters, retire auto-harness dependency. M1-M10 substeps. | ☐ before P2 (must) | ~3-5 days CC |
 | **P2 — Condition B autonomous loop** | qwen3-coder:30b local as loop agent; edits `agent/agent.py`; gates with NeoSigma's `gating.py`; **15-20 iterations** (matches Meta-Harness 20+ and NeoSigma 18) | ☐ | ~$45-90, ~5-10 hr |
 | **P3 — Condition C gated loop** | Same loop, ownEvo LLM-judge approval gate engaged; ≥5 human re-approvals | ☐ | ~$45-90, ~5-10 hr |
@@ -425,10 +425,52 @@ gives the best balance of credibility and cost. Future local-task-agent attempts
 2. Pick qwen-family models (template match with successful qwen3-coder run)
 3. Test on a single task first before committing to 3+ task runs
 
-## Phase 1 — Condition A baseline on full retail TEST split
+## Phase 1 — Condition A baseline on full retail TEST split ✅ done (2026-05-08)
 
-**Status:** ☐ next  
-**Depends on:** sanity-C ✅ + this user decision
+**Status:** ✅ — `val_score_A = 0.8000`  
+**Depends on:** sanity-C ✅ — completed end-to-end via auto-harness fork
+
+### Result
+
+| Metric | Value |
+|---|---|
+| **val_score_A** | **0.8000** (32 pass / 8 fail-or-error of 40) |
+| Pass / fail / infra-err breakdown | 32 / 4 / 4 |
+| Total cost | $9.27 ($0.23 / task average) |
+| Wall time | ~16 min at concurrency=3 |
+| Trace dir | `tau2_data/simulations/20260509_000808_retail_custom_agent_claude-sonnet-4-6_user_simulator_claude-haiku-4-5-20251001/` |
+
+**Versus NeoSigma's published baseline (0.56 with GPT-5.4):** Sonnet 4.6 is **+24pp**
+stronger out of the box on retail. This means:
+
+1. **Less headroom for the loop.** From 0.80 a +20pp absolute lift is +25% relative —
+   harder than NeoSigma's 0.56 → 0.78 (+22pp / +39% relative). Easy wins already absorbed
+   by Sonnet's baseline capability.
+2. **Stronger gate test.** Improvement-loop work on top of a strong baseline forces real
+   reliability gains, not just easy-failure fixes. Better engineering story.
+3. **Reframe the YC claim.** Not "we match NeoSigma's lift" but "ownEvo's loop pushes
+   reliability past 0.80 on a benchmark where Sonnet starts at 0.56→0.80 = the model
+   improvements absorbed the gap, and the loop now picks up the residual reliability tail."
+
+### The 4 real failures (improvement-loop targets)
+
+| Task | msgs | duration | term | failure shape |
+|---|---|---|---|---|
+| 5 | 25 | 39.3s | user_stop | agent completed conversation; DB Match wrong |
+| 12 | 25 | 39.3s | user_stop | same |
+| 49 | 26 | 33.9s | user_stop | same |
+| 74 | 29 | 52.2s | user_stop | same |
+
+All 4 have full message history saved (avg 26 msgs/task). These are the ideal failure
+clusters for P1.5's failure_analyzer to extract `text_signature` from.
+
+### The 4 infra errors
+
+Tasks 36, 38, 70, 111: 0 messages, 0.0s duration. Transient Anthropic API errors
+(rate-limit / 5xx). **Not improvement-loop targets.** Should be re-run in a follow-up
+to lock the cleanest possible val_score_A. Open follow-up.
+
+### Original Phase 1 spec (kept for reference)
 
 **Goal:** establish `val_score_A` (frozen baseline) for retail TEST split with Sonnet 4.6
 + Haiku user sim. This is the anchor for % lift calculation in conditions B and C.
