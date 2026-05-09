@@ -167,10 +167,13 @@ async def _reset_workflow_state(conn, workflow_id: str, skill_id: str) -> None:
             "DELETE FROM eval_cases WHERE workflow_id = $1", workflow_id
         )
         await conn.execute(
-            "DELETE FROM skill_versions WHERE skill_id = $1", skill_id
+            "UPDATE skills "
+            "SET head_version_id = NULL, latest_proposed_version_id = NULL "
+            "WHERE id = $1",
+            skill_id,
         )
         await conn.execute(
-            "UPDATE skills SET head_version_id = NULL WHERE id = $1", skill_id
+            "DELETE FROM skill_versions WHERE skill_id = $1", skill_id
         )
         await conn.execute("DELETE FROM workflows WHERE id = $1", workflow_id)
 

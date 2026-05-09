@@ -119,7 +119,9 @@ async def _seed(db_url: str) -> int:
             _PARENT_CONTENT,
         )
         await conn.execute(
-            "UPDATE skills SET head_version_id = $2 WHERE id = $1",
+            "UPDATE skills "
+            "SET head_version_id = $2, latest_proposed_version_id = $2 "
+            "WHERE id = $1",
             _SKILL_ID,
             parent_version_id,
         )

@@ -74,8 +74,8 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
 
       <div className="nav-section">Workflows</div>
       <a
-        href={`${root}/workflows/demo-demand-prediction`}
-        className={cls(`${root}/workflows/demo-demand-prediction`)}
+        href={`${root}/workflows/m5-demand-prediction`}
+        className={cls(`${root}/workflows/m5-demand-prediction`)}
       >
         <svg className="nav-icon" viewBox="0 0 16 16">
           <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />

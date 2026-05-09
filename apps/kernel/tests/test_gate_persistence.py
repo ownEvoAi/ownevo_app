@@ -546,3 +546,170 @@ async def test_concurrent_persist_gate_run_produces_unique_indices(
 
     indices = {r.iteration.iteration_index for r in results}
     assert indices == {0, 1}, f"Expected unique indices {{0, 1}}, got {indices}"
+
+
+# ---------------------------------------------------------------------------
+# head_version_id semantics — gate-pass only (TODO-31, closed 2026-05-09)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_skill_with_version(
+    conn: asyncpg.Connection, skill_id: str
+) -> tuple[Any, Any]:
+    """Seed a skill with one skill_version row. Returns (skill_id, version_id).
+
+    Both head_version_id and latest_proposed_version_id are initialised to
+    version_id. Tests that need them to diverge must update one pointer
+    explicitly after calling this helper."""
+    await conn.execute(
+        """
+        INSERT INTO skills (id, kind)
+        VALUES ($1, 'python'::skill_kind)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        skill_id,
+    )
+    version_id = await conn.fetchval(
+        """
+        INSERT INTO skill_versions (skill_id, version_seq, content, created_by)
+        VALUES ($1, 1, 'def engineer(x): return x * 2\n', 'test:seed')
+        RETURNING id
+        """,
+        skill_id,
+    )
+    await conn.execute(
+        "UPDATE skills "
+        "SET head_version_id = $2, latest_proposed_version_id = $2 "
+        "WHERE id = $1",
+        skill_id,
+        version_id,
+    )
+    return skill_id, version_id
+
+
+async def test_gate_pass_advances_head_version_id(db: asyncpg.Connection):
+    """On gate-pass, head_version_id moves to the proposed version so
+    a "deploy current best" reader gets the validated skill back."""
+    workflow_id = "wf-head-pass"
+    skill_id = "m5.skill.head-pass"
+    await _seed_workflow(db, workflow_id)
+    _, v1_id = await _seed_skill_with_version(db, skill_id)
+
+    # Register a fresh v2 to advance latest_proposed; HEAD should still be v1.
+    v2_id = await db.fetchval(
+        """
+        INSERT INTO skill_versions
+            (skill_id, parent_version_id, version_seq, content, created_by)
+        VALUES ($1, $2, 2, 'def engineer(x): return x * 2  # v2', 'test:propose')
+        RETURNING id
+        """,
+        skill_id,
+        v1_id,
+    )
+    await db.execute(
+        "UPDATE skills SET latest_proposed_version_id = $2 WHERE id = $1",
+        skill_id,
+        v2_id,
+    )
+
+    runner = _doubler_runner(lambda x: x * 2)  # passes all tasks
+    persisted = await persist_gate_run(
+        db,
+        runner,
+        workflow_id=workflow_id,
+        skill_id=skill_id,
+        proposed_content="def engineer(x): return x * 2  # v2",
+        plain_language_summary="v2 proposal",
+        actor="test:head-pass",
+        proposed_skill_version_id=v2_id,
+    )
+    assert persisted.gate_result.decision == GateDecision.PASS
+
+    head = await db.fetchval(
+        "SELECT head_version_id FROM skills WHERE id = $1", skill_id
+    )
+    assert head == v2_id
+
+
+async def test_gate_fail_leaves_head_version_id_unchanged(db: asyncpg.Connection):
+    """On gate-fail, head_version_id stays at the prior winner so a
+    restore-from-head still recovers the validated skill (TODO-31)."""
+    workflow_id = "wf-head-fail"
+    skill_id = "m5.skill.head-fail"
+    await _seed_workflow(db, workflow_id)
+    _, v1_id = await _seed_skill_with_version(db, skill_id)
+
+    # Propose a v2 that regresses on t1.
+    v2_id = await db.fetchval(
+        """
+        INSERT INTO skill_versions
+            (skill_id, parent_version_id, version_seq, content, created_by)
+        VALUES ($1, $2, 2, 'def engineer(x): return -1', 'test:propose')
+        RETURNING id
+        """,
+        skill_id,
+        v1_id,
+    )
+    await db.execute(
+        "UPDATE skills SET latest_proposed_version_id = $2 WHERE id = $1",
+        skill_id,
+        v2_id,
+    )
+
+    def regressing(x):
+        return -1 if x == 1 else x * 2
+
+    runner = _doubler_runner(regressing)
+    persisted = await persist_gate_run(
+        db,
+        runner,
+        workflow_id=workflow_id,
+        skill_id=skill_id,
+        proposed_content="def engineer(x): return -1",
+        plain_language_summary="bad v2",
+        actor="test:head-fail",
+        proposed_skill_version_id=v2_id,
+        prior_eval_task_ids=["t1", "t2"],
+        best_ever_score=0.6,
+    )
+    assert persisted.gate_result.decision == GateDecision.FAIL_REGRESSION
+
+    row = await db.fetchrow(
+        "SELECT head_version_id, latest_proposed_version_id "
+        "FROM skills WHERE id = $1",
+        skill_id,
+    )
+    assert row["head_version_id"] == v1_id
+    assert row["latest_proposed_version_id"] == v2_id
+
+
+async def test_gate_pass_without_proposed_skill_version_id_is_noop_on_head(
+    db: asyncpg.Connection,
+):
+    """Callers that don't pre-register a skill version pass
+    proposed_skill_version_id=None (the default). The guard at
+    persistence.py:381 must leave head_version_id unchanged so
+    a future refactor removing the None guard doesn't silently
+    corrupt the head pointer."""
+    workflow_id = "wf-head-noop"
+    skill_id = "m5.skill.head-noop"
+    await _seed_workflow(db, workflow_id)
+    _, v1_id = await _seed_skill_with_version(db, skill_id)
+
+    runner = _doubler_runner(lambda x: x * 2)  # passes all tasks
+    persisted = await persist_gate_run(
+        db,
+        runner,
+        workflow_id=workflow_id,
+        skill_id=skill_id,
+        proposed_content="def engineer(x): return x * 2",
+        plain_language_summary="no-skill-version call",
+        actor="test:noop",
+        # proposed_skill_version_id intentionally omitted (default None)
+    )
+    assert persisted.gate_result.decision == GateDecision.PASS
+
+    head = await db.fetchval(
+        "SELECT head_version_id FROM skills WHERE id = $1", skill_id
+    )
+    assert head == v1_id

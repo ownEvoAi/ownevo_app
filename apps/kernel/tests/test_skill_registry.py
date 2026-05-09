@@ -153,10 +153,50 @@ async def test_re_register_creates_new_version_linked_to_parent(db: asyncpg.Conn
     assert versions[1]["parent_version_id"] == v1.version_id
     assert versions[1]["diff_summary"] == "add price-history join"
 
+    # HEAD still points at v1 — re-registration alone is not a gate-pass,
+    # so the validated-state pointer doesn't move (TODO-31). The agent's
+    # "latest write" pointer does advance.
     head = await get_head(db, "m5-feature-engineer")
     assert head is not None
-    assert head.version_id == v2.version_id
-    assert head.created_by == "agent:claude-opus-4-7"
+    assert head.version_id == v1.version_id
+    latest_proposed = await db.fetchval(
+        "SELECT latest_proposed_version_id FROM skills WHERE id = $1",
+        "m5-feature-engineer",
+    )
+    assert latest_proposed == v2.version_id
+
+
+async def test_bootstrap_seeds_both_pointers_at_v1(db: asyncpg.Connection):
+    """First registration has no gate-pass yet — HEAD must be set so that
+    `read_skill` / `get_head` returns something on the bootstrap iteration."""
+    v1 = await register_skill(db, SKILL_V1)
+    row = await db.fetchrow(
+        "SELECT head_version_id, latest_proposed_version_id "
+        "FROM skills WHERE id = $1",
+        "m5-feature-engineer",
+    )
+    assert row["head_version_id"] == v1.version_id
+    assert row["latest_proposed_version_id"] == v1.version_id
+
+
+async def test_subsequent_register_chains_parent_off_latest_proposed(
+    db: asyncpg.Connection,
+):
+    """v3's parent must be v2 even if v2 was gate-rejected (HEAD still at v1).
+    Without this, every rejected version reparents v3 onto v1 and the
+    version graph forks into a fan rather than a linear chain."""
+    v1 = await register_skill(db, SKILL_V1)
+    v2 = await register_skill(db, SKILL_V2)
+
+    # HEAD still v1 (no gate-pass), but a third register should chain off v2.
+    v3_content = SKILL_V2.replace(
+        "agent:claude-opus-4-7", "agent:claude-opus-4-7-take-3"
+    )
+    await register_skill(db, v3_content)
+    versions = await list_versions(db, "m5-feature-engineer")
+    by_seq = {v["version_seq"]: v for v in versions}
+    assert by_seq[3]["parent_version_id"] == v2.version_id
+    assert by_seq[2]["parent_version_id"] == v1.version_id
 
 
 async def test_capability_tags_refresh_on_re_register(db: asyncpg.Connection):

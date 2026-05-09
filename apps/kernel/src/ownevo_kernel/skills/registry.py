@@ -4,13 +4,21 @@ Behavior contract:
 
   * First registration of a `skill_id` creates both the `skills` row
     (with `kind`, `capability_tags`) and a `skill_versions` row at
-    `version_seq = 1`.
+    `version_seq = 1`. Both `head_version_id` and
+    `latest_proposed_version_id` point at v1 (bootstrap — no gate-pass
+    has happened yet, but `read_skill` needs something to return).
   * Subsequent registrations of the same `skill_id` insert a new
-    `skill_versions` row with `version_seq = max + 1` and link
-    `parent_version_id` to the previous head, then advance
-    `skills.head_version_id`. `capability_tags` is refreshed to the
-    new version's tags on every re-registration; `kind` is locked at
-    first registration and a mismatch raises `SkillFormatError`.
+    `skill_versions` row with `version_seq = max + 1` and advance
+    `skills.latest_proposed_version_id`; `head_version_id` stays put.
+    `head_version_id` is advanced ONLY by `gate.persistence` when the
+    gate passes, so HEAD always points at the most recent
+    gate-validated skill.
+  * `parent_version_id` chains off `latest_proposed_version_id` (or
+    `head_version_id` as fallback) so version lineage stays linear
+    even when the agent's last write was rejected.
+  * `capability_tags` is refreshed on every re-registration; `kind`
+    is locked at first registration and a mismatch raises
+    `SkillFormatError`.
   * The whole register is one transaction.
 
 The registry stores the raw frontmatter dict (not the validated Pydantic
@@ -71,11 +79,13 @@ async def _insert_record(
     fm = record.frontmatter
     async with conn.transaction():
         existing = await conn.fetchrow(
-            "SELECT kind::text AS kind, head_version_id FROM skills WHERE id = $1",
+            "SELECT kind::text AS kind, head_version_id, "
+            "latest_proposed_version_id FROM skills WHERE id = $1",
             fm.id,
         )
 
-        if existing is None:
+        is_bootstrap = existing is None
+        if is_bootstrap:
             await conn.execute(
                 """
                 INSERT INTO skills (id, kind, capability_tags)
@@ -93,7 +103,12 @@ async def _insert_record(
                     f"kind mismatch for skill {fm.id!r}: "
                     f"existing={existing['kind']}, new={fm.kind}",
                 )
-            parent_version_id = existing["head_version_id"]
+            # Chain the parent off the agent's last write, not HEAD,
+            # so v3 → v2 → v1 stays linear even when v2 was gate-rejected.
+            parent_version_id = (
+                existing["latest_proposed_version_id"]
+                or existing["head_version_id"]
+            )
             current_max = await conn.fetchval(
                 "SELECT COALESCE(MAX(version_seq), 0) FROM skill_versions WHERE skill_id = $1",
                 fm.id,
@@ -125,11 +140,23 @@ async def _insert_record(
             created_by,
         )
 
-        await conn.execute(
-            "UPDATE skills SET head_version_id = $2 WHERE id = $1",
-            fm.id,
-            version_id,
-        )
+        if is_bootstrap:
+            # First version: seed both pointers at v1 so read_skill has
+            # something to return until the first gate-pass.
+            await conn.execute(
+                "UPDATE skills "
+                "SET head_version_id = $2, latest_proposed_version_id = $2 "
+                "WHERE id = $1",
+                fm.id,
+                version_id,
+            )
+        else:
+            # HEAD only moves on gate-pass (gate/persistence.py).
+            await conn.execute(
+                "UPDATE skills SET latest_proposed_version_id = $2 WHERE id = $1",
+                fm.id,
+                version_id,
+            )
 
         return RegisterResult(
             skill_id=fm.id,
