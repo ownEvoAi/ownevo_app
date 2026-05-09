@@ -46,11 +46,14 @@ TODO; not in scope until W4 unattended replay demands it).
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 import asyncpg
 
@@ -373,6 +376,17 @@ async def persist_gate_run(
         # re-analyze any failure without re-running the gate. Pre-fix
         # iterations have no traces — that data is permanently lost.
         # Other runners (M5) don't expose this attribute and skip silently.
+        #
+        # Schema notes:
+        #   events  — stored as a LIST (tau2 message dicts) so downstream
+        #             code that iterates events expecting a list (e.g.
+        #             _count_tool_errors) doesn't silently iterate over keys.
+        #   metric_outputs — includes "fold" so the train/test discipline
+        #             gate in analyze_failures (FOLD_KEY check) works for
+        #             τ³ just as it does for M5. Without "fold" every τ³
+        #             test-split trace is surfaced to the loop agent, letting
+        #             it overfit to the held-out set.
+        _runner_split = getattr(runner, "split", None)
         per_task_sims = getattr(runner, "last_simulations", None)
         if isinstance(per_task_sims, list) and per_task_sims:
             for sim in per_task_sims:
@@ -381,18 +395,27 @@ async def persist_gate_run(
                 task_id = str(sim.get("task_id", ""))
                 if not task_id:
                     continue
-                events_json = json.dumps({
-                    "task_id": task_id,
-                    "messages": sim.get("messages") or [],
-                    "termination_reason": sim.get("termination_reason"),
-                    "info": sim.get("info"),
-                })
-                metric_json = json.dumps({
-                    "task_id": task_id,
-                    "reward": sim.get("reward"),
-                    "reward_info": sim.get("reward_info"),
-                    "duration_seconds": sim.get("duration_seconds"),
-                })
+                # Guard against non-serializable objects in sim data (e.g.
+                # datetime or exception objects from tau2 info dicts). A
+                # serialization failure here must not roll back the
+                # iteration/proposal rows written earlier in this transaction.
+                try:
+                    events_json = json.dumps(sim.get("messages") or [])
+                    metric_json = json.dumps({
+                        "task_id": task_id,
+                        "fold": _runner_split,
+                        "reward": sim.get("reward"),
+                        "reward_info": sim.get("reward_info"),
+                        "duration_seconds": sim.get("duration_seconds"),
+                        "termination_reason": sim.get("termination_reason"),
+                        "info": sim.get("info"),
+                    })
+                except (TypeError, ValueError) as _ser_exc:
+                    logger.warning(
+                        "tau3 trace for task %s not serializable, skipping: %s",
+                        task_id, _ser_exc,
+                    )
+                    continue
                 await conn.execute(
                     """
                     INSERT INTO traces (

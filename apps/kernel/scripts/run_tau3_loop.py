@@ -497,7 +497,7 @@ async def main_async(args: CliArgs) -> int:
                     ollama_num_ctx=args.ollama_num_ctx,
                 )
             else:
-                _is_cloud_anthropic = "api.anthropic.com" in args.llm_base_url
+                _is_cloud_anthropic = _urlparse(args.llm_base_url).hostname == "api.anthropic.com"
                 agent_result = await run_agent_turn(
                     client,
                     system=system_prompt,

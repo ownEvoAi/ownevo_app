@@ -75,8 +75,7 @@ These bit four times during the v4 setup:
 
 These are planned additions, not yet implemented:
 
-- **`make m5-replay-bootstrap`** target: fresh-DB → migrate → seed-workflows
-  in one shot. Would have shaved 4 of 5 v4 preflight traps.
+- ~~**`make m5-replay-bootstrap`**~~ target removed (replaced by manual migration steps); was: fresh-DB → migrate → seed-workflows in one shot.
 - **`--connection-timeout` flag** on `run_improvement_loop.py` to fail-fast
   on stuck LMS sockets instead of parking in `epoll`.
 - **`--judge-base-url` wire-up** so condition D can run with a different

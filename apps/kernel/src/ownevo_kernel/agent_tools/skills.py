@@ -94,9 +94,13 @@ async def write_skill(
         try:
             compile(parsed.body, f"<skill:{skill_id}>", "exec")
         except SyntaxError as exc:
+            # exc.lineno is relative to parsed.body (line 1 = first body line).
+            # Compute the file-level offset so the agent edits the right line.
+            _body_offset = content[: len(content) - len(parsed.body)].count("\n")
+            _file_lineno = _body_offset + (exc.lineno or 0)
             raise SkillFormatError(
                 f"proposed Python skill {skill_id!r} has a SyntaxError "
-                f"on line {exc.lineno}: {exc.msg}. "
+                f"on line {_file_lineno}: {exc.msg}. "
                 f"Offending text: {(exc.text or '').rstrip()!r}",
             ) from exc
     return await register_skill(

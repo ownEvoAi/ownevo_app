@@ -120,7 +120,7 @@ class HarnessAgent(LLMAgent):
         generate_kwargs = (
             {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
         )
-        generate_kwargs.update(self.llm_args)
+        generate_kwargs.update(self.llm_args or {})
         response = cast(
             AssistantMessage,
             generate(

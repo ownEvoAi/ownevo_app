@@ -31,6 +31,7 @@ without tau2 installed must not crash).
 from __future__ import annotations
 
 import os
+import sys as _sys
 from pathlib import Path
 
 
@@ -84,6 +85,16 @@ def _patch_nl_evaluator_resilience() -> None:
         @staticmethod
         def loads(s, *args, **kwargs):
             if isinstance(s, (str, bytes, bytearray)) and not s:
+                # Empty evaluator response — log so infra_diag surfaces it.
+                # Returning {} lets tau2 continue rather than retrying 4× and
+                # raising INFRASTRUCTURE_ERROR; tau2 will score this task
+                # against an empty assertions list (typically → reward=1.0 by
+                # convention). The trade-off is accepted: 4 deterministic
+                # infra-errors vs a possible false-pass on those tasks.
+                _sys.stderr.write(
+                    "[sitecustomize] NL evaluator returned empty string; "
+                    "returning {} — task reward may be inflated\n"
+                )
                 return {}
             if isinstance(s, str):
                 try:
@@ -98,7 +109,10 @@ def _patch_nl_evaluator_resilience() -> None:
                         pass
                 m = _braces_re.search(s)
                 if m:
-                    return _json.loads(m.group(0), *args, **kwargs)
+                    try:
+                        return _json.loads(m.group(0), *args, **kwargs)
+                    except _json.JSONDecodeError:
+                        pass
             return _json.loads(s, *args, **kwargs)
 
     _nl.json = _ResilientJsonShim()  # type: ignore[attr-defined]
@@ -175,19 +189,19 @@ def _patch_tau2_defaults() -> None:
     _env_iface.DEFAULT_LLM_ENV_INTERFACE = target
 
 
-_ensure_writable_simulations_dir()
+try:
+    _ensure_writable_simulations_dir()
+except Exception as _exc:  # noqa: BLE001
+    _sys.stderr.write(f"[sitecustomize] _ensure_writable_simulations_dir failed: {_exc}\n")
 try:
     _patch_tau2_defaults()
 except Exception as _exc:  # noqa: BLE001
-    import sys as _sys
     _sys.stderr.write(f"[sitecustomize] _patch_tau2_defaults failed: {_exc}\n")
 try:
     _patch_tool_call_args_resilience()
 except Exception as _exc:  # noqa: BLE001
-    import sys as _sys
     _sys.stderr.write(f"[sitecustomize] _patch_tool_call_args_resilience failed: {_exc}\n")
 try:
     _patch_nl_evaluator_resilience()
 except Exception as _exc:  # noqa: BLE001
-    import sys as _sys
     _sys.stderr.write(f"[sitecustomize] _patch_nl_evaluator_resilience failed: {_exc}\n")

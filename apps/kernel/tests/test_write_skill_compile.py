@@ -3,12 +3,10 @@
 Pins that write_skill(conn=None, ...) raises SkillFormatError for
 syntactically broken Python BEFORE touching the database (conn is never
 dereferenced when the error fires), and that the reported line number
-is body-relative (not offset by the YAML frontmatter header).
+is file-relative (frontmatter offset + body-relative line from compile).
 
-This is the regression guard for the compile(parsed.body, ...) fix in
-agent_tools/skills.py: a SyntaxError on line 3 of the skill body must
-appear as "line 3" in the error, not "line 11" (which compile(content, ...)
-would report due to the ~8-line frontmatter docstring).
+This lets the agent edit the right line in the full skill file without
+having to mentally re-add the frontmatter offset.
 """
 
 from __future__ import annotations
@@ -79,17 +77,16 @@ async def test_syntax_error_raises_skill_format_error():
         )
 
 
-async def test_syntax_error_line_number_is_body_relative():
-    """Line number in the error message must be relative to the body, not
-    the full file with frontmatter. parse_skill strips the leading blank
-    line after the closing ---, so the body is:
-      line 1: def solve(tools, context):
-      line 2: def inner(:   ← SyntaxError here
-    The error must say 'line 2'.
+async def test_syntax_error_line_number_is_file_relative():
+    """Line number in the error message must be file-relative (frontmatter
+    offset + body-relative exc.lineno) so the agent can jump straight to
+    the right line in the full skill text.
 
-    This would fail if compile(content, ...) were used instead of
-    compile(parsed.body, ...) because the frontmatter docstring adds ~8
-    lines of offset, reporting a much higher line number.
+    _SYNTAX_ERROR_SKILL has 10 frontmatter newlines (---…---\n) + 1 blank
+    separator line before the body, so:
+      body line 1 (file line 12): def solve(tools, context):
+      body line 2 (file line 13):     def inner(:  ← SyntaxError
+    The error must say 'line 13'.
     """
     with pytest.raises(SkillFormatError) as exc_info:
         await write_skill(
@@ -98,8 +95,8 @@ async def test_syntax_error_line_number_is_body_relative():
             content=_SYNTAX_ERROR_SKILL,
             created_by="agent:test",
         )
-    assert "line 2" in str(exc_info.value), (
-        f"expected 'line 2' in error (body-relative); got: {exc_info.value!r}"
+    assert "line 13" in str(exc_info.value), (
+        f"expected 'line 13' in error (file-relative); got: {exc_info.value!r}"
     )
 
 
