@@ -66,6 +66,7 @@ DEFAULT_WORKFLOW_DESCRIPTION = (
 class CliArgs:
     workflow_id: str
     description: str
+    skill_version: str
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -75,8 +76,22 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
     parser.add_argument("--workflow-id", default=DEFAULT_WORKFLOW_ID)
     parser.add_argument("--description", default=DEFAULT_WORKFLOW_DESCRIPTION)
+    parser.add_argument(
+        "--skill-version",
+        choices=("v1", "v2"),
+        default="v1",
+        help=(
+            "Which baseline skill version to seed as the workflow's parent "
+            "skills. v1 (default) is the deliberately-minimal Day-1 baseline. "
+            "v2 is the tuned-LightGBM stronger baseline (Tweedie + ~14 features)."
+        ),
+    )
     ns = parser.parse_args(argv)
-    return CliArgs(workflow_id=ns.workflow_id, description=ns.description)
+    return CliArgs(
+        workflow_id=ns.workflow_id,
+        description=ns.description,
+        skill_version=ns.skill_version,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +104,17 @@ async def seed_baseline(
     *,
     workflow_id: str = DEFAULT_WORKFLOW_ID,
     description: str = DEFAULT_WORKFLOW_DESCRIPTION,
+    skill_version: str = "v1",
 ) -> SeedResult:
     """Upsert the workflow row + register the 6 baseline skills idempotently.
 
     Single transaction. Locks the workflow row before the skill loop so
     concurrent re-runs don't race on `version_seq` allocation.
+
+    ``skill_version`` selects which baseline skill bodies to seed
+    (defaults to ``v1`` for backwards compat with the original
+    bootstrap path). The registered skill IDs follow the version's
+    own frontmatter (``m5.baseline.v1.*`` or ``m5.baseline.v2.*``).
 
     Returns:
         `SeedResult` with which skills were freshly registered vs.
@@ -120,7 +141,7 @@ async def seed_baseline(
             workflow_id,
         )
 
-        skill_dir = skill_files_dir()
+        skill_dir = skill_files_dir(skill_version)
         for fname in SKILL_FILES:
             content = (skill_dir / fname).read_text()
             record = parse_skill(content)
@@ -131,8 +152,8 @@ async def seed_baseline(
             await register_skill(
                 conn,
                 content,
-                created_by="bootstrap-m5-baseline",
-                diff_summary=f"bootstrap: {fname}",
+                created_by=f"bootstrap-m5-baseline-{skill_version}",
+                diff_summary=f"bootstrap: {fname} ({skill_version})",
             )
             registered.append(record.frontmatter.id)
 
@@ -178,6 +199,7 @@ async def main_async(args: CliArgs) -> int:
             conn,
             workflow_id=args.workflow_id,
             description=args.description,
+            skill_version=args.skill_version,
         )
     finally:
         await conn.close()
