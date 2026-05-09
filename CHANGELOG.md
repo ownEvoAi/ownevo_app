@@ -68,6 +68,21 @@ fresh `[Unreleased]` block above it.
   remember its action history without paying for stale text. LLM
   summarization (Mastra-style) is a future option but adds latency
   and cost; mechanical drop is enough for the BL.3 shape.
+- **Empirical validation against the 30-day M5 replay (post-merge,
+  2026-05-08).** `ownevo_30day_v4` ran `make m5-replay-30day
+  REPLAY_30_ARGS='--conditions a,c,d --max-iterations 30'` against the merged runner
+  with `qwen/qwen3-coder-30b` on LMS Anthropic at 48k ctx. 27
+  iterations completed; **zero `Context size has been exceeded`
+  errors** vs 28+ on the v1/v2/v3 runs (same DB, same model, same
+  ctx, no compaction). Iter wall-time grew from sub-second
+  (instant-fail at small ctx) to 1–4 minutes (full multi-turn agent
+  reaching the sandbox). Compaction is silent on success by design —
+  proof is the absence of context errors, not log lines. The v4
+  proposals all failed at a different layer (`M5SandboxError:
+  status=error` from the agent's generated pipeline code — the F6
+  / TODO-20 codegen issue on the LMS Anthropic transport, unrelated
+  to compaction). Substrate notes captured at
+  `docs/W6_30DAY_REPLAY_NOTES.md`.
 
 ### Fixed (W7 Track 1 fix-pass — pre-landing review)
 
