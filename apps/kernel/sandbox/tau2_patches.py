@@ -75,7 +75,7 @@ def _patch_nl_evaluator_resilience() -> None:
     import re as _re
 
     _fence_re = _re.compile(r"```(?:json)?\s*(.*?)```", _re.DOTALL)
-    _braces_re = _re.compile(r"\{.*\}", _re.DOTALL)
+    _braces_re = _re.compile(r"\{.*?\}", _re.DOTALL)
 
     class _ResilientJsonShim:
         def __getattr__(self, name: str):
@@ -176,6 +176,18 @@ def _patch_tau2_defaults() -> None:
 
 
 _ensure_writable_simulations_dir()
-_patch_tau2_defaults()
-_patch_tool_call_args_resilience()
-_patch_nl_evaluator_resilience()
+try:
+    _patch_tau2_defaults()
+except Exception as _exc:  # noqa: BLE001
+    import sys as _sys
+    _sys.stderr.write(f"[sitecustomize] _patch_tau2_defaults failed: {_exc}\n")
+try:
+    _patch_tool_call_args_resilience()
+except Exception as _exc:  # noqa: BLE001
+    import sys as _sys
+    _sys.stderr.write(f"[sitecustomize] _patch_tool_call_args_resilience failed: {_exc}\n")
+try:
+    _patch_nl_evaluator_resilience()
+except Exception as _exc:  # noqa: BLE001
+    import sys as _sys
+    _sys.stderr.write(f"[sitecustomize] _patch_nl_evaluator_resilience failed: {_exc}\n")

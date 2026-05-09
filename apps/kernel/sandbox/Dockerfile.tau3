@@ -30,10 +30,9 @@
 #   --cap-drop=ALL
 #   --pids-limit
 #   --memory + --cpus
-#   --network=bridge with egress allowlist (api.anthropic.com,
-#                api.openai.com, 192.168.1.50:11434 for local Ollama)
-#                — tau2 needs network egress for cloud LLM calls,
-#                  unlike M5 which uses --network=none.
+#   --network=bridge (unrestricted egress — tau2 needs to reach cloud LLM
+#                endpoints; egress allowlist via iptables is deferred
+#                hardening, see docs/BENCHMARK_ARCHITECTURE.md § SandboxProfile)
 
 # tau2 declares `python_requires=">=3.12,<3.14"`; pin 3.12 for the
 # widest wheel coverage on its dep tree.

@@ -92,7 +92,7 @@ async def write_skill(
     # error in the same turn so it can retry with a fixed body.
     if fm.kind == "python":
         try:
-            compile(content, f"<skill:{skill_id}>", "exec")
+            compile(parsed.body, f"<skill:{skill_id}>", "exec")
         except SyntaxError as exc:
             raise SkillFormatError(
                 f"proposed Python skill {skill_id!r} has a SyntaxError "

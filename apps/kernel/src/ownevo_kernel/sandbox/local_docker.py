@@ -103,6 +103,8 @@ _KILL_GRACE_SECONDS = 5.0
 """How long we wait for a killed container to wind down before giving up
 on `proc.communicate()`."""
 
+_ALLOWED_NETWORKS = frozenset({"none", "bridge"})
+
 
 def _validate_extra_volumes(
     volumes: dict[str, str] | None,
@@ -182,6 +184,11 @@ class LocalDockerSandbox:
         OUTPUT chain is a future hardening; today's tradeoff is documented
         in `docs/BENCHMARK_ARCHITECTURE.md` § SandboxProfile.
         """
+        if network not in _ALLOWED_NETWORKS:
+            raise ValueError(
+                f"LocalDockerSandbox.network must be one of "
+                f"{sorted(_ALLOWED_NETWORKS)!r}; got {network!r}"
+            )
         self.image = image
         self.cpus = cpus
         self.pids_limit = pids_limit
