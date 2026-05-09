@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ownevo_kernel.eval_runner.ollama_native import (
+    DEFAULT_TIMEOUT_SECONDS,
     OllamaChatClient,
     OllamaResponse,
     _parse_ollama_response,
@@ -42,6 +43,10 @@ from ownevo_kernel.eval_runner.ollama_native import (
 )
 def test_is_ollama_url(url: str, expected: bool) -> None:
     assert is_ollama_url(url) == expected
+
+
+def test_default_timeout_is_generous() -> None:
+    assert DEFAULT_TIMEOUT_SECONDS >= 300.0
 
 
 def test_is_ollama_url_bad_input_returns_false() -> None:
@@ -244,6 +249,38 @@ async def test_client_no_tools_omits_tools_key() -> None:
         )
 
     assert "tools" not in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_client_custom_timeout_forwarded() -> None:
+    """OllamaChatClient(timeout=...) must reach httpx.AsyncClient."""
+    ollama_data = _make_ollama_tool_response()
+    mock_resp = _mock_httpx_response(ollama_data)
+
+    async def fake_post(url, *, json, headers):
+        return mock_resp
+
+    mock_http = AsyncMock()
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+    mock_http.post = fake_post
+
+    captured_kwargs: list[dict] = []
+    original_client = __import__("httpx").AsyncClient
+
+    def capturing_client(*args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return mock_http
+
+    client = OllamaChatClient("http://localhost:11434/v1", timeout=42.0)
+
+    with patch("ownevo_kernel.eval_runner.ollama_native.httpx.AsyncClient", side_effect=capturing_client):
+        await client.chat.completions.create(
+            model="qwen3:14b",
+            messages=[],
+        )
+
+    assert captured_kwargs[0]["timeout"] == 42.0
 
 
 @pytest.mark.asyncio

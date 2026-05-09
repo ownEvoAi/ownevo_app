@@ -140,9 +140,22 @@ def _parse_ollama_response(data: dict[str, Any]) -> OllamaResponse:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_TIMEOUT_SECONDS = 300.0
+"""Per-request httpx timeout for Ollama /api/chat calls.
+
+12 concurrent cases fire simultaneously against a single GPU; the last case
+queued must wait for ~11 earlier completions before it is served. At ~10s
+per case on qwen3:14b, the last queued request can take up to ~120s just
+waiting in the Ollama queue — then its own generation time on top. 300s
+gives comfortable headroom for long-prompt cases on slower models without
+being absurd.
+"""
+
+
 class _Completions:
-    def __init__(self, api_base: str) -> None:
+    def __init__(self, api_base: str, timeout: float) -> None:
         self._api_base = api_base
+        self._timeout = timeout
 
     async def create(
         self,
@@ -180,7 +193,7 @@ class _Completions:
         if options:
             payload["options"] = options
 
-        async with httpx.AsyncClient(timeout=120.0) as http:
+        async with httpx.AsyncClient(timeout=self._timeout) as http:
             resp = await http.post(
                 f"{self._api_base}/api/chat",
                 json=payload,
@@ -193,8 +206,8 @@ class _Completions:
 
 
 class _Chat:
-    def __init__(self, api_base: str) -> None:
-        self.completions = _Completions(api_base)
+    def __init__(self, api_base: str, timeout: float) -> None:
+        self.completions = _Completions(api_base, timeout)
 
 
 class OllamaChatClient:
@@ -208,12 +221,21 @@ class OllamaChatClient:
     - Passes `options.think = false` for qwen3-family models, which is
       reliably honoured by /api/chat regardless of the Ollama build's
       Modelfile template (see F14h-hang, docs/local-model-testing.md).
+
+    Args:
+        base_url: Ollama URL (e.g. http://192.168.1.50:11434/v1 or
+            http://192.168.1.50:11434).  The /v1 suffix is stripped
+            automatically before appending /api/chat.
+        timeout: Per-request httpx timeout in seconds. Default 300s —
+            generous enough for 12 concurrent cases queued on a single
+            GPU (each must wait for all preceding requests to complete
+            before the GPU starts on it).
     """
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._base_url = base_url
         api_base = _ollama_api_base(base_url)
-        self.chat = _Chat(api_base)
+        self.chat = _Chat(api_base, timeout)
 
 
 __all__ = [
