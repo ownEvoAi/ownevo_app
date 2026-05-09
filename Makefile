@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -25,6 +25,7 @@ help:
 	@printf '  web-build           production build of the Next.js app (W2.5)\n'
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
 	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
+	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
@@ -173,6 +174,14 @@ LOOP_ARGS ?=
 
 seed-m5-baseline:
 	cd apps/kernel && uv run python scripts/seed_m5_baseline.py
+
+# τ³-retail bootstrap seed (P1.5 / M5). Idempotent — safe to re-run.
+# Registers the tau3-retail-v1 workflow + tau3.retail.baseline.v1.agent
+# skill + 40 retail-test eval cases. Each tau-bench task ID becomes one
+# eval_case row so the gate's regression check has something to lock.
+TAU3_REGISTER_ARGS ?=
+tau3-register:
+	cd apps/kernel && uv run python scripts/tau3_register.py $(TAU3_REGISTER_ARGS)
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)
