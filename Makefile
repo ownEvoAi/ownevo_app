@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -26,6 +26,7 @@ help:
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
 	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
 	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
+	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
@@ -182,6 +183,14 @@ seed-m5-baseline:
 TAU3_REGISTER_ARGS ?=
 tau3-register:
 	cd apps/kernel && uv run python scripts/tau3_register.py $(TAU3_REGISTER_ARGS)
+
+# τ³-retail Day-1 baseline run (P1.5 / M6). Sandboxed; uses
+# Sonnet 4.6 + Haiku by default. Writes one iterations row at gate-pass
+# unless TAU3_BASELINE_ARGS includes --no-db. Validates the kernel
+# migration matched P1's auto-harness baseline within ±5pp.
+TAU3_BASELINE_ARGS ?=
+tau3-baseline:
+	cd apps/kernel && uv run python scripts/tau3_baseline.py $(TAU3_BASELINE_ARGS)
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)
