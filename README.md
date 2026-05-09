@@ -49,7 +49,9 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 
 ## Status
 
-**W7 Track 1 complete (workspace customer skin) — pending merge.** The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, watch the audit chain extend. Track 3 (τ³-bench template + NeoSigma reproduction) is the only open W7 thread.
+**W7 Track 1 complete (workspace customer skin) — pending merge.** The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, watch the audit chain extend.
+
+**W7 Track 3 — τ³-bench retail kernel migration + first autonomous lift (in flight on `feat/tau3-local-bench`).** P1.5 kernel migration done (M1–M10): `SandboxedTauBenchRunner`, `tau3-retail-v1` workflow + 40-task retail test fold seeded, `failure_analyzer.py` parses tau2 traces, `run_tau3_loop.py` drives one improvement-loop iteration end-to-end. P2 batch-1 (Sonnet 4.6 as loop agent, autonomous) produced **val_score 0.85 → 0.95 (+10pp absolute / +11.8% relative)** at iter 11 on a prompt-only change in skill v38. Per-task trace persistence shipped mid-batch so future failures can be re-analyzed without re-running. Local-loop-agent variant (qwen/qwen3.6-35b-a3b on LMS) reproduces the 0.85 baseline twice across multi-cycle runs — preliminary evidence that a free 35B model can drive the loop. NeoSigma reproduction (full benchmarks doc + Pass³ stretch) is the remaining Track 3 work.
 
 - **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
 - **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
@@ -60,7 +62,7 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 - **W6 NL-gen end-to-end demo loop** (row 6.1): demo-day NL-gen surface live at `/workflows/preview` with the meta-eval gate inline.
 - **W7 Track 1 customer-facing workspace skin** (slices 1-12, pending merge on `w7-track1-rest`): app shell + nav under `/workspaces/[wsId]/`, Health page with LiftChart, Failures view, Audit trail + verify-chain, "New workflow" entry, three positioning mocks (labour / contract / support); plus slices 7-12 — proposal moved into the workspace shell with cluster→proposal click-through, per-trace step inspection (all seven AgentEvent variants), per-skill detail (prompt + code variants), Workflow Agent-anatomy pane, and the `make revert-skill` demo rollback runbook.
 
-Next: W7 Track 3 (τ³-bench template + NeoSigma reproduction) and W8 polish.
+Next: W7 Track 3 closeout (NeoSigma reproduction → Pass³ → benchmarks doc) and W8 polish.
 
 ## A4.4 NL-gen smoketest — model comparison (2026-05-05)
 

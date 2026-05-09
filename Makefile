@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -19,11 +19,16 @@ help:
 	@printf '                      OWNEVO_DATABASE_URL is set\n'
 	@printf '  m5-baseline-no-db   same, but skip DB writes even when the URL is set\n'
 	@printf '  sandbox-image-m5    build the M5 sandbox Docker image (W2.6 #11c)\n'
+	@printf '  sandbox-image-tau3  build the τ³ sandbox Docker image (P1.5 / M2a)\n'
 	@printf '  api                 run the kernel REST API (uvicorn) on :8000 (W2.5)\n'
 	@printf '  web-dev             run the Next.js dev server on :3000 (W2.5)\n'
 	@printf '  web-build           production build of the Next.js app (W2.5)\n'
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
 	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
+	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
+	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
+	@printf '  tau3-ingest         backfill iterations from tau2 results.json files; --no-db for dry-run (P1.5/M8)\n'
+	@printf '  tau3-loop           one improvement-loop iteration on τ³-retail (loop agent + gate) (P1.5/M9)\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
@@ -111,6 +116,17 @@ sandbox-image-m5:
 	    -t $(M5_SANDBOX_IMAGE) \
 	    .
 
+# τ³-bench sandbox image — P1.5 / M2a. Bakes tau2 + LiteLLM + the
+# kernel into a python:3.12-slim base. tau2 is pinned to the same
+# git rev NeoSigma's auto-harness uses for prior-art parity.
+TAU3_SANDBOX_IMAGE ?= ownevo-sandbox-tau3:0.1.0
+
+sandbox-image-tau3:
+	docker build \
+	    -f apps/kernel/sandbox/Dockerfile.tau3 \
+	    -t $(TAU3_SANDBOX_IMAGE) \
+	    .
+
 # ----------------------------------------------------------------------------
 # Approval REST API + web scaffold (W2.5)
 # ----------------------------------------------------------------------------
@@ -164,6 +180,38 @@ LOOP_ARGS ?=
 
 seed-m5-baseline:
 	cd apps/kernel && uv run python scripts/seed_m5_baseline.py
+
+# τ³-retail bootstrap seed (P1.5 / M5). Idempotent — safe to re-run.
+# Registers the tau3-retail-v1 workflow + tau3.retail.baseline.v1.agent
+# skill + 40 retail-test eval cases. Each tau-bench task ID becomes one
+# eval_case row so the gate's regression check has something to lock.
+TAU3_REGISTER_ARGS ?=
+tau3-register:
+	cd apps/kernel && uv run python scripts/tau3_register.py $(TAU3_REGISTER_ARGS)
+
+# τ³-retail Day-1 baseline run (P1.5 / M6). Sandboxed; uses
+# Sonnet 4.6 + Haiku by default. Writes one iterations row at gate-pass
+# unless TAU3_BASELINE_ARGS includes --no-db. Validates the kernel
+# migration matched P1's auto-harness baseline within ±5pp.
+TAU3_BASELINE_ARGS ?=
+tau3-baseline:
+	cd apps/kernel && uv run python scripts/tau3_baseline.py $(TAU3_BASELINE_ARGS)
+
+# τ³ trace-dir ingest (P1.5 / M8). Backfill helper — read tau2 results.json
+# files into the iterations table without re-running tau2. Pass paths via
+# TAU3_INGEST_ARGS or use the script directly with --results <paths>.
+TAU3_INGEST_ARGS ?=
+tau3-ingest:
+	cd apps/kernel && uv run python scripts/tau3_ingest.py $(TAU3_INGEST_ARGS)
+
+# τ³ improvement loop, one iteration (P1.5 / M9). Mirrors m5-bootstrap-loop's
+# shape but for the τ³-retail workflow. Loop agent is qwen3-coder:30b on
+# Ollama by default (free, TODO-19 validated lift driver); task agent is
+# cloud Sonnet 4.6 by default (Day-1 baseline = 0.8000). Override either
+# via TAU3_LOOP_ARGS.
+TAU3_LOOP_ARGS ?=
+tau3-loop:
+	cd apps/kernel && uv run --extra agent python scripts/run_tau3_loop.py $(TAU3_LOOP_ARGS)
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)

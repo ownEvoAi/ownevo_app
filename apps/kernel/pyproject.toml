@@ -56,6 +56,15 @@ clustering = [
     "umap-learn>=0.5,<0.6",
     "hdbscan>=0.8.33,<0.9",
 ]
+# Note: τ³-bench (Sierra tau2-bench) is NOT exposed as a kernel extra.
+# Same pattern as `baselines-m5`: deps live in the sandbox image
+# (`apps/kernel/sandbox/Dockerfile.tau3`), not in the host install.
+# `SandboxedTauBenchRunner` marshals fold args via stdin/stdout, so
+# kernel-side code doesn't import tau2 directly. Reasons:
+#   - tau2 requires Python 3.12-3.13; kernel is 3.11+
+#   - tau2 → litellm → openai==2.x conflicts with the [agent] extra's <2 cap
+# Both addressable inside the sandbox image where Python and dep
+# versions are pinned.
 
 [tool.uv.sources]
 ownevo-trace-format = { workspace = true }

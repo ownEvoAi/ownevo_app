@@ -243,6 +243,38 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — closes Phase 2 validation gate; feeds W8.1.2 `m5-results-2026-Q3.md`.
 - **Depends on:** PR #64 merged (for full W6 surface area).
 
+### TODO-31: τ³ schema — `skills.head_version_id` should track best-gate-pass, not latest write
+
+- **What:** `register_skill` (called by the agent's `write_skill` tool) advances `skills.head_version_id` *before* the gate runs. So after a NO_IMPROVEMENT or SANDBOX_ERROR cycle, HEAD points at the rejected proposal, not at the last gate-passing version. By end of τ³ P2 batch 1, HEAD pointed at v54 (failed) instead of v38 (the val_score=0.95 winner). Two fix shapes:
+  - **(a) `skills.head_version_id` follows the best gate-pass** — the gate runner moves head only on `gate-pass`. Add a separate `latest_proposed_version_id` column for "agent's most recent write" if the proposer needs to read its own last attempt. Cleanest model.
+  - **(b) Leave HEAD as "latest write," add `best_pass_version_id`** — minimal migration, but every consumer that wants "the actual current best skill" must remember to use the new column. Foot-gun.
+- **Why:** Anyone restoring from a snapshot via `skills.head_version_id` (e.g., the τ³ batch-1 README's restore path) gets the *failed* skill back, not the winner. The trustworthy lineage is `iterations.proposed_skill_version_id WHERE state = 'gate-pass' ORDER BY val_score DESC` — fine for queries, brittle for symbolic restoration. Same pattern blocks any "deploy current best" UI button from being safe.
+- **Pros / Cons:** (a) is the right architecture but touches every caller of `get_head` plus `register_skill`'s contract. (b) is one column add + a query everywhere we want "best." Audit chain is unaffected either way.
+- **Context:** `apps/kernel/src/ownevo_kernel/skills/registry.py:register_skill`, `apps/kernel/src/ownevo_kernel/gate/persistence.py:persist_gate_run`. Surfaced 2026-05-09 in τ³ P2 batch-1 postmortem (`/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/README.md` § Schema note).
+- **Effort:** S (CC ~2-3 hr for option a; ~30 min for option b).
+- **Priority:** P2 — surfaces in restore + "show me the best skill" surfaces; doesn't affect val_score correctness.
+- **Depends on:** none.
+
+### TODO-32: τ³ Pass³ stretch — re-run skill v38 three times for reliability number
+
+- **What:** Re-run the τ³ retail gate against the v38 winning skill (val_score=0.95) **three times** under fresh task-level seeds and report the Pass³ score (fraction of tasks that pass all 3 trials). Update `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` (when written, see P4 in `docs/TAU3_LOCAL_TESTPLAN.md`) with both peak val_score and Pass³.
+- **Why:** Claw-Eval (PKU/HKU 2026-04) found Pass³ vs Pass@3 gap = 24pp under perturbation — single-trial mean reward overstates reliability for any LLM-driven task agent. The 0.95 peak from iter 11 is one trial; we don't know if it's a brittle one-shot or a stable substrate. The τ³ test plan calls for this as a P4 stretch metric.
+- **Pros / Cons:** ~3× cost of one cycle (~$30-50, ~30 min wall) and produces the number that survives adversarial review. Requires the trace-persistence fix shipped in commit `daef4c2` to be in effect — without it, post-hoc per-task pass/fail comparison across the 3 runs is impossible.
+- **Context:** `docs/TAU3_LOCAL_TESTPLAN.md` § Recent learnings from papers (Claw-Eval row); skill v38 in `/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/winning_skill_v38_iter11_val095.py`.
+- **Effort:** XS (CC ~30 min — kick off three gate cycles via `tau3_baseline.py --skill-override-dir ...`).
+- **Priority:** P2 — required for P4 results doc credibility.
+- **Depends on:** trace persistence (✅ shipped 2026-05-09 commit `daef4c2`).
+
+### TODO-33: τ³ task 33 + 49 failure analysis — what's left at val_score=0.95
+
+- **What:** Use `scripts/tau3_inspect_task.py` (shipped 2026-05-09 in commit `daef4c2`) to inspect the per-task traces for tasks 33 and 49, the only two retail-test failures at val_score=0.95 (skill v38, iter 11 — see backup snapshot). Determine whether each is (a) a domain edge case the prompt rules can target, (b) a tau2 evaluator quirk (DB-match wrong but agent answer correct), or (c) a persistent task that no prompt-only change will fix on Sonnet 4.6. Compare task 49 specifically against its baseline failure (also failed at val_score=0.85, iter 5).
+- **Why:** P2 has stalled at 0.95 across 19+ Sonnet cycles — strong saturation signal. Knowing *what's left* is the input that determines whether more iteration budget is worth spending (concrete failure modes to target) or whether 0.95 is the substrate ceiling. Also feeds the P4 results doc's "what the loop didn't fix" honesty section.
+- **Pros / Cons:** Free (DB query only, no new gate runs). Requires at least one fresh gate cycle on v38 to populate `traces` rows — pre-fix iters 0-19 have no per-task traces (data lost). So step 1 is "re-run v38 once" before inspecting.
+- **Context:** Failed-task computation: `set(RETAIL_TEST_TASK_IDS) - promotable_task_ids` from the iter 11 audit entry (already done — failures are 33, 49). Inspection: `uv run --extra agent python scripts/tau3_inspect_task.py --workflow-id tau3-retail-v1 --task-id 49 --iteration <new-v38-iter>`.
+- **Effort:** S (CC ~30-60 min: 1 fresh gate cycle to repopulate traces (~$3-5, ~12 min wall) + 30 min trace inspection + writeup).
+- **Priority:** P2 — directly informs whether P3 condition-C work targets concrete misses or punts on Sonnet's capability ceiling.
+- **Depends on:** trace persistence (✅ shipped). One re-run of v38 to populate traces.
+
 ### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction`
 
 - **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.
