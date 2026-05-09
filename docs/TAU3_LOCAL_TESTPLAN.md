@@ -875,25 +875,46 @@ iteration by `seed_tau3_retail`'s idempotent body-equality check.
 
 **Script:** `/tmp/tau3_p2_logs/run_local_sweep.sh`
 
-| Model | Provider | Format | Workflow ID | Status |
+### Sweep results — 6 models × 1 cycle each (2026-05-09)
+
+| Model | Provider | Drives loop? | Best result | Status |
 |---|---|---|---|---|
-| qwen3:32b | Ollama | openai | tau3-retail-v1__qwen3_32b | ☐ |
-| granite4.1:30b | Ollama | openai | tau3-retail-v1__granite4.1_30b | ☐ |
-| gemma4:26b | Ollama | openai | tau3-retail-v1__gemma4_26b | ☐ |
-| mistralai/devstral-small-2-2512 | LMS | openai | tau3-retail-v1__mistralai_devstral-small-2-2512 | ☐ |
-| mistralai/ministral-3-14b-reasoning | LMS | openai | tau3-retail-v1__mistralai_ministral-3-14b-reasoning | ☐ |
-| zai-org/glm-4.7-flash | LMS | openai | tau3-retail-v1__zai-org_glm-4.7-flash | ☐ |
+| **gemma4:26b** | Ollama | ✅ cleanly | val=0.85 (matches baseline, no regression) | only viable candidate from sweep |
+| qwen3:32b | Ollama | ✅ but skill broke | SANDBOX_ERROR (`reasoning_effort=""` hallucinated env var) | fixable with prompt nudge |
+| granite4.1:30b | Ollama | ✗ gave up | — | likely terminal (read skill, never wrote) |
+| mistralai/devstral-small-2-2512 | LMS | ✗ tool-error storm | — | TODO-21 closure stands (codegen quality) |
+| mistralai/ministral-3-14b-reasoning | LMS | ✗ tool-error storm | — | template incompat (chat-template strict alternation) |
+| zai-org/glm-4.7-flash | LMS | ✗ context too small | — | terminal (kickoff message exceeded model context) |
 
-Run:
+**Verdict:** only **gemma4:26b** drove the τ³ loop cleanly on the sweep. Multi-cycle
+follow-up is captured in the **qwen/qwen3.6-35b-a3b** result above (separate workflow
+on LMS, drove the loop and reproduced 0.85 across 2 PASSes — different model from the
+sweep's 6 but same pattern of evidence).
+
+### Pending / open local-model work
+
+| Item | Why not done in sweep | Notes |
+|---|---|---|
+| **gemma4:26b multi-cycle** | sweep = 1 cycle each; matched baseline but didn't try to lift | Run 5-10 cycles under `tau3-retail-v1__gemma4_26b` to test whether it can produce its own lift past 0.85 |
+| **qwen3:32b retry with nudge** | failed because it hallucinated `AGENT_REASONING_EFFORT` env var | One-line fix: add `Do NOT add or pass arbitrary env-var-driven kwargs to LiteLLM` to the loop kickoff prompt |
+| **qwen3-coder:30b on Ollama OpenAI** | not in sweep — was the original P2 plan but switched to Sonnet for confirmed lift first | Worth running now that v38 exists as a strong starting point — see if local model can do incremental work on top |
+| **Qwq:32b on Ollama** | not in sweep — explicit reasoning model, would route via `ollama_chat/` (proven path) | Strongest unexplored desktop candidate |
+| **gpt-oss:120b on Ollama** | not in sweep — large open-weight, untested for tau3 | Free, big, worth a single-cycle smoke |
+| **gemma4:26b building on v38** | future work | Strongest "cross-model collaboration" story — local gemma incrementally improves Sonnet-discovered v38 |
+
+Run command (single model, change `--llm-model` and `--workflow-id`):
 ```bash
-# Foreground
-/tmp/tau3_p2_logs/run_local_sweep.sh
-
-# Background
-nohup /tmp/tau3_p2_logs/run_local_sweep.sh > /tmp/tau3_p2_logs/sweep_nohup.log 2>&1 &
+PASS=$(docker inspect ownevo-postgres --format '{{range .Config.Env}}{{println .}}{{end}}' | grep POSTGRES_PASSWORD | cut -d= -f2)
+export OWNEVO_DATABASE_URL="postgresql://ownevo:${PASS}@localhost:5432/ownevo"
+uv run --extra agent python scripts/run_tau3_loop.py \
+  --workflow-id tau3-retail-v1__gemma4_26b \
+  --api-format openai \
+  --llm-base-url http://192.168.1.50:11434/v1 \
+  --llm-model gemma4:26b \
+  --task-concurrency 3 --task-timeout-seconds 2400
 ```
 
-Results land in `/tmp/tau3_p2_logs/sweep_results.tsv` (model / workflow_id / val_score per cycle).
+Results land in `/tmp/tau3_p2_logs/sweep_results.tsv` (sweep) or per-cycle log files (multi-cycle).
 
 ---
 
