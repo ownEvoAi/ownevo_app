@@ -17,6 +17,70 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (W7 Track 3 — τ³-bench retail kernel migration + first autonomous lift)
+
+Branch `feat/tau3-local-bench` (PR #77). Pulls Sierra's tau-bench retail
+domain into the kernel as a first-class benchmark, runs the autonomous
+improvement loop on the 40-task retail test fold, and produces the first
+gate-pass: **val_score 0.85 → 0.95 (+10pp absolute / +11.8% relative)** at
+iteration 11 on skill v38. The winning skill is a *prompt-only* change —
+no `HarnessState` fields, no `generate_next_message` override — three rules
+in `AGENT_INSTRUCTION` covering tool-error recovery, answering from context,
+and clean termination. Consistent with NLAH ("more structure can hurt when
+modules diverge from the evaluator's acceptance condition").
+
+- **P1.5 kernel migration (M1–M10):** new `apps/kernel/src/ownevo_kernel/benchmark/tau3/`
+  with `SandboxedTauBenchRunner` (mirror of `SandboxedM5BenchmarkRunner`),
+  `failure_analyzer.py` (Tau3FailureSnapshot from tau2 results.json),
+  `tau2_patches.py` shipped as sitecustomize.py inside
+  `ownevo-sandbox-tau3:0.1.0` (redirects tau2's hardcoded
+  `gpt-4.1-2025-04-14` NL-assertions / env-interface defaults to whatever
+  `AGENT_MODEL` the runner chose; resilience shims for `json.loads` empty
+  tool_call args + NL-evaluator markdown-fence wrapping). `LocalDockerSandbox`
+  gained `network=` ctor arg (default still `none` — M5 path unchanged) +
+  `extra_env` run() arg. `apps/kernel/baselines/tau3_retail_v1/agent.py`
+  carries the SKILL_FORMAT-wrapped HarnessAgent baseline.
+  `scripts/tau3_register.py` seeds the workflow + 40 retail-test eval cases
+  in one transaction. `scripts/tau3_baseline.py` and `scripts/run_tau3_loop.py`
+  drive Day-1 baseline and one improvement-loop iteration respectively.
+  `make tau3-register` / `tau3-baseline` / `tau3-loop` / `tau3-ingest`
+  Makefile targets.
+- **Per-task trace persistence (`daef4c2`):** the τ³ runner's container
+  tmpfs at `/tau2_data/simulations` was destroyed when each gate cycle's
+  container exited, so per-task tau2 conversations were lost forever. The
+  entrypoint now serializes each `Simulation` (full message history +
+  reward_info + termination_reason + info + duration) through stdout JSON.
+  The runner exposes `last_simulations`. `persist_gate_run` writes one
+  `traces` row per task per iteration linked to `iteration_id` +
+  `skill_version_id`. Other runners (M5) lack the attribute and skip
+  silently. New `scripts/tau3_inspect_task.py` lists / shows / compares
+  task traces across iterations to diagnose regressions without re-running.
+  Pre-fix iterations (0–19) have no per-task traces — that data is
+  permanently lost.
+- **Skill compile-check at write time (`51981f5`):** `write_skill` now
+  runs `compile()` on Python skill bodies before accepting the proposal,
+  raising `SkillFormatError` with the line number on `SyntaxError`.
+- **Gate-path resilience for tau2 (`0a1f1cf`, `a3748af`):** three
+  independent eval-path infra-error paths fixed by sitecustomize patches —
+  empty tool_call arguments coerced to `{}` (was deterministic 7/40
+  `JSONDecodeError`), NL-evaluator markdown-fence fallback (was 4/40
+  `JSONDecodeError`), and `@dataclass` import-time crash. Substrate-pre-fix
+  baseline 0.80 → post-fix 0.85 because 5 sims that previously crashed now
+  evaluate to real rewards.
+- **Loop driver scripts** in `apps/kernel/scripts/`:
+  `tau3_p2_sonnet_loop.sh` (Sonnet 4.6 cloud N-cycle, the canonical
+  P2 batch driver), `tau3_p2_local_loop.sh` (parameterized local model
+  under its own `tau3-retail-v1__<tag>` workflow), `tau3_p2_local_sweep.sh`
+  (6-model diagnostic sweep, sequential because all share one desktop GPU).
+- **Documentation:** `docs/TAU3_LOCAL_TESTPLAN.md` carries the full P2
+  batch-1 + batch-2 results, qwen3.6-35b-a3b multi-cycle, and the
+  6-model sweep. Three new TODOs (`TODOS.md` TODO-31 / TODO-32 / TODO-33)
+  cover the schema follow-up (`skills.head_version_id` should track
+  best-gate-pass not latest write), Pass³ stretch, and task-33+49 failure
+  analysis enabled by trace persistence. Backups at
+  `<repo>/backups/tau3_p2_*` (DB dump + iterations JSONL +
+  all 54 skill versions + winning v38 skill + per-cycle logs).
+
 ### Removed
 
 - **`docs/api/openapi.yaml`: two unimplemented stub endpoints removed.** `GET /api/skills/{id}/versions` and `POST /api/skills/{id}/revert` had no kernel route handlers (only `GET /{skill_id}` and `GET /workflows/{id}/skills` are registered). The `SkillVersion` component schema is also removed — it was only referenced by these stubs. `SkillVersionSummary` (used by `SkillDetailResponse.versions[]` and the web UI) is retained. Version history is returned inline by `GET /api/skills/{id}`; the demo rollback runbook remains at `docs/runbooks/demo-rollback.md`. Pre-existing drift; no behavior changes.

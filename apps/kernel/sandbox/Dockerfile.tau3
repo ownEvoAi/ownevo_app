@@ -1,0 +1,128 @@
+# τ³ sandbox image — P1.5 / M2a.
+#
+# Bakes tau2 (Sierra tau2-bench) + LiteLLM + the ownevo-kernel +
+# ownevo-trace-format packages into a hardened python:3.12-slim base.
+# The image is what `LocalDockerSandbox` runs when
+# `SandboxedTauBenchRunner` evaluates a candidate skill against the
+# tau-bench retail/airline/telecom test split.
+#
+# Same architectural pattern as Dockerfile.m5: kernel-side runner
+# stays free of tau2 (kernel pyproject doesn't carry the dep — see
+# the explanatory comment there), and the sandbox image is the only
+# place tau2 + its dep tree (litellm, openai>=2, etc.) is installed.
+# The runner marshals fold args via stdin/stdout JSON exactly like
+# `SandboxedM5BenchmarkRunner`.
+#
+# Build context = repo root. Build with the helper:
+#
+#     make sandbox-image-tau3
+#
+# which resolves to:
+#
+#     docker build \
+#       -f apps/kernel/sandbox/Dockerfile.tau3 \
+#       -t ownevo-sandbox-tau3:0.1.0 \
+#       .
+#
+# Runtime hardening (applied by `LocalDockerSandbox` when running the
+# τ³ profile):
+#   --read-only rootfs + tmpfs /tmp
+#   --cap-drop=ALL
+#   --pids-limit
+#   --memory + --cpus
+#   --network=bridge (unrestricted egress — tau2 needs to reach cloud LLM
+#                endpoints; egress allowlist via iptables is deferred
+#                hardening, see docs/BENCHMARK_ARCHITECTURE.md § SandboxProfile)
+
+# tau2 declares `python_requires=">=3.12,<3.14"`; pin 3.12 for the
+# widest wheel coverage on its dep tree.
+FROM python:3.12-slim
+
+# 1. System packages.
+#    - git: tau2 is installed from a git rev (Sierra hasn't published a
+#           PyPI release at the rev the reference auto-harness pins).
+#    - libpq5: optional, lets the audit-export tooling reach Postgres
+#              from inside the sandbox if a future τ³ run wants to write
+#              traces back via the kernel API. Not used in the baseline
+#              flow but cheap to bake in.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. tau2 + LiteLLM. Pinned to the same git rev the reference auto-harness
+#    uses — gives us a known-good corpus for prior-art comparisons,
+#    and removes the moving-target risk of upstream tau2 churn before
+#    we have a CI signal.
+RUN pip install --no-cache-dir --no-compile \
+        "tau2 @ git+https://github.com/sierra-research/tau2-bench.git@73dc24445d28762075e69465d966aee4a9dcbfcb" \
+    && rm -rf /root/.cache
+
+# 3. ownEvo packages. Trace-format first (kernel dep), kernel second.
+#    Same `--no-deps` pattern as Dockerfile.m5 to avoid pip clobbering
+#    tau2's pinned dep tree.
+WORKDIR /opt/ownevo
+COPY packages/trace-format /opt/ownevo/packages/trace-format
+COPY apps/kernel/pyproject.toml /opt/ownevo/apps/kernel/pyproject.toml
+COPY apps/kernel/src /opt/ownevo/apps/kernel/src
+COPY apps/kernel/baselines /opt/ownevo/apps/kernel/baselines
+COPY apps/kernel/README.md /opt/ownevo/apps/kernel/README.md
+
+RUN pip install --no-cache-dir --no-compile --no-deps \
+        /opt/ownevo/packages/trace-format \
+        /opt/ownevo/apps/kernel \
+    && rm -rf /root/.cache
+
+# Kernel deps the `--no-deps` install above skipped. asyncpg unused
+# inside the sandbox (kernel API client lives outside).
+RUN pip install --no-cache-dir --no-compile \
+        "pydantic>=2.7,<3" \
+        "pyyaml>=6" \
+    && rm -rf /root/.cache
+
+# 4. Bundle the tau2 dataset (retail/airline/telecom task definitions,
+#    DBs, policies). tau2 reads TAU2_DATA_DIR at import time. The
+#    repo source ships these under `data/` at the tau2-bench git root;
+#    the pip install does NOT include them. We fetch + bake at build
+#    time so the runtime container is self-contained — no host volume
+#    mount needed for the dataset.
+#
+#    Pinned to the same rev as the tau2 install above so task IDs
+#    line up with what the live `tau2.registry` reports.
+RUN git clone --depth 1 \
+        --branch main \
+        https://github.com/sierra-research/tau2-bench.git \
+        /tmp/tau2-src \
+    && cd /tmp/tau2-src \
+    && git fetch --depth 1 origin 73dc24445d28762075e69465d966aee4a9dcbfcb \
+    && git checkout 73dc24445d28762075e69465d966aee4a9dcbfcb \
+    && mv /tmp/tau2-src/data /tau2_data \
+    && rm -rf /tmp/tau2-src \
+    # tau2.run.run_domain writes per-run results.json under
+    # DATA_DIR/simulations/<run_name>/. The sandbox rootfs is mounted
+    # `--read-only` at runtime, so symlink that subdir into /tmp (tmpfs,
+    # writable). sitecustomize.py creates /tmp/tau3_sims at every
+    # Python startup so tau2's mkdir works.
+    && rm -rf /tau2_data/simulations \
+    && ln -sf /tmp/tau3_sims /tau2_data/simulations
+ENV TAU2_DATA_DIR=/tau2_data
+
+# 5. Make `baselines.tau3_*` importable the same way M5 does.
+ENV PYTHONPATH=/opt/ownevo/apps/kernel
+
+# 6. Apply the tau2 monkey-patches (NL_ASSERTIONS + ENV_INTERFACE) at
+#    every python invocation via sitecustomize.py. PYTHONSTARTUP only
+#    fires for interactive sessions, so we use the site-packages hook
+#    that runs for `python -c`, `python -m`, and `python script.py`
+#    alike. The patches redirect tau2's hardcoded gpt-4.1-2025-04-14
+#    defaults to whichever model the runner specifies via
+#    AGENT_MODEL — see `tau2_patches.py` for details.
+COPY apps/kernel/sandbox/tau2_patches.py /usr/local/lib/python3.12/site-packages/sitecustomize.py
+
+# 7. Determinism + perf nudges.
+ENV PYTHONHASHSEED=0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# No CMD/ENTRYPOINT — the sandbox provides the runner script at runtime.

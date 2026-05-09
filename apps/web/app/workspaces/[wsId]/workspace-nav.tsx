@@ -101,6 +101,15 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
         <span className="nav-label">Customer support</span>
       </a>
       <a
+        href={`${root}/workflows/tau3-retail-v1`}
+        className={cls(`${root}/workflows/tau3-retail-v1`)}
+      >
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
+        </svg>
+        <span className="nav-label">τ³-bench retail</span>
+      </a>
+      <a
         href={`${root}/workflows/new`}
         className={cls(`${root}/workflows/new`)}
         style={isActive(`${root}/workflows/new`) ? undefined : { color: 'var(--text-muted)' }}

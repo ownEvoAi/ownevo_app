@@ -343,6 +343,20 @@ def test_extra_volumes_validation_no_docker(tmp_path):
         _validate_extra_volumes({str(tmp_path): "/data", str(other): "/data"})
 
 
+def test_network_allowlist_rejects_unknown_value_no_docker():
+    """LocalDockerSandbox.__init__ must reject any network value not in
+    {'none', 'bridge'} before a docker run is attempted. Typos like 'bridg'
+    or 'host' (which would give unrestricted host-network access) must fail
+    at construction, not silently at container start."""
+    with pytest.raises(ValueError, match="network must be one of"):
+        LocalDockerSandbox(network="bridg")
+    with pytest.raises(ValueError, match="network must be one of"):
+        LocalDockerSandbox(network="host")
+    # Valid values must not raise.
+    LocalDockerSandbox(network="none")
+    LocalDockerSandbox(network="bridge")
+
+
 def test_sandbox_result_invariants_match_tool_call_result():
     """Defensive: SandboxResult mirrors the AgentEvent.ToolCallResult
     error-field invariants so a caller can pass them straight through."""
