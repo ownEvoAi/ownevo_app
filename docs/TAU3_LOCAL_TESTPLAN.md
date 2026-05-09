@@ -48,7 +48,7 @@ running locally for free**.
 | **Sanity-C — Cloud task agent** | Verify Sonnet 4.6 + Haiku user sim works end-to-end | ✅ done — 3/3 PASS | $0.67 |
 | **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks) → **val_score_A = 0.8500** (patched substrate; orig auto-harness 0.80 superseded) | ✅ done | $9.27 + ~$9, 16 min each |
 | **P1.5 — Kernel migration** | Pull tau2 into `apps/kernel`, build native `TauBenchRunner` (`BenchmarkRunner` Protocol), register tau3-retail-v1 workflow + skill, ingest failure clusters, retire auto-harness dependency. M1-M10 substeps. | ✅ done | ~1 day CC actual (much faster than estimated 3-5 days due to existing M5 substrate) |
-| **P2 — Condition B autonomous loop** | Sonnet 4.6 as loop agent (cloud); edits `tau3.retail.baseline.v1.agent`; gates on 40-task retail test split; **target 15-20 iterations** | 🔄 in-progress (2026-05-09) | ~$45-90, ~5-10 hr |
+| **P2 — Condition B autonomous loop** | Sonnet 4.6 as loop agent (cloud); edits `tau3.retail.baseline.v1.agent`; gates on 40-task retail test split | ✅ batch 1 done (2026-05-09): val=0.9500 (+10pp lift over 0.85 baseline, prompt-only change in skill v38) | ~$50-80 actual; 14 cycles total |
 | **P3 — Condition C gated loop** | Same loop, ownEvo LLM-judge approval gate engaged; ≥5 human re-approvals | ☐ | ~$45-90, ~5-10 hr |
 | **P4 — Results doc + Pass³ stretch** | Write `tau3-results-2026-Q3.md` with three-condition table + audit chain export; **Pass³ stretch:** re-run condition C top-N tasks 3× | ☐ | XS-S |
 
@@ -742,16 +742,56 @@ Check status:
 tail -20 /tmp/tau3_p2_logs/sonnet_p2_master.log
 ```
 
-### Results (update as cycles complete)
+### Results — batch 1 complete (2026-05-09)
 
-| Cycle | val_score | decision | best_ever | notes |
-|---|---|---|---|---|
-| anchor (iter 5) | 0.8500 | — | 0.8500 | manual re-anchor; qwen3.6 0.075 cleared |
-| 1 | (pending) | | | |
-| 2 | | | | |
-| 3 | | | | |
-| 4 | | | | |
-| 5 | | | | |
+| Iter | Cycle | val_score | decision | best_ever | notes |
+|---|---|---|---|---|---|
+| 5 | anchor | 0.8500 | gate-pass | 0.8500 | manual re-anchor (baseline) |
+| 6 | b0/1 | 0.7000 | NO_IMPROVEMENT | 0.8500 | partial batch-0 run |
+| 7 | b0/2 | 0.8000 | NO_IMPROVEMENT | 0.8500 | partial batch-0 run |
+| 8 | b0/3 | 0.8250 | NO_IMPROVEMENT | 0.8500 | partial batch-0 run |
+| 9 | b0/4 | 0.8250 | NO_IMPROVEMENT | 0.8500 | partial batch-0 run |
+| 10 | b1/1 | — | SANDBOX_ERROR | 0.8500 | v36 dedup tracker accessed `tc.function.name` (OpenAI shape, wrong) |
+| **11** | **b1/2** | **0.9500** | **PASS** ⭐ | **0.9500** | **v38 — minimal prompt-only change** |
+| 12 | b1/3 | 0.7000 | NO_IMPROVEMENT | 0.9500 | v40 structured tool-use rules |
+| 13 | b1/4 | 0.8750 | NO_IMPROVEMENT | 0.9500 | v42 retail-specific lookup-before-act |
+| 14 | b1/5 | 0.8250 | NO_IMPROVEMENT | 0.9500 | v44 tool_errors injection in HarnessState |
+| 15 | b1/6 | 0.8000 | NO_IMPROVEMENT | 0.9500 | v46 4 calibrated rules |
+| 16 | b1/7 | 0.8000 | NO_IMPROVEMENT | 0.9500 | v48 empty-response safety guard |
+| 17 | b1/8 | 0.9000 | NO_IMPROVEMENT | 0.9500 | v50 seen_tool_calls loop-breaker |
+| 18 | b1/9 | 0.8000 | NO_IMPROVEMENT | 0.9500 | v52 consecutive_tool_errors counter |
+| 19 | b1/10 | 0.7000 | NO_IMPROVEMENT | 0.9500 | v54 order-detail confirmation rule |
+
+**Headline: val_score 0.8500 → 0.9500 (+10pp absolute / +11.8% relative).** First
+gate-pass at iter 11. Snapshot at `/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/`.
+
+### What the winning skill (v38) actually did
+
+**Prompt-only change.** No `HarnessState` fields, no `generate_next_message`
+override, no helper methods. Three rules added to `AGENT_INSTRUCTION`:
+
+1. On tool error, read the message and retry with corrected arguments;
+   never repeat the same failing call.
+2. If you can answer from context, answer directly without tool calls.
+3. When the task is complete, give a clear final answer and stop.
+
+Every richer proposal Sonnet tried in cycles 3-10 (HarnessState extensions,
+empty-response guards, consecutive-error counters, structured tool-use rules)
+**scored below v38**. v36 broke outright. This matches NLAH's finding that
+"more structure can hurt when modules diverge from the evaluator's acceptance
+condition."
+
+### Open questions for batch 2
+
+1. **Loop saturation or local optimum?** 9 cycles after v38 explored the
+   space and none beat 0.95. A second 10-cycle batch tells us whether 0.95 is
+   a saturating ceiling or just a local optimum the agent hasn't escaped yet.
+2. **HEAD ≠ best-gate-pass quirk.** `skills.head_version_id` advances on every
+   `write_skill`, even when the gate rejects. By end of batch 1 HEAD pointed at
+   v54 (failed) instead of v38 (passed). Worth fixing in a follow-up; doesn't
+   affect val_score recorded in iterations.
+3. **Pass³ stretch.** Cycle 2 scored 0.95 once; need re-run × 3 to estimate
+   reliability per Claw-Eval's reliability-not-peak framing.
 
 **Exit gate:** `val_score_B > val_score_A = 0.8500`. If no lift after 5 cycles, inspect
 master log for pattern (loop agent proposal quality / skill write errors / sandbox errors)
