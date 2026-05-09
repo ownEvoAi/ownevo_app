@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -29,11 +29,13 @@ import httpx
 # URL detection
 # ---------------------------------------------------------------------------
 
+OLLAMA_DEFAULT_PORT: int = 11434
+
 
 def is_ollama_url(url: str) -> bool:
     """Return True when url points to an Ollama daemon (default port 11434)."""
     try:
-        return urlparse(url).port == 11434
+        return urlparse(url).port == OLLAMA_DEFAULT_PORT
     except Exception:
         return False
 
@@ -41,12 +43,15 @@ def is_ollama_url(url: str) -> bool:
 def _ollama_api_base(url: str) -> str:
     """Strip /v1 suffix from an Ollama OpenAI-compat URL to get the daemon base.
 
-    e.g. http://192.168.1.50:11434/v1 → http://192.168.1.50:11434
+    e.g. http://localhost:11434/v1 → http://localhost:11434
+
+    Only strips when /v1 is the complete path component. Paths like /openai/v1
+    or /api/v1 are left unchanged to avoid mangling reverse-proxy configurations.
     """
-    stripped = url.rstrip("/")
-    if stripped.endswith("/v1"):
-        stripped = stripped[:-3]
-    return stripped
+    parsed = urlparse(url.rstrip("/"))
+    if parsed.path == "/v1":
+        return urlunparse(parsed._replace(path=""))
+    return url.rstrip("/")
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +107,18 @@ class OllamaResponse:
 
 def _parse_ollama_response(data: dict[str, Any]) -> OllamaResponse:
     """Translate raw Ollama /api/chat JSON → OllamaResponse."""
+    # Ollama returns HTTP 200 with {"error": "..."} for model-not-found and OOM.
+    # raise_for_status() misses these; catch them explicitly before parsing.
+    if "error" in data:
+        raise RuntimeError(f"Ollama /api/chat error: {data['error']}")
+    # Streaming chunks have done=false. If stream=False is not honoured by the
+    # daemon, we'd silently parse an incomplete chunk as a full response.
+    if data.get("done") is False:
+        raise RuntimeError(
+            "Ollama returned an incomplete response (done=false); "
+            "the daemon may be ignoring stream=false or returned a streaming chunk."
+        )
+
     msg = data.get("message") or {}
     raw_tool_calls: list[dict[str, Any]] = msg.get("tool_calls") or []
     finish_reason: str = data.get("done_reason") or "stop"
@@ -111,8 +128,12 @@ def _parse_ollama_response(data: dict[str, Any]) -> OllamaResponse:
         fn = tc.get("function") or {}
         name: str = fn.get("name") or ""
         args: Any = fn.get("arguments") or {}
-        # Ollama returns arguments as a dict; OpenAI consumers expect JSON string
-        arguments_str = json.dumps(args) if isinstance(args, dict) else str(args)
+        # Ollama normally returns arguments as a dict; OpenAI consumers expect a
+        # JSON string. Some builds already serialize to a string — pass through.
+        if isinstance(args, str):
+            arguments_str = args
+        else:
+            arguments_str = json.dumps(args)
         tool_calls.append(
             _OllamaToolCall(
                 function=_OllamaToolFunction(name=name, arguments=arguments_str)
@@ -155,7 +176,12 @@ being absurd.
 class _Completions:
     def __init__(self, api_base: str, timeout: float) -> None:
         self._api_base = api_base
-        self._timeout = timeout
+        # Shared client across all create() calls — avoids a TCP handshake per
+        # request when 12 concurrent cases hit the same Ollama host.
+        self._http = httpx.AsyncClient(timeout=timeout)
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
 
     async def create(
         self,
@@ -163,7 +189,7 @@ class _Completions:
         model: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        tool_choice: str | dict | None = None,
+        tool_choice: str | dict | None = None,  # accepted for interface compat; Ollama /api/chat has no equivalent — not forwarded
         max_tokens: int | None = None,
         stream: bool = False,
         **_kwargs: Any,
@@ -193,14 +219,13 @@ class _Completions:
         if options:
             payload["options"] = options
 
-        async with httpx.AsyncClient(timeout=self._timeout) as http:
-            resp = await http.post(
-                f"{self._api_base}/api/chat",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            resp.raise_for_status()
-            data: dict[str, Any] = resp.json()
+        resp = await self._http.post(
+            f"{self._api_base}/api/chat",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+        data: dict[str, Any] = resp.json()
 
         return _parse_ollama_response(data)
 
@@ -208,6 +233,9 @@ class _Completions:
 class _Chat:
     def __init__(self, api_base: str, timeout: float) -> None:
         self.completions = _Completions(api_base, timeout)
+
+    async def aclose(self) -> None:
+        await self.completions.aclose()
 
 
 class OllamaChatClient:
@@ -223,8 +251,8 @@ class OllamaChatClient:
       Modelfile template (see F14h-hang, docs/local-model-testing.md).
 
     Args:
-        base_url: Ollama URL (e.g. http://192.168.1.50:11434/v1 or
-            http://192.168.1.50:11434).  The /v1 suffix is stripped
+        base_url: Ollama URL (e.g. http://localhost:11434/v1 or
+            http://localhost:11434).  The /v1 suffix is stripped
             automatically before appending /api/chat.
         timeout: Per-request httpx timeout in seconds. Default 300s —
             generous enough for 12 concurrent cases queued on a single
@@ -233,9 +261,19 @@ class OllamaChatClient:
     """
 
     def __init__(self, base_url: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
-        self._base_url = base_url
         api_base = _ollama_api_base(base_url)
         self.chat = _Chat(api_base, timeout)
+
+    async def aclose(self) -> None:
+        """Close the underlying httpx connection pool."""
+        await self.chat.aclose()
+
+    async def __aenter__(self) -> "OllamaChatClient":
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        await self.aclose()
+
 
 
 __all__ = [
