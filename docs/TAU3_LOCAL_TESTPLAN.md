@@ -768,12 +768,14 @@ gate-pass at iter 11. Snapshot at `/Users/jit/code/ownevo/backups/tau3_p2_batch1
 ### What the winning skill (v38) actually did
 
 **Prompt-only change.** No `HarnessState` fields, no `generate_next_message`
-override, no helper methods. Three rules added to `AGENT_INSTRUCTION`:
+override, no helper methods. The full `AGENT_INSTRUCTION` body, verbatim:
 
-1. On tool error, read the message and retry with corrected arguments;
-   never repeat the same failing call.
-2. If you can answer from context, answer directly without tool calls.
-3. When the task is complete, give a clear final answer and stop.
+> You are a helpful retail customer-service assistant. Complete every task by following the <policy> provided below.
+>
+> Key operating rules:
+> - If a tool call returns an error, read the error message carefully and retry with corrected arguments (fix the specific parameter that was wrong). Do not repeat the exact same call.
+> - If you already have the information needed to answer, respond directly without calling any tools.
+> - When the task is complete, provide a clear final answer to the user and stop.
 
 Every richer proposal Sonnet tried in cycles 3-10 (HarnessState extensions,
 empty-response guards, consecutive-error counters, structured tool-use rules)
