@@ -54,28 +54,34 @@ the full per-step narrative; this file keeps the load-bearing findings.
 | `ownevo_30day_v4` | Same, PR #67 compaction (no cap) | A,C,D | 15+12 | Compaction works (zero context errors). All 27 proposals fail with `M5SandboxError`: F6 binding constraint exposed. |
 | `ownevo_30day_v5` | **Ollama OpenAI** qwen3-coder:30b | A,C | killed at 7 iters | F6 / `M5SandboxError` 7/7 even on Ollama OpenAI; Stage D's +14.9% lift looks like a lucky outlier rather than reproducible. F6 is a qwen3-coder property, not an LMS-Anthropic-transport property. |
 | `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓ (machine restarted post-completion)** | **Hero artifact (v1 baseline).** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 90 paid iters). |
-| `ownevo_30day_v7_on_v2` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓** | **Diagnostic artifact (v2 baseline, via PR #74's `--skill-version v2`).** C: 2 gate-passes, best_ever 0.4242 (+0.50% over v2 baseline); D: 4 gate-passes (all judge-rejected), best_ever 0.4247 (+0.62% over v2, **WRMSSE 1.0189** measured on full test fold = -0.47% reduction vs v2's 1.0237). 26/30 sandbox-error rate in C, 25/30 in D — agent's proposals on top of an already-tuned baseline crash much more often. **The lift collapsed by ~37× when the baseline already had textbook ML upgrades.** |
+| `ownevo_30day_v7_on_v2` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓** | **Diagnostic artifact (v2 baseline, via PR #74's `--skill-version v2`).** C: 2 gate-passes, best_ever 0.4242 (+0.50% over v2 baseline); D: 4 gate-passes (all judge-rejected), best_ever 0.4247 (+0.62% over v2, **WRMSSE 1.0189** measured on full test fold = -0.47% reduction vs v2's 1.0237). 26/30 sandbox-error rate in C, 25/30 in D — agent's proposals on top of an already-tuned baseline crash much more often. |
+| `ownevo_30day_v8_opus_on_v2` | **Opus 4.7 cloud** loop driver + Opus-4.7 judge | A,C,D | **C in flight at ~iter 2/30** (snapshot 2026-05-08 23:10) | **Updates the v6→v7 framing.** v8 C iter 2 hit val_score **0.4339** = **+2.79% over v2 baseline** — ~4.5× larger than Sonnet's best on the same baseline (v7's 0.4247 / +0.62%). Opus's diff was *cross-skill interaction reasoning*, not hyperparameter tuning: relax outlier_handler clip from p99 to p99.5 to preserve holiday/promo demand spikes that v2's calendar features (added in skill_v2) can now explain. Sonnet's v7 winner was a `num_leaves 128→255` tweak — pure tuning, no cross-skill reasoning. Cost so far ~$10-15; projected to completion ~$75-100. **In-flight; final numbers pending iter 30 completion.** |
 
-## Headline finding from v6 vs v7: the loop's lift mostly reproduces textbook ML
+## Headline finding (updated): the loop's lift on a tuned baseline is model-dependent
 
-Holding the model (Sonnet 4.6), judge (Opus 4.7), iter budget (30), and harness fixed and varying *only* the parent baseline:
+Holding the judge (Opus 4.7), iter budget (30), and harness fixed and varying both the parent baseline AND the loop driver:
 
-| Run | Parent baseline | Best ever val_score | Best ever WRMSSE | Lift on val_score | Lift on WRMSSE |
-|---|---|---|---|---|---|
-| v6 | skill_v1 (3 features, default LightGBM, regression loss) | 0.4077 | 1.0463 | **+23.2%** | **-19.5%** |
-| v7 | skill_v2 (Tweedie loss, ~14 features, tuned hyperparams — see PR #72) | 0.4247 | 1.0189 | **+0.62%** | **-0.47%** |
+| Run | Parent baseline | Loop driver | Best ever val_score | Best ever WRMSSE | Lift on val_score | Type of insight |
+|---|---|---|---|---|---|---|
+| v6 | skill_v1 (3 features, default LightGBM, regression loss) | Sonnet 4.6 | 0.4077 | 1.0463 | **+23.2%** | re-discovers textbook ML |
+| v7 | skill_v2 (Tweedie loss, 20 features, tuned hyperparams — PR #72) | Sonnet 4.6 | 0.4247 | 1.0189 | **+0.62%** | hyperparameter tuning only |
+| **v8 (in flight, snapshot iter 2/30)** | skill_v2 (same as v7) | **Opus 4.7** | **0.4339 so far** | TBD (in flight) | **+2.79% so far** | **cross-skill interaction reasoning (iter 2 winner)** |
 
-**Lift collapse: ~37× (val_score) / ~41× (WRMSSE) when the baseline already has the obvious wins.**
+The original v6→v7 collapse story (~37×) was a Sonnet-on-v2 finding, not a substrate-level finding. v8 (in flight) shows Opus on v2 already at +2.79% by iter 2, ~4.5× larger than Sonnet's best across all 30 iters. Opus's winning diff so far is interaction-aware: *"Relax outlier_handler clip from p99 to p99.5 to preserve holiday/promo demand spikes that v2's calendar features can now explain"* — reasoning across two skill files, not just tuning one. Sonnet's v7 winner was a lone `num_leaves 128→255` tweak in model_trainer.
 
-The v6 +23% lift was mostly the agent re-discovering Tweedie loss + lag panel + rolling features (skill_v2's ingredients). When those are already in place (v7), Sonnet finds only fine-tuning gains around the edges (the v7 winner was a hyperparameter diff: `num_leaves 128→255, min_data_in_leaf 100→50, +min_gain_to_split=0.01 +lambda_l1`). Sandbox-error rate also jumped from ~21/30 (v6) to ~25-26/30 (v7) — proposals that would have been winners on v1 crash on v2's stricter substrate.
+**What this implies for the YC pitch (updated three-tier framing):**
 
-**What this implies for the YC pitch:**
+- *Strong claim:* "On a weak baseline, Sonnet 4.6 autonomously recovers textbook ML." v6 +23% in 30 iters at ~$15-20.
+- *Stronger-than-expected claim (pending v8 completion):* "On a strong baseline, model intelligence still finds non-obvious lift through cross-skill reasoning." v8 +2.79% by iter 2 already exceeds anything Sonnet found across all 30 iters of v7.
+- *Honest claim:* "The lift Sonnet finds on tuned baselines is mostly hyperparameter tuning. Frontier intelligence (Opus) is where cross-skill reasoning kicks in." Costs more (~5× Sonnet pricing) but produces qualitatively different proposals.
+- *Defensive claim:* "On both weak and strong baselines, the gate stopped every regression." v6 + v7 + v8 (so far): zero false promotions across 122+ gate-relevant paid iters (v6 C+D = 60, v7 C+D = 60, v8 C = ~2+).
 
-- *Strong claim:* "The loop autonomously rediscovers textbook ML on a weak baseline." Real, measured, audit-logged. v6's +23% in 30 iters at ~$15-20.
-- *Honest claim:* "Beyond textbook ML, marginal gains require human-in-the-loop." v7 demonstrates the gate held (zero false promotions), the judge engaged (4/4 D rejections), and the loop *can* find +0.5% but slowly and with high crash rate. This motivates the approval UX rather than undermining it.
-- *Defensive claim:* "On both weak and strong baselines, the gate stopped every regression." v6 blocked dozens of below-best_ever proposals; v7 blocked 5 (after the 4 gate-passes); zero false promotions across 60 paid iters.
+The v6/v7/v8 set is the load-bearing data, and **v8 reverses what looked like a hard ceiling.** Pending v8 completion (~iter 30) the framing may need another revision; current snapshot is the strongest reading available 2026-05-08 23:10.
 
-The v6 → v7 contrast is the load-bearing data point: it's evidence that the loop has a real but bounded capability ceiling, not a magic-everywhere claim.
+### Sonnet's v7 winner vs Opus's v8 (so far) winner — the qualitative contrast
+
+- **Sonnet v7 best** (D iter 6 → 0.4247): `num_leaves 128→255, min_data_in_leaf 100→50, +min_gain_to_split=0.01 +lambda_l1`. Single-file diff in `model_trainer.py`. Pure hyperparameter tuning.
+- **Opus v8 best so far** (C iter 2 → 0.4339): `outlier_handler.py` clip relaxed from p99 to p99.5, with explicit reasoning about how v2's calendar features (added in `feature_engineer.py`) make the additional outliers learnable rather than noise. Single-file diff but informed by reading two files and reasoning about their interaction. *Caveat: this is a single iter-2 winning diff; whether cross-skill reasoning is Opus's general mode requires iter 30 to confirm.*
 
 ## Operational gotchas (would have saved hours)
 
