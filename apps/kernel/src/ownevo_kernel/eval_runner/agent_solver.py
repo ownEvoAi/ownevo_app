@@ -520,10 +520,14 @@ async def predict_one(
 ) -> AgentPrediction:
     """Run one agent prediction for one case.
 
-    When `openai_client` is provided the call goes through the OpenAI
-    `/v1/chat/completions` path (Ollama / LM Studio direct) instead of
-    the Anthropic `/v1/messages` path. Tool definitions and response
-    parsing are converted automatically; all other logic is identical.
+    When `openai_client` is provided the call goes through its
+    `chat.completions.create()` interface instead of Anthropic's
+    `/v1/messages`. Pass `AsyncOpenAI` for LM Studio / vLLM, or
+    `OllamaChatClient` (from eval_runner.ollama_native) for Ollama
+    daemons — the latter routes to /api/chat with options.think=false
+    for qwen3-family models (see TODO-25, F14h-hang). Tool definitions
+    and response parsing are converted automatically; all other logic
+    is identical.
 
     Args:
         client: AsyncAnthropic client (used when openai_client is None).
