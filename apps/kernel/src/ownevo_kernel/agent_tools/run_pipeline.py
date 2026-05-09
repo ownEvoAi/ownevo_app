@@ -63,6 +63,7 @@ async def run_pipeline(
     memory_mb: int = 512,
     task_timeout_seconds: float | None = None,
     extra_volumes: dict[str, str] | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> PipelineResult:
     """Execute `skill_content` in the sandbox with `input_data` injected
     as a Python global. Returns parsed stdout as `outputs`.
@@ -76,6 +77,11 @@ async def run_pipeline(
     `run_pipeline` should never set it; only kernel-internal benchmark
     runners (e.g., `SandboxedM5BenchmarkRunner` mounting the M5 catalog)
     do. See `LocalDockerSandbox.run` for the validation contract.
+
+    `extra_env` is the same shape: kernel-internal-only. The τ³ runner
+    uses it to pass `AGENT_MODEL` / `ANTHROPIC_API_KEY` /
+    `OLLAMA_API_BASE` to the sandbox so LiteLLM can route. M5 leaves it
+    None (no LLM calls inside the M5 sandbox).
     """
     try:
         payload = json.dumps(input_data if input_data is not None else {})
@@ -103,6 +109,7 @@ async def run_pipeline(
                 timeout_seconds=timeout_seconds,
                 memory_mb=memory_mb,
                 extra_volumes=extra_volumes,
+                extra_env=extra_env,
             ),
             timeout=task_timeout,
         )

@@ -99,7 +99,14 @@ RUN git clone --depth 1 \
     && git fetch --depth 1 origin 73dc24445d28762075e69465d966aee4a9dcbfcb \
     && git checkout 73dc24445d28762075e69465d966aee4a9dcbfcb \
     && mv /tmp/tau2-src/data /tau2_data \
-    && rm -rf /tmp/tau2-src
+    && rm -rf /tmp/tau2-src \
+    # tau2.run.run_domain writes per-run results.json under
+    # DATA_DIR/simulations/<run_name>/. The sandbox rootfs is mounted
+    # `--read-only` at runtime, so symlink that subdir into /tmp (tmpfs,
+    # writable). sitecustomize.py creates /tmp/tau3_sims at every
+    # Python startup so tau2's mkdir works.
+    && rm -rf /tau2_data/simulations \
+    && ln -sf /tmp/tau3_sims /tau2_data/simulations
 ENV TAU2_DATA_DIR=/tau2_data
 
 # 5. Make `baselines.tau3_*` importable the same way M5 does.

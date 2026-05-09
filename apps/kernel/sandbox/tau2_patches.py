@@ -31,6 +31,18 @@ without tau2 installed must not crash).
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+
+def _ensure_writable_simulations_dir() -> None:
+    """Create the tmpfs target the image-baked simulations symlink points at.
+
+    Dockerfile.tau3 symlinks /tau2_data/simulations → /tmp/tau3_sims so
+    that tau2's `run_domain` can write per-run results.json under a
+    --read-only rootfs. The /tmp/tau3_sims directory itself doesn't
+    exist at container start (tmpfs is fresh per run); we create it
+    before tau2 imports so the symlink resolves to a real dir."""
+    Path("/tmp/tau3_sims").mkdir(parents=True, exist_ok=True)
 
 
 def _patch_tau2_defaults() -> None:
@@ -58,4 +70,5 @@ def _patch_tau2_defaults() -> None:
     _env_iface.DEFAULT_LLM_ENV_INTERFACE = target
 
 
+_ensure_writable_simulations_dir()
 _patch_tau2_defaults()
