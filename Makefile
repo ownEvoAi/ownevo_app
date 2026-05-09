@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop \
         api web-dev web-build seed-approval-demo \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -28,6 +28,7 @@ help:
 	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
 	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
 	@printf '  tau3-ingest         backfill iterations from tau2 results.json files; --no-db for dry-run (P1.5/M8)\n'
+	@printf '  tau3-loop           one improvement-loop iteration on τ³-retail (loop agent + gate) (P1.5/M9)\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
@@ -199,6 +200,15 @@ tau3-baseline:
 TAU3_INGEST_ARGS ?=
 tau3-ingest:
 	cd apps/kernel && uv run python scripts/tau3_ingest.py $(TAU3_INGEST_ARGS)
+
+# τ³ improvement loop, one iteration (P1.5 / M9). Mirrors m5-bootstrap-loop's
+# shape but for the τ³-retail workflow. Loop agent is qwen3-coder:30b on
+# Ollama by default (free, TODO-19 validated lift driver); task agent is
+# cloud Sonnet 4.6 by default (Day-1 baseline = 0.8000). Override either
+# via TAU3_LOOP_ARGS.
+TAU3_LOOP_ARGS ?=
+tau3-loop:
+	cd apps/kernel && uv run --extra agent python scripts/run_tau3_loop.py $(TAU3_LOOP_ARGS)
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)
