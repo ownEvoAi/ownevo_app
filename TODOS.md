@@ -243,7 +243,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — closes Phase 2 validation gate; feeds W8.1.2 `m5-results-2026-Q3.md`.
 - **Depends on:** PR #64 merged (for full W6 surface area).
 
-### TODO-31: τ³ schema — `skills.head_version_id` should track best-gate-pass, not latest write
+### TODO-31: τ³ schema — `skills.head_version_id` should track best-gate-pass, not latest write — ✅ DONE 2026-05-09
 
 - **What:** `register_skill` (called by the agent's `write_skill` tool) advances `skills.head_version_id` *before* the gate runs. So after a NO_IMPROVEMENT or SANDBOX_ERROR cycle, HEAD points at the rejected proposal, not at the last gate-passing version. By end of τ³ P2 batch 1, HEAD pointed at v54 (failed) instead of v38 (the val_score=0.95 winner). Two fix shapes:
   - **(a) `skills.head_version_id` follows the best gate-pass** — the gate runner moves head only on `gate-pass`. Add a separate `latest_proposed_version_id` column for "agent's most recent write" if the proposer needs to read its own last attempt. Cleanest model.
@@ -251,8 +251,9 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** Anyone restoring from a snapshot via `skills.head_version_id` (e.g., the τ³ batch-1 README's restore path) gets the *failed* skill back, not the winner. The trustworthy lineage is `iterations.proposed_skill_version_id WHERE state = 'gate-pass' ORDER BY val_score DESC` — fine for queries, brittle for symbolic restoration. Same pattern blocks any "deploy current best" UI button from being safe.
 - **Pros / Cons:** (a) is the right architecture but touches every caller of `get_head` plus `register_skill`'s contract. (b) is one column add + a query everywhere we want "best." Audit chain is unaffected either way.
 - **Context:** `apps/kernel/src/ownevo_kernel/skills/registry.py:register_skill`, `apps/kernel/src/ownevo_kernel/gate/persistence.py:persist_gate_run`. Surfaced 2026-05-09 in τ³ P2 batch-1 postmortem (`/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/README.md` § Schema note).
+- **Status (2026-05-09):** Shipped option (a) on `fix/demo-workflow-and-head-semantics`. Migration `0003_skills_latest_proposed.sql` adds the new column + FK + backfill. Registry advances `latest_proposed_version_id` on every write; bootstrap sets both pointers at v1 so `read_skill` has something to return. Gate persistence advances `head_version_id` on `GateDecision.PASS` inside the same transaction as iteration/proposal/audit writes. `parent_version_id` chains off `latest_proposed` so version lineage stays linear when v2 is rejected. New tests cover bootstrap-seeds-both-pointers, parent-chains-off-latest-proposed, gate-pass-advances-head, and gate-fail-leaves-head-alone. Existing `test_re_register_creates_new_version_linked_to_parent` and `test_write_v2_advances_head` updated to reflect the new contract (HEAD no longer moves on plain re-register). Full kernel suite 1666 passing.
 - **Effort:** S (CC ~2-3 hr for option a; ~30 min for option b).
-- **Priority:** P2 — surfaces in restore + "show me the best skill" surfaces; doesn't affect val_score correctness.
+- **Priority:** ~~P2~~ → closed.
 - **Depends on:** none.
 
 ### TODO-32: τ³ Pass³ stretch — re-run skill v38 three times for reliability number
@@ -275,14 +276,15 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P2 — directly informs whether P3 condition-C work targets concrete misses or punts on Sonnet's capability ceiling.
 - **Depends on:** trace persistence (✅ shipped). One re-run of v38 to populate traces.
 
-### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction`
+### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction` — ✅ DONE 2026-05-09
 
 - **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.
 - **Why:** Reviewer clicking the sidebar's primary workflow lands on a near-empty page; the real BL.3 lift curve, skill diffs, and approval queue all live on a workflow only reachable via Inbox or the Health table. For the W8.1.1 YC video, "click Demand prediction → see lift" needs to land on the actual lift workflow.
 - **Pros / Cons:** (a) is a one-line nav fix, leaves DB unchanged, but workflow IDs read as kernel-internal (`m5-demand-prediction`) in the URL bar. (b) cleanest URL + cleanest demo state, but the rename touches every FK that references `workflow_id` and the audit chain entries become stale (related_id still resolves, but human-readable workflow IDs in payload JSON drift). (c) requires no code change but the YC narrative gets diluted (two workflows look like duplicates).
 - **Context:** Surfaced 2026-05-08 during the Inbox → proposal `7006094e-…` chase that ended with 3 stale `m5-condition-*` workflows deleted. Seed source: `apps/kernel/scripts/seed_approval_demo.py:37` writes `demo-demand-prediction`. Sidebar nav: `apps/web/app/workspaces/[wsId]/workspace-nav.tsx:77` (just patched to the demo id). Post-cleanup workspace state: 2 workflows, 7 pending proposals, all 6 of the `m5-*` proposals still routing into Inbox.
+- **Status (2026-05-09):** Shipped option (a) on `fix/demo-workflow-and-head-semantics`. Sidebar nav now points at `m5-demand-prediction` so the reviewer's first click lands on the real lift story. Empty `demo-demand-prediction` shell left in DB; the seed script (`seed_approval_demo.py`) is unchanged so dev-DB seeding still works.
 - **Effort:** XS for (a); S for (b) (CC ~30 min — one transactional UPDATE plus drop of the empty shell).
-- **Priority:** P2 — demo polish; blocks W8.1.1 video record cleanly. Not blocking W7 closeout.
+- **Priority:** ~~P2~~ → closed.
 - **Depends on:** none.
 
 ---

@@ -369,6 +369,23 @@ async def persist_gate_run(
             gate_result.rationale,
         )
 
+        # 7a. Advance skills.head_version_id ONLY on gate-pass. The
+        # registry advances `latest_proposed_version_id` on every
+        # write_skill; HEAD lags until the gate validates the proposal.
+        # Anyone restoring "current best skill" via head_version_id
+        # therefore gets the most recent gate-validated version, not
+        # the agent's latest (possibly rejected) attempt. See TODO-31
+        # in TODOS.md for the original postmortem.
+        if (
+            gate_result.decision == GateDecision.PASS
+            and proposed_skill_version_id is not None
+        ):
+            await conn.execute(
+                "UPDATE skills SET head_version_id = $2 WHERE id = $1",
+                skill_id,
+                proposed_skill_version_id,
+            )
+
         # 7b. Persist per-task traces if the runner exposes them. The
         # τ³ runner sets `last_simulations` to a list of per-task dicts
         # (messages, reward_info, termination_reason, info). One traces

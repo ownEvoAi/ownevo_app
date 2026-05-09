@@ -75,11 +75,15 @@ async def test_write_then_read_round_trip(db: asyncpg.Connection):
     assert "def engineer" in head.content
 
 
-async def test_write_v2_advances_head(db: asyncpg.Connection):
-    """Agent's typical loop: read → propose change → write. The new
-    version becomes head; v1 is reachable via list_versions but not
-    via read_skill."""
-    await write_skill(db, "m5-feature-engineer", SKILL_V1, created_by="agent:test")
+async def test_write_v2_does_not_advance_head_until_gate_pass(
+    db: asyncpg.Connection,
+):
+    """Agent's typical loop: read → propose change → write. write_skill
+    registers a new version but does NOT advance HEAD — only the gate
+    runner does that on a gate-pass (TODO-31). So `read_skill` keeps
+    returning the validated v1 until a gate-pass arrives, and v2 lives
+    in `latest_proposed_version_id` for the proposer's parent chain."""
+    v1 = await write_skill(db, "m5-feature-engineer", SKILL_V1, created_by="agent:test")
     v2 = await write_skill(
         db,
         "m5-feature-engineer",
@@ -91,9 +95,14 @@ async def test_write_v2_advances_head(db: asyncpg.Connection):
 
     head = await read_skill(db, "m5-feature-engineer")
     assert head is not None
-    assert head.version_id == v2.version_id
-    assert head.version_seq == 2
-    assert "merge(prices" in head.content
+    # HEAD stayed at v1 (the bootstrap); the agent's "last write" is v2.
+    assert head.version_id == v1.version_id
+    assert head.version_seq == 1
+    latest_proposed = await db.fetchval(
+        "SELECT latest_proposed_version_id FROM skills WHERE id = $1",
+        "m5-feature-engineer",
+    )
+    assert latest_proposed == v2.version_id
 
 
 async def test_write_with_malformed_frontmatter_raises(db: asyncpg.Connection):

@@ -17,6 +17,43 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Changed (TODO-31 — `skills.head_version_id` tracks best gate-pass, not latest write)
+
+`register_skill` previously advanced `skills.head_version_id` on every
+agent `write_skill` call, so a NO_IMPROVEMENT or SANDBOX_ERROR cycle left
+HEAD pointing at the rejected proposal. Anyone restoring "the current
+best skill" via `head_version_id` got the failed version back (this
+exactly happened at end of τ³ P2 batch 1 — HEAD pointed at v54 instead
+of the val_score=0.95 winner v38).
+
+- New column `skills.latest_proposed_version_id` (migration `0003_skills_latest_proposed.sql`).
+  Backfilled from existing `head_version_id` so consumers see no jump
+  on first deploy.
+- `register_skill` now advances `latest_proposed_version_id` only.
+  Bootstrap (first version of a skill_id) seeds both pointers at v1 so
+  `read_skill` has something to return until the first gate-pass.
+  `parent_version_id` chains off `latest_proposed_version_id` (or
+  `head_version_id` as fallback) so v3's parent stays linear to v2 even
+  when v2 was gate-rejected.
+- `gate.persistence.persist_gate_run` now advances `head_version_id` when
+  `gate_result.decision == PASS` and `proposed_skill_version_id` is set.
+  The advancement runs inside the same transaction as the iteration /
+  proposal / audit writes, so HEAD movement and gate-pass evidence
+  commit atomically.
+- API consumers (`/api/skills`, `/api/workflows/{id}/skills`) now return
+  the validated current best as the "head" view — same shape, stronger
+  semantic guarantee.
+
+### Fixed (TODO-30 — sidebar workflow link points at the real lift workflow)
+
+The workspace sidebar's "Demand prediction" link pointed at the empty
+`demo-demand-prediction` shell (W2.5 demo seed — 0 skills, 1 stub
+proposal); every other pending inbox proposal lives on
+`m5-demand-prediction` (BL.3 bootstrap, real LightGBM diffs, the actual
+lift story). Reviewer's first click landed in a dead room. Sidebar now
+points at `m5-demand-prediction`. Empty shell left in DB (option a per
+TODO-30).
+
 ### Added (W7 Track 3 — τ³-bench retail kernel migration + first autonomous lift)
 
 Branch `feat/tau3-local-bench` (PR #77). Pulls Sierra's tau-bench retail
