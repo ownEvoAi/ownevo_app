@@ -48,7 +48,7 @@ running locally for free**.
 | **Sanity-C — Cloud task agent** | Verify Sonnet 4.6 + Haiku user sim works end-to-end | ✅ done — 3/3 PASS | $0.67 |
 | **P1 — Condition A baseline** | Sonnet 4.6 on retail test split (40 tasks) → **val_score_A = 0.8500** (patched substrate; orig auto-harness 0.80 superseded) | ✅ done | $9.27 + ~$9, 16 min each |
 | **P1.5 — Kernel migration** | Pull tau2 into `apps/kernel`, build native `TauBenchRunner` (`BenchmarkRunner` Protocol), register tau3-retail-v1 workflow + skill, ingest failure clusters, retire auto-harness dependency. M1-M10 substeps. | ✅ done | ~1 day CC actual (much faster than estimated 3-5 days due to existing M5 substrate) |
-| **P2 — Condition B autonomous loop** | qwen3-coder:30b local as loop agent; edits `agent/agent.py`; gates with NeoSigma's `gating.py`; **15-20 iterations** (matches Meta-Harness 20+ and NeoSigma 18) | ☐ | ~$45-90, ~5-10 hr |
+| **P2 — Condition B autonomous loop** | Sonnet 4.6 as loop agent (cloud); edits `tau3.retail.baseline.v1.agent`; gates on 40-task retail test split; **target 15-20 iterations** | 🔄 in-progress (2026-05-09) | ~$45-90, ~5-10 hr |
 | **P3 — Condition C gated loop** | Same loop, ownEvo LLM-judge approval gate engaged; ≥5 human re-approvals | ☐ | ~$45-90, ~5-10 hr |
 | **P4 — Results doc + Pass³ stretch** | Write `tau3-results-2026-Q3.md` with three-condition table + audit chain export; **Pass³ stretch:** re-run condition C top-N tasks 3× | ☐ | XS-S |
 
@@ -699,73 +699,93 @@ M8.
 
 ## Phase 2 — Condition B: Autonomous loop (no approval gate)
 
-**Status:** ☐ not started  
-**Depends on:** P1 exit gate passes
+**Status:** 🔄 in-progress — Sonnet 4.6 P2 series started 2026-05-09  
+**Baseline:** `val_score_A = 0.8500` (workflow `tau3-retail-v1`, patched substrate, 2026-05-08)
 
-**Goal:** run ownEvo's improvement loop with `qwen3-coder:30b` as the loop agent, editing
-`agent/agent.py`, gated by NeoSigma's `gating.py`. Target: 10-15 iterations, measure
-lift from `val_score_A`.
+**Goal:** measure lift from val_score_A via ownEvo's improvement loop. Target: 15-20 iterations
+(matches Meta-Harness 20+ and NeoSigma 18).
 
-### Architecture for condition B
+### Architecture (decided, running)
 
 ```
-qwen3-coder:30b (loop agent, Ollama 192.168.1.50)
-  reads:  workspace/traces/latest/  (train failure traces)
-  edits:  agent/agent.py            (system prompt + context builder)
-  gates:  python gating.py          (NeoSigma's 3-step gate)
-  records: workspace/results.tsv + ownEvo DB (iterations table)
+claude-sonnet-4-6 (loop agent, Anthropic cloud)
+  reads:  DB skill + past_attempts (cross-iteration trace via fetch_past_attempts)
+  edits:  tau3.retail.baseline.v1.agent (skill registry, kind=python)
+  gates:  ownevo_kernel.gate.run_gate (40-task retail test split, val_score via SandboxedTauBenchRunner)
+  records: iterations table (workflow_id=tau3-retail-v1)
 ```
 
-Loop driver options (pick one):
-- **Option A (faster):** Use Claude Code directly: `claude "Read PROGRAM.md and start the optimization loop"` inside the auto-harness Docker container. Claude Code uses Sonnet 4.6 cloud as the *loop agent* (proposes edits), qwen3-coder:30b is *only the task agent*.
-- **Option B (all-local):** Wire ownEvo's `run_improvement_loop.py` adapted for tau3 skill format. Loop agent = qwen3-coder:30b on Ollama.
+Loop driver: `apps/kernel/scripts/run_tau3_loop.py` (M9). One invocation = one gate cycle.
 
-**Decision needed before starting P2:** Option A is faster but uses cloud for the loop agent.
-Option B is fully local but requires building the tau3 skill adapter first (estimated 2-4h).
+### Loop agent decision (2026-05-09)
 
-### Steps (Option A — Claude Code as loop driver)
+Original plan was `qwen3-coder:30b` (local, free). Switched to Sonnet 4.6 for P2 because:
+- qwen3-coder:30b on W6 v5 hit F6/M5SandboxError 7/7 — generalizability from TODO-19 uncertain
+- Sonnet 4.6 is the confirmed multi-turn loop lift driver (B4.2 + B4.3 + Stage C, ~$1.86/iter M5)
+- Test with expensive model first; if lift confirmed, run local model sweep (see below) to find a free substitute
 
-- [ ] **P2.1** Verify Claude Code can access the Docker container's workspace (mount check).
+**Local model sweep** (parallel, diagnostic — see § Local model sweep below): 6 desktop models
+each get an independent `--workflow-id` so their gate histories don't pollute the Sonnet 0.85 anchor.
+The sweep answers "which local models can drive the loop at all" before committing to a free-loop run.
 
-- [ ] **P2.2** Run 10 iterations:
-  ```bash
-  # Inside auto-harness dir, with Docker workspace mounted
-  claude "Read PROGRAM.md and start the optimization loop. Baseline is already recorded
-  (iteration 0). Start from step 2 (analyze failures). Run 10 iterations then stop and
-  summarize findings in workspace/learnings.md."
-  ```
+### Unattended run (started 2026-05-09)
 
-- [ ] **P2.3** After each gate-passing iteration, also record in ownEvo DB:
-  ```bash
-  # Map results.tsv iteration → ownevo iterations table
-  # Script: scripts/tau3_record_iteration.py (to be written)
-  ```
+```bash
+# /tmp/tau3_p2_logs/run_sonnet_p2.sh
+# 5 gate cycles, sequential; PID 36370
+# Per-cycle logs: /tmp/tau3_p2_logs/sonnet_p2_cycle{1..5}.log
+# Master log:     /tmp/tau3_p2_logs/sonnet_p2_master.log
+```
 
-- [ ] **P2.4** Record `val_score_B` (best score after 10 iterations), lift = `(B-A)/A * 100`.
+Check status:
+```bash
+tail -20 /tmp/tau3_p2_logs/sonnet_p2_master.log
+```
 
-### Steps (Option B — all-local ownEvo loop)
+### Results (update as cycles complete)
 
-- [ ] **P2A.1** Write `apps/kernel/scripts/run_tau3_loop.py`:
-  - Wraps `run_improvement_loop.py` mechanics for tau3 skill format
-  - Loop agent: qwen3-coder:30b on Ollama OpenAI (`--api-format openai --llm-base-url http://192.168.1.50:11434/v1`)
-  - Reads failure traces from `workspace/traces/latest/`
-  - Proposes edits to `agent/agent.py` (as a "skill" in SKILL_FORMAT kind=code)
-  - Calls `gating.py` (NeoSigma's) for Step 1/2; also gates against ownEvo eval cases
-  - Records to ownEvo DB
+| Cycle | val_score | decision | best_ever | notes |
+|---|---|---|---|---|
+| anchor (iter 5) | 0.8500 | — | 0.8500 | manual re-anchor; qwen3.6 0.075 cleared |
+| 1 | (pending) | | | |
+| 2 | | | | |
+| 3 | | | | |
+| 4 | | | | |
+| 5 | | | | |
 
-- [ ] **P2A.2** Define tau3 "skill" in SKILL_FORMAT:
-  ```
-  apps/kernel/baselines/tau3_v1/agent.py   ← initial HarnessAgent (from auto-harness template)
-  ```
-  Register as `skill_id=tau3-retail.v1`, `kind=code`.
+**Exit gate:** `val_score_B > val_score_A = 0.8500`. If no lift after 5 cycles, inspect
+master log for pattern (loop agent proposal quality / skill write errors / sandbox errors)
+before extending to 15-20.
 
-- [ ] **P2A.3** Run loop: `make tau3-loop ITERS=10`
+### Local model sweep (diagnostic, separate workflow IDs)
 
-**Exit gate:** `val_score_B > val_score_A` (any lift). If no lift after 10 iterations,
-examine learnings.md — failure modes may not be promptable with qwen3-coder:30b.
+**Rationale:** local models must be graded against their own gate history, not Sonnet's 0.85
+anchor. Each model runs under `--workflow-id tau3-retail-v1__<tag>`; gate compares against
+`MAX(best_ever_score_after)` for that workflow_id only (starts at 0). The shared skill
+registry (`tau3.retail.baseline.v1.agent`) is re-anchored to baseline before each model's first
+iteration by `seed_tau3_retail`'s idempotent body-equality check.
 
-**Recording:** update this doc with `val_score_B`, iterations run, accepted/rejected counts,
-top 3 changes that improved the score.
+**Script:** `/tmp/tau3_p2_logs/run_local_sweep.sh`
+
+| Model | Provider | Format | Workflow ID | Status |
+|---|---|---|---|---|
+| qwen3:32b | Ollama | openai | tau3-retail-v1__qwen3_32b | ☐ |
+| granite4.1:30b | Ollama | openai | tau3-retail-v1__granite4.1_30b | ☐ |
+| gemma4:26b | Ollama | openai | tau3-retail-v1__gemma4_26b | ☐ |
+| mistralai/devstral-small-2-2512 | LMS | openai | tau3-retail-v1__mistralai_devstral-small-2-2512 | ☐ |
+| mistralai/ministral-3-14b-reasoning | LMS | openai | tau3-retail-v1__mistralai_ministral-3-14b-reasoning | ☐ |
+| zai-org/glm-4.7-flash | LMS | openai | tau3-retail-v1__zai-org_glm-4.7-flash | ☐ |
+
+Run:
+```bash
+# Foreground
+/tmp/tau3_p2_logs/run_local_sweep.sh
+
+# Background
+nohup /tmp/tau3_p2_logs/run_local_sweep.sh > /tmp/tau3_p2_logs/sweep_nohup.log 2>&1 &
+```
+
+Results land in `/tmp/tau3_p2_logs/sweep_results.tsv` (model / workflow_id / val_score per cycle).
 
 ---
 
