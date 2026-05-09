@@ -11,12 +11,22 @@ Companion docs:
 - `docs/HARNESS.md` — proposer / agent / gate principles
 """
 
+from .failure_analyzer import (
+    FAILURE_REWARD_THRESHOLD,
+    Tau3FailureAnalyzerError,
+    Tau3FailureSnapshot,
+    analyze_tau3_failures,
+)
 from .runner import (
     SandboxedTauBenchRunner,
     Tau3SandboxError,
 )
 
 __all__ = [
+    "FAILURE_REWARD_THRESHOLD",
     "SandboxedTauBenchRunner",
+    "Tau3FailureAnalyzerError",
+    "Tau3FailureSnapshot",
     "Tau3SandboxError",
+    "analyze_tau3_failures",
 ]
