@@ -9,7 +9,7 @@
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
-        m5-replay-7day m5-replay-30day nl-gen-demo-loop revert-skill
+        m5-replay-7day m5-replay-30day m5-replay-bootstrap nl-gen-demo-loop revert-skill
 
 help:
 	@printf 'targets:\n'
@@ -64,6 +64,9 @@ help:
 	@printf '                      A=frozen / C=loop autonomous / D=loop gated\n'
 	@printf '                      (REPLAY_30_ARGS=...; --conditions a,c,d --max-iterations N\n'
 	@printf '                      --halt-on-error / --reset / --require-lift gate)\n'
+	@printf '  m5-replay-bootstrap one-shot: create DB + apply migrations + seed workflows\n'
+	@printf '                      for `make m5-replay-30day` (REPLAY_BOOTSTRAP_ARGS=...;\n'
+	@printf '                      --workflow-prefix --conditions --skill-version v1|v2)\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -284,6 +287,25 @@ REPLAY_30_ARGS ?=
 
 m5-replay-30day:
 	cd apps/kernel && uv run python scripts/m5_replay_30day.py $(REPLAY_30_ARGS)
+
+# ----------------------------------------------------------------------------
+# One-shot bootstrap for `make m5-replay-30day` (W6 follow-up)
+# ----------------------------------------------------------------------------
+
+# Creates the target DB (from $OWNEVO_DATABASE_URL), applies migrations, and
+# seeds workflow rows for the chosen conditions with the chosen skill version
+# as the parent baseline. Idempotent — re-run on an existing DB is a no-op.
+#
+# `REPLAY_BOOTSTRAP_ARGS=...` passes flags through to scripts/m5_replay_bootstrap.py:
+#   make m5-replay-bootstrap REPLAY_BOOTSTRAP_ARGS='--workflow-prefix m5-30day-v7 --conditions a,c,d --skill-version v2'
+#   make m5-replay-bootstrap REPLAY_BOOTSTRAP_ARGS='--drop-first --workflow-prefix m5-30day-v8'
+# DB-required: OWNEVO_DATABASE_URL must point at the target DB URL (the DB
+# itself need not exist yet; bootstrap creates it via the admin URL it
+# derives by replacing dbname with 'postgres').
+REPLAY_BOOTSTRAP_ARGS ?=
+
+m5-replay-bootstrap:
+	cd apps/kernel && uv run python scripts/m5_replay_bootstrap.py $(REPLAY_BOOTSTRAP_ARGS)
 
 # ----------------------------------------------------------------------------
 # NL-gen end-to-end demo loop (W6 — PLAN.md row 6.1)

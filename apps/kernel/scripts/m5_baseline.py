@@ -82,6 +82,7 @@ class CliArgs:
     no_db: bool
     sandbox: bool
     sandbox_image: str
+    skill_version: str
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -121,6 +122,18 @@ def parse_args(argv: list[str]) -> CliArgs:
             f"or {DEFAULT_SANDBOX_IMAGE}. Only used when --sandbox is set."
         ),
     )
+    parser.add_argument(
+        "--skill-version",
+        choices=("v1", "v2"),
+        default="v1",
+        help=(
+            "Which baseline skill version to score. v1 (default) is the "
+            "deliberately-minimal Day-1 baseline (3 features, default "
+            "hyperparams, regression loss). v2 is the tuned-LightGBM "
+            "stronger baseline (Tweedie loss, ~14 features, tuned "
+            "hyperparams)."
+        ),
+    )
     ns = parser.parse_args(argv)
     return CliArgs(
         m5_dir=ns.m5_dir,
@@ -130,6 +143,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         no_db=ns.no_db,
         sandbox=ns.sandbox,
         sandbox_image=ns.sandbox_image,
+        skill_version=ns.skill_version,
     )
 
 
@@ -156,6 +170,10 @@ async def main_async(args: CliArgs) -> int:
         return 3
 
     if args.sandbox:
+        # Materialize the chosen skill version into a temp dir + bind-mount it
+        # over the in-image skill_v1/ path. This is the same mechanism the
+        # agent loop uses for proposed skills; here we use it to score the
+        # bare baseline (no agent diff applied).
         sandbox = LocalDockerSandbox(
             image=args.sandbox_image,
             # Real M5 frames need >64MB tmpfs for pandas intermediates;
@@ -163,16 +181,35 @@ async def main_async(args: CliArgs) -> int:
             # avoids a separate tunable for the sandbox path.
             tmpfs_size_mb=512,
         )
-        sandboxed_runner: SandboxedM5BenchmarkRunner = SandboxedM5BenchmarkRunner(
-            catalog_dir=args.m5_dir,
-            fold=fold,
-            sandbox=sandbox,
-        )
-        result = await sandboxed_runner.run()
-        arts = sandboxed_runner.last_artifacts
+        skill_override_dir: Path | None
+        if args.skill_version == "v1":
+            skill_override_dir = None  # v1 is what the image already bakes in
+            override_ctx = None
+        else:
+            import tempfile
+            from baselines.m5_lightgbm import materialize_skill_dir
+            override_ctx = tempfile.TemporaryDirectory(prefix=f"m5_skill_{args.skill_version}_")
+            skill_override_dir = Path(override_ctx.name)
+            materialize_skill_dir(skill_override_dir, version=args.skill_version)
+        try:
+            sandboxed_runner: SandboxedM5BenchmarkRunner = SandboxedM5BenchmarkRunner(
+                catalog_dir=args.m5_dir,
+                fold=fold,
+                sandbox=sandbox,
+                skill_override_dir=skill_override_dir,
+            )
+            result = await sandboxed_runner.run()
+            arts = sandboxed_runner.last_artifacts
+        finally:
+            if override_ctx is not None:
+                override_ctx.cleanup()
     else:
+        # In-process: pass skill_version through to run_baseline for
+        # the right import branch.
+        from functools import partial
+        pipeline_fn = partial(run_baseline, skill_version=args.skill_version)
         in_process_runner = M5BenchmarkRunner(
-            catalog=catalog, fold=fold, pipeline_fn=run_baseline,
+            catalog=catalog, fold=fold, pipeline_fn=pipeline_fn,
         )
         result = await in_process_runner.run()
         arts = in_process_runner.last_artifacts
@@ -210,6 +247,7 @@ async def main_async(args: CliArgs) -> int:
             conn,
             workflow_id=args.workflow_id,
             val_score=result.val_score,
+            skill_version=args.skill_version,
         )
     finally:
         await conn.close()
@@ -230,6 +268,7 @@ async def record_baseline(
     *,
     workflow_id: str,
     val_score: float,
+    skill_version: str = "v1",
 ) -> None:
     """Persist the Day-1 baseline state into the substrate tables.
 
@@ -237,8 +276,9 @@ async def record_baseline(
     connection rather than re-opening one. Run order:
 
       1. Upsert the workflow row (idempotent on `id`).
-      2. Register each of the 6 v1 skill files. Skip the registry call
-         when the head version's parsed body already matches the file —
+      2. Register each of the 6 baseline skill files (v1 by default,
+         v2 when `skill_version="v2"`). Skip the registry call when
+         the head version's parsed body already matches the file —
          keeps `version_seq` from incrementing on every replay.
       3. Append one `iterations` row at `MAX(iteration_index)+1` so
          re-runs cleanly stack alongside prior replays.
@@ -258,7 +298,7 @@ async def record_baseline(
             "SELECT id FROM workflows WHERE id = $1 FOR UPDATE",
             workflow_id,
         )
-        skill_dir = skill_files_dir()
+        skill_dir = skill_files_dir(skill_version)
         for fname in SKILL_FILES:
             content = (skill_dir / fname).read_text()
             existing = await _existing_head_for_content(conn, get_head, content)
@@ -266,8 +306,8 @@ async def record_baseline(
                 await register_skill(
                     conn,
                     content,
-                    created_by="bootstrap-m5-baseline",
-                    diff_summary=f"bootstrap: {fname}",
+                    created_by=f"bootstrap-m5-baseline-{skill_version}",
+                    diff_summary=f"bootstrap: {fname} ({skill_version})",
                 )
         await _insert_baseline_iteration(
             conn,
