@@ -791,9 +791,75 @@ condition."
 2. **HEAD ≠ best-gate-pass quirk.** `skills.head_version_id` advances on every
    `write_skill`, even when the gate rejects. By end of batch 1 HEAD pointed at
    v54 (failed) instead of v38 (passed). Worth fixing in a follow-up; doesn't
-   affect val_score recorded in iterations.
+   affect val_score recorded in iterations. **→ TODO-31.**
 3. **Pass³ stretch.** Cycle 2 scored 0.95 once; need re-run × 3 to estimate
-   reliability per Claw-Eval's reliability-not-peak framing.
+   reliability per Claw-Eval's reliability-not-peak framing. **→ TODO-32.**
+
+### Results — batch 2 complete (2026-05-09)
+
+10 more Sonnet 4.6 cycles on the same workflow, gate-comparing against
+best_ever=0.95. **0/10 broke through.** Pattern across all 10 cycles:
+
+| Cycle | val_score | Decision |
+|---|---|---|
+| 1 | — | SANDBOX_ERROR (`tc.function` AttributeError, regression) |
+| 2 | 0.825 | NO_IMPROVEMENT |
+| 3 | 0.825 | NO_IMPROVEMENT |
+| 4 | — | SANDBOX_ERROR |
+| 5 | 0.825 | NO_IMPROVEMENT |
+| 6 | — | SANDBOX_ERROR |
+| 7 | 0.825 | NO_IMPROVEMENT |
+| 8 | — | SANDBOX_ERROR |
+| 9 | 0.85 | NO_IMPROVEMENT |
+| 10 | 0.80 | NO_IMPROVEMENT |
+
+**Verdict: 0.95 is a saturation ceiling for Sonnet on this benchmark+substrate.**
+20 total Sonnet cycles, 1 gate-pass — and that PASS came from a *minimal* prompt
+change, not from richer scaffolding. Sonnet's exploration in batch 2 included
+HarnessState memory fields, error-recovery counters, and structured tool-use
+rules; all underperformed v38's three-line prompt. Consistent with NLAH
+("more structure can hurt").
+
+**What's left at 0.95**: tasks 33 and 49 are the two failures (computed from
+the gate audit's `promotable_task_ids` ∖ retail-test-40). Task 49 also failed
+at the 0.85 baseline (iter 5) — persistent. Task 33 is a regression introduced
+by v38. **→ TODO-33** to use the new trace inspector once at least one fresh
+v38 gate cycle re-populates traces.
+
+### qwen3.6-35b-a3b — local loop agent (2026-05-09, in progress)
+
+**Setup:** `qwen/qwen3.6-35b-a3b` on LMS desktop (`http://192.168.1.50:1234/v1`,
+OpenAI format) as the loop agent. Task agent + user sim stay on cloud Anthropic.
+Workflow `tau3-retail-v1__qwen_qwen3.6-35b-a3b` so its gate history is
+independent of the Sonnet 0.95 anchor.
+
+| Cycle | val_score | Decision | best_ever | Notes |
+|---|---|---|---|---|
+| 1 | 0.8000 | **PASS** | 0.8000 | first proposed skill, lift over fresh-workflow zero |
+| 2 | 0.8500 | **PASS** | 0.8500 | matches Sonnet's baseline on a free local loop agent |
+| 3 | 0.8000 | NO_IMPROVEMENT | 0.8500 | regression, gate held |
+| 4 | 0.8000 | NO_IMPROVEMENT | 0.8500 | regression, gate held |
+| 5 | 0.8500 | NO_IMPROVEMENT | 0.8500 | reproduces 0.85 — lift is repeatable, not a one-off |
+| 6 | 0.7250 | NO_IMPROVEMENT | 0.8500 | regression |
+| 7+ | 🔄 in progress | | | |
+
+**Provisional verdict (preliminary, more cycles to come):** qwen3.6 drives the
+τ³ loop cleanly via the OpenAI-compat path on LMS, produces lift on its own
+workflow, and matches Sonnet's 0.85 baseline anchor with a free 35B local
+model. Cycle 2 + cycle 5 both at 0.85 = the lift is reproducible.
+
+**Strongest YC-friendly story so far:** the loop agent can be local, free, and
+still produce measurable lift — kills the "you need a frontier API to drive
+this" objection. Whether qwen3.6 can push past 0.85 on this workflow remains
+open through cycles 7-10.
+
+### Substrate fixes shipped during P2 (2026-05-09)
+
+| Fix | Commit | Why |
+|---|---|---|
+| Per-task trace persistence | `daef4c2` | Container tmpfs at `/tau2_data/simulations` was destroyed at exit, so per-task tau2 message history was lost forever. Now `SandboxedTauBenchRunner` serializes each `Simulation` (full messages, reward_info, termination_reason, info, duration) through stdout JSON; `persist_gate_run` writes one `traces` row per task per iteration. New `scripts/tau3_inspect_task.py` lets you list / show / compare task traces across iterations to diagnose regressions without re-running. **Pre-fix iterations (0–19) have no per-task traces — that data is permanently lost.** All P2 batches above ran pre-fix. |
+| Verbatim winning prompt captured | `e4d08be` | Added v38's full `AGENT_INSTRUCTION` body to this doc + the snapshot README so the actual three-rule prompt is reproducible without grepping skill_versions. |
+| P2 batch-1 result recorded | `4443ed9` | val_score 0.85 → 0.95 written into the phase tracker + iteration table. |
 
 **Exit gate:** `val_score_B > val_score_A = 0.8500`. If no lift after 5 cycles, inspect
 master log for pattern (loop agent proposal quality / skill write errors / sandbox errors)
