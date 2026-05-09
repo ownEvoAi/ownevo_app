@@ -36,7 +36,10 @@ because it leaves room for the loop to demonstrate lift.
 > becomes an eval case, the failures cluster into named patterns, and
 > a domain expert teaches the agent the rule in plain language."
 
-Open the `/workflows/preview` page on `demand-prediction`. Show:
+Open the workspace preview page on `demand-prediction` —
+`/workspaces/acme/workflows/new?workflow_id=demand-prediction` (the
+old `/workflows/preview` URL 307-redirects but a reviewer typing it
+on camera lands on the redirect briefly). Show:
 
 - The reviewer-typed plain-English description ("Alert ops when next
   6-week markdown is upcoming...").
@@ -185,4 +188,4 @@ the JSON output.
 - [`apps/kernel/src/ownevo_kernel/nl_gen/instruction_proposer.py`](../apps/kernel/src/ownevo_kernel/nl_gen/instruction_proposer.py) — the W6 edit proposer
 - [`apps/kernel/scripts/nl_gen_demo_loop.py`](../apps/kernel/scripts/nl_gen_demo_loop.py) — the CLI
 - [`docs/PLAN.md`](PLAN.md) row 6.1 — the W6 exit criterion this satisfies
-- [`apps/web/app/workflows/preview/`](../apps/web/app/) — the W5.5 coverage-badge UI route
+- [`apps/web/app/workspaces/[wsId]/workflows/new/`](../apps/web/app/workspaces/[wsId]/workflows/new/) — the W5.5 coverage-badge UI route (W7 slice 5 moved it under the workspace shell; the legacy `/workflows/preview` URL 307-redirects)

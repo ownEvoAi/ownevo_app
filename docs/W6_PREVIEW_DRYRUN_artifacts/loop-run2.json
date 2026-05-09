@@ -1,0 +1,72 @@
+cd apps/kernel && uv run python scripts/nl_gen_demo_loop.py --cycles 3 --agent-model claude-haiku-4-5 --include-instructions --pretty
+{
+  "workflow_spec_id": "supply-chain-demand-forecast",
+  "started_at": "2026-05-09T22:42:48.948541+00:00",
+  "ended_at": "2026-05-09T22:43:06.101751+00:00",
+  "wall_seconds": 17.15321,
+  "n_cycles": 3,
+  "metric_family": "recall",
+  "metric_direction": "maximize",
+  "metric_target": 0.5,
+  "baseline_metric_value": 0.2,
+  "final_metric_value": 1.0,
+  "absolute_lift": 0.8,
+  "is_climbing": true,
+  "lift_curve": [
+    0.2,
+    1.0,
+    1.0
+  ],
+  "cycles": [
+    {
+      "cycle_index": 0,
+      "metric_value": 0.2,
+      "meets_target": false,
+      "n_failures": 5,
+      "n_clusters": 1,
+      "cluster_signal": "ok",
+      "cluster_signal_reason": null,
+      "top_cluster_label": "failure pattern: false-negative",
+      "top_cluster_size": 4,
+      "instruction_before": null,
+      "instruction_after": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+      "instruction_edit": {
+        "cluster_label": "False-negatives on holiday-window markdown alerts (weeks 47\u201351) and regional demand spikes",
+        "rationale": "All 4 failures are false-negatives in the recall-gated workflow, concentrated in weeks 47\u201351 (holiday markdown pattern) and a regional winter-boot spike. The agent is missing alerts it should be firing, so the addendum must push it toward True when holiday or seasonal signals are present.",
+        "appended_text": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+        "schema_version": "0.1"
+      },
+      "wall_seconds": 11.62725
+    },
+    {
+      "cycle_index": 1,
+      "metric_value": 1.0,
+      "meets_target": true,
+      "n_failures": 3,
+      "n_clusters": 0,
+      "cluster_signal": "insufficient-data",
+      "cluster_signal_reason": "too-few-points",
+      "top_cluster_label": null,
+      "top_cluster_size": 0,
+      "instruction_before": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+      "instruction_after": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+      "instruction_edit": null,
+      "wall_seconds": 3.278538
+    },
+    {
+      "cycle_index": 2,
+      "metric_value": 1.0,
+      "meets_target": true,
+      "n_failures": 3,
+      "n_clusters": 0,
+      "cluster_signal": "insufficient-data",
+      "cluster_signal_reason": "too-few-points",
+      "top_cluster_label": null,
+      "top_cluster_size": 0,
+      "instruction_before": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+      "instruction_after": "When the trajectory involves weeks 47\u201351 or any case with a 'holiday markdown pattern' signal (including alt-seed holiday inferred cases and regional winter demand spikes like the Pacific NW boot spike), lean strongly toward predicting True \u2014 this workflow is recall-gated, so a missed alert (false-negative) is more costly than a false alarm. If a case lands within a plausible 6-week window of a known seasonal markdown event or shows supply-chain holiday provenance hints, treat the alert as correct unless there is clear evidence the timing or discount is materially out of range. Do not require high confidence to predict True in weeks 45\u201352; the asymmetric cost of missing these events means uncertainty should resolve in favor of firing the alert.",
+      "instruction_edit": null,
+      "wall_seconds": 2.247211
+    }
+  ]
+}

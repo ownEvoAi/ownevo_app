@@ -1,0 +1,77 @@
+cd apps/kernel && uv run python scripts/nl_gen_demo_loop.py --cycles 3 --agent-model claude-haiku-4-5 --include-instructions --pretty
+{
+  "workflow_spec_id": "supply-chain-demand-forecast",
+  "started_at": "2026-05-09T22:41:39.870102+00:00",
+  "ended_at": "2026-05-09T22:42:14.087302+00:00",
+  "wall_seconds": 34.2172,
+  "n_cycles": 3,
+  "metric_family": "recall",
+  "metric_direction": "maximize",
+  "metric_target": 0.5,
+  "baseline_metric_value": 0.2,
+  "final_metric_value": 0.6,
+  "absolute_lift": 0.39999999999999997,
+  "is_climbing": false,
+  "lift_curve": [
+    0.2,
+    0.8,
+    0.6
+  ],
+  "cycles": [
+    {
+      "cycle_index": 0,
+      "metric_value": 0.2,
+      "meets_target": false,
+      "n_failures": 5,
+      "n_clusters": 1,
+      "cluster_signal": "ok",
+      "cluster_signal_reason": null,
+      "top_cluster_label": "failure pattern: false-negative",
+      "top_cluster_size": 4,
+      "instruction_before": null,
+      "instruction_after": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.",
+      "instruction_edit": {
+        "cluster_label": "False-negatives on holiday-window and regional winter demand spikes (weeks 47\u201351)",
+        "rationale": "All 4 failures are false-negatives in the weeks-47\u201351 holiday/winter window \u2014 the agent dismissed alerts that were, in fact, correct. Because the gate metric is recall-maximizing (target 0.50), missing true positives is the dominant cost; the edit should push the agent to lean True when holiday markdown or regional winter patterns are present.",
+        "appended_text": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.",
+        "schema_version": "0.1"
+      },
+      "wall_seconds": 11.126037
+    },
+    {
+      "cycle_index": 1,
+      "metric_value": 0.8,
+      "meets_target": true,
+      "n_failures": 5,
+      "n_clusters": 1,
+      "cluster_signal": "ok",
+      "cluster_signal_reason": null,
+      "top_cluster_label": "failure pattern: false-positive",
+      "top_cluster_size": 4,
+      "instruction_before": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.",
+      "instruction_after": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.\n\nHowever, not every demand signal warrants an alert: when the trajectory's provenance is tagged as 'seasonal baseline pattern' (e.g., routine early-year or pre-holiday dips in weeks 5, 15, or 46 without a corresponding markdown or inventory overhang signal), treat that as a strong reason to predict False \u2014 these are normal cycle fluctuations, not markdown events. Similarly, if the case involves bundled-SKU demand and the uplift is attributable to a promotional bundle rather than genuine standalone-SKU excess inventory, do not fire an alert; the composite success criterion requires the discount recommendation to be accurate within 5pp, and bundled-SKU promotional dynamics systematically distort that estimate. In short, lean True under uncertainty for genuine markdown pressure signals, but lean False when the only evidence is a seasonal baseline dip or a bundled-SKU promotional lift.",
+      "instruction_edit": {
+        "cluster_label": "False-positive alerts on seasonal baseline dips and bundled-SKU promotional uplift (weeks 5, 15, 46)",
+        "rationale": "The dominant cluster is false-positives (expected=False, actual=True) driven by two patterns: (1) seasonal baseline fluctuations being misread as markdown signals (weeks 5, 15, 46), and (2) promotional uplift on bundled SKUs masking true demand. Although this workflow is recall-gated, precision failures on these specific provenance types inflate FP noise and hurt the composite score.",
+        "appended_text": "However, not every demand signal warrants an alert: when the trajectory's provenance is tagged as 'seasonal baseline pattern' (e.g., routine early-year or pre-holiday dips in weeks 5, 15, or 46 without a corresponding markdown or inventory overhang signal), treat that as a strong reason to predict False \u2014 these are normal cycle fluctuations, not markdown events. Similarly, if the case involves bundled-SKU demand and the uplift is attributable to a promotional bundle rather than genuine standalone-SKU excess inventory, do not fire an alert; the composite success criterion requires the discount recommendation to be accurate within 5pp, and bundled-SKU promotional dynamics systematically distort that estimate. In short, lean True under uncertainty for genuine markdown pressure signals, but lean False when the only evidence is a seasonal baseline dip or a bundled-SKU promotional lift.",
+        "schema_version": "0.1"
+      },
+      "wall_seconds": 17.357618
+    },
+    {
+      "cycle_index": 2,
+      "metric_value": 0.6,
+      "meets_target": true,
+      "n_failures": 4,
+      "n_clusters": 0,
+      "cluster_signal": "insufficient-data",
+      "cluster_signal_reason": "too-few-points",
+      "top_cluster_label": null,
+      "top_cluster_size": 0,
+      "instruction_before": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.\n\nHowever, not every demand signal warrants an alert: when the trajectory's provenance is tagged as 'seasonal baseline pattern' (e.g., routine early-year or pre-holiday dips in weeks 5, 15, or 46 without a corresponding markdown or inventory overhang signal), treat that as a strong reason to predict False \u2014 these are normal cycle fluctuations, not markdown events. Similarly, if the case involves bundled-SKU demand and the uplift is attributable to a promotional bundle rather than genuine standalone-SKU excess inventory, do not fire an alert; the composite success criterion requires the discount recommendation to be accurate within 5pp, and bundled-SKU promotional dynamics systematically distort that estimate. In short, lean True under uncertainty for genuine markdown pressure signals, but lean False when the only evidence is a seasonal baseline dip or a bundled-SKU promotional lift.",
+      "instruction_after": "When the trajectory shows a supply-chain alert landing in weeks 47\u201351 (the holiday/winter markdown window), lean toward labeling it True under uncertainty \u2014 missing a correct alert is more costly than a false alarm given this workflow's recall-maximizing gate. Specifically, if the case references a 'holiday markdown pattern' (even inferred) or a regional winter demand spike (e.g., Pacific NW boot spike), treat those as strong positive signals and do not dismiss the alert solely because the timing looks slightly early or late. The success criterion allows a 6-week landing window, so an alert that arrives up to 6 weeks before the actual markdown event still qualifies as correct \u2014 factor that buffer in before predicting False.\n\nHowever, not every demand signal warrants an alert: when the trajectory's provenance is tagged as 'seasonal baseline pattern' (e.g., routine early-year or pre-holiday dips in weeks 5, 15, or 46 without a corresponding markdown or inventory overhang signal), treat that as a strong reason to predict False \u2014 these are normal cycle fluctuations, not markdown events. Similarly, if the case involves bundled-SKU demand and the uplift is attributable to a promotional bundle rather than genuine standalone-SKU excess inventory, do not fire an alert; the composite success criterion requires the discount recommendation to be accurate within 5pp, and bundled-SKU promotional dynamics systematically distort that estimate. In short, lean True under uncertainty for genuine markdown pressure signals, but lean False when the only evidence is a seasonal baseline dip or a bundled-SKU promotional lift.",
+      "instruction_edit": null,
+      "wall_seconds": 5.733362
+    }
+  ]
+}

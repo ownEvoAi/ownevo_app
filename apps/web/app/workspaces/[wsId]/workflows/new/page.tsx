@@ -109,7 +109,7 @@ export default async function WorkflowPreviewPage({ params, searchParams }: Page
           type="button"
           className="btn btn-primary"
           disabled
-          title="Run-baseline wire-up lands in W6 (POST /api/nl-gen/generate)"
+          title="CLI demo: make nl-gen-demo-loop — UI wire-up planned for W8 (POST /api/nl-gen/generate)"
         >
           Run baseline &rsaquo;
         </button>
