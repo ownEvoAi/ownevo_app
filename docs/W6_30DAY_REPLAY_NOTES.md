@@ -9,6 +9,9 @@ the full per-step narrative; this file keeps the load-bearing findings.
 1. **First measured free local-model lift on real M5.** `qwen3-coder:30b` on
    Ollama OpenAI lifted `val_score 0.330346 → 0.379663` = **+14.9%** (Stage D,
    2026-05-08). Reproduced 3× across 3 independent DBs. Closes TODO-19.
+   _Update from v5 (same session):_ v5 ran the same model on Ollama OpenAI and
+   hit F6/M5SandboxError 7/7 — the Stage D lift may be a lucky outlier; see
+   table row below. Generalizability uncertain pending F6 root-cause.
 2. **`/no_think` directive is load-bearing for the BL.3 multi-turn loop on
    Qwen3-family models.** Mirrors the A4.4 single-turn fix. PR #61.
 3. **Granite-4.1-8b on LMS hits the W5.2 LLM-judge contract** at 0.9667 ≥ 0.85
@@ -45,7 +48,7 @@ the full per-step narrative; this file keeps the load-bearing findings.
 | `ownevo_30day_v3` | Same, `--max-iterations 12` workaround | A,C,D | 19+16 | C: 2 gate-pass; D: 2 gate-pass / 2 judge-reject. Mock-cap. |
 | `ownevo_30day_v4` | Same, PR #67 compaction (no cap) | A,C,D | 15+12 | Compaction works (zero context errors). All 27 proposals fail with `M5SandboxError`: F6 binding constraint exposed. |
 | `ownevo_30day_v5` | **Ollama OpenAI** qwen3-coder:30b | A,C | killed at 7 iters | F6 / `M5SandboxError` 7/7 even on Ollama OpenAI; Stage D's +14.9% lift looks like a lucky outlier rather than reproducible. F6 is a qwen3-coder property, not an LMS-Anthropic-transport property. |
-| `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30 ✓ (machine restarted post-completion)** | **Hero artifact.** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 60 paid iters). |
+| `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓ (machine restarted post-completion)** | **Hero artifact.** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 90 paid iters). |
 
 ## Operational gotchas (would have saved hours)
 
@@ -68,7 +71,9 @@ These bit four times during the v4 setup:
   parks in `epoll` forever (CLOSE-WAIT). Watchdog: kill any subprocess with a
   CLOSE-WAIT to `:1234` — orchestrator immediately retries the iter.
 
-## Followups added today
+## Followups identified today
+
+These are planned additions, not yet implemented:
 
 - **`make m5-replay-bootstrap`** target: fresh-DB → migrate → seed-workflows
   in one shot. Would have shaved 4 of 5 v4 preflight traps.
@@ -76,11 +81,12 @@ These bit four times during the v4 setup:
   on stuck LMS sockets instead of parking in `epoll`.
 - **`--judge-base-url` wire-up** so condition D can run with a different
   transport than the loop driver (Ollama OpenAI loop + LMS Anthropic judge).
-- **F6 root-cause** on LMS Anthropic + qwen3-coder-30b — same model on Ollama
-  OpenAI generates clean code, so the codegen issue is in the LMS Anthropic
-  transport (likely `/no_think` interaction or token serialization).
-- **`docs/local-model-testing.md` F15** — write up the +14.9% qwen3-coder
-  result alongside F11/F12.
+- **F6 root-cause investigation** — v5 showed F6 hits 7/7 on Ollama OpenAI
+  too (see table), so the LMS Anthropic transport hypothesis is now uncertain.
+  The investigation is: why did TODO-19 Stage D succeed while v5 failed? Is F6
+  condition-specific (Stage D vs A/C), seed-specific, or model-intrinsic?
+- **`docs/local-model-testing.md` F15** — write up the qwen3-coder
+  result (positive TODO-19 finding + v5 qualification) alongside F11/F12.
 
 ## DB artifacts
 
@@ -89,4 +95,4 @@ Persisted on `ownevo-postgres` (port 54330):
 - `ownevo_phase3_realm5_v22_qwen_memretest` — Stage D (the +14.9% win)
 - `ownevo_30day_smoke` — first end-to-end free condition-D run
 - `ownevo_30day_first` / `_v2` / `_v3` / `_v4` — replay variants above
-- `ownevo_30day_v5` — Ollama OpenAI run (in-flight at time of writing)
+- `ownevo_30day_v5` — Ollama OpenAI run (killed at 7 iters; F6/M5SandboxError 7/7)

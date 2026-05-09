@@ -70,7 +70,7 @@ fresh `[Unreleased]` block above it.
   and cost; mechanical drop is enough for the BL.3 shape.
 - **Empirical validation against the 30-day M5 replay (post-merge,
   2026-05-08).** `ownevo_30day_v4` ran `make m5-replay-30day
-  --conditions a,c,d --max-iterations 30` against the merged runner
+  REPLAY_30_ARGS='--conditions a,c,d --max-iterations 30'` against the merged runner
   with `qwen/qwen3-coder-30b` on LMS Anthropic at 48k ctx. 27
   iterations completed; **zero `Context size has been exceeded`
   errors** vs 28+ on the v1/v2/v3 runs (same DB, same model, same
