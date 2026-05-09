@@ -24,7 +24,8 @@ ALTER TABLE skills
 ALTER TABLE skills DROP CONSTRAINT IF EXISTS skills_latest_proposed_fk;
 ALTER TABLE skills
     ADD CONSTRAINT skills_latest_proposed_fk
-    FOREIGN KEY (latest_proposed_version_id) REFERENCES skill_versions(id);
+    FOREIGN KEY (latest_proposed_version_id) REFERENCES skill_versions(id)
+    ON DELETE SET NULL;
 
 UPDATE skills
 SET latest_proposed_version_id = head_version_id

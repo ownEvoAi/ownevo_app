@@ -22,6 +22,9 @@ Lifecycle (single transaction):
   7. UPDATE the proposal with the matching state (gate-passed /
      gate-failed) + the gate's val_score as `eval_score` + the gate's
      rationale as `eval_rationale`.
+  7a. On gate-pass: advance `skills.head_version_id` to the proposed
+     version so "current best" readers always get the gate-validated
+     skill (see TODOS.md TODO-31, closed 2026-05-09).
   8. Append `audit_entries` `gate-run-completed` with the full gate
      evidence (rationale, val_score, failed_prior_task_ids,
      promotable_task_ids).
@@ -374,14 +377,18 @@ async def persist_gate_run(
         # write_skill; HEAD lags until the gate validates the proposal.
         # Anyone restoring "current best skill" via head_version_id
         # therefore gets the most recent gate-validated version, not
-        # the agent's latest (possibly rejected) attempt. See TODO-31
-        # in TODOS.md for the original postmortem.
+        # the agent's latest (possibly rejected) attempt. See TODOS.md
+        # TODO-31 (closed 2026-05-09) for the original postmortem.
         if (
             gate_result.decision == GateDecision.PASS
             and proposed_skill_version_id is not None
         ):
             await conn.execute(
-                "UPDATE skills SET head_version_id = $2 WHERE id = $1",
+                "UPDATE skills SET head_version_id = $2 "
+                "WHERE id = $1 "
+                "AND EXISTS ("
+                "SELECT 1 FROM skill_versions WHERE id = $2 AND skill_id = $1"
+                ")",
                 skill_id,
                 proposed_skill_version_id,
             )

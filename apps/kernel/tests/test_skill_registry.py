@@ -190,8 +190,6 @@ async def test_subsequent_register_chains_parent_off_latest_proposed(
 
     # HEAD still v1 (no gate-pass), but a third register should chain off v2.
     v3_content = SKILL_V2.replace(
-        "kind: python", "kind: python"
-    ).replace(
         "agent:claude-opus-4-7", "agent:claude-opus-4-7-take-3"
     )
     await register_skill(db, v3_content)

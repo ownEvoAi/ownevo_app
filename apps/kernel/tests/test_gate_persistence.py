@@ -549,7 +549,7 @@ async def test_concurrent_persist_gate_run_produces_unique_indices(
 
 
 # ---------------------------------------------------------------------------
-# TODO-31: head_version_id tracks best gate-pass, not latest write
+# head_version_id semantics — gate-pass only (TODO-31, closed 2026-05-09)
 # ---------------------------------------------------------------------------
 
 
@@ -558,8 +558,9 @@ async def _seed_skill_with_version(
 ) -> tuple[Any, Any]:
     """Seed a skill with one skill_version row. Returns (skill_id, version_id).
 
-    Tests need both pointers (head + latest_proposed) populated so the
-    semantics of advancing one but not the other can be observed."""
+    Both head_version_id and latest_proposed_version_id are initialised to
+    version_id. Tests that need them to diverge must update one pointer
+    explicitly after calling this helper."""
     await conn.execute(
         """
         INSERT INTO skills (id, kind)
@@ -680,3 +681,35 @@ async def test_gate_fail_leaves_head_version_id_unchanged(db: asyncpg.Connection
     )
     assert row["head_version_id"] == v1_id
     assert row["latest_proposed_version_id"] == v2_id
+
+
+async def test_gate_pass_without_proposed_skill_version_id_is_noop_on_head(
+    db: asyncpg.Connection,
+):
+    """Callers that don't pre-register a skill version pass
+    proposed_skill_version_id=None (the default). The guard at
+    persistence.py:381 must leave head_version_id unchanged so
+    a future refactor removing the None guard doesn't silently
+    corrupt the head pointer."""
+    workflow_id = "wf-head-noop"
+    skill_id = "m5.skill.head-noop"
+    await _seed_workflow(db, workflow_id)
+    _, v1_id = await _seed_skill_with_version(db, skill_id)
+
+    runner = _doubler_runner(lambda x: x * 2)  # passes all tasks
+    persisted = await persist_gate_run(
+        db,
+        runner,
+        workflow_id=workflow_id,
+        skill_id=skill_id,
+        proposed_content="def engineer(x): return x * 2",
+        plain_language_summary="no-skill-version call",
+        actor="test:noop",
+        # proposed_skill_version_id intentionally omitted (default None)
+    )
+    assert persisted.gate_result.decision == GateDecision.PASS
+
+    head = await db.fetchval(
+        "SELECT head_version_id FROM skills WHERE id = $1", skill_id
+    )
+    assert head == v1_id
