@@ -6,12 +6,17 @@ the full per-step narrative; this file keeps the load-bearing findings.
 
 ## What got validated
 
-1. **First measured free local-model lift on real M5.** `qwen3-coder:30b` on
-   Ollama OpenAI lifted `val_score 0.330346 → 0.379663` = **+14.9%** (Stage D,
-   2026-05-08). Reproduced 3× across 3 independent DBs. Closes TODO-19.
-   _Update from v5 (same session):_ v5 ran the same model on Ollama OpenAI and
-   hit F6/M5SandboxError 7/7 — the Stage D lift may be a lucky outlier; see
-   table row below. Generalizability uncertain pending F6 root-cause.
+1. ~~**First measured free local-model lift on real M5.**~~ **[Retracted —
+   see `docs/local-model-testing.md` § F15.]** Stage D's `val_score 0.330 →
+   0.380` = +14.9% on `qwen3-coder:30b` (Ollama OpenAI, 2026-05-08 morning,
+   apparently reproduced 3× across 3 DBs at the time) did **not** reproduce
+   in the W6 30-day v5 re-test (F6 / `M5SandboxError` 7/7 on identical
+   substrate). F6 is a `qwen3-coder-30b` codegen property, not an
+   LMS-Anthropic-transport property; Stage D's iter-4 lift was a lucky
+   outlier across 7 sequential invocations. **No local model currently
+   produces reliable lift on real M5.** Sonnet 4.6 cloud is the only
+   confirmed driver — see v6 + v7 rows + the headline-finding section
+   below for the +23.2% / +0.62% / 37× collapse story.
 2. **`/no_think` directive is load-bearing for the BL.3 multi-turn loop on
    Qwen3-family models.** Mirrors the A4.4 single-turn fix. PR #61.
 3. **Granite-4.1-8b on LMS hits the W5.2 LLM-judge contract** at 0.9667 ≥ 0.85
