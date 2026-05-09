@@ -48,7 +48,29 @@ the full per-step narrative; this file keeps the load-bearing findings.
 | `ownevo_30day_v3` | Same, `--max-iterations 12` workaround | A,C,D | 19+16 | C: 2 gate-pass; D: 2 gate-pass / 2 judge-reject. Mock-cap. |
 | `ownevo_30day_v4` | Same, PR #67 compaction (no cap) | A,C,D | 15+12 | Compaction works (zero context errors). All 27 proposals fail with `M5SandboxError`: F6 binding constraint exposed. |
 | `ownevo_30day_v5` | **Ollama OpenAI** qwen3-coder:30b | A,C | killed at 7 iters | F6 / `M5SandboxError` 7/7 even on Ollama OpenAI; Stage D's +14.9% lift looks like a lucky outlier rather than reproducible. F6 is a qwen3-coder property, not an LMS-Anthropic-transport property. |
-| `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓ (machine restarted post-completion)** | **Hero artifact.** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 90 paid iters). |
+| `ownevo_30day_v6_sonnet` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓ (machine restarted post-completion)** | **Hero artifact (v1 baseline).** C: 4 gate-passes, best_ever 0.4077 (+23.2% on val_score, **WRMSSE 1.046** measured on full test fold); D: 7 gate-passes (all judge-rejected), best_ever 0.4075. No new gate-passes after iter 8 in either condition (diminishing returns). Cost ~$15-20. Compaction substrate validated end-to-end (zero context errors over 90 paid iters). |
+| `ownevo_30day_v7_on_v2` | **Sonnet 4.6 cloud** + Opus-4.7 judge | A,C,D | **30+30+30 ✓** | **Diagnostic artifact (v2 baseline, via PR #74's `--skill-version v2`).** C: 2 gate-passes, best_ever 0.4242 (+0.50% over v2 baseline); D: 4 gate-passes (all judge-rejected), best_ever 0.4247 (+0.62% over v2, **WRMSSE 1.0189** measured on full test fold = -0.47% reduction vs v2's 1.0237). 26/30 sandbox-error rate in C, 25/30 in D — agent's proposals on top of an already-tuned baseline crash much more often. **The lift collapsed by ~37× when the baseline already had textbook ML upgrades.** |
+
+## Headline finding from v6 vs v7: the loop's lift mostly reproduces textbook ML
+
+Holding the model (Sonnet 4.6), judge (Opus 4.7), iter budget (30), and harness fixed and varying *only* the parent baseline:
+
+| Run | Parent baseline | Best ever val_score | Best ever WRMSSE | Lift on val_score | Lift on WRMSSE |
+|---|---|---|---|---|---|
+| v6 | skill_v1 (3 features, default LightGBM, regression loss) | 0.4077 | 1.0463 | **+23.2%** | **-19.5%** |
+| v7 | skill_v2 (Tweedie loss, ~14 features, tuned hyperparams — see PR #72) | 0.4247 | 1.0189 | **+0.62%** | **-0.47%** |
+
+**Lift collapse: ~37× (val_score) / ~41× (WRMSSE) when the baseline already has the obvious wins.**
+
+The v6 +23% lift was mostly the agent re-discovering Tweedie loss + lag panel + rolling features (skill_v2's ingredients). When those are already in place (v7), Sonnet finds only fine-tuning gains around the edges (the v7 winner was a hyperparameter diff: `num_leaves 128→255, min_data_in_leaf 100→50, +min_gain_to_split=0.01 +lambda_l1`). Sandbox-error rate also jumped from ~21/30 (v6) to ~25-26/30 (v7) — proposals that would have been winners on v1 crash on v2's stricter substrate.
+
+**What this implies for the YC pitch:**
+
+- *Strong claim:* "The loop autonomously rediscovers textbook ML on a weak baseline." Real, measured, audit-logged. v6's +23% in 30 iters at ~$15-20.
+- *Honest claim:* "Beyond textbook ML, marginal gains require human-in-the-loop." v7 demonstrates the gate held (zero false promotions), the judge engaged (4/4 D rejections), and the loop *can* find +0.5% but slowly and with high crash rate. This motivates the approval UX rather than undermining it.
+- *Defensive claim:* "On both weak and strong baselines, the gate stopped every regression." v6 blocked dozens of below-best_ever proposals; v7 blocked 5 (after the 4 gate-passes); zero false promotions across 60 paid iters.
+
+The v6 → v7 contrast is the load-bearing data point: it's evidence that the loop has a real but bounded capability ceiling, not a magic-everywhere claim.
 
 ## Operational gotchas (would have saved hours)
 
