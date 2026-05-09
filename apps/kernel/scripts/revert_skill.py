@@ -112,7 +112,8 @@ async def _run(args: argparse.Namespace) -> int:
             # (which would also write a stale `from_version_seq` to
             # the audit log).
             update_result = await conn.execute(
-                "UPDATE skills SET head_version_id = $1 "
+                "UPDATE skills "
+                "SET head_version_id = $1, latest_proposed_version_id = $1 "
                 "WHERE id = $2 AND head_version_id IS NOT DISTINCT FROM $3",
                 target["id"],
                 args.skill,
