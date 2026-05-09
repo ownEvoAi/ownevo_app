@@ -1213,6 +1213,76 @@ inside the per-trial noise, not above it.
 
 ---
 
+#### F15 — qwen3-coder:30b BL.3 lift outcome: Stage D +14.9% non-reproducible (2026-05-08)
+
+**The arc:** during the overnight 2026-05-08 session, qwen3-coder:30b
+on Ollama OpenAI produced what looked like the first measured free
+local-model lift on real M5 — `val_score 0.330346 → 0.379663 = +14.9%`
+on Stage D iter 4, reproduced 3× across 3 independent DBs (Stage D /
+30-day v1 / 30-day v2). Closed TODO-19's headline goal at the time.
+Re-tested cleanly during the W6 30-day replay (`ownevo_30day_v5`,
+2026-05-08 afternoon) and the result **did not reproduce**.
+
+**v5 setup (re-test):** identical to Stage D — Ollama OpenAI,
+`qwen3-coder:30b`, `/no_think` auto-injection on (PR #61, the
+load-bearing fix from F14i mirrored into the BL.3 OpenAI runner),
+PR #67 conversation compaction merged, 48k context. Conditions A+C
+(D omitted because `--judge-base-url` isn't wired for cross-format
+loop+judge pairing yet).
+
+**v5 result:** killed at 7 iterations after **F6 / `M5SandboxError`
+hit 7 of 7 attempts**. Same proposal failure pattern as
+`qwen3-coder-30b` on LMS Anthropic (TODO-20: 14/14 deterministic
+`_long_frame` failures). The agent generates well-formed feature
+diffs (`lag_7`, `month`, `is_weekend`, `lag_60`, etc.) but every one
+crashes the M5 pipeline with `status=error`.
+
+**Verdict — F6 is a `qwen3-coder-30b` codegen property, not an
+LMS-Anthropic-transport property.** The earlier hypothesis (F6 was
+specific to the LMS Anthropic path because the same model on Ollama
+OpenAI succeeded in Stage D) is falsified. Stage D's iter-4 lift
+was a **lucky outlier** in a low-throughput re-run sequence — 7
+sequential `run_improvement_loop.py` invocations is too small a
+sample to distinguish "model finds the lift" from "iter 4 happened
+to be the one where the model didn't pattern-match on the buggy
+lag/rolling class."
+
+**What this means for the local-model lift story on real M5:**
+
+- The **+14.9% claim should be retracted** as "reproducible free
+  local-model lift" — it isn't. The Stage D DB still shows the
+  number (it's a real audit-logged event), but the substrate is
+  not the cause; sample-size variance is.
+- Of the local models tested on the BL.3 multi-turn loop against
+  real M5, **none currently produces reliable lift**:
+  - `qwen3-coder-30b` (LMS Anthropic): F6 14/14
+  - `qwen3-coder:30b` (Ollama OpenAI): F6 7/7 (this finding)
+  - `devstral-small-2:latest` (Ollama): runnable Python, but
+    `run_pipeline` validation rejects every diff (TODO-21 closed)
+  - `granite4.1:8b`: em-dashes in code → SyntaxError
+  - `qwen2.5-coder:32b`: doesn't trigger tool calls
+- The only confirmed lift driver remains **Sonnet 4.6 cloud** (B4.2
+  / B4.3 / Stage C compound lift / v6 30-day +23.2% / v7 30-day on
+  v2 +0.62%). v6 + v7 contrast makes the loop's actual capability
+  ceiling visible: ~textbook-ML-recovery, not novel ML.
+
+**Updates downstream:**
+
+- `CLAUDE.md` already softened the qwen3-coder claim to "produced
+  +14.9% in TODO-19 (3× reproduced), but a subsequent W6 v5 run
+  hit F6/M5SandboxError 7/7 — generalizability is uncertain
+  pending F6 root-cause investigation."
+- `docs/W6_30DAY_REPLAY_NOTES.md` v5 row records the retraction.
+- `OVERNIGHT_REPORT.md` Day-2 evening section captures it inline.
+
+**Open question (TODO):** F6 root-cause investigation — same prompt
+to qwen3-coder-30b via both transports, capture both responses,
+diff the agent diffs and the failing pipeline code. Tells us whether
+F6 is task-shape (M5-specific) or model-property (qwen3-coder
+codegen-fundamental). Relevant if the model is ever revisited.
+
+---
+
 ## Candidate models — Ollama (8B–40B)
 
 Sorted ascending by parameter size. Phase 1 sequence order. Run

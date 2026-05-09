@@ -354,6 +354,19 @@ turn agent harness shape.
   fix.
 
 ### Validated (BL.3 first local-model lift on real M5 — 2026-05-08)
+
+> **[Retracted 2026-05-08 evening — see `docs/local-model-testing.md` § F15.]**
+> The W6 30-day v5 re-test (`ownevo_30day_v5`, identical setup to
+> Stage D) hit F6 / `M5SandboxError` 7/7 before being killed. F6 is
+> a `qwen3-coder-30b` codegen property, not an LMS-Anthropic-transport
+> property as previously hypothesized. Stage D's iter-4 lift was a
+> lucky outlier across 7 sequential invocations. The +14.9% claim
+> below is preserved as a historical record of what was believed at
+> the time, but it is **not** a reproducible free local-model lift.
+> The Stage D DB (`ownevo_phase3_realm5_v22_qwen_memretest`) still
+> contains the audit-logged event; the substrate is not the cause —
+> sample-size variance is.
+
 - **qwen3-coder:30b on Ollama OpenAI + this PR's `/no_think` patch +
   PR #40 cross-iter failure memory produced a +14.9% lift over the
   M5 baseline on real data, free, ~12 min wall-clock.** Stage D
