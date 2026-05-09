@@ -87,7 +87,12 @@ _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
-from baselines.m5_lightgbm import SKILL_FILES, materialize_skill_v1_dir  # noqa: E402
+from baselines.m5_lightgbm import (  # noqa: E402
+    DEFAULT_SKILL_VERSION,
+    SKILL_FILES,
+    SUPPORTED_SKILL_VERSIONS,
+    materialize_skill_dir,
+)
 from ownevo_kernel.approvals import approve_proposal, reject_proposal  # noqa: E402
 from ownevo_kernel.approvers import (  # noqa: E402
     APPROVER_AUTONOMOUS,
@@ -193,6 +198,7 @@ class CliArgs:
     sandbox_mem_mb: int
     approver_mode: str  # "none" | "autonomous" | "llm-judge" — see --approver
     judge_model: str  # only meaningful when approver_mode == "llm-judge"
+    skill_version: str  # "v1" | "v2" — selects baseline skill bodies
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -317,6 +323,22 @@ def parse_args(argv: list[str]) -> CliArgs:
             f"--llm-api-key; see --approver for the constraint."
         ),
     )
+    parser.add_argument(
+        "--skill-version",
+        choices=SUPPORTED_SKILL_VERSIONS,
+        default=DEFAULT_SKILL_VERSION,
+        help=(
+            "Which baseline skill version the agent iterates on top of. "
+            "v1 (default) is the deliberately-minimal Day-1 LightGBM "
+            "baseline (3 features, default hyperparams, regression loss). "
+            "v2 is the tuned baseline (Tweedie loss, ~14 features, tuned "
+            "hyperparams). The agent's `read_skill` tool sees the chosen "
+            "version's content; the gate's sandbox runs the chosen "
+            "version's unchanged files plus the agent's modification. "
+            "When --seed-first is on, the seed step also writes the "
+            "chosen version's content as the workflow's parent skills."
+        ),
+    )
     ns = parser.parse_args(argv)
 
     if ns.ollama_num_ctx is not None and ns.ollama_num_ctx <= 0:
@@ -352,6 +374,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         sandbox_mem_mb=ns.sandbox_mem_mb,
         approver_mode=ns.approver,
         judge_model=ns.judge_model,
+        skill_version=ns.skill_version,
     )
 
 
@@ -398,7 +421,11 @@ async def main_async(args: CliArgs) -> int:
 
     try:
         if args.seed_first:
-            seed_result = await seed_baseline(conn, workflow_id=args.workflow_id)
+            seed_result = await seed_baseline(
+                conn,
+                workflow_id=args.workflow_id,
+                skill_version=args.skill_version,
+            )
             n_total = len(seed_result.registered) + len(seed_result.skipped)
             print(
                 f"seed: workflow={seed_result.workflow_id} "
@@ -432,7 +459,14 @@ async def main_async(args: CliArgs) -> int:
                 base_url=args.llm_base_url,
             )
 
+        # The prompt template references skill IDs as `m5.baseline.v1.*`.
+        # When --skill-version=v2, swap them to `m5.baseline.v2.*` so the
+        # agent's `read_skill` calls hit the right rows in the DB.
         system_prompt = _PROMPT_PATH.read_text()
+        if args.skill_version != "v1":
+            system_prompt = system_prompt.replace(
+                "m5.baseline.v1.", f"m5.baseline.{args.skill_version}."
+            )
 
         _p = _urlparse(args.llm_base_url)
         _safe_url = f"{_p.scheme}://{_p.hostname}:{_p.port or ''}"
@@ -542,7 +576,9 @@ async def main_async(args: CliArgs) -> int:
         with tempfile.TemporaryDirectory(prefix="ownevo-skill-override-") as tmpdir:
             override_dir = Path(tmpdir)
             try:
-                _materialize_skill_override(override_dir, proposal)
+                _materialize_skill_override(
+                    override_dir, proposal, skill_version=args.skill_version
+                )
             except UnknownProposedSkillError as exc:
                 print(
                     f"error: {exc} "
@@ -771,21 +807,30 @@ class UnknownProposedSkillError(ValueError):
     v1 LightGBM pipeline; a brand-new skill_id has no slot to fill."""
 
 
-def _materialize_skill_override(dst: Path, proposal: _AgentProposal) -> None:
-    """Copy the 6 baseline skill files + ``__init__.py`` into ``dst``,
-    then overwrite the one the agent rewrote with ``proposal.content``.
+def _materialize_skill_override(
+    dst: Path,
+    proposal: _AgentProposal,
+    *,
+    skill_version: str = DEFAULT_SKILL_VERSION,
+) -> None:
+    """Copy the 6 baseline skill files + ``__init__.py`` into ``dst`` from
+    the chosen skill version's source dir, then overwrite the one the
+    agent rewrote with ``proposal.content``.
 
     The container's image bakes the v1 skills at
     ``/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1/``. A
     bind-mount of ``dst`` on top of that path lets the orchestrator's
-    ``from .skill_v1 import ...`` resolve to the override instead.
+    ``from .skill_v1 import ...`` resolve to the override instead. The
+    bind-mount target stays at ``skill_v1`` regardless of which host
+    version we sourced from — the orchestrator imports from the mount
+    point, not from a version-specific path inside the container.
 
-    Skill-id → filename: ``m5.baseline.v1.feature_engineer`` →
+    Skill-id → filename: ``m5.baseline.{version}.feature_engineer`` →
     ``feature_engineer.py``. Anything outside the 6 known files raises
     :class:`UnknownProposedSkillError`.
 
     Permissions: the sandbox container drops CAP_DAC_OVERRIDE, so its
-    uid 0 cannot bypass DAC. ``materialize_skill_v1_dir`` relaxes the
+    uid 0 cannot bypass DAC. ``materialize_skill_dir`` relaxes the
     dir and per-file modes to world-readable so the bind-mount is
     consumable inside the container.
     """
@@ -801,7 +846,7 @@ def _materialize_skill_override(dst: Path, proposal: _AgentProposal) -> None:
             f"override expects one of {SKILL_FILES!r}"
         )
 
-    materialize_skill_v1_dir(dst)
+    materialize_skill_dir(dst, version=skill_version)
     (dst / proposed_fname).write_text(proposal.content, encoding="utf-8")
     os.chmod(dst / proposed_fname, 0o644)
 

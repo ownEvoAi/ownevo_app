@@ -119,26 +119,69 @@ class TrainedModel:
 # ---------------------------------------------------------------------------
 
 
+SUPPORTED_SKILL_VERSIONS: tuple[str, ...] = ("v1", "v2")
+"""Skill version directories that ship with this package. ``v1`` is the
+deliberately-minimal Day-1 baseline; ``v2`` is the tuned-LightGBM
+stronger baseline (Tweedie loss + ~14 features + tuned hyperparams).
+Both produce SKILL_FORMAT-compliant `m5.baseline.{version}.<name>` ids;
+both expose the same data_loader / outlier_handler / feature_engineer /
+model_trainer / predictor / ensemble interface."""
+
+DEFAULT_SKILL_VERSION = "v1"
+"""Default version threaded through the substrate when no version is
+specified. v1 is preserved as the default to avoid changing the
+behavior of the existing replay history (PR #11a–PR #11d, Stage B/C,
+v6 30-day replay) — those all measured against v1."""
+
+
+def _validate_skill_version(version: str) -> None:
+    if version not in SUPPORTED_SKILL_VERSIONS:
+        raise ValueError(
+            f"unknown skill_version {version!r}; "
+            f"supported: {SUPPORTED_SKILL_VERSIONS!r}"
+        )
+
+
 def run_baseline(
     catalog: M5Catalog,
     fold: M5Fold,
     series_ids: list[str] | None = None,
+    *,
+    skill_version: str = DEFAULT_SKILL_VERSION,
 ) -> M5PipelineOutput:
     """In-process pipeline: data_loader → ... → ensemble.
 
     Conforms to `M5PipelineFn` so an `M5BenchmarkRunner` can be built
     around it with `M5BenchmarkRunner(catalog, fold, run_baseline)`.
+
+    ``skill_version`` selects which baseline skill bodies to import
+    (currently ``v1`` or ``v2``). The 6-file split + interface shape
+    is identical across versions; only the bodies differ. Defaults to
+    ``v1`` so existing callers see no behavior change.
     """
+    _validate_skill_version(skill_version)
     # Lazy imports keep this module's import-time cheap and let `register_*`
     # walk the directory without triggering all skill bodies.
-    from .skill_v1 import (
-        data_loader,
-        ensemble,
-        feature_engineer,
-        model_trainer,
-        outlier_handler,
-        predictor,
-    )
+    if skill_version == "v1":
+        from .skill_v1 import (
+            data_loader,
+            ensemble,
+            feature_engineer,
+            model_trainer,
+            outlier_handler,
+            predictor,
+        )
+    elif skill_version == "v2":
+        from .skill_v2 import (  # type: ignore[no-redef]
+            data_loader,
+            ensemble,
+            feature_engineer,
+            model_trainer,
+            outlier_handler,
+            predictor,
+        )
+    else:  # pragma: no cover — guarded by _validate_skill_version above
+        raise ValueError(f"unhandled skill_version {skill_version!r}")
 
     raw = data_loader.load(catalog, fold, series_ids=series_ids)
     raw = outlier_handler.handle(raw)
@@ -173,28 +216,41 @@ SKILL_FILES: tuple[str, ...] = (
 )
 
 
-def skill_files_dir() -> Path:
-    """Filesystem path to the v1 skill source files. The bootstrap
-    script reads each file as raw bytes and registers it via
-    `ownevo_kernel.skills.registry.register_skill`."""
-    return Path(__file__).parent / "skill_v1"
+def skill_files_dir(version: str = DEFAULT_SKILL_VERSION) -> Path:
+    """Filesystem path to the chosen skill version's source files. The
+    bootstrap script reads each file as raw bytes and registers it via
+    `ownevo_kernel.skills.registry.register_skill`.
+
+    Defaults to ``v1`` for backwards compatibility — existing callers
+    that don't pass a version see exactly the v1 skill_v1/ directory."""
+    _validate_skill_version(version)
+    return Path(__file__).parent / f"skill_{version}"
 
 
-def materialize_skill_v1_dir(dst: Path) -> None:
-    """Copy the 6 baseline skill files + ``__init__.py`` into ``dst`` and
-    relax permissions so a Docker container running without CAP_DAC_OVERRIDE
-    can read the bind-mount (uid 0 needs DAC permission).
+def materialize_skill_dir(
+    dst: Path, *, version: str = DEFAULT_SKILL_VERSION
+) -> None:
+    """Copy the 6 baseline skill files + ``__init__.py`` from the chosen
+    skill version's source dir into ``dst`` and relax permissions so a
+    Docker container running without CAP_DAC_OVERRIDE can read the
+    bind-mount (uid 0 needs DAC permission).
 
     Sets ``dst`` to 0o755 and each file to 0o644.  Used by both the
     improvement loop's skill-override materialization and the integration
-    tests that seed the override directory.
-    """
-    src = skill_files_dir()
+    tests that seed the override directory."""
+    src = skill_files_dir(version)
     for fname in (*SKILL_FILES, "__init__.py"):
         shutil.copy2(src / fname, dst / fname)
     os.chmod(dst, 0o755)
     for entry in dst.iterdir():
         os.chmod(entry, 0o644)
+
+
+def materialize_skill_v1_dir(dst: Path) -> None:
+    """Backwards-compatible alias for ``materialize_skill_dir(dst,
+    version='v1')``. Existing callers (the agent loop, integration
+    tests) get the v1 behavior unchanged."""
+    materialize_skill_dir(dst, version="v1")
 
 
 # ---------------------------------------------------------------------------
