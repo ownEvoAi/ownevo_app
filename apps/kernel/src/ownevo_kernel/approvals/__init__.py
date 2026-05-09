@@ -12,6 +12,7 @@ Used by:
   * Future LLM-judge variant (benchmark approval automation)
 """
 
+from .deploy import deploy_proposal, rollback_proposal
 from .service import (
     ApprovalStateError,
     ProposalNotFoundError,
@@ -23,5 +24,7 @@ __all__ = [
     "ApprovalStateError",
     "ProposalNotFoundError",
     "approve_proposal",
+    "deploy_proposal",
     "reject_proposal",
+    "rollback_proposal",
 ]
