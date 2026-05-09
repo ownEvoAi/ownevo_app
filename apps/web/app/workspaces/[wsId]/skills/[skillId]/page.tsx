@@ -9,6 +9,7 @@ import {
 } from '@/lib/api'
 import { formatDateTime, relativeTime } from '@/lib/format'
 import { SkillDiff } from '@/app/components/skill-diff'
+import { DeployRollbackPanel } from './deploy-rollback'
 
 interface PageProps {
   params: Promise<{ wsId: string; skillId: string }>
@@ -55,6 +56,14 @@ export default async function SkillDetailPage({ params }: PageProps) {
         </div>
 
         <aside>
+          <DeployRollbackPanel
+            wsId={wsId}
+            skillId={skill.id}
+            deployableProposalId={skill.deployable_proposal_id}
+            deployableProposalVersionSeq={skill.deployable_proposal_version_seq}
+            deployedProposalId={skill.deployed_proposal_id}
+            deployedVersionSeq={skill.deployed_version_seq}
+          />
           <RetentionCard skill={skill} />
           <VersionHistory versions={skill.versions} />
         </aside>
@@ -93,7 +102,17 @@ function SkillHeader({ skill }: { skill: SkillDetail }) {
       <div className="prop-pills">
         <span className={kindPill}>{skill.kind}</span>
         {skill.head_version_seq !== null && (
-          <span className="pill outline">v{skill.head_version_seq}</span>
+          <span className="pill outline" title="Best gate-validated version">
+            Validated v{skill.head_version_seq}
+          </span>
+        )}
+        {skill.deployed_version_seq !== null && (
+          <span
+            className="pill accent"
+            title="Currently running in production"
+          >
+            Deployed v{skill.deployed_version_seq}
+          </span>
         )}
         {skill.capability_tags.map((t) => (
           <span key={t} className="pill outline">

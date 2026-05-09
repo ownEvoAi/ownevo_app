@@ -93,9 +93,12 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             s.workflow_id,
             s.capability_tags,
             s.head_version_id,
+            s.deployed_version_id,
+            sv_dep.version_seq  AS deployed_version_seq,
             w.description       AS workflow_description
         FROM skills s
         LEFT JOIN workflows w ON w.id = s.workflow_id
+        LEFT JOIN skill_versions sv_dep ON sv_dep.id = s.deployed_version_id
         WHERE s.id = $1
         """,
         skill_id,
@@ -167,6 +170,36 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         workflow_id=skill["workflow_id"],
     )
 
+    # Surface deploy/rollback affordances. We pick the most recent
+    # `approved-awaiting-deploy` proposal (the Deploy button target)
+    # and the `deployed` proposal if any (the Rollback button target).
+    # Both queries are LIMIT 1 — the deploy invariant guarantees at
+    # most one proposal per skill in 'deployed' state, and a stale
+    # approved-awaiting-deploy is the most actionable for the operator.
+    deployable_row = await conn.fetchrow(
+        """
+        SELECT p.id, i.proposed_skill_version_id, sv.version_seq
+        FROM proposals p
+        JOIN iterations i ON i.id = p.iteration_id
+        LEFT JOIN skill_versions sv ON sv.id = i.proposed_skill_version_id
+        WHERE p.skill_id = $1
+          AND p.state = 'approved-awaiting-deploy'::proposal_state
+        ORDER BY p.state_updated_at DESC
+        LIMIT 1
+        """,
+        skill_id,
+    )
+    deployed_proposal_id = await conn.fetchval(
+        """
+        SELECT id FROM proposals
+        WHERE skill_id = $1
+          AND state = 'deployed'::proposal_state
+        ORDER BY state_updated_at DESC
+        LIMIT 1
+        """,
+        skill_id,
+    )
+
     return SkillDetail(
         id=skill["id"],
         kind=skill["kind"],
@@ -184,6 +217,15 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         head_created_by=head["created_by"] if head else None,
         parent_content=parent_content,
         parent_version_seq=parent_version_seq,
+        deployed_version_id=skill["deployed_version_id"],
+        deployed_version_seq=skill["deployed_version_seq"],
+        deployable_proposal_id=(
+            deployable_row["id"] if deployable_row is not None else None
+        ),
+        deployable_proposal_version_seq=(
+            deployable_row["version_seq"] if deployable_row is not None else None
+        ),
+        deployed_proposal_id=deployed_proposal_id,
         versions=versions,
         related_eval_cases=related,
     )

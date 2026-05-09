@@ -17,6 +17,44 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (TODO-34 — Deploy / Rollback action on the skill detail page)
+
+The proposal state machine had `approved-awaiting-deploy → deployed →
+rolled-back` transitions defined in `docs/STATE_MACHINES.md` and the
+audit kinds reserved (`proposal-deployed`, `proposal-rolled-back`), but
+no implementation. Approved proposals therefore stalled in
+`approved-awaiting-deploy` with no operator-driven path forward. With
+TODO-31 separating "validated" (`head_version_id`) from "agent's last
+write" (`latest_proposed_version_id`), it's now safe to add a third
+"production live" pointer and let the operator drive it.
+
+- New column `skills.deployed_version_id` (migration
+  `0004_skills_deployed.sql`). NULL until the operator deploys; advanced
+  on deploy, reverted on rollback. Separate from `head_version_id` so
+  the validated state and the production pointer can diverge (operator
+  may run an older version while a newer one waits for approval).
+- New service module `ownevo_kernel.approvals.deploy` exposing
+  `deploy_proposal()` (transitions `approved-awaiting-deploy → deployed`,
+  sets `skills.deployed_version_id`) and `rollback_proposal()`
+  (transitions `deployed → rolled-back`, restores the immediate prior
+  deployment from the audit log, or NULL if none). Single-deployed
+  invariant — at most one proposal per skill in `deployed` state — is
+  enforced inline; deploying a newer version requires rolling back the
+  live one first.
+- New endpoints `POST /api/proposals/{id}/deploy` and
+  `POST /api/proposals/{id}/rollback`. 200 on success (returns new
+  state + post-transition production pointer); 404 unknown proposal;
+  409 wrong state or "another proposal is already deployed"; 422 missing
+  `decided_by`.
+- `GET /api/skills/{id}` now exposes `deployed_version_id`,
+  `deployed_version_seq`, `deployable_proposal_id`,
+  `deployable_proposal_version_seq`, and `deployed_proposal_id` so the
+  skill detail page can show "Deployed v{n}" alongside "Validated v{m}"
+  and gate Deploy/Rollback button visibility.
+- Skill detail page renders a new "Production" sidebar card with Deploy
+  and Rollback buttons (Server Action `deployAction`); approval header
+  pills now show Validated and Deployed separately.
+
 ### Changed (TODO-31 — `skills.head_version_id` tracks best gate-pass, not latest write)
 
 `register_skill` previously advanced `skills.head_version_id` on every
@@ -111,7 +149,7 @@ modules diverge from the evaluator's acceptance condition").
   (6-model diagnostic sweep, sequential because all share one desktop GPU).
 - **Documentation:** `docs/TAU3_LOCAL_TESTPLAN.md` carries the full P2
   batch-1 + batch-2 results, qwen3.6-35b-a3b multi-cycle, and the
-  6-model sweep. Three new TODOs (`TODOS.md` TODO-31 / TODO-32 / TODO-33)
+  6-model sweep. Three new TODOs (`TODOS.md` TODO-31 / TODO-34 / TODO-33)
   cover the schema follow-up (`skills.head_version_id` should track
   best-gate-pass not latest write), Pass³ stretch, and task-33+49 failure
   analysis enabled by trace persistence. Backups at

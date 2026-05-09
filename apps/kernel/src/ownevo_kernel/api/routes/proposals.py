@@ -27,7 +27,9 @@ from ...approvals import (
     ApprovalStateError,
     ProposalNotFoundError,
     approve_proposal,
+    deploy_proposal,
     reject_proposal,
+    rollback_proposal,
 )
 from ...types import ApproverType
 from ..deps import ConnDep
@@ -37,6 +39,8 @@ from ..models import (
     ApproveResponse,
     AuditEntry,
     DecideRequest,
+    DeployRequest,
+    DeployResponse,
     GateResultCases,
     IterationDetail,
     ProposalDetail,
@@ -316,8 +320,104 @@ async def reject(
 
 
 # ---------------------------------------------------------------------------
+# Deploy / rollback
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{proposal_id}/deploy",
+    response_model=DeployResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def deploy(
+    proposal_id: UUID,
+    body: DeployRequest,
+    conn: ConnDep,
+) -> DeployResponse:
+    """Transition `approved-awaiting-deploy` → `deployed`.
+
+    Sets `skills.deployed_version_id` to the proposal's skill version.
+    Returns 409 if the proposal isn't approved-awaiting-deploy or if
+    another proposal on the same skill is already deployed (caller
+    must rollback first).
+    """
+    return await _deploy_or_rollback(
+        conn=conn,
+        proposal_id=proposal_id,
+        decided_by=body.decided_by,
+        action="deploy",
+    )
+
+
+@router.post(
+    "/{proposal_id}/rollback",
+    response_model=DeployResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def rollback(
+    proposal_id: UUID,
+    body: DeployRequest,
+    conn: ConnDep,
+) -> DeployResponse:
+    """Transition `deployed` → `rolled-back`.
+
+    Reverts `skills.deployed_version_id` to the most recent prior
+    deployment on the same skill, or NULL if none. Returns 409 if the
+    proposal isn't currently deployed.
+    """
+    return await _deploy_or_rollback(
+        conn=conn,
+        proposal_id=proposal_id,
+        decided_by=body.decided_by,
+        action="rollback",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+async def _deploy_or_rollback(
+    *,
+    conn: asyncpg.Connection,
+    proposal_id: UUID,
+    decided_by: str,
+    action: str,  # "deploy" | "rollback"
+) -> DeployResponse:
+    fn = deploy_proposal if action == "deploy" else rollback_proposal
+    try:
+        proposal = await fn(
+            conn,
+            proposal_id=proposal_id,
+            decided_by=decided_by,
+        )
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ApprovalStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    skill_deployed_version_id = await conn.fetchval(
+        "SELECT deployed_version_id FROM skills WHERE id = $1",
+        proposal.skill_id,
+    )
+    return DeployResponse(
+        proposal_id=proposal_id,
+        state=proposal.state.value,
+        skill_id=proposal.skill_id,
+        skill_deployed_version_id=skill_deployed_version_id,
+    )
 
 
 async def _decide(
