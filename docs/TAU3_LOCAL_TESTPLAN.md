@@ -728,13 +728,28 @@ Original plan was `qwen3-coder:30b` (local, free). Switched to Sonnet 4.6 for P2
 each get an independent `--workflow-id` so their gate histories don't pollute the Sonnet 0.85 anchor.
 The sweep answers "which local models can drive the loop at all" before committing to a free-loop run.
 
-### Unattended run (started 2026-05-09)
+### Unattended run
+
+Reusable scripts permanentized at `apps/kernel/scripts/`:
+
+| Script | Purpose |
+|---|---|
+| `tau3_p2_sonnet_loop.sh` | Sonnet 4.6 cloud N-cycle on `tau3-retail-v1`. The driver that produced batch-1's val=0.95 result. |
+| `tau3_p2_local_loop.sh` | Parameterized local-model multi-cycle on its own `tau3-retail-v1__<tag>` workflow. Used for the qwen3.6-35b-a3b run (cycles 1+2 PASS at val=0.85). |
+| `tau3_p2_local_sweep.sh` | 6-model sequential diagnostic sweep, one cycle each. Sequential because all candidates share one desktop GPU. |
+
+Env-var overrides on all three: `OWNEVO_TAU3_LOGDIR` (default `/tmp/tau3_p2_logs`), `OWNEVO_TAU3_CYCLES` (default 10), `OWNEVO_LLM_HOST` (default `192.168.1.50`, used by sweep script).
 
 ```bash
-# /tmp/tau3_p2_logs/run_sonnet_p2.sh
-# 5 gate cycles, sequential; PID 36370
-# Per-cycle logs: /tmp/tau3_p2_logs/sonnet_p2_cycle{1..5}.log
-# Master log:     /tmp/tau3_p2_logs/sonnet_p2_master.log
+# Sonnet (cloud) — 10 cycles
+nohup bash apps/kernel/scripts/tau3_p2_sonnet_loop.sh > /tmp/tau3_p2_logs/sonnet_p2_nohup.log 2>&1 &
+
+# Local model (parameterized: model, base_url, workflow_tag)
+bash apps/kernel/scripts/tau3_p2_local_loop.sh \
+  "qwen/qwen3.6-35b-a3b" "http://192.168.1.50:1234/v1" "qwen36"
+
+# 6-model diagnostic sweep
+bash apps/kernel/scripts/tau3_p2_local_sweep.sh
 ```
 
 Check status:
