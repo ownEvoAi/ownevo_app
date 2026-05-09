@@ -1,4 +1,4 @@
-"""DB-backed integration tests for deploy/rollback (TODO-32).
+"""DB-backed integration tests for deploy/rollback (TODO-34).
 
 Pins the two transitions added beyond `service.py`'s approve/reject:
 
@@ -225,26 +225,29 @@ async def test_rollback_clears_pointer_when_no_prior_deployment(
     assert deployed is None
 
 
-async def test_rollback_restores_prior_deployment(db: asyncpg.Connection):
-    """Two-deploy lineage: rollback of the live one points production
-    back at whatever was deployed immediately prior. Without this the
-    rollback semantics would be 'remove change' instead of 'revert to
-    previous good'."""
+async def test_rollback_returns_null_when_prior_was_also_rolled_back(
+    db: asyncpg.Connection,
+):
+    """When the only prior deployment was itself rolled-back, rollback
+    clears the pointer to NULL rather than restoring to a version whose
+    proposal is no longer live. Avoids the stuck-UI scenario where
+    deployed_version_id is non-null but no deployed-state proposal exists."""
     p1, _, v1 = await _seed_deployable_proposal(db, version_seq=1)
     await deploy_proposal(db, proposal_id=p1, decided_by="human:operator")
 
-    # Roll back v1 to clear the slot, then deploy v2.
+    # Roll back v1 — p1 is now rolled-back, pointer = NULL.
     await rollback_proposal(db, proposal_id=p1, decided_by="human:operator")
     p2, _, v2 = await _seed_deployable_proposal(db, version_seq=2)
     await deploy_proposal(db, proposal_id=p2, decided_by="human:operator")
 
-    # Rollback v2 — should restore v1 as the live version.
+    # Rollback v2 — the only prior deployed proposal (p1) is itself
+    # rolled-back, so there is no active prior version to restore.
     await rollback_proposal(db, proposal_id=p2, decided_by="human:operator")
     deployed = await db.fetchval(
         "SELECT deployed_version_id FROM skills WHERE id = $1",
         "test.skill.deploy",
     )
-    assert deployed == v1
+    assert deployed is None
 
 
 async def test_rollback_writes_audit_entry(db: asyncpg.Connection):
@@ -311,3 +314,62 @@ async def test_double_rollback_rejects_second_call(db: asyncpg.Connection):
     await rollback_proposal(db, proposal_id=p1, decided_by="human:operator")
     with pytest.raises(ApprovalStateError):
         await rollback_proposal(db, proposal_id=p1, decided_by="human:operator")
+
+
+# ---------------------------------------------------------------------------
+# Guard-rail edge cases
+# ---------------------------------------------------------------------------
+
+
+async def test_rollback_requires_decided_by(db: asyncpg.Connection):
+    """Whitespace-only decided_by is rejected before any DB work."""
+    p1, _, _ = await _seed_deployable_proposal(db)
+    await deploy_proposal(db, proposal_id=p1, decided_by="human:operator")
+    with pytest.raises(ValueError, match="decided_by"):
+        await rollback_proposal(db, proposal_id=p1, decided_by="   ")
+
+
+async def test_deploy_rejects_null_skill_version_id(db: asyncpg.Connection):
+    """An iteration without proposed_skill_version_id can't be deployed."""
+    # Seed a proposal whose iteration has no proposed_skill_version_id.
+    workflow_id = "wf-test-null-version"
+    skill_id = "test.skill.null-version"
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) VALUES ($1, 'test', '{}'::jsonb) "
+        "ON CONFLICT DO NOTHING",
+        workflow_id,
+    )
+    await db.execute(
+        "INSERT INTO skills (id, kind) VALUES ($1, 'python'::skill_kind) "
+        "ON CONFLICT DO NOTHING",
+        skill_id,
+    )
+    skill_version_id = await db.fetchval(
+        "INSERT INTO skill_versions (skill_id, version_seq, content, created_by) "
+        "VALUES ($1, 1, 'body', 'test') RETURNING id",
+        skill_id,
+    )
+    iteration_id = await db.fetchval(
+        """
+        INSERT INTO iterations (workflow_id, iteration_index, state, val_score,
+                                best_ever_score_after, ended_at,
+                                proposed_skill_version_id)
+        VALUES ($1, 0, 'gate-pass'::iteration_state, 0.9, 0.9, now(), NULL)
+        RETURNING id
+        """,
+        workflow_id,
+    )
+    proposal_id = await db.fetchval(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id, proposed_content,
+            plain_language_summary, state, eval_score, eval_rationale
+        )
+        VALUES ($1, $2, $3, 'body', 'null-version test',
+                'approved-awaiting-deploy'::proposal_state, 0.9, 'ok')
+        RETURNING id
+        """,
+        iteration_id, skill_id, skill_version_id,
+    )
+    with pytest.raises(ApprovalStateError, match="proposed_skill_version_id"):
+        await deploy_proposal(db, proposal_id=proposal_id, decided_by="human:operator")

@@ -12,6 +12,8 @@ without a separate fetch.
 
 from __future__ import annotations
 
+import asyncio
+
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
@@ -142,15 +144,50 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             parent_content = parent["content"]
             parent_version_seq = parent["version_seq"]
 
-    history_rows = await conn.fetch(
-        """
-        SELECT id, version_seq, parent_version_id, diff_summary,
-               created_by, created_at
-        FROM skill_versions
-        WHERE skill_id = $1
-        ORDER BY version_seq DESC
-        """,
-        skill_id,
+    # history_rows, deploy affordances, and related eval cases are all
+    # independent of each other after `skill` is fetched. asyncio.gather
+    # communicates that and is ready for a pool-per-coroutine upgrade.
+    history_rows, deployable_row, deployed_proposal_id, related = (
+        await asyncio.gather(
+            conn.fetch(
+                """
+                SELECT id, version_seq, parent_version_id, diff_summary,
+                       created_by, created_at
+                FROM skill_versions
+                WHERE skill_id = $1
+                ORDER BY version_seq DESC
+                """,
+                skill_id,
+            ),
+            conn.fetchrow(
+                """
+                SELECT p.id, i.proposed_skill_version_id, sv.version_seq
+                FROM proposals p
+                JOIN iterations i ON i.id = p.iteration_id
+                LEFT JOIN skill_versions sv ON sv.id = i.proposed_skill_version_id
+                WHERE p.skill_id = $1
+                  AND p.state = 'approved-awaiting-deploy'::proposal_state
+                ORDER BY p.state_updated_at DESC
+                LIMIT 1
+                """,
+                skill_id,
+            ),
+            conn.fetchval(
+                """
+                SELECT id FROM proposals
+                WHERE skill_id = $1
+                  AND state = 'deployed'::proposal_state
+                ORDER BY state_updated_at DESC
+                LIMIT 1
+                """,
+                skill_id,
+            ),
+            _related_eval_cases(
+                conn, skill_id=skill_id,
+                kind=skill["kind"],
+                workflow_id=skill["workflow_id"],
+            ),
+        )
     )
     versions = [
         SkillVersionSummary(
@@ -163,42 +200,6 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
         )
         for r in history_rows
     ]
-
-    related = await _related_eval_cases(
-        conn, skill_id=skill_id,
-        kind=skill["kind"],
-        workflow_id=skill["workflow_id"],
-    )
-
-    # Surface deploy/rollback affordances. We pick the most recent
-    # `approved-awaiting-deploy` proposal (the Deploy button target)
-    # and the `deployed` proposal if any (the Rollback button target).
-    # Both queries are LIMIT 1 — the deploy invariant guarantees at
-    # most one proposal per skill in 'deployed' state, and a stale
-    # approved-awaiting-deploy is the most actionable for the operator.
-    deployable_row = await conn.fetchrow(
-        """
-        SELECT p.id, i.proposed_skill_version_id, sv.version_seq
-        FROM proposals p
-        JOIN iterations i ON i.id = p.iteration_id
-        LEFT JOIN skill_versions sv ON sv.id = i.proposed_skill_version_id
-        WHERE p.skill_id = $1
-          AND p.state = 'approved-awaiting-deploy'::proposal_state
-        ORDER BY p.state_updated_at DESC
-        LIMIT 1
-        """,
-        skill_id,
-    )
-    deployed_proposal_id = await conn.fetchval(
-        """
-        SELECT id FROM proposals
-        WHERE skill_id = $1
-          AND state = 'deployed'::proposal_state
-        ORDER BY state_updated_at DESC
-        LIMIT 1
-        """,
-        skill_id,
-    )
 
     return SkillDetail(
         id=skill["id"],

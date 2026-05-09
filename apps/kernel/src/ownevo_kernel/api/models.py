@@ -18,10 +18,10 @@ columns are added or renamed.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Strict(BaseModel):
@@ -210,6 +210,13 @@ class DeployRequest(BaseModel):
         ),
     )
 
+    @field_validator("decided_by")
+    @classmethod
+    def decided_by_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("decided_by must not be blank")
+        return v
+
 
 class DeployResponse(_Strict):
     """Result of a deploy / rollback transition.
@@ -220,7 +227,7 @@ class DeployResponse(_Strict):
     """
 
     proposal_id: UUID
-    state: str
+    state: Literal["deployed", "rolled-back"]
     skill_id: str
     skill_deployed_version_id: UUID | None
 

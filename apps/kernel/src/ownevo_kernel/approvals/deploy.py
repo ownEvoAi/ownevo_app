@@ -28,6 +28,7 @@ reconstructs which version was production-live at any point in time.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -206,8 +207,11 @@ async def rollback_proposal(
         rolled_back_version_id: UUID | None = proposal_row["proposed_skill_version_id"]
 
         # Find the prior production version: the iteration of the most
-        # recent OTHER proposal-deployed audit entry on the same skill.
-        # Walk by audit seq DESC since seq is monotonic and bigserial.
+        # recent OTHER proposal that is still in 'deployed' state.
+        # Filtering p.state = 'deployed' avoids restoring to a version
+        # whose proposal was itself rolled-back — that would leave
+        # deployed_version_id non-null with no matching deployed proposal,
+        # producing a stuck "Deployed v{n}" UI state with no escape hatch.
         prior_row = await conn.fetchrow(
             """
             SELECT i.proposed_skill_version_id
@@ -217,6 +221,7 @@ async def rollback_proposal(
             WHERE ae.kind = 'proposal-deployed'::audit_kind
               AND p.skill_id = $1
               AND ae.related_id != $2
+              AND p.state = 'deployed'::proposal_state
             ORDER BY ae.seq DESC
             LIMIT 1
             """,
@@ -283,7 +288,6 @@ async def _fetch_proposal(
         raise ProposalNotFoundError(f"Proposal {proposal_id} not found")
     expected_impact: Any = row["expected_impact"]
     if isinstance(expected_impact, str):
-        import json
         expected_impact = json.loads(expected_impact)
     return Proposal(
         id=row["id"],

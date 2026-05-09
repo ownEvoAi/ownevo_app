@@ -1,4 +1,4 @@
-"""Integration tests for /api/proposals/{id}/deploy + /rollback (TODO-32).
+"""Integration tests for /api/proposals/{id}/deploy + /rollback (TODO-34).
 
 Pins the HTTP status conventions for the deploy/rollback surface so the
 web app's Server Action can rely on them:
@@ -139,6 +139,37 @@ async def test_deploy_422_when_decided_by_missing(
     proposal_id, _ = await _seed_proposal(db)
     res = await api_client.post(
         f"/api/proposals/{proposal_id}/deploy", json={},
+    )
+    assert res.status_code == 422
+
+
+async def test_deploy_409_when_another_proposal_already_deployed(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Attempting to deploy a second proposal while one is already deployed
+    returns 409 — enforced by the partial unique index + service guard."""
+    p1, _ = await _seed_proposal(db, version_seq=1)
+    await api_client.post(
+        f"/api/proposals/{p1}/deploy",
+        json={"decided_by": "human:operator"},
+    )
+    p2, _ = await _seed_proposal(db, version_seq=2)
+    res = await api_client.post(
+        f"/api/proposals/{p2}/deploy",
+        json={"decided_by": "human:operator"},
+    )
+    assert res.status_code == 409
+    assert "already has a deployed" in res.json()["detail"]
+
+
+async def test_deploy_422_when_decided_by_whitespace(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A whitespace-only decided_by is invalid and must return 422."""
+    proposal_id, _ = await _seed_proposal(db, version_seq=3)
+    res = await api_client.post(
+        f"/api/proposals/{proposal_id}/deploy",
+        json={"decided_by": "   "},
     )
     assert res.status_code == 422
 

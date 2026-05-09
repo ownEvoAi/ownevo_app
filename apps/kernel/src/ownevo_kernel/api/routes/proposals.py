@@ -17,7 +17,7 @@ Status code conventions
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import asyncpg
@@ -383,7 +383,7 @@ async def _deploy_or_rollback(
     conn: asyncpg.Connection,
     proposal_id: UUID,
     decided_by: str,
-    action: str,  # "deploy" | "rollback"
+    action: Literal["deploy", "rollback"],
 ) -> DeployResponse:
     fn = deploy_proposal if action == "deploy" else rollback_proposal
     try:
