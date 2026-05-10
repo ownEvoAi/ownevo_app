@@ -1010,13 +1010,19 @@ The matrix above measures **loop-driver capability**. A model that drives the lo
 |---|:-:|---|
 | `openai/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | LMS jinja: `"No user query found in messages"` — 40/40 infra errors. The retail evaluator's first message structure trips the model's bundled template (P1.1, sweep 2026-05-10). |
 | `anthropic/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | **Same jinja error** via `/v1/messages`. Server-side template, API-agnostic. Routing prefix doesn't help (P1 rerun, 2026-05-10). |
-| `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⏳ slow | Smoke 2 (run_tau3_loop.py pipeline_error patch) revealed `error_class=Timeout error='Sandbox timeout exceeded 2400s'` — **not a model/template issue, pure speed**. Loop drove cleanly; gate was running 40 retail tasks but couldn't finish in 40 min. Smoke 3 with `OWNEVO_TAU3_TASK_TIMEOUT=14400` (4 hr) in flight 2026-05-10T17:50Z. |
+| `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⏳ unblocked | Smoke 3 hung — `docker logs ollama` showed every `/api/chat` returning `500 \| 10m0s` for 2+ hours. Root cause: LiteLLM's `ollama_chat` provider does NOT auto-inject `options.think=false` (only `OllamaChatClient` does). qwen3.6 task agent generated unbounded thinking traces, hit Ollama's internal 10-min inference cap. **Fix landed 2026-05-10**: `apps/kernel/sandbox/tau2_patches.py:_patch_litellm_ollama_think_off` monkey-patches `litellm.completion`/`acompletion` at sandbox-Python-startup to inject `options={"think": False}` for `ollama_chat/qwen3*` and `ollama/qwen3*` models. Smoke 4 verified: `/api/chat` latency dropped from 10-min timeouts → 7-13s. Sandbox image `ownevo-sandbox-tau3:0.1.0` rebuilt with patch baked in. |
 | `openai/granite-4.1-8b` (LMS) | ✗ | LiteLLM `OpenAIException` with empty message in 40/40 (P2, sweep 2026-05-10). Granite's first-turn response is structurally valid (verified via direct curl 2026-05-10). Suspect: numeric tool_call id (`"873012003"` not `"call_*"`) or non-standard `reasoning_content` field tripping LiteLLM strict pydantic validation. Multi-turn flow not yet probed. |
 | `anthropic/granite-4.1-8b` (LMS) | — | Untested. Try as fallback. |
 
+**Sandbox-image dependency for `ollama_chat/qwen3*` task agents:**
+The fix above lives in `tau2_patches.py` which is baked into
+`ownevo-sandbox-tau3:0.1.0` at build time. **Any sandbox image built before
+the 2026-05-10 patch will hang in 10-min loops on Ollama qwen3* task agents.**
+Rebuild with `make sandbox-image-tau3` after pulling main on a fresh checkout.
+
 **Open dimensions:**
 - **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Would unlock LMS qwen36 as task agent. Download is ~22 GB; not yet pulled.
-- **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try if qwen3.6-Ollama path falls through.
+- **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try as alternative — non-thinking model so the think-patch above doesn't affect it.
 
 ---
 
