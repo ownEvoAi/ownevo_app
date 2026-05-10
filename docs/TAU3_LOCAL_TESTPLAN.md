@@ -1008,8 +1008,9 @@ The matrix above measures **loop-driver capability**. A model that drives the lo
 
 | Model (as task agent via LiteLLM) | Result | Failure mode |
 |---|:-:|---|
-| `openai/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | LMS jinja: `"No user query found in messages"` — 40/40 infra errors. The retail evaluator's first message structure trips the model's bundled template (P1.1, sweep 2026-05-10). |
-| `anthropic/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | **Same jinja error** via `/v1/messages`. Server-side template, API-agnostic. Routing prefix doesn't help (P1 rerun, 2026-05-10). |
+| `openai/qwen/qwen3.6-35b-a3b` (LMS, default template) | ✗ | LMS jinja: `"No user query found in messages"` — 40/40 infra errors. The retail evaluator's first message structure trips the model's bundled template (P1.1, sweep 2026-05-10). |
+| `anthropic/qwen/qwen3.6-35b-a3b` (LMS, default template) | ✗ | **Same jinja error** via `/v1/messages`. Server-side template, API-agnostic. Routing prefix doesn't help (P1 rerun, 2026-05-10). |
+| `openai/qwen/qwen3.6-35b-a3b` (LMS, **froggeric chat_template-v12.jinja override** + ctx=32768) | ⚠ | **Jinja fix landed 2026-05-10.** Smoke `qwen36lms_v12template_smoke` ran 39/40 tasks cleanly: avg_reward 0.69 (N=36 mid-run, final N=39). Loop drove to `end_turn` in 9 iters. **Gate=SANDBOX_ERROR / val_score=None** because task 36 hit `BadRequestError: Context size has been exceeded` after 4 retries — gate rejects any cycle with infra_errors > 0. Need ctx ≥ 65536 to cover the long-tail retail conversation. |
 | `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⏳ unblocked | Smoke 3 hung — `docker logs ollama` showed every `/api/chat` returning `500 \| 10m0s` for 2+ hours. Root cause: LiteLLM's `ollama_chat` provider does NOT auto-inject `options.think=false` (only `OllamaChatClient` does). qwen3.6 task agent generated unbounded thinking traces, hit Ollama's internal 10-min inference cap. **Fix landed 2026-05-10**: `apps/kernel/sandbox/tau2_patches.py:_patch_litellm_ollama_think_off` monkey-patches `litellm.completion`/`acompletion` at sandbox-Python-startup to inject `options={"think": False}` for `ollama_chat/qwen3*` and `ollama/qwen3*` models. Smoke 4 verified: `/api/chat` latency dropped from 10-min timeouts → 7-13s. Sandbox image `ownevo-sandbox-tau3:0.1.0` rebuilt with patch baked in. |
 | `openai/granite-4.1-8b` (LMS) | ✗ | LiteLLM `OpenAIException` with empty message in 40/40 (P2, sweep 2026-05-10). Granite's first-turn response is structurally valid (verified via direct curl 2026-05-10). Suspect: numeric tool_call id (`"873012003"` not `"call_*"`) or non-standard `reasoning_content` field tripping LiteLLM strict pydantic validation. Multi-turn flow not yet probed. |
 | `anthropic/granite-4.1-8b` (LMS) | — | Untested. Try as fallback. |
@@ -1035,7 +1036,8 @@ the failure modes are usually one of:
 | System-prompt close-think nudge | Append: "You MUST close your reasoning block with </think> before calling any tool." | `runner.py:_maybe_no_think_suffix` — currently appends `/no_think` (ineffective on qwen3.5/3.6). Replace with the close-tag nudge for that lineage |
 
 **Open dimensions:**
-- **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Would unlock LMS qwen36 as task agent. Download is ~22 GB; not yet pulled. Cheaper alternative: paste the froggeric template into LMS UI for the existing model.
+- **LMS qwen36 ctx ≥ 65536** — froggeric v12 template at ctx=32768 still saw 1/40 task hit `Context size has been exceeded`. Retry with `lms load qwen/qwen3.6-35b-a3b -c 65536` to cover the long-tail retail conversation and surface a real `val_score` (~0.69 expected based on 39/40 in-flight average). Currently low-priority — gemma4 / Ollama qwen36 paths likely surface a val_score first with less GPU pressure.
+- **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Now superseded by the froggeric override (cheaper than 22 GB download).
 - **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try as alternative — non-thinking model so the think-patch above doesn't affect it.
 
 ---
