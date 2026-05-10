@@ -469,7 +469,17 @@ def _make_client(base_url: str | None):
 
 
 def _make_openai_client(base_url: str):
-    """AsyncOpenAI client for Ollama / LM Studio direct calls."""
+    """OpenAI-compat client for Ollama / LM Studio direct calls.
+
+    When base_url points to an Ollama daemon (:11434), returns OllamaChatClient
+    which routes through /api/chat with options.think=false for qwen3 models.
+    Other endpoints (LMS, vLLM) get a standard AsyncOpenAI client.
+    """
+    from ownevo_kernel.eval_runner.ollama_native import OllamaChatClient, is_ollama_url
+
+    if is_ollama_url(base_url):
+        return OllamaChatClient(base_url)
+
     from openai import AsyncOpenAI
 
     return AsyncOpenAI(base_url=base_url, api_key="dummy")
