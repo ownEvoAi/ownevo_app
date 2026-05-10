@@ -91,6 +91,14 @@ def test_parse_args_rejects_non_positive_cycles(monkeypatch, bad: str):
     assert ei.value.code == 2
 
 
+@pytest.mark.parametrize("bad", ["0", "-0.5", "0.0"])
+def test_parse_args_rejects_non_positive_require_lift(monkeypatch, bad: str):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    with pytest.raises(SystemExit) as ei:
+        cli._parse_args(["--require-lift", bad])
+    assert ei.value.code == 2
+
+
 def test_parse_args_require_flags_propagate(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     args = cli._parse_args(
@@ -193,6 +201,12 @@ def test_check_gates_lift_fails_when_threshold_missed():
     assert "absolute_lift" in failures[0]
 
 
+def test_check_gates_lift_passes_at_exact_threshold():
+    # lift = 0.6 - 0.2 = 0.4 exactly equals threshold — gate uses strict <, so should pass
+    report = _report(curve=[0.2, 0.6], meets_target=False)
+    assert cli._check_gates(_args(require_lift=0.4), report) == []
+
+
 def test_check_gates_meets_target_passes_when_final_clears():
     report = _report(curve=[0.2, 0.5, 0.8], meets_target=True, target=0.5)
     assert cli._check_gates(_args(require_meets_target=True), report) == []
@@ -270,3 +284,8 @@ def test_redact_preserves_none_instructions():
     out = cli._redact_instructions_in_dict(d, include=False)
     cycle0 = out["cycles"][0]
     assert cycle0["instruction_before"] is None  # was None — stays None
+    # cycle 1: instruction_edit was None — must stay None (not reshaped)
+    cycle1 = out["cycles"][1]
+    assert cycle1["instruction_edit"] is None
+    # cycle 1: instruction_before was 250 chars — must be replaced with length hint
+    assert "<250 chars" in cycle1["instruction_before"]

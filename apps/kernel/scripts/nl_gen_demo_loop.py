@@ -231,7 +231,9 @@ def _check_gates(args: CliArgs, report: DemoLoopReport) -> list[str]:
         )
     if args.require_lift is not None:
         lift = report.absolute_lift
-        if lift is None or lift < args.require_lift:
+        # Epsilon guards against float-subtraction imprecision in absolute_lift
+        # (e.g. 0.6 - 0.2 = 0.39999999999999997 < 0.4).
+        if lift is None or lift < args.require_lift - 1e-9:
             failures.append(
                 f"--require-lift: absolute_lift={lift} "
                 f"< threshold={args.require_lift}"
@@ -294,24 +296,29 @@ async def main_async(args: CliArgs) -> int:
     # `cycle N/M: metric=...` info line streams as the cycle ends. The
     # JSON dump on stdout is unaffected — machine-parsable runs that
     # don't pass --progress still get a single stdout document.
+    _progress_handler: logging.Handler | None = None
     if args.progress:
         loop_logger = logging.getLogger("ownevo_kernel.nl_gen.loop")
         loop_logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        loop_logger.addHandler(handler)
+        _progress_handler = logging.StreamHandler(sys.stderr)
+        _progress_handler.setFormatter(logging.Formatter("%(message)s"))
+        loop_logger.addHandler(_progress_handler)
 
-    report = await run_nl_gen_demo_loop(
-        spec=spec,
-        plan=plan,
-        case_set=case_set,
-        metric=metric,
-        client=client,
-        n_cycles=args.cycles,
-        agent_model=args.agent_model,
-        proposer_model=args.proposer_model,
-        proposer_max_tokens=args.proposer_max_tokens,
-    )
+    try:
+        report = await run_nl_gen_demo_loop(
+            spec=spec,
+            plan=plan,
+            case_set=case_set,
+            metric=metric,
+            client=client,
+            n_cycles=args.cycles,
+            agent_model=args.agent_model,
+            proposer_model=args.proposer_model,
+            proposer_max_tokens=args.proposer_max_tokens,
+        )
+    finally:
+        if _progress_handler is not None:
+            logging.getLogger("ownevo_kernel.nl_gen.loop").removeHandler(_progress_handler)
 
     payload = _redact_instructions_in_dict(
         report.to_dict(),
