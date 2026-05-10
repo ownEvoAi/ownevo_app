@@ -17,6 +17,8 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-09
+
 ### Added (TODO-28 — W6 row 6.1 NL-gen demo loop dry-run + storyboard / CLI fixes)
 
 PLAN.md row 6.1's validation gate is "an external reviewer can sit
