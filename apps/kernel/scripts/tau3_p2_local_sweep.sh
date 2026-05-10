@@ -68,13 +68,15 @@ _lms_loaded() {
 }
 
 lms_load() {
-    local model="$1"
+    local model="$1" ctx="${2:-}"
     if _lms_loaded | grep -qxF "$model"; then
         echo "lms: $model already loaded" | tee -a "$MASTER"
         return 0
     fi
-    echo "lms: loading $model" | tee -a "$MASTER"
-    "$LMS_BIN" load "$model" 2>&1 | tee -a "$MASTER" || {
+    echo "lms: loading $model${ctx:+ (ctx=$ctx)}" | tee -a "$MASTER"
+    local args=("load" "$model")
+    [[ -n "$ctx" ]] && args+=("-c" "$ctx")
+    "$LMS_BIN" "${args[@]}" 2>&1 | tee -a "$MASTER" || {
         echo "lms: load FAILED for $model" | tee -a "$MASTER"; return 1; }
 }
 
@@ -127,9 +129,14 @@ run_one() {
         export OLLAMA_API_BASE="${base_url%/v1}"
     fi
     if [[ "$task_agent" == anthropic/* || "$task_user" == anthropic/* ]]; then
+        # Anthropic-prefixed task agent → LiteLLM routes to LMS Anthropic
+        # compat at /v1/messages. The SDK appends /v1/messages itself, so
+        # the base must be the LMS root (no /v1 suffix). When the loop is
+        # on a different backend (e.g. Ollama), the loop's base_url is
+        # the wrong host entirely — pin to LMS for Anthropic regardless.
         case "$base_url" in
             *api.anthropic.com*) : ;;
-            *) export ANTHROPIC_API_BASE="$base_url" ;;
+            *) export ANTHROPIC_API_BASE="http://${LLM_HOST}:1234" ;;
         esac
     fi
 
@@ -218,22 +225,29 @@ phase1_qwen36_eval() {
     echo "===== PHASE 1 — task=user=qwen/qwen3.6-35b-a3b =====" | tee -a "$MASTER"
     lms_load "qwen/qwen3.6-35b-a3b" || return 1
 
+    # NB: task/user use anthropic/ prefix → LiteLLM routes to LMS
+    # /v1/messages, bypassing the broken /v1/chat/completions jinja
+    # template ("No user query found in messages") on qwen3.6-35b.
+    # Same family as qwen3.5-9b which is 0/3 via openai but 3/3 via
+    # anthropic per local-model-testing.md F14g.
+    local task="anthropic/qwen/qwen3.6-35b-a3b"
+
     # loop=qwen36 — same model as task+user, single load
     run_with_fallback 1 "qwen/qwen3.6-35b-a3b" \
-        "openai/qwen/qwen3.6-35b-a3b" "openai/qwen/qwen3.6-35b-a3b" \
+        "$task" "$task" \
         lms-openai lms-anthropic
 
     # loop=gemma4-26b-a4b — needs second LMS model resident
     lms_load "google/gemma-4-26b-a4b" || true
     run_with_fallback 1 "google/gemma-4-26b-a4b" \
-        "openai/qwen/qwen3.6-35b-a3b" "openai/qwen/qwen3.6-35b-a3b" \
+        "$task" "$task" \
         lms-openai lms-anthropic
     lms_unload "google/gemma-4-26b-a4b"
 
     # loop=gemma4:26b on Ollama — task+user stay on LMS qwen36
     ollama_warm "gemma4:26b"
     run_with_fallback 1 "gemma4:26b" \
-        "openai/qwen/qwen3.6-35b-a3b" "openai/qwen/qwen3.6-35b-a3b" \
+        "$task" "$task" \
         ollama-openai ollama
 }
 
@@ -246,7 +260,9 @@ phase1_qwen36_eval() {
 phase2_granite_eval() {
     echo "===== PHASE 2 — task=user=granite-4.1-8b =====" | tee -a "$MASTER"
     lms_unload "qwen/qwen3.6-35b-a3b"   # free VRAM for loop models
-    lms_load "granite-4.1-8b" || return 1
+    # Granite default context = 4096 → too small for retail (5228+ task
+    # prompt tokens). Load with 16K to fit prompt + tool turns.
+    lms_load "granite-4.1-8b" 16384 || return 1
 
     # loop=qwen36 — load alongside granite
     lms_load "qwen/qwen3.6-35b-a3b" || true

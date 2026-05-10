@@ -114,14 +114,16 @@ if [[ "$TASK_AGENT_MODEL" == ollama_chat/* || "$TASK_AGENT_MODEL" == ollama/* \
     # OLLAMA_API_BASE is the host root (no /v1 suffix); strip if present.
     export OLLAMA_API_BASE="${OLLAMA_API_BASE:-${BASE_URL%/v1}}"
 fi
-# anthropic/<model> on a non-cloud base_url ⇒ LMS Anthropic-compat.
-# Override ANTHROPIC_API_BASE only when the loop is itself local; otherwise
-# leave the default cloud Anthropic URL untouched (cloud Sonnet/Haiku
-# defaults still need to reach api.anthropic.com).
+# anthropic/<model> on a non-cloud base_url ⇒ LMS Anthropic-compat at
+# /v1/messages. The Anthropic SDK appends /v1/messages itself, so the
+# base must be the LMS root (no /v1 suffix). Pin to LMS root regardless
+# of the loop's base_url — when the loop is on Ollama, the task agent
+# still needs LMS for anthropic-compat; when the loop is on lms-openai
+# (base ends in /v1) we'd otherwise build the wrong URL.
 if [[ "$TASK_AGENT_MODEL" == anthropic/* || "$TASK_USER_MODEL" == anthropic/* ]]; then
     case "$BASE_URL" in
         *api.anthropic.com*) : ;;  # cloud loop → cloud task agent, no override
-        *) export ANTHROPIC_API_BASE="${ANTHROPIC_API_BASE:-$BASE_URL}" ;;
+        *) export ANTHROPIC_API_BASE="${ANTHROPIC_API_BASE:-http://${LLM_HOST}:1234}" ;;
     esac
 fi
 

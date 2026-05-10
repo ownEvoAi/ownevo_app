@@ -639,8 +639,21 @@ async def _run_turn_no_stream(
     is format-agnostic. No per-token content_delta events are emitted —
     only tool_call_start (at parse time) and tool_call_result (after
     dispatch, via the caller).
+
+    Falls back to silent streaming if the SDK refuses non-stream for
+    high max_tokens (the SDK's 10-min heuristic kicks in around
+    max_tokens >= 4096 for unknown models, which includes our local
+    LMS Anthropic deployments).
     """
-    message = await client.messages.create(**kwargs)  # type: ignore[attr-defined]
+    try:
+        message = await client.messages.create(**kwargs)  # type: ignore[attr-defined]
+    except ValueError as exc:
+        if "Streaming is required" not in str(exc):
+            raise
+        async with client.messages.stream(**kwargs) as stream:
+            async for _ in stream:
+                pass
+            message = await stream.get_final_message()
     blocks: list[FinalizedBlock] = []
     finished: list[FinalizedToolCall] = []
 
