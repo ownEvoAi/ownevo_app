@@ -984,7 +984,7 @@ Cell legend:
 | qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
 | qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
 | Qwq:32b | — | — | — | — | reasoning model; would route via `ollama_chat/`. Untested. |
-| gpt-oss:20b / 120b | — | — | — | — | untested; 120B large open-weight worth a single-cycle smoke. |
+| gpt-oss:20b | — | — | — | — | untested. (120B variant skipped per user direction — too large for current VRAM topology.) |
 | gemma4:26b | ⚠ ⁷ᵇ | ✅ ⁷ | — | — | ⁷ 2026-05-10 sweep P1.3 + P2.3: drove loop cleanly (`end_turn`, 5-9 iters, valid proposals v_seq=84 + 95). Replaces older "⚠ codegen bugs" verdict — that was a different cycle pattern. ⁷ᵇ native `/api/chat` hit `httpx.ReadTimeout` at 5 min; ollama_native.py timeout bumped 300→600s on 2026-05-10. Re-test pending. |
 | google/gemma-4-26b-a4b (LMS) | — | — | ✗ ⁸ | ✗ ⁸ | ⁸ 2026-05-10 sweep P1.2 + P2.2 (4 attempts both APIs): `stop_reason=max_tokens` after only 1061-7348 output tokens — model emits brief output then stops mid-iteration. Suspect LMS-side `max_completion_tokens` setting or quant tendency. |
 | granite4.1:8b | — | 🚫 ⁹ | — | — | ⁹ generates U+2013 em-dash → SyntaxError (A4.4 gate). Useful only as task agent / user-sim, not loop driver. |
@@ -1010,7 +1010,7 @@ The matrix above measures **loop-driver capability**. A model that drives the lo
 |---|:-:|---|
 | `openai/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | LMS jinja: `"No user query found in messages"` — 40/40 infra errors. The retail evaluator's first message structure trips the model's bundled template (P1.1, sweep 2026-05-10). |
 | `anthropic/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | **Same jinja error** via `/v1/messages`. Server-side template, API-agnostic. Routing prefix doesn't help (P1 rerun, 2026-05-10). |
-| `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⚠ unknown | Smoke 1 hit gate but error info absorbed (`runner.last_summary=None`). `run_tau3_loop.py` patched to surface `pipeline_error`; smoke 2 in flight. |
+| `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⏳ slow | Smoke 2 (run_tau3_loop.py pipeline_error patch) revealed `error_class=Timeout error='Sandbox timeout exceeded 2400s'` — **not a model/template issue, pure speed**. Loop drove cleanly; gate was running 40 retail tasks but couldn't finish in 40 min. Smoke 3 with `OWNEVO_TAU3_TASK_TIMEOUT=14400` (4 hr) in flight 2026-05-10T17:50Z. |
 | `openai/granite-4.1-8b` (LMS) | ✗ | LiteLLM `OpenAIException` with empty message in 40/40 (P2, sweep 2026-05-10). Granite's first-turn response is structurally valid (verified via direct curl 2026-05-10). Suspect: numeric tool_call id (`"873012003"` not `"call_*"`) or non-standard `reasoning_content` field tripping LiteLLM strict pydantic validation. Multi-turn flow not yet probed. |
 | `anthropic/granite-4.1-8b` (LMS) | — | Untested. Try as fallback. |
 
