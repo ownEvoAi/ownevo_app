@@ -11,42 +11,73 @@
 #
 # Required args (positional):
 #   $1  model id           e.g. "qwen/qwen3.6-35b-a3b" (LMS) or "gemma4:26b" (Ollama)
-#   $2  base url           http://192.168.1.50:1234/v1 (LMS) or :11434/v1 (Ollama)
+#   $2  base url OR preset see Preset shorthands below; or a full http(s):// URL
 #   $3  workflow tag       e.g. "qwen36"  (becomes workflow_id tau3-retail-v1__qwen36)
-#   $4  api format         openai (default) | ollama | anthropic
+#   $4  api format         openai | ollama | anthropic — optional; presets set this
 #
 # Optional args (positional):
 #   $5  task-agent-model   e.g. "openai/qwen/qwen3.6-35b-a3b" (default: cloud Sonnet)
 #   $6  task-user-model    e.g. "openai/qwen/qwen3.6-35b-a3b" (default: cloud Haiku)
 #
+# Preset shorthands for $2 (host = $OWNEVO_LLM_HOST, default 192.168.1.50):
+#   ollama          → http://$LLM_HOST:11434       api_format=ollama     (Ollama native /api/chat)
+#   ollama-openai   → http://$LLM_HOST:11434/v1    api_format=openai     (Ollama OpenAI-compat)
+#   lms-openai      → http://$LLM_HOST:1234/v1     api_format=openai     (LMS OpenAI-compat)
+#   lms-anthropic   → http://$LLM_HOST:1234        api_format=anthropic  (LMS Anthropic-compat)
+#
 # Env vars (override defaults):
-#   OWNEVO_TAU3_LOGDIR  log directory (default /tmp/tau3_p2_logs)
+#   OWNEVO_LLM_HOST     desktop ip (default 192.168.1.50)
+#   OWNEVO_TAU3_LOGDIR  log directory (default <repo>/log/tau3_p2 — survives reboot)
 #   OWNEVO_TAU3_CYCLES  number of cycles (default 10)
 #
-# Example — qwen3.6-35b-a3b on LMS desktop (the 2026-05-09 multi-cycle run
-# that hit val=0.85 twice on cycles 2 and 5):
+# Examples — qwen3.6-35b-a3b on LMS desktop (loop only; task agent on cloud):
 #   bash scripts/tau3_p2_local_loop.sh \
-#     "qwen/qwen3.6-35b-a3b" "http://192.168.1.50:1234/v1" "qwen36"
+#     "qwen/qwen3.6-35b-a3b" lms-openai "qwen36"
 #
-# Example — gemma4:26b on Ollama desktop:
+# Examples — gemma4:26b on Ollama native API:
 #   bash scripts/tau3_p2_local_loop.sh \
-#     "gemma4:26b" "http://192.168.1.50:11434/v1" "gemma4_26b"
+#     "gemma4:26b" ollama "gemma4_26b"
+#
+# Examples — qwen3.6-35b-a3b on LMS Anthropic API, all 3 LLMs local:
+#   bash scripts/tau3_p2_local_loop.sh \
+#     "qwen/qwen3.6-35b-a3b" lms-anthropic "qwen36_lms_ant" "" \
+#     "anthropic/qwen/qwen3.6-35b-a3b" "anthropic/qwen/qwen3.6-35b-a3b"
 set -u
 
 if [[ $# -lt 3 ]]; then
-    echo "usage: $0 <model> <base_url> <workflow_tag> [api_format] [task-agent-model] [task-user-model]" >&2
-    echo "example: $0 'qwen/qwen3.6-35b-a3b' 'http://192.168.1.50:1234/v1' 'qwen36'" >&2
-    echo "         $0 'gemma4:26b' 'http://192.168.1.50:11434/v1' 'gemma4_26b_ollama' ollama" >&2
-    echo "all 3 local: $0 'qwen/qwen3.6-35b-a3b' 'http://192.168.1.50:1234/v1' 'qwen36' openai 'openai/qwen/qwen3.6-35b-a3b' 'openai/qwen/qwen3.6-35b-a3b'" >&2
+    echo "usage: $0 <model> <base_url|preset> <workflow_tag> [api_format] [task-agent-model] [task-user-model]" >&2
+    echo "  presets: ollama | ollama-openai | lms-openai | lms-anthropic" >&2
+    echo "example (lms openai loop, cloud task):" >&2
+    echo "    $0 'qwen/qwen3.6-35b-a3b' lms-openai 'qwen36'" >&2
+    echo "example (ollama native loop):" >&2
+    echo "    $0 'gemma4:26b' ollama 'gemma4_26b'" >&2
+    echo "example (lms anthropic, all 3 local):" >&2
+    echo "    $0 'qwen/qwen3.6-35b-a3b' lms-anthropic 'qwen36_full' '' \\" >&2
+    echo "      'anthropic/qwen/qwen3.6-35b-a3b' 'anthropic/qwen/qwen3.6-35b-a3b'" >&2
     exit 2
 fi
 
+LLM_HOST="${OWNEVO_LLM_HOST:-192.168.1.50}"
+
 MODEL="$1"
-BASE_URL="$2"
+BASE_URL_OR_PRESET="$2"
 WORKFLOW_TAG="$3"
-API_FORMAT="${4:-openai}"
+API_FORMAT_ARG="${4:-}"
 TASK_AGENT_MODEL="${5:-anthropic/claude-sonnet-4-6}"
 TASK_USER_MODEL="${6:-anthropic/claude-haiku-4-5-20251001}"
+
+# Resolve $2 → BASE_URL + preset-implied API_FORMAT.
+case "$BASE_URL_OR_PRESET" in
+    ollama)         BASE_URL="http://${LLM_HOST}:11434"     ; PRESET_FMT="ollama"    ;;
+    ollama-openai)  BASE_URL="http://${LLM_HOST}:11434/v1"  ; PRESET_FMT="openai"    ;;
+    lms-openai)     BASE_URL="http://${LLM_HOST}:1234/v1"   ; PRESET_FMT="openai"    ;;
+    lms-anthropic)  BASE_URL="http://${LLM_HOST}:1234"      ; PRESET_FMT="anthropic" ;;
+    http://*|https://*) BASE_URL="$BASE_URL_OR_PRESET"      ; PRESET_FMT=""          ;;
+    *) echo "error: \$2 must be a URL or one of: ollama|ollama-openai|lms-openai|lms-anthropic (got '$BASE_URL_OR_PRESET')" >&2 ; exit 2 ;;
+esac
+
+# $4 wins if explicitly passed, else preset, else default openai.
+API_FORMAT="${API_FORMAT_ARG:-${PRESET_FMT:-openai}}"
 
 KERNEL_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$KERNEL_DIR"
@@ -68,7 +99,35 @@ if [[ -f "$DOTENV" ]]; then
     [[ -n "$AKEY" ]] && export ANTHROPIC_API_KEY="$AKEY"
 fi
 
-LOGDIR="${OWNEVO_TAU3_LOGDIR:-/tmp/tau3_p2_logs}"
+# Task agent / user simulator routing. tau2 inside the sandbox uses LiteLLM,
+# which reads OPENAI_API_BASE / OLLAMA_API_BASE / ANTHROPIC_API_BASE +
+# matching keys to route `openai/...`, `ollama_chat/...`, `anthropic/...`
+# model ids. Without these, an `openai/<local-model>` is silently sent to
+# api.openai.com. Auto-export based on task-model prefixes; caller env
+# always wins.
+if [[ "$TASK_AGENT_MODEL" == openai/* || "$TASK_USER_MODEL" == openai/* ]]; then
+    export OPENAI_API_BASE="${OPENAI_API_BASE:-$BASE_URL}"
+    export OPENAI_API_KEY="${OPENAI_API_KEY:-lm-studio}"
+fi
+if [[ "$TASK_AGENT_MODEL" == ollama_chat/* || "$TASK_AGENT_MODEL" == ollama/* \
+   || "$TASK_USER_MODEL" == ollama_chat/* || "$TASK_USER_MODEL" == ollama/* ]]; then
+    # OLLAMA_API_BASE is the host root (no /v1 suffix); strip if present.
+    export OLLAMA_API_BASE="${OLLAMA_API_BASE:-${BASE_URL%/v1}}"
+fi
+# anthropic/<model> on a non-cloud base_url ⇒ LMS Anthropic-compat.
+# Override ANTHROPIC_API_BASE only when the loop is itself local; otherwise
+# leave the default cloud Anthropic URL untouched (cloud Sonnet/Haiku
+# defaults still need to reach api.anthropic.com).
+if [[ "$TASK_AGENT_MODEL" == anthropic/* || "$TASK_USER_MODEL" == anthropic/* ]]; then
+    case "$BASE_URL" in
+        *api.anthropic.com*) : ;;  # cloud loop → cloud task agent, no override
+        *) export ANTHROPIC_API_BASE="${ANTHROPIC_API_BASE:-$BASE_URL}" ;;
+    esac
+fi
+
+# Persist logs at project root so they survive reboot. /tmp gets wiped.
+REPO_ROOT=$(cd "$KERNEL_DIR/../.." && pwd)
+LOGDIR="${OWNEVO_TAU3_LOGDIR:-$REPO_ROOT/log/tau3_p2}"
 mkdir -p "$LOGDIR"
 
 N_CYCLES="${OWNEVO_TAU3_CYCLES:-10}"

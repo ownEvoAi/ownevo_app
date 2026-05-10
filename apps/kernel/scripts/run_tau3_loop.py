@@ -586,6 +586,7 @@ async def main_async(args: CliArgs) -> int:
                 memory_mb=args.task_memory_mb,
                 skill_override_dir=override_dir,
                 anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                anthropic_api_base=os.environ.get("ANTHROPIC_API_BASE"),
                 openai_api_key=os.environ.get("OPENAI_API_KEY"),
                 openai_api_base=os.environ.get("OPENAI_API_BASE"),
                 ollama_api_base=os.environ.get("OLLAMA_API_BASE"),

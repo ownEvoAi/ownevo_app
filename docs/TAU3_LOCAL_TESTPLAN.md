@@ -953,7 +953,53 @@ uv run --extra agent python scripts/run_tau3_loop.py \
   --task-concurrency 3 --task-timeout-seconds 2400
 ```
 
-Results land in `/tmp/tau3_p2_logs/sweep_results.tsv` (sweep) or per-cycle log files (multi-cycle).
+Results land in `<repo>/log/tau3_p2/sweep_results.tsv` (sweep) or per-cycle log files (multi-cycle). Older runs may still be under `/tmp/tau3_p2_logs/` from before the log-dir migration.
+
+---
+
+### Local LLM compat matrix
+
+(Model × API path) — what works, what's broken, and why we don't bother re-running known failures. Update after every sweep.
+
+The 4 API paths correspond to the `tau3_p2_local_loop.sh` / `tau3_p2_local_sweep.sh` presets:
+
+- `ollama` — Ollama native `/api/chat` (api_format=ollama)
+- `ollama-openai` — Ollama OpenAI-compat `/v1/chat/completions`
+- `lms-openai` — LM Studio OpenAI-compat `/v1/chat/completions`
+- `lms-anthropic` — LM Studio Anthropic-compat `/v1/messages`
+
+Cell legend:
+- ✅ = drives loop end-to-end (proposes, calls tools, codegen survives validation)
+- ⚠ = calls tools but codegen breaks consistently (model-level limitation, not API-level)
+- ✗ = blocked at the API/template/tool-calling layer (don't re-run as-is)
+- — = not yet tested
+- 🚫 = template/architecture incompat (don't re-run; document & skip)
+
+| Model | `ollama` | `ollama-openai` | `lms-openai` | `lms-anthropic` | Notes / load-bearing flags |
+|---|:-:|:-:|:-:|:-:|---|
+| qwen3-coder:30b | — | ✅ ¹ | — | ⚠ ² | ¹ requires `/no_think` auto-injection (runner.py); +14.9% on TODO-19 then F6 7/7 on W6 v5. ² LMS-Anthropic: 14/14 deterministic `_long_frame` codegen bug (TODO-20). |
+| qwen3.6-35b-a3b | — | — | ✅ ³ | — | ³ drove loop, hit val=0.85 ×2 in multi-cycle. Thinking embedded too deep for `/no_think` to override. |
+| qwen3.5-9b | — | ✗ ⁴ | ✗ ⁴ | ✅ ⁴ | ⁴ F14g — 0/3 via OpenAI, 3/3 via Anthropic. API-format-load-bearing. |
+| qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
+| qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
+| Qwq:32b | — | — | — | — | reasoning model; would route via `ollama_chat/`. Untested. |
+| gpt-oss:20b / 120b | — | — | — | — | untested; 120B large open-weight worth a single-cycle smoke. |
+| gemma4:26b | — | ⚠ ⁷ | — | — | ⁷ drives loop but codegen bugs every cycle (NameError 2-4, slice-truncation 5). Native `/api/chat` and LMS variants untested. |
+| google/gemma-4-26b-a4b (LMS) | — | — | ⚠ ⁸ | — | ⁸ in 2026-05-09 sweep — reused gemma's failure pattern. |
+| granite4.1:8b | — | 🚫 ⁹ | — | — | ⁹ generates U+2013 em-dash → SyntaxError (A4.4 gate). Useful only as task agent / user-sim, not loop driver. |
+| granite-4.1-8b (LMS) | — | — | ✅ ¹⁰ | — | ¹⁰ A4.4 fastest desktop 3/3 (33s). Loop-driver capability not yet sweeped. |
+| granite4.1:30b | — | 🚫 ¹¹ | — | — | ¹¹ read skill, never wrote — gave up. |
+| devstral-small-2:latest | — | 🚫 ¹² | — | — | ¹² runnable Python, but `run_pipeline` validation rejects every diff (TODO-21). |
+| mistralai/devstral-small-2-2512 (LMS) | — | — | 🚫 ¹³ | — | ¹³ tool-error storm — codegen quality too low. |
+| mistralai/ministral-3-14b-reasoning (LMS) | — | — | 🚫 ¹⁴ | — | ¹⁴ chat-template strict alternation — template incompat. |
+| zai-org/glm-4.7-flash (LMS) | — | — | ✗ ¹⁵ | — | ¹⁵ kickoff message exceeded model context. Re-run only with longer-context build. |
+| qwen/qwen3-30b-a3b-2507 (LMS) | — | — | — | — | in 2026-05-09 sweep batch (results pending). |
+
+**Rules:**
+1. Don't re-run 🚫 cells — root cause is template / model architecture, not flaky.
+2. Re-running ✗ requires changing the failing condition (longer context, different prompt, kernel patch). Note the condition change in the cell.
+3. Adding a new model → run all 4 cells unless an entry above proves a path is irrelevant (e.g. LMS-only model can't use Ollama). Cost of one extra cycle ≪ cost of debugging silent regressions.
+4. Tool-calling + thinking-flag behavior is the *primary* signal — codegen quality only matters if those are clean.
 
 ---
 
