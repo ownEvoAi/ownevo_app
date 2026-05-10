@@ -1020,8 +1020,22 @@ The fix above lives in `tau2_patches.py` which is baked into
 the 2026-05-10 patch will hang in 10-min loops on Ollama qwen3* task agents.**
 Rebuild with `make sandbox-image-tau3` after pulling main on a fresh checkout.
 
+**Qwen3.5/3.6 thinking-loop levers (added 2026-05-10):**
+
+When a qwen3.x run hits `stop_reason=max_tokens` without ever emitting a
+tool call, or LMS jinja errors trip on `"No user query found in messages"`,
+the failure modes are usually one of:
+
+| Lever | Effect | Where to set |
+|---|---|---|
+| `options.think=false` | Suppresses thinking entirely. Fastest, may sacrifice proposer quality. **Currently used** via `OllamaChatClient` (loop) + `tau2_patches.py:_patch_litellm_ollama_think_off` (task agent in sandbox) | Code-level, automatic for ollama_chat/qwen3* models |
+| `extra_body.preserve_thinking=true` | Keeps thinking ON but stable across turns — model doesn't restart its reasoning loop. Higher quality, slower | Not yet plumbed — would need to add `extra_body` plumbing to OllamaChatClient and tau2_patches.py |
+| LMS prompt-template override | Replaces broken bundled jinja with a "self-healing" one that forces `</think>` close before tool_call. Verified template at `huggingface.co/froggeric/Qwen3.5-35B-A3B-Uncensored-FernflowerAI-MLX-8bit/blob/main/chat_template.jinja` (works on LMS 0.4.6 + qwen3.5-9b) | LM Studio UI → My Models → model → Settings → Prompt Template — paste jinja override |
+| `presence_penalty=0.0`, `temperature=1.0` | Sampler tuning. Low temp (0.2-0.7) traps the model in reasoning paths; presence_penalty ≥ 1.2 causes instant looping | LMS per-model settings or LiteLLM completion kwargs |
+| System-prompt close-think nudge | Append: "You MUST close your reasoning block with </think> before calling any tool." | `runner.py:_maybe_no_think_suffix` — currently appends `/no_think` (ineffective on qwen3.5/3.6). Replace with the close-tag nudge for that lineage |
+
 **Open dimensions:**
-- **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Would unlock LMS qwen36 as task agent. Download is ~22 GB; not yet pulled.
+- **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Would unlock LMS qwen36 as task agent. Download is ~22 GB; not yet pulled. Cheaper alternative: paste the froggeric template into LMS UI for the existing model.
 - **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try as alternative — non-thinking model so the think-patch above doesn't affect it.
 
 ---
