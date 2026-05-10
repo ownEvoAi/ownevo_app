@@ -196,7 +196,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     parser.add_argument("--llm-base-url", default=None)
     parser.add_argument("--llm-api-key", default=DEFAULT_LLM_API_KEY)
     parser.add_argument("--api-format", default=DEFAULT_LLM_API_FORMAT,
-                        choices=["openai", "anthropic"])
+                        choices=["openai", "anthropic", "ollama"])
     parser.add_argument("--no-stream", action="store_true",
                         help="Force non-streaming Anthropic mode (LMS proxy "
                              "compat). No effect with --api-format=openai.")
@@ -212,7 +212,7 @@ def parse_args(argv: list[str]) -> CliArgs:
 
     ns = parser.parse_args(argv)
     base_url = ns.llm_base_url or (
-        DEFAULT_LLM_BASE_URL_OPENAI if ns.api_format == "openai"
+        DEFAULT_LLM_BASE_URL_OPENAI if ns.api_format in ("openai", "ollama")
         else DEFAULT_LLM_BASE_URL_ANTHROPIC
     )
     return CliArgs(
@@ -430,7 +430,10 @@ async def main_async(args: CliArgs) -> int:
             default_workflow_id=args.workflow_id,
         )
 
-        if args.api_format == "openai":
+        if args.api_format == "ollama":
+            from ownevo_kernel.eval_runner.ollama_native import OllamaChatClient  # noqa: PLC0415
+            client = OllamaChatClient(base_url=args.llm_base_url)
+        elif args.api_format == "openai":
             from openai import AsyncOpenAI  # noqa: PLC0415
             client = AsyncOpenAI(
                 api_key=args.llm_api_key,
@@ -455,7 +458,7 @@ async def main_async(args: CliArgs) -> int:
 
         _p = _urlparse(args.llm_base_url)
         _safe_url = f"{_p.scheme}://{_p.hostname}:{_p.port or ''}"
-        _stream_flag = "" if args.api_format == "openai" else (
+        _stream_flag = "" if args.api_format in ("openai", "ollama") else (
             " no_stream=True" if args.no_stream else ""
         )
         print(
@@ -485,7 +488,18 @@ async def main_async(args: CliArgs) -> int:
 
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
             kickoff = _kickoff_message(args.workflow_id, past_attempts_block)
-            if args.api_format == "openai":
+            if args.api_format == "ollama":
+                from ownevo_kernel.middleware.claude_sdk import run_agent_turn_ollama  # noqa: PLC0415
+                agent_result = await run_agent_turn_ollama(
+                    client,
+                    system=system_prompt,
+                    user_message=kickoff,
+                    kernel_context=kernel_context,
+                    collector=collector,
+                    model=args.llm_model,
+                    max_iterations=args.max_iterations,
+                )
+            elif args.api_format == "openai":
                 agent_result = await run_agent_turn_openai(
                     client,
                     system=system_prompt,

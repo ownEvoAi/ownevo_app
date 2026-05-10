@@ -7,8 +7,13 @@ Public surface (everything an outside caller needs):
       into the collector. Returns AgentTurnResult.
 
   run_agent_turn_openai(client, *, system, user_message, kernel_context, ...)
-      Same contract, but for OpenAI-compatible backends (Ollama, etc.)
+      Same contract, but for OpenAI-compatible backends (Ollama, LMS, etc.)
       that speak /v1/chat/completions instead of /v1/messages.
+
+  run_agent_turn_ollama(client, *, system, user_message, kernel_context, ...)
+      Same contract, but routes through OllamaChatClient (native /api/chat,
+      non-streaming). Lets options.think=false and other Ollama-native options
+      pass through reliably. Use with OllamaChatClient from eval_runner.ollama_native.
 
   KernelContext(conn, sandbox, actor, default_workflow_id)
       Bundle of dependencies the tools execute against.
@@ -35,6 +40,7 @@ from .runner import (
     AgentTurnResult,
     AnthropicClientProtocol,
     run_agent_turn,
+    run_agent_turn_ollama,
     run_agent_turn_openai,
 )
 from .tool_definitions import (
@@ -61,5 +67,6 @@ __all__ = [
     "kernel_tool_definitions",
     "kernel_tool_definitions_openai",
     "run_agent_turn",
+    "run_agent_turn_ollama",
     "run_agent_turn_openai",
 ]

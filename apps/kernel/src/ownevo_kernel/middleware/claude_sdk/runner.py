@@ -858,6 +858,185 @@ def _openai_finish_to_stop_reason(finish_reason: str) -> str:
     }.get(finish_reason, finish_reason)
 
 
+# ---------------------------------------------------------------------------
+# Native Ollama /api/chat runner (non-streaming)
+# ---------------------------------------------------------------------------
+
+
+async def run_agent_turn_ollama(
+    client: Any,
+    *,
+    system: str,
+    user_message: str,
+    kernel_context: KernelContext,
+    collector: TraceCollector,
+    model: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS_OPENAI,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    short_circuit_on_sandbox_error: bool = True,
+    ollama_num_ctx: int | None = None,
+) -> AgentTurnResult:
+    """Drive one agent run using OllamaChatClient (native /api/chat, non-streaming).
+
+    Same logic as run_agent_turn_openai but calls create(stream=False) and
+    parses the complete OllamaResponse directly. Allows passing
+    options.think=false and other Ollama-native options that the OpenAI-compat
+    /v1/chat/completions endpoint may silently strip on some Ollama builds.
+
+    Ollama /api/chat does not return tool call IDs; synthetic IDs are generated
+    per turn so that assistant tool_calls and tool results stay consistent.
+    """
+    import json as _json
+
+    tools = kernel_tool_definitions_openai()
+    system_prompt = system + _maybe_no_think_suffix(model)
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    iterations = 0
+    tool_call_count = 0
+    tool_error_count = 0
+    token_usage: dict[str, int] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+    last_stop_reason = "max_iterations"
+    last_text = ""
+
+    for _ in range(max_iterations):
+        iterations += 1
+
+        messages = compact_openai_messages(messages)
+
+        # OllamaChatClient passes num_ctx inside options via its own path;
+        # the extra_body key is only understood by AsyncOpenAI, not by httpx
+        # directly. Pass as a top-level kwarg so OllamaChatClient can forward
+        # it if it chooses (currently ignored — num_ctx is wired via Modelfile
+        # on the Ollama side for the loop agent).
+        response = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            stream=False,
+        )
+
+        choice = response.choices[0]
+        msg = choice.message
+        finish_reason = choice.finish_reason or "stop"
+        last_stop_reason = _openai_finish_to_stop_reason(finish_reason)
+        last_text = msg.content or ""
+
+        # Accumulate token usage (OllamaResponse uses prompt/completion_tokens)
+        token_usage["input_tokens"] += response.usage.prompt_tokens
+        token_usage["output_tokens"] += response.usage.completion_tokens
+
+        # Parse tool calls; generate synthetic IDs (Ollama /api/chat omits them)
+        finished_tools: list[FinalizedToolCall] = []
+        tool_calls_oai: list[dict[str, Any]] = []
+
+        for tc in msg.tool_calls or []:
+            call_id = f"call_{uuid4().hex[:12]}"
+            name = tc.function.name
+            raw_args = tc.function.arguments
+            try:
+                input_obj = _json.loads(raw_args) if raw_args else {}
+            except (ValueError, TypeError):
+                input_obj = {}
+            if not isinstance(input_obj, dict):
+                input_obj = {}
+
+            span_id = uuid4()
+            collector.record(
+                collector.make_event(
+                    type="tool_call_start",
+                    call_id=call_id,
+                    name=name,
+                    args=input_obj,
+                    parent_span_id=span_id,
+                )
+            )
+            finished_tools.append(
+                FinalizedToolCall(
+                    call_id=call_id,
+                    name=name,
+                    input=input_obj,
+                    span_id=span_id,
+                )
+            )
+            tool_calls_oai.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": _json.dumps(input_obj),
+                },
+            })
+
+        if not finished_tools:
+            return AgentTurnResult(
+                stop_reason=last_stop_reason,
+                iterations=iterations,
+                final_text=last_text,
+                tool_call_count=tool_call_count,
+                tool_error_count=tool_error_count,
+                token_usage=token_usage,
+            )
+
+        assistant_msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": last_text or None,
+        }
+        if tool_calls_oai:
+            assistant_msg["tool_calls"] = tool_calls_oai
+        messages.append(assistant_msg)
+
+        # Reuse _OpenAIStreamAccumulator as a thin record_tool_result adapter
+        acc = _OpenAIStreamAccumulator(collector=collector, model=model)
+        tool_results = await _dispatch_tools(finished_tools, kernel_context, acc)
+        tool_call_count += len(tool_results)
+        tool_error_count += sum(1 for r in tool_results if r.get("is_error"))
+
+        if short_circuit_on_sandbox_error:
+            sandbox_error = next(
+                (r for r in tool_results if r.get("_error_class") is not None),
+                None,
+            )
+            if sandbox_error is not None:
+                return AgentTurnResult(
+                    stop_reason="sandbox_error_propagated",
+                    iterations=iterations,
+                    final_text=last_text,
+                    tool_call_count=tool_call_count,
+                    tool_error_count=tool_error_count,
+                    token_usage=token_usage,
+                )
+
+        for r in tool_results:
+            content = r.get("content", "")
+            if not isinstance(content, str):
+                content = _json_stringify(content)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": r["tool_use_id"],
+                "content": content,
+            })
+
+    return AgentTurnResult(
+        stop_reason="max_iterations",
+        iterations=iterations,
+        final_text=last_text,
+        tool_call_count=tool_call_count,
+        tool_error_count=tool_error_count,
+        token_usage=token_usage,
+    )
+
+
 __all__ = [
     "AgentTurnResult",
     "AnthropicClientProtocol",
@@ -866,5 +1045,6 @@ __all__ = [
     "DEFAULT_MAX_TOKENS_OPENAI",
     "DEFAULT_MODEL",
     "run_agent_turn",
+    "run_agent_turn_ollama",
     "run_agent_turn_openai",
 ]

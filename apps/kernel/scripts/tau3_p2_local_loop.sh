@@ -13,6 +13,7 @@
 #   $1  model id           e.g. "qwen/qwen3.6-35b-a3b" (LMS) or "gemma4:26b" (Ollama)
 #   $2  base url           http://192.168.1.50:1234/v1 (LMS) or :11434/v1 (Ollama)
 #   $3  workflow tag       e.g. "qwen36"  (becomes workflow_id tau3-retail-v1__qwen36)
+#   $4  api format         openai (default) | ollama | anthropic
 #
 # Env vars (override defaults):
 #   OWNEVO_TAU3_LOGDIR  log directory (default /tmp/tau3_p2_logs)
@@ -29,14 +30,16 @@
 set -u
 
 if [[ $# -lt 3 ]]; then
-    echo "usage: $0 <model> <base_url> <workflow_tag>" >&2
+    echo "usage: $0 <model> <base_url> <workflow_tag> [api_format]" >&2
     echo "example: $0 'qwen/qwen3.6-35b-a3b' 'http://192.168.1.50:1234/v1' 'qwen36'" >&2
+    echo "         $0 'gemma4:26b' 'http://192.168.1.50:11434/v1' 'gemma4_26b_ollama' ollama" >&2
     exit 2
 fi
 
 MODEL="$1"
 BASE_URL="$2"
 WORKFLOW_TAG="$3"
+API_FORMAT="${4:-openai}"
 
 KERNEL_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$KERNEL_DIR"
@@ -51,7 +54,10 @@ export OWNEVO_DATABASE_URL="postgresql://ownevo:${PASS}@localhost:5432/ownevo"
 # sandbox DO. Load the cloud key from .env.
 DOTENV="$KERNEL_DIR/../../.env"
 if [[ -f "$DOTENV" ]]; then
-    AKEY=$(grep '^ANTHROPIC_API_KEY=' "$DOTENV" | head -1 | cut -d= -f2- | tr -d '"'"'")
+    # .env may use ANTHROPIC_API_KEY or OWNEVO_LLM_API_KEY (same key, different name)
+    # .env lines may have optional "export " prefix; key may be ANTHROPIC_API_KEY or OWNEVO_LLM_API_KEY
+    AKEY=$(grep -E '^(export )?ANTHROPIC_API_KEY=' "$DOTENV" | head -1 | sed 's/^export //' | cut -d= -f2- | tr -d '"'"'")
+    [[ -z "$AKEY" ]] && AKEY=$(grep -E '^(export )?OWNEVO_LLM_API_KEY=' "$DOTENV" | head -1 | sed 's/^export //' | cut -d= -f2- | tr -d '"'"'")
     [[ -n "$AKEY" ]] && export ANTHROPIC_API_KEY="$AKEY"
 fi
 
@@ -69,7 +75,7 @@ for i in $(seq 1 "$N_CYCLES"); do
 
     uv run --extra agent python scripts/run_tau3_loop.py \
         --workflow-id "$WORKFLOW_ID" \
-        --api-format openai \
+        --api-format "$API_FORMAT" \
         --llm-base-url "$BASE_URL" \
         --llm-model "$MODEL" \
         --task-concurrency 3 \

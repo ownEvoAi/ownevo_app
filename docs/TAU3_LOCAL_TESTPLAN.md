@@ -910,12 +910,36 @@ sweep's 6 but same pattern of evidence).
 
 | Item | Why not done in sweep | Notes |
 |---|---|---|
-| **gemma4:26b multi-cycle** | sweep = 1 cycle each; matched baseline but didn't try to lift | Run 5-10 cycles under `tau3-retail-v1__gemma4_26b` to test whether it can produce its own lift past 0.85 |
+| **gemma4:26b multi-cycle (Ollama OpenAI-compat)** | ✅ done 2026-05-10 — see results below | 5 cycles; codegen bugs every cycle — not a viable lift driver |
+| **gemma4:26b native Ollama /api/chat** | not tried — OllamaChatClient loop runner not yet wired | run_agent_turn_ollama now implemented; try to see if API format affects codegen quality |
+| **gemma4:26b on LM Studio (OpenAI / Anthropic)** | not tried | Different quantization and serving; may produce different codegen behavior |
 | **qwen3:32b retry with nudge** | failed because it hallucinated `AGENT_REASONING_EFFORT` env var | One-line fix: add `Do NOT add or pass arbitrary env-var-driven kwargs to LiteLLM` to the loop kickoff prompt |
 | **qwen3-coder:30b on Ollama OpenAI** | not in sweep — was the original P2 plan but switched to Sonnet for confirmed lift first | Worth running now that v38 exists as a strong starting point — see if local model can do incremental work on top |
 | **Qwq:32b on Ollama** | not in sweep — explicit reasoning model, would route via `ollama_chat/` (proven path) | Strongest unexplored desktop candidate |
 | **gpt-oss:120b on Ollama** | not in sweep — large open-weight, untested for tau3 | Free, big, worth a single-cycle smoke |
 | **gemma4:26b building on v38** | future work | Strongest "cross-model collaboration" story — local gemma incrementally improves Sonnet-discovered v38 |
+
+#### gemma4:26b multi-cycle results (2026-05-10, workflow `tau3-retail-v1__gemma4_26b_ollama`)
+
+5 cycles, `--api-format openai`, Ollama `/v1/chat/completions`, `http://192.168.1.50:11434/v1`.
+
+| Cycle | val_score | Decision | Root cause |
+|---|---|---|---|
+| 1/5 | 0.8250 | PASS | Existing skill eval (baseline — not a gemma4 proposal) |
+| 2/5 | — | SANDBOX_ERROR | `NameError: name 'message' is not defined` in `get_init_state` |
+| 3/5 | — | SANDBOX_ERROR | Same NameError |
+| 4/5 | — | SANDBOX_ERROR | Same NameError |
+| 5/5 | — | SANDBOX_ERROR | Naive `state.messages[-15:]` truncation broke tool_use/tool_result pairs; 15/40 infra errors, 25 eval'd at avg 0.68 |
+
+**Learnings — do not repeat these mistakes in future runs:**
+
+1. **Parameter cross-contamination (cycles 2–4):** gemma4 rewrote `get_init_state` using `message` — a parameter name from `generate_next_message`'s signature — which doesn't exist in `get_init_state`. Classic hallucination of undefined variable. All 40 tasks fail at `orchestrator.initialize()`. Prompt nudge would be: *"When rewriting a method, only use the parameters defined in that method's signature."*
+
+2. **Naive message truncation (cycle 5):** gemma4 added `truncated_messages = state.messages[-15:]` as an efficiency improvement. Slicing in the middle of a tool_use/tool_result exchange drops the `tool_use` block while keeping the `tool_result`, triggering Anthropic's validation: `unexpected tool_use_id found in tool_result blocks`. Prompt nudge would be: *"Never slice message history at an arbitrary index — tool_result blocks must always be immediately preceded by the matching tool_use block."*
+
+3. **Pattern:** Different codegen bug each cycle. Not a fixable single-rule issue — reflects fundamental limitations in gemma4:26b's Python code generation accuracy under the tau3 constraint space. The model understands what to improve (add safety valve, add efficiency) but can't implement it correctly.
+
+**Recommendation:** gemma4:26b is not a viable autonomous improvement driver for tau3 unless given very tight few-shot examples of correct `get_init_state` and `generate_next_message` structure. Native Ollama format (`/api/chat`) is unlikely to fix codegen bugs but worth 1 cycle to confirm API format is not a factor.
 
 Run command (single model, change `--llm-model` and `--workflow-id`):
 ```bash
