@@ -17,6 +17,49 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (TODO-28 — W6 row 6.1 NL-gen demo loop dry-run + storyboard / CLI fixes)
+
+PLAN.md row 6.1's validation gate is "an external reviewer can sit
+through the live demo without intervention; lift chart visibly moves" —
+a human-in-the-loop check, not a pytest pass. Without this dry-run, demo
+budget overruns and UX gaps would surface during the W8.1.1 YC video
+shoot. Three live runs of `make nl-gen-demo-loop` against
+`demand-prediction` (haiku 4.5 agent, Sonnet 4.6 proposer): 34.2 s
+`[0.20, 0.80, 0.60]`, 17.2 s `[0.20, 1.00, 1.00]`, 15.2 s `[0.20, 1.00]`
+post-§3 fix. Total dry-run wall under 2 minutes — **5-minute reviewer
+budget holds with margin**.
+
+- New `--progress` flag on `apps/kernel/scripts/nl_gen_demo_loop.py`.
+  Attaches a stderr `StreamHandler` to the existing
+  `ownevo_kernel.nl_gen.loop` logger so the per-cycle
+  `logger.info("cycle %d/%d: metric=%.3f failures=%d clusters=%d ...")`
+  line streams as the cycle ends. Off by default — JSON on stdout is
+  unaffected, so machine-parseable runs that don't pass the flag still
+  get a single document. New `test_parse_args_progress_flag` test;
+  21 CLI tests passing.
+- New `docs/W6_PREVIEW_DRYRUN.md` — full report (stack under test,
+  per-fixture API + SSR latency, run table, four UX gaps with patches).
+  Raw run logs (3 JSON dumps) preserved at
+  `docs/W6_PREVIEW_DRYRUN_artifacts/`.
+
+### Changed (TODO-28 — storyboard + disabled-button tooltip)
+
+- `docs/W6_DEMO_STORYBOARD.md` — recommended command switched from
+  `--cycles 3` to `--cycles 2 --progress`. Cycle-2 walk-through
+  removed from the 5-minute narrative; wall-time expectation
+  84 s → 12–25 s. The cluster → instruction → lift narrative is intact;
+  the haiku-noisy third cycle is excised because the 2026-05-09 dry-run
+  showed it sometimes regresses (`[0.20, 0.80, 0.60]`), which would
+  break the "lift chart climbs" framing on tape. URL pointer rewritten
+  from the legacy `/workflows/preview` to the W7-slice-5 canonical
+  `/workspaces/acme/workflows/new` form (the legacy URL still
+  307-redirects).
+- `apps/web/app/workspaces/[wsId]/workflows/new/page.tsx` — the
+  disabled `Run baseline ›` button's tooltip referenced a non-existent
+  `POST /api/nl-gen/generate` endpoint. Rewritten to point at the CLI
+  demo path: `"CLI demo: make nl-gen-demo-loop — UI wire-up planned for
+  W8 (POST /api/nl-gen/generate)"`.
+
 ### Added (TODO-34 — Deploy / Rollback action on the skill detail page)
 
 The proposal state machine had `approved-awaiting-deploy → deployed →
