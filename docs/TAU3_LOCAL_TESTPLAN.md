@@ -978,16 +978,17 @@ Cell legend:
 | Model | `ollama` | `ollama-openai` | `lms-openai` | `lms-anthropic` | Notes / load-bearing flags |
 |---|:-:|:-:|:-:|:-:|---|
 | qwen3-coder:30b | — | ✅ ¹ | — | ⚠ ² | ¹ requires `/no_think` auto-injection (runner.py); +14.9% on TODO-19 then F6 7/7 on W6 v5. ² LMS-Anthropic: 14/14 deterministic `_long_frame` codegen bug (TODO-20). |
-| qwen3.6-35b-a3b | — | — | ✅ ³ | — | ³ drove loop, hit val=0.85 ×2 in multi-cycle. Thinking embedded too deep for `/no_think` to override. |
+| qwen3.6-35b-a3b (LMS) | — | — | ✅ ³ | ✅ ³ᵇ | ³ drove loop, hit val=0.85 ×2 in multi-cycle. Thinking embedded too deep for `/no_think` to override (LMS strips thinking client-side). ³ᵇ 2026-05-10: works after runner.py `_run_turn_no_stream` fix (commit `4202f1e`); cache_read_input=31491 confirms LMS auto-cache. |
+| qwen3.6:35b-a3b (Ollama) | ✅ ³ᶜ | ✗ ³ᵈ | n/a | n/a | ³ᶜ 2026-05-10 smoke: native `/api/chat` works because `OllamaChatClient` auto-injects `options.think=false` (ollama_native.py:209). Loop drove cleanly: 5 iters, 7348 out, end_turn. ³ᵈ openai-compat strips think:false silently → verbose thinking → 16501 out tokens → DEFAULT_MAX_TOKENS_OPENAI cap hit in 2 iters. |
 | qwen3.5-9b | — | ✗ ⁴ | ✗ ⁴ | ✅ ⁴ | ⁴ F14g — 0/3 via OpenAI, 3/3 via Anthropic. API-format-load-bearing. |
 | qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
 | qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
 | Qwq:32b | — | — | — | — | reasoning model; would route via `ollama_chat/`. Untested. |
 | gpt-oss:20b / 120b | — | — | — | — | untested; 120B large open-weight worth a single-cycle smoke. |
-| gemma4:26b | — | ⚠ ⁷ | — | — | ⁷ drives loop but codegen bugs every cycle (NameError 2-4, slice-truncation 5). Native `/api/chat` and LMS variants untested. |
-| google/gemma-4-26b-a4b (LMS) | — | — | ⚠ ⁸ | — | ⁸ in 2026-05-09 sweep — reused gemma's failure pattern. |
+| gemma4:26b | ⚠ ⁷ᵇ | ✅ ⁷ | — | — | ⁷ 2026-05-10 sweep P1.3 + P2.3: drove loop cleanly (`end_turn`, 5-9 iters, valid proposals v_seq=84 + 95). Replaces older "⚠ codegen bugs" verdict — that was a different cycle pattern. ⁷ᵇ native `/api/chat` hit `httpx.ReadTimeout` at 5 min; ollama_native.py timeout bumped 300→600s on 2026-05-10. Re-test pending. |
+| google/gemma-4-26b-a4b (LMS) | — | — | ✗ ⁸ | ✗ ⁸ | ⁸ 2026-05-10 sweep P1.2 + P2.2 (4 attempts both APIs): `stop_reason=max_tokens` after only 1061-7348 output tokens — model emits brief output then stops mid-iteration. Suspect LMS-side `max_completion_tokens` setting or quant tendency. |
 | granite4.1:8b | — | 🚫 ⁹ | — | — | ⁹ generates U+2013 em-dash → SyntaxError (A4.4 gate). Useful only as task agent / user-sim, not loop driver. |
-| granite-4.1-8b (LMS) | — | — | ✅ ¹⁰ | — | ¹⁰ A4.4 fastest desktop 3/3 (33s). Loop-driver capability not yet sweeped. |
+| granite-4.1-8b (LMS) | — | — | ✅ ¹⁰ | — | ¹⁰ A4.4 fastest desktop 3/3 (33s). Loop-driver capability not yet sweeped. **Task-agent role: broken** — see `Task-agent role compat` below. |
 | granite4.1:30b | — | 🚫 ¹¹ | — | — | ¹¹ read skill, never wrote — gave up. |
 | devstral-small-2:latest | — | 🚫 ¹² | — | — | ¹² runnable Python, but `run_pipeline` validation rejects every diff (TODO-21). |
 | mistralai/devstral-small-2-2512 (LMS) | — | — | 🚫 ¹³ | — | ¹³ tool-error storm — codegen quality too low. |
@@ -1000,6 +1001,22 @@ Cell legend:
 2. Re-running ✗ requires changing the failing condition (longer context, different prompt, kernel patch). Note the condition change in the cell.
 3. Adding a new model → run all 4 cells unless an entry above proves a path is irrelevant (e.g. LMS-only model can't use Ollama). Cost of one extra cycle ≪ cost of debugging silent regressions.
 4. Tool-calling + thinking-flag behavior is the *primary* signal — codegen quality only matters if those are clean.
+
+### Task-agent role compat (added 2026-05-10)
+
+The matrix above measures **loop-driver capability**. A model that drives the loop cleanly may still fail as a **task agent** (the retail tau-bench solver inside the gate sandbox). The retail conversation pattern hits different code paths and template branches. Surfaces seen so far:
+
+| Model (as task agent via LiteLLM) | Result | Failure mode |
+|---|:-:|---|
+| `openai/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | LMS jinja: `"No user query found in messages"` — 40/40 infra errors. The retail evaluator's first message structure trips the model's bundled template (P1.1, sweep 2026-05-10). |
+| `anthropic/qwen/qwen3.6-35b-a3b` (LMS) | ✗ | **Same jinja error** via `/v1/messages`. Server-side template, API-agnostic. Routing prefix doesn't help (P1 rerun, 2026-05-10). |
+| `ollama_chat/qwen3.6:35b-a3b` (Ollama) | ⚠ unknown | Smoke 1 hit gate but error info absorbed (`runner.last_summary=None`). `run_tau3_loop.py` patched to surface `pipeline_error`; smoke 2 in flight. |
+| `openai/granite-4.1-8b` (LMS) | ✗ | LiteLLM `OpenAIException` with empty message in 40/40 (P2, sweep 2026-05-10). Granite's first-turn response is structurally valid (verified via direct curl 2026-05-10). Suspect: numeric tool_call id (`"873012003"` not `"call_*"`) or non-standard `reasoning_content` field tripping LiteLLM strict pydantic validation. Multi-turn flow not yet probed. |
+| `anthropic/granite-4.1-8b` (LMS) | — | Untested. Try as fallback. |
+
+**Open dimensions:**
+- **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Would unlock LMS qwen36 as task agent. Download is ~22 GB; not yet pulled.
+- **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try if qwen3.6-Ollama path falls through.
 
 ---
 

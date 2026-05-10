@@ -133,6 +133,10 @@ LOGDIR="${OWNEVO_TAU3_LOGDIR:-$REPO_ROOT/log/tau3_p2}"
 mkdir -p "$LOGDIR"
 
 N_CYCLES="${OWNEVO_TAU3_CYCLES:-10}"
+# Whole-sandbox-run budget for all 40 retail tasks combined. Default 2400s
+# (40 min) is sized for cloud Sonnet; slow local backends (Ollama qwen3.6:35b
+# at NUM_PARALLEL=2) need 1.5-3 hr. Override with OWNEVO_TAU3_TASK_TIMEOUT.
+TASK_TIMEOUT="${OWNEVO_TAU3_TASK_TIMEOUT:-2400}"
 WORKFLOW_ID="tau3-retail-v1__${WORKFLOW_TAG}"
 MASTER="$LOGDIR/${WORKFLOW_TAG}_p2_master.log"
 
@@ -149,7 +153,7 @@ for i in $(seq 1 "$N_CYCLES"); do
         --task-agent-model "$TASK_AGENT_MODEL" \
         --task-user-model "$TASK_USER_MODEL" \
         --task-concurrency 3 \
-        --task-timeout-seconds 2400 \
+        --task-timeout-seconds "$TASK_TIMEOUT" \
         > "$log" 2>&1
     rc=$?
 

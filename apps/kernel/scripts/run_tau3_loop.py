@@ -627,6 +627,19 @@ async def main_async(args: CliArgs) -> int:
         )
         if runner.last_summary:
             print(f"  raw_summary={json.dumps(runner.last_summary)}")
+        elif gr.decision.name == "SANDBOX_ERROR" and runner.last_pipeline_result is not None:
+            # last_summary stays None when the sandbox itself fails (result.ok=False)
+            # before tau-bench produces any diagnostics. Surface the pipeline error
+            # so the failure mode is visible without re-running with extra flags.
+            pr = runner.last_pipeline_result
+            print(
+                f"  pipeline_error: status={pr.status} "
+                f"error_class={pr.error_class} "
+                f"error={pr.error!r}",
+            )
+            stderr_tail = (pr.raw_stderr or "")[-2000:]
+            if stderr_tail:
+                print(f"  pipeline_stderr_tail={stderr_tail!r}")
         return 0
     finally:
         await conn.close()

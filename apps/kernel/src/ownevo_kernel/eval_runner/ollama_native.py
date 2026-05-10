@@ -161,15 +161,24 @@ def _parse_ollama_response(data: dict[str, Any]) -> OllamaResponse:
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_TIMEOUT_SECONDS = 300.0
+DEFAULT_TIMEOUT_SECONDS = 600.0
 """Per-request httpx timeout for Ollama /api/chat calls.
 
-12 concurrent cases fire simultaneously against a single GPU; the last case
-queued must wait for ~11 earlier completions before it is served. At ~10s
-per case on qwen3:14b, the last queued request can take up to ~120s just
-waiting in the Ollama queue — then its own generation time on top. 300s
-gives comfortable headroom for long-prompt cases on slower models without
-being absurd.
+Two distinct call sites with different timeout needs:
+
+(a) A4.4 gate (12 concurrent cases on a single GPU): the last queued
+case waits for ~11 earlier completions before being served. At ~10s
+per case on qwen3:14b, that's ~120s of queue wait + per-case generation
+time on top.
+
+(b) τ³ loop agent (1 sequential request, large model): a single chat
+turn on a 26-35B model can emit several thousand tokens. At ~30 tok/s
+on a 35B model with a long prompt, a single turn can run 3-5 minutes
+on its own. The earlier 300s default tripped `httpx.ReadTimeout` on
+gemma4:26b and qwen3.6:35b loop iterations (P1.3f, P2.3f, smoke 1).
+
+600s covers both with headroom and no realistic harm — if a single
+call legitimately takes >10 min the model is wedged anyway.
 """
 
 
