@@ -145,7 +145,7 @@ run_one() {
     echo "=== [$ts_start] P${phase} loop=$model preset=$preset task=$task_agent workflow=$workflow_id" \
         | tee -a "$MASTER"
 
-    uv run --extra agent python scripts/run_tau3_loop.py \
+    PYTHONUNBUFFERED=1 uv run --extra agent python -u scripts/run_tau3_loop.py \
         --workflow-id "$workflow_id" \
         --api-format "$api_format" \
         --llm-base-url "$base_url" \
