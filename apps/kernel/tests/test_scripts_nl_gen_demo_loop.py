@@ -41,9 +41,16 @@ def test_parse_args_defaults(monkeypatch: pytest.MonkeyPatch):
     assert args.api_key == "sk-test-default"
     assert args.pretty is False
     assert args.include_instructions is False
+    assert args.progress is False
     assert args.require_climbing is False
     assert args.require_lift is None
     assert args.require_meets_target is False
+
+
+def test_parse_args_progress_flag(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    args = cli._parse_args(["--progress"])
+    assert args.progress is True
 
 
 def test_parse_args_explicit_workflow_and_cycles(monkeypatch):
@@ -81,6 +88,14 @@ def test_parse_args_rejects_non_positive_cycles(monkeypatch, bad: str):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     with pytest.raises(SystemExit) as ei:
         cli._parse_args(["--cycles", bad])
+    assert ei.value.code == 2
+
+
+@pytest.mark.parametrize("bad", ["0", "-0.5", "0.0"])
+def test_parse_args_rejects_non_positive_require_lift(monkeypatch, bad: str):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    with pytest.raises(SystemExit) as ei:
+        cli._parse_args(["--require-lift", bad])
     assert ei.value.code == 2
 
 
@@ -148,6 +163,7 @@ def _args(**overrides) -> cli.CliArgs:
         "api_key": "sk-test",
         "pretty": False,
         "include_instructions": False,
+        "progress": False,
         "require_climbing": False,
         "require_lift": None,
         "require_meets_target": False,
@@ -183,6 +199,12 @@ def test_check_gates_lift_fails_when_threshold_missed():
     failures = cli._check_gates(_args(require_lift=0.4), report)
     assert len(failures) == 1
     assert "absolute_lift" in failures[0]
+
+
+def test_check_gates_lift_passes_at_exact_threshold():
+    # lift = 0.6 - 0.2 = 0.4 exactly equals threshold — gate uses strict <, so should pass
+    report = _report(curve=[0.2, 0.6], meets_target=False)
+    assert cli._check_gates(_args(require_lift=0.4), report) == []
 
 
 def test_check_gates_meets_target_passes_when_final_clears():
@@ -262,3 +284,8 @@ def test_redact_preserves_none_instructions():
     out = cli._redact_instructions_in_dict(d, include=False)
     cycle0 = out["cycles"][0]
     assert cycle0["instruction_before"] is None  # was None — stays None
+    # cycle 1: instruction_edit was None — must stay None (not reshaped)
+    cycle1 = out["cycles"][1]
+    assert cycle1["instruction_edit"] is None
+    # cycle 1: instruction_before was 250 chars — must be replaced with length hint
+    assert "<250 chars" in cycle1["instruction_before"]
