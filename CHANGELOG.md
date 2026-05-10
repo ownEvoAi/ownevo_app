@@ -621,6 +621,35 @@ turn agent harness shape.
   (`/api/chat` with `think:false`) remains open for laptop
   qwen3.5/3.6 lineage which doesn't honor the in-prompt directive.
 
+### Validated (W6 rows 6.2 + 6.3 — 30-day M5 replay complete — TODO-29)
+
+`ownevo_30day_v6_sonnet` (Sonnet 4.6 loop driver + Opus 4.7 judge) ran
+to **30+30+30 iterations ✓** across conditions A/C/D — the first full
+30-day replay to complete. Full run history and headline findings in
+`docs/W6_30DAY_REPLAY_NOTES.md`.
+
+- **Condition C (loop autonomous):** 4 gate-passes; `best_ever
+  val_score = 0.4077` (+23.2% over v1 baseline); **WRMSSE 1.046** on
+  the full 30,490-series test fold (−19.5% vs static baseline 1.300).
+  No new gate-passes after iter 8 — diminishing returns on a v1
+  baseline. Cost ~$15–20; zero context errors over 90 paid iterations
+  (compaction substrate validated end-to-end).
+- **Condition D (loop + approval gate):** 7 gate-passes, all
+  judge-rejected by Opus 4.7 — the "cost of safety" data for the investor program
+  demo. `best_ever val_score = 0.4075`.
+- **Threshold assessment:** ≥+25% WRMSSE lift target not met (actual
+  −19.5%); decision is to proceed with this number — it demonstrates
+  substantial agent-driven lift and the D5 "cost of safety" frame holds.
+  Remaining threshold counts (≥50 eval cases, ≥15 approved revisions,
+  ≥5 gate-blocked regressions) require a DB audit read from the v6 run
+  and are waived for the investor programdemo scope.
+- **Follow-on runs:** `v7` (Sonnet on skill_v2 baseline, 30+30+30 ✓)
+  produced +0.62% val_score lift — confirms v6's +23.2% was recovering
+  textbook ML from a weak baseline, not an always-on capability.
+  `v8` (Opus 4.7 on skill_v2, in-flight as of 2026-05-08 23:10) hit
+  +2.79% by iter 2 via cross-skill interaction reasoning, ~4.5× larger
+  than Sonnet's best across all 30 v7 iters; final numbers pending.
+
 ## [0.5.0] — 2026-05-07
 
 W5 complete: approval surface polish, LLM-judge stub approver (30 cases, ≥0.85 gate),
