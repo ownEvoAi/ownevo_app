@@ -11,10 +11,10 @@ the W6 exit criterion: an external reviewer runs the full loop in under
 ## The command
 
 ```bash
-make nl-gen-demo-loop DEMO_LOOP_ARGS='--cycles 3 --agent-model claude-haiku-4-5 --include-instructions --pretty'
+make nl-gen-demo-loop DEMO_LOOP_ARGS='--cycles 2 --agent-model claude-haiku-4-5 --include-instructions --pretty --progress'
 ```
 
-Total wall: ~84 seconds. Total cost: a few cents on Anthropic cloud.
+Total wall: 12–25 seconds. Total cost: a few cents on Anthropic cloud.
 
 `ANTHROPIC_API_KEY` must be set (CLI errors out if not). The proposer
 defaults to `claude-sonnet-4-6`; the agent solver runs against haiku 4.5
@@ -22,6 +22,20 @@ because Sonnet 4.6 is too good on this fixture (only 2 failures per cycle,
 below the W3 quality gate's `min_inputs=5` floor — no clusters fire, no
 proposer call, flat curve). For the demo, haiku is the right choice
 because it leaves room for the loop to demonstrate lift.
+
+**Why 2 cycles, not 3.** The narrative is "baseline → proposer edit →
+agent reads the edit." Two cycles is exactly that: cycle 0 establishes
+the failure pattern + spawns the addendum; cycle 1 lets the addendum
+move the metric. A third cycle re-runs the same agent against the same
+edit on the same cases and adds nothing — but on haiku it's noisy and
+sometimes regresses (e.g. 0.20 → 1.00 → 0.60 in one 2026-05-09 dry-run),
+which would break the "lift chart climbs" framing on tape. See
+[`W6_PREVIEW_DRYRUN.md`](W6_PREVIEW_DRYRUN.md) for both runs.
+
+**Why `--progress`.** Without it, the CLI is silent for 12–25 s and
+then dumps the JSON in one go. With it, each cycle prints a one-line
+stderr summary as it ends (`cycle 1/2: metric=1.000 failures=0 ...`),
+so the presenter can narrate against the terminal in real time.
 
 ---
 
@@ -36,7 +50,10 @@ because it leaves room for the loop to demonstrate lift.
 > becomes an eval case, the failures cluster into named patterns, and
 > a domain expert teaches the agent the rule in plain language."
 
-Open the `/workflows/preview` page on `demand-prediction`. Show:
+Open the workspace preview page on `demand-prediction` —
+`/workspaces/acme/workflows/new?workflow_id=demand-prediction` (the
+old `/workflows/preview` URL 307-redirects but a reviewer typing it
+on camera lands on the redirect briefly). Show:
 
 - The reviewer-typed plain-English description ("Alert ops when next
   6-week markdown is upcoming...").
@@ -106,15 +123,15 @@ Walk through cycle 1:
 Then point at the lift curve:
 
 ```json
-"lift_curve": [0.2, 1.0, 1.0],
+"lift_curve": [0.2, 1.0],
 "is_climbing": true,
 "absolute_lift": 0.8,
-"wall_seconds": 84.27
+"wall_seconds": 17.15
 ```
 
 ### 4:30–5:00 — close the frame
 
-> "End-to-end in 84 seconds: workflow description → meta-eval badge →
+> "End-to-end in under 20 seconds: workflow description → meta-eval badge →
 > sim → eval cases → metric → live agent runs → failures cluster →
 > instruction edit → lift chart climbs. None of the rules are
 > hand-coded; none of the model is fine-tuned. The improvement loop
@@ -156,20 +173,26 @@ Then point at the lift curve:
   iteration table is a follow-up PR.
 - **Instructions accumulate across cycles.** Each cycle's
   `appended_text` concatenates onto the prior cumulative instruction.
-  After 3 cycles the instruction is ~3,000 chars — small relative to
+  After 2 cycles the instruction is ~1,500 chars — small relative to
   the trajectory in the user message, but not free.
+- **Why not 3+ cycles for the live demo.** The 2026-05-09 dry-run
+  (`docs/W6_PREVIEW_DRYRUN.md`) showed haiku 4.5 sometimes regresses
+  on cycle 2 (`[0.20, 0.80, 0.60]`) even when cycle 1 hit the target —
+  a coin flip we don't want on tape. The 2-cycle command preserves
+  the cluster → instruction → lift narrative without the regression
+  risk. For diagnostic / engineering runs, `--cycles 5+` is fine.
 
 ---
 
 ## Reproducing the run
 
-The 84-second smoke (2026-05-08) used:
+The 17-second smoke (2026-05-09) used:
 
 - `claude-haiku-4-5` as the agent solver
 - `claude-sonnet-4-6` as the proposer (default)
 - `demand-prediction` fixture (12 cases — 5 expected True, 7 expected False)
-- `--cycles 3` (baseline + 2 improvement cycles)
-- 3 calls per cycle × ~30 seconds + 1 proposer call × ~5 seconds
+- `--cycles 2` (baseline + 1 improvement cycle)
+- 2 calls per cycle × ~6 seconds + 1 proposer call × ~5 seconds
 
 Numbers will drift cycle-over-cycle as the models update. The
 **structural narrative** (cluster → instruction → lift) is the
@@ -185,4 +208,4 @@ the JSON output.
 - [`apps/kernel/src/ownevo_kernel/nl_gen/instruction_proposer.py`](../apps/kernel/src/ownevo_kernel/nl_gen/instruction_proposer.py) — the W6 edit proposer
 - [`apps/kernel/scripts/nl_gen_demo_loop.py`](../apps/kernel/scripts/nl_gen_demo_loop.py) — the CLI
 - [`docs/PLAN.md`](PLAN.md) row 6.1 — the W6 exit criterion this satisfies
-- [`apps/web/app/workflows/preview/`](../apps/web/app/) — the W5.5 coverage-badge UI route
+- [`apps/web/app/workspaces/[wsId]/workflows/new/`](../apps/web/app/workspaces/[wsId]/workflows/new/) — the W5.5 coverage-badge UI route (W7 slice 5 moved it under the workspace shell; the legacy `/workflows/preview` URL 307-redirects)
