@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
@@ -14,6 +15,33 @@ from httpx import ASGITransport
 from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR, migrate
 from ownevo_kernel.replay import CycleSummary
+
+
+def _is_local_port_open(port: int, *, timeout: float = 0.25) -> bool:
+    """Return True if a TCP connection to localhost:port succeeds quickly.
+
+    Used by `requires_ollama` / `requires_lms` to gate integration tests that
+    need a real local LLM daemon. CI hosts without these services will skip
+    those tests; developer machines running them will exercise the full path.
+    """
+    try:
+        with socket.create_connection(("localhost", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+# Skip-markers for tests that need a real local LLM daemon. Apply at the test
+# function or class level: `@requires_ollama` / `@requires_lms`. Tests that
+# only mock httpx do NOT need these markers — they should run unconditionally.
+requires_ollama = pytest.mark.skipif(
+    not _is_local_port_open(11434),
+    reason="Ollama daemon not running on localhost:11434",
+)
+requires_lms = pytest.mark.skipif(
+    not _is_local_port_open(1234),
+    reason="LM Studio not running on localhost:1234",
+)
 
 
 def _load_dotenv() -> None:
