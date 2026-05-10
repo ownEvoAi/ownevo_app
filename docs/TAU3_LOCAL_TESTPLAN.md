@@ -993,7 +993,7 @@ Cell legend:
 | devstral-small-2:latest | — | 🚫 ¹² | — | — | ¹² runnable Python, but `run_pipeline` validation rejects every diff (TODO-21). |
 | mistralai/devstral-small-2-2512 (LMS) | — | — | 🚫 ¹³ | — | ¹³ tool-error storm — codegen quality too low. |
 | mistralai/ministral-3-14b-reasoning (LMS) | — | — | 🚫 ¹⁴ | — | ¹⁴ chat-template strict alternation — template incompat. |
-| zai-org/glm-4.7-flash (LMS) | — | — | ✗ ¹⁵ | — | ¹⁵ kickoff message exceeded model context. Re-run only with longer-context build. |
+| zai-org/glm-4.7-flash (LMS) | — | — | ⚠ ¹⁵ | — | ¹⁵ kickoff message exceeded model context **at default LMS load**. Fix is `lms load zai-org/glm-4.7-flash -c 32768` not a different build — phase3_full_lms_sweep now does this automatically (commit on 2026-05-10). Re-test pending. |
 | qwen/qwen3-30b-a3b-2507 (LMS) | — | — | — | — | in 2026-05-09 sweep batch (results pending). |
 
 **Rules:**

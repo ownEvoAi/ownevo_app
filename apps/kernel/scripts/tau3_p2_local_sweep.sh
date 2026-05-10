@@ -296,19 +296,59 @@ phase3_full_lms_sweep() {
     echo "===== PHASE 3 — full LMS sweep, cloud Sonnet/Haiku evaluator =====" | tee -a "$MASTER"
     # Models with prior failures (annotated in compat matrix) — retest with
     # new harness in case the failure mode was harness-side.
+    #
+    # NB: every LMS model is loaded with explicit ctx via `lms_load`
+    # before its run. Default LMS context can be as small as 4096
+    # (granite hit `n_keep: 5228 >= n_ctx: 4096` in P2.1). 16K is the
+    # baseline that covers retail kickoff (5228 tokens) + multi-turn
+    # tool-call traces. Bump to 32K for models known to overflow at
+    # 16K (e.g. glm-4.7-flash). VRAM cost: ~2-8 GB extra per model
+    # depending on size. Worth it to avoid silent infra-errors.
+    local ctx=16384
+    local ctx_glm=32768   # glm-4.7-flash needs more — kickoff overflowed at default
+
+    lms_load "qwen/qwen3-30b-a3b-2507"           "$ctx" || true
     run_with_fallback 3 "qwen/qwen3-30b-a3b-2507"          "" "" lms-openai
+    lms_unload "qwen/qwen3-30b-a3b-2507"
+
+    lms_load "google/gemma-4-31b"                "$ctx" || true
     run_with_fallback 3 "google/gemma-4-31b"               "" "" lms-openai
+    lms_unload "google/gemma-4-31b"
+
+    lms_load "unsloth/gemma-4-26b-a4b-it"        "$ctx" || true
     run_with_fallback 3 "unsloth/gemma-4-26b-a4b-it"       "" "" lms-openai
+    lms_unload "unsloth/gemma-4-26b-a4b-it"
+
+    lms_load "qwen/qwen3-32b"                    "$ctx" || true
     run_with_fallback 3 "qwen/qwen3-32b"                   "" "" lms-openai
+    lms_unload "qwen/qwen3-32b"
+
+    lms_load "qwen/qwen3-coder-30b"              "$ctx" || true
     run_with_fallback 3 "qwen/qwen3-coder-30b"             "" "" lms-openai
+    lms_unload "qwen/qwen3-coder-30b"
+
+    lms_load "qwen2.5-coder-32b-instruct"        "$ctx" || true
     run_with_fallback 3 "qwen2.5-coder-32b-instruct"       "" "" lms-openai
+    lms_unload "qwen2.5-coder-32b-instruct"
+
+    lms_load "mistralai/devstral-small-2-2512"   "$ctx" || true
     run_with_fallback 3 "mistralai/devstral-small-2-2512"  "" "" lms-openai
+    lms_unload "mistralai/devstral-small-2-2512"
+
+    lms_load "mistralai/ministral-3-14b-reasoning" "$ctx" || true
     run_with_fallback 3 "mistralai/ministral-3-14b-reasoning" "" "" lms-openai
+    lms_unload "mistralai/ministral-3-14b-reasoning"
+
+    lms_load "zai-org/glm-4.7-flash"             "$ctx_glm" || true
     run_with_fallback 3 "zai-org/glm-4.7-flash"            "" "" lms-openai
-    # Extra Ollama candidates worth a smoke (per testplan § Pending)
+    lms_unload "zai-org/glm-4.7-flash"
+
+    # Extra Ollama candidates worth a smoke (per testplan § Pending).
+    # Ollama context override is via `OLLAMA_CONTEXT_LENGTH` on the
+    # daemon (already 32K in user's `_p` config) — no per-load step.
     run_with_fallback 3 "qwen3-coder:30b"                  "" "" ollama-openai
     # run_with_fallback 3 "Qwq:32b"                          "" "" ollama-openai
-    # run_with_fallback 3 "gpt-oss:120b"                     "" "" ollama-openai
+    # gpt-oss:120b skipped per user direction — too large for current VRAM topology
 }
 
 # Phase 3 entries pass empty task/user → run_one defaults to cloud
