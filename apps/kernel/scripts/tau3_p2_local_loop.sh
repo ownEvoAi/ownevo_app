@@ -15,6 +15,10 @@
 #   $3  workflow tag       e.g. "qwen36"  (becomes workflow_id tau3-retail-v1__qwen36)
 #   $4  api format         openai (default) | ollama | anthropic
 #
+# Optional args (positional):
+#   $5  task-agent-model   e.g. "openai/qwen/qwen3.6-35b-a3b" (default: cloud Sonnet)
+#   $6  task-user-model    e.g. "openai/qwen/qwen3.6-35b-a3b" (default: cloud Haiku)
+#
 # Env vars (override defaults):
 #   OWNEVO_TAU3_LOGDIR  log directory (default /tmp/tau3_p2_logs)
 #   OWNEVO_TAU3_CYCLES  number of cycles (default 10)
@@ -30,9 +34,10 @@
 set -u
 
 if [[ $# -lt 3 ]]; then
-    echo "usage: $0 <model> <base_url> <workflow_tag> [api_format]" >&2
+    echo "usage: $0 <model> <base_url> <workflow_tag> [api_format] [task-agent-model] [task-user-model]" >&2
     echo "example: $0 'qwen/qwen3.6-35b-a3b' 'http://192.168.1.50:1234/v1' 'qwen36'" >&2
     echo "         $0 'gemma4:26b' 'http://192.168.1.50:11434/v1' 'gemma4_26b_ollama' ollama" >&2
+    echo "all 3 local: $0 'qwen/qwen3.6-35b-a3b' 'http://192.168.1.50:1234/v1' 'qwen36' openai 'openai/qwen/qwen3.6-35b-a3b' 'openai/qwen/qwen3.6-35b-a3b'" >&2
     exit 2
 fi
 
@@ -40,6 +45,8 @@ MODEL="$1"
 BASE_URL="$2"
 WORKFLOW_TAG="$3"
 API_FORMAT="${4:-openai}"
+TASK_AGENT_MODEL="${5:-anthropic/claude-sonnet-4-6}"
+TASK_USER_MODEL="${6:-anthropic/claude-haiku-4-5-20251001}"
 
 KERNEL_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$KERNEL_DIR"
@@ -78,6 +85,8 @@ for i in $(seq 1 "$N_CYCLES"); do
         --api-format "$API_FORMAT" \
         --llm-base-url "$BASE_URL" \
         --llm-model "$MODEL" \
+        --task-agent-model "$TASK_AGENT_MODEL" \
+        --task-user-model "$TASK_USER_MODEL" \
         --task-concurrency 3 \
         --task-timeout-seconds 2400 \
         > "$log" 2>&1

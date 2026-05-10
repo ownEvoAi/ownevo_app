@@ -974,7 +974,10 @@ async def run_agent_turn_ollama(
                 "type": "function",
                 "function": {
                     "name": name,
-                    "arguments": _json.dumps(input_obj),
+                    # Ollama /api/chat expects arguments as a dict in message
+                    # history (not a JSON string as OpenAI does). Using dict
+                    # here; serialisation for logging/display happens elsewhere.
+                    "arguments": input_obj,
                 },
             })
 
