@@ -41,9 +41,16 @@ def test_parse_args_defaults(monkeypatch: pytest.MonkeyPatch):
     assert args.api_key == "sk-test-default"
     assert args.pretty is False
     assert args.include_instructions is False
+    assert args.progress is False
     assert args.require_climbing is False
     assert args.require_lift is None
     assert args.require_meets_target is False
+
+
+def test_parse_args_progress_flag(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    args = cli._parse_args(["--progress"])
+    assert args.progress is True
 
 
 def test_parse_args_explicit_workflow_and_cycles(monkeypatch):
@@ -148,6 +155,7 @@ def _args(**overrides) -> cli.CliArgs:
         "api_key": "sk-test",
         "pretty": False,
         "include_instructions": False,
+        "progress": False,
         "require_climbing": False,
         "require_lift": None,
         "require_meets_target": False,

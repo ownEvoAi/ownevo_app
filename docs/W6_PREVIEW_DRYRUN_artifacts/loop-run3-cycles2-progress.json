@@ -1,0 +1,56 @@
+cd apps/kernel && uv run python scripts/nl_gen_demo_loop.py --cycles 2 --agent-model claude-haiku-4-5 --include-instructions --pretty --progress
+{
+  "workflow_spec_id": "supply-chain-demand-forecast",
+  "started_at": "2026-05-10T00:16:47.136540+00:00",
+  "ended_at": "2026-05-10T00:17:02.314657+00:00",
+  "wall_seconds": 15.178117,
+  "n_cycles": 2,
+  "metric_family": "recall",
+  "metric_direction": "maximize",
+  "metric_target": 0.5,
+  "baseline_metric_value": 0.2,
+  "final_metric_value": 1.0,
+  "absolute_lift": 0.8,
+  "is_climbing": true,
+  "lift_curve": [
+    0.2,
+    1.0
+  ],
+  "cycles": [
+    {
+      "cycle_index": 0,
+      "metric_value": 0.2,
+      "meets_target": false,
+      "n_failures": 5,
+      "n_clusters": 1,
+      "cluster_signal": "ok",
+      "cluster_signal_reason": null,
+      "top_cluster_label": "failure pattern: false-negative",
+      "top_cluster_size": 4,
+      "instruction_before": null,
+      "instruction_after": "When the trajectory shows a supply-chain alert falling in weeks 47\u201351 or referencing holiday markdown patterns, lean toward predicting True \u2014 missing these is far costlier than a false alarm under the recall-gated metric. Specifically, treat phrases like 'holiday markdown pattern', 'winter boot spike', or 'dip-tail' near year-end as strong positive signals: classify the alert as correct unless there is clear evidence the timing or discount is materially outside the 6-week / 5pp tolerance. For regional winter demand spikes (e.g., Pacific NW boot demand), allow up to a 4-week timing buffer before rejecting \u2014 the success criterion's 6-week window gives you room. When in doubt on cases with provenance tagged 'inferred-miss' or 'derived-miss' in weeks 47\u201352, default to True.",
+      "instruction_edit": {
+        "cluster_label": "False-negatives on holiday/winter markdown alerts (weeks 47\u201351)",
+        "rationale": "All 4 failures are false-negatives on cases tied to holiday markdown patterns (weeks 47\u201351) and a regional winter demand spike. The recall gate (target 0.50) means missing true alerts is more costly than a false alarm \u2014 the agent must lean True when holiday or seasonal signals are present.",
+        "appended_text": "When the trajectory shows a supply-chain alert falling in weeks 47\u201351 or referencing holiday markdown patterns, lean toward predicting True \u2014 missing these is far costlier than a false alarm under the recall-gated metric. Specifically, treat phrases like 'holiday markdown pattern', 'winter boot spike', or 'dip-tail' near year-end as strong positive signals: classify the alert as correct unless there is clear evidence the timing or discount is materially outside the 6-week / 5pp tolerance. For regional winter demand spikes (e.g., Pacific NW boot demand), allow up to a 4-week timing buffer before rejecting \u2014 the success criterion's 6-week window gives you room. When in doubt on cases with provenance tagged 'inferred-miss' or 'derived-miss' in weeks 47\u201352, default to True.",
+        "schema_version": "0.1"
+      },
+      "wall_seconds": 10.77438
+    },
+    {
+      "cycle_index": 1,
+      "metric_value": 1.0,
+      "meets_target": true,
+      "n_failures": 1,
+      "n_clusters": 0,
+      "cluster_signal": "insufficient-data",
+      "cluster_signal_reason": "too-few-points",
+      "top_cluster_label": null,
+      "top_cluster_size": 0,
+      "instruction_before": "When the trajectory shows a supply-chain alert falling in weeks 47\u201351 or referencing holiday markdown patterns, lean toward predicting True \u2014 missing these is far costlier than a false alarm under the recall-gated metric. Specifically, treat phrases like 'holiday markdown pattern', 'winter boot spike', or 'dip-tail' near year-end as strong positive signals: classify the alert as correct unless there is clear evidence the timing or discount is materially outside the 6-week / 5pp tolerance. For regional winter demand spikes (e.g., Pacific NW boot demand), allow up to a 4-week timing buffer before rejecting \u2014 the success criterion's 6-week window gives you room. When in doubt on cases with provenance tagged 'inferred-miss' or 'derived-miss' in weeks 47\u201352, default to True.",
+      "instruction_after": "When the trajectory shows a supply-chain alert falling in weeks 47\u201351 or referencing holiday markdown patterns, lean toward predicting True \u2014 missing these is far costlier than a false alarm under the recall-gated metric. Specifically, treat phrases like 'holiday markdown pattern', 'winter boot spike', or 'dip-tail' near year-end as strong positive signals: classify the alert as correct unless there is clear evidence the timing or discount is materially outside the 6-week / 5pp tolerance. For regional winter demand spikes (e.g., Pacific NW boot demand), allow up to a 4-week timing buffer before rejecting \u2014 the success criterion's 6-week window gives you room. When in doubt on cases with provenance tagged 'inferred-miss' or 'derived-miss' in weeks 47\u201352, default to True.",
+      "instruction_edit": null,
+      "wall_seconds": 4.399835
+    }
+  ]
+}

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ class CliArgs:
     api_key: str
     pretty: bool
     include_instructions: bool
+    progress: bool
     require_climbing: bool
     require_lift: float | None
     require_meets_target: bool
@@ -159,6 +161,17 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
         ),
     )
     parser.add_argument(
+        "--progress",
+        action="store_true",
+        help=(
+            "Stream one stderr line per cycle as the loop runs "
+            "(metric / failure count / cluster count / top label). "
+            "Useful for live demos so the screen isn't silent during the "
+            "agent passes; off by default to keep machine-parsable runs "
+            "stdout-only."
+        ),
+    )
+    parser.add_argument(
         "--require-climbing",
         action="store_true",
         help="Exit 1 if the lift curve doesn't end strictly above its start.",
@@ -202,6 +215,7 @@ def _parse_args(argv: list[str] | None = None) -> CliArgs:
         api_key=api_key,
         pretty=ns.pretty,
         include_instructions=ns.include_instructions,
+        progress=ns.progress,
         require_climbing=ns.require_climbing,
         require_lift=ns.require_lift,
         require_meets_target=ns.require_meets_target,
@@ -275,6 +289,17 @@ async def main_async(args: CliArgs) -> int:
         f"metric={metric.family}@{metric.target_value:.2f}",
         file=sys.stderr,
     )
+
+    # `--progress` attaches a stderr handler to the loop logger so each
+    # `cycle N/M: metric=...` info line streams as the cycle ends. The
+    # JSON dump on stdout is unaffected — machine-parsable runs that
+    # don't pass --progress still get a single stdout document.
+    if args.progress:
+        loop_logger = logging.getLogger("ownevo_kernel.nl_gen.loop")
+        loop_logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        loop_logger.addHandler(handler)
 
     report = await run_nl_gen_demo_loop(
         spec=spec,

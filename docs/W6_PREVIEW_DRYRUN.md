@@ -76,6 +76,7 @@ cycles). Full JSON captured at
 |---|---|---|---|---|---|
 | 1 | **34.2 s** | `[0.20, 0.80, 0.60]` | +0.40 | false | true |
 | 2 | **17.2 s** | `[0.20, 1.00, 1.00]` | +0.80 | true | true |
+| 3 (post-§3 fix, `--cycles 2 --progress`) | **15.2 s** | `[0.20, 1.00]` | +0.80 | true | true |
 
 Storyboard reference (2026-05-08): 84 s, `[0.20, 1.00, 1.00]`. Run 2
 matches the storyboard exactly; run 1 hits target on cycle 1 then
@@ -128,41 +129,50 @@ for any reviewer who hovers. Two cheap patches:
 
 Recommendation: ship (a) on this branch.
 
-### §3 — cycle-2 regression risk on a live demo
+### §3 — cycle-2 regression risk on a live demo — ✅ patched
 
 Run 1 above showed `[0.20, 0.80, 0.60]` — the lift curve climbs on
 cycle 1 then regresses on cycle 2. On the YC video this is a 50/50
 risk: the storyboard's "lift chart climbs" framing breaks if cycle 2
-goes the wrong way. Three options before the record:
+goes the wrong way. Three options were considered:
 
-- **(a)** Tag the demo with `--cycles 2` in the storyboard's command —
-  the structural narrative (cluster → instruction → lift, 0.20 → 1.00)
-  is intact and the regression risk is excised. Cost: drops the
-  "instruction accumulates across cycles" beat.
-- **(b)** Pre-record the loop output to a JSON file and replay
-  deterministically during the video. Cheap; no model-noise dependency.
-  Cost: not a "live" demo.
-- **(c)** Rerun until the curve is monotone before tape rolls. Honest
-  about model noise; ~50% of runs will need a retry.
+- **(a)** Tag the demo with `--cycles 2` in the storyboard's command.
+- **(b)** Pre-record the loop output and replay deterministically.
+- **(c)** Rerun until the curve is monotone before tape rolls.
 
-Recommendation: **(a) for the YC video**, with the talking track
-"every cycle is a clustered failure pattern + an instruction edit." The
-2-cycle version is shorter (~12 s), still demonstrates the loop, and
-doesn't carry the regression coin flip.
+**Shipped:** option (a). `docs/W6_DEMO_STORYBOARD.md` § The command +
+§ Reproducing the run + § Failure modes now point at `--cycles 2`,
+the cycle-2 walk-through is removed from the narrative, the wall-time
+expectation drops from 84 s to 12–25 s. Verification run with the new
+storyboard command (3rd artifact, `loop-run3-cycles2-progress.json`):
+15.2 s wall, lift `[0.20, 1.00]`, `is_climbing=True`, `+0.80`. The
+cluster → instruction → lift narrative is intact; the regression
+coin flip is excised. For diagnostic / engineering runs `--cycles 5+`
+remains supported.
 
-### §4 — no live progress output during the loop
+### §4 — no live progress output during the loop — ✅ patched
 
-The CLI emits one stderr preflight line then a single JSON dump at the
-end. For a 17–34 s wall window in a video, no per-cycle progress
-markers means the screen is silent until the JSON lands. A 3-line
-stream (`cycle 0: metric=0.20`, `cycle 1: metric=1.00 (lift +0.80)`,
-`cycle 2: ...`) would let the presenter narrate against the terminal
-in real time.
+The CLI emitted one stderr preflight line then a single JSON dump at
+the end. For a 17–34 s wall window in a video, no per-cycle progress
+markers meant the screen was silent until the JSON landed.
 
-Patch shape: stderr `print` per cycle in
-`apps/kernel/src/ownevo_kernel/nl_gen/loop.py:run_nl_gen_demo_loop`
-behind a `--progress` flag (or default-on if `--pretty` is set). Out of
-scope for this PR; logged here.
+**Shipped:** new `--progress` flag on `scripts/nl_gen_demo_loop.py`.
+When set, attaches a stderr `StreamHandler` to the
+`ownevo_kernel.nl_gen.loop` logger so the existing per-cycle
+`logger.info("cycle %d/%d: metric=%.3f failures=%d clusters=%d ...")`
+line streams as the cycle ends. JSON on stdout is unaffected, so
+machine-parseable runs that don't pass the flag still get a single
+stdout document. Verification run (`--cycles 2 --progress`) emitted:
+
+```
+loop: workflow=demand-prediction cycles=2 agent_model=claude-haiku-4-5 ...
+cycle 1/2: metric=0.200 failures=5 clusters=1 top='failure pattern: false-negative'
+cycle 2/2: metric=1.000 failures=1 clusters=0 no-edit
+```
+
+Storyboard's recommended command now includes `--progress`. CLI
+test coverage extended (`test_parse_args_progress_flag`,
+`_args(progress=False)` propagated through the existing helper).
 
 ## Summary
 
@@ -171,10 +181,12 @@ scope for this PR; logged here.
 | Page renders, all 4 artifacts visible | ✅ |
 | Coverage badge prominently positioned, all dimensions pass | ✅ |
 | 3 fixtures swappable via picker | ✅ |
-| CLI loop completes inside 5-minute budget | ✅ (17–34 s) |
-| Lift curve visibly moves | ✅ both runs (+0.40 / +0.80) |
-| Lift curve **strictly climbs** | ⚠️ noisy on haiku — see §3 |
+| CLI loop completes inside 5-minute budget | ✅ (15–34 s) |
+| Lift curve visibly moves | ✅ all runs (+0.40 / +0.80 / +0.80) |
+| Lift curve **strictly climbs** | ✅ on the new `--cycles 2` storyboard command |
 
-Recommend this branch is the carrier for the §1 storyboard fix and the
-§2 tooltip patch. §3 is a storyboard-text decision; §4 is a separate
-loop-CLI follow-up.
+All four UX gaps surfaced by the dry-run are patched on this branch:
+§1 storyboard URL → workspace-shell path; §2 disabled-button tooltip
+→ CLI demo path; §3 cycle-2 regression risk → storyboard switched to
+`--cycles 2`; §4 silent CLI → new `--progress` flag streams one
+stderr line per cycle.
