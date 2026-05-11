@@ -1051,6 +1051,8 @@ After 5 attempts spanning different model families, single-model all-3-roles on 
 | `qwen3:30b-a3b` | ollama (native) | Same throughput trap as qwen3.6 | 1/40 in 25 min |
 | `qwen3:30b-instruct` | ollama (native) | Fast start, then 33-min single-task retry stall | 22/40 (reward 0.36) at 53 min |
 
+**Session totals (2026-05-10/11):** 7 attempts; only LMS qwen3.6 @ ctx=32768 (run 1) cleared 39/40 tasks before being gated by 1 ctx-exceeded. Best Ollama signal was qwen3:30b-instruct at 0.36 reward (N=22) but couldn't complete. Next attempt: LMS qwen3.6 @ ctx=65536 to cover the long-tail conversation that hit the 32K ceiling.
+
 **Root causes (in order of impact):**
 1. **No KV-cache reuse across turns.** LMS reuses ~30K tokens per turn (`cache_read_input_tokens: 31491` in cycle log). Ollama reprocesses full conversation context every `/api/chat`. Per-call latency × ~30-50 turns per task makes wall-time unviable on a 40-task sweep with concurrency=3.
 2. **`NUM_PARALLEL=2` in `_p.sh` config** means only 2 of 3 concurrent task slots fit on GPU at once.
