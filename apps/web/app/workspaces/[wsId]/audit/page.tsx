@@ -1,5 +1,5 @@
 import {
-  kernelErrorMessage,
+  kernelError,
   listAudit,
   type AuditEntryRow,
   type AuditList,
@@ -41,12 +41,12 @@ export default async function WorkspaceAuditPage({ params }: PageProps) {
   const { wsId } = await params
 
   let audit: AuditList = { items: [], total: 0, truncated: false }
-  let apiError: string | null = null
+  let apiError: { title: string; detail: string } | null = null
 
   try {
     audit = await listAudit({ limit: 200 })
   } catch (err) {
-    apiError = kernelErrorMessage(err)
+    apiError = kernelError(err)
   }
 
   return (
@@ -66,7 +66,7 @@ export default async function WorkspaceAuditPage({ params }: PageProps) {
 
       {apiError && (
         <div role="alert" className="api-banner">
-          <strong>Kernel API not reachable.</strong> {apiError}
+          <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
 

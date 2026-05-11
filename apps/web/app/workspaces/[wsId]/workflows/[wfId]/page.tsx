@@ -1,6 +1,7 @@
 import {
   getWorkflowAnatomy,
   getWorkflowSkills,
+  kernelError,
   KernelApiError,
   type SkillSummary,
   type WorkflowSpecShape,
@@ -116,7 +117,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   // Live workflow (demand-prediction or any other backend-registered id).
   let skills: SkillSummary[] = []
   let spec: WorkflowSpecShape | null = null
-  let apiError: string | null = null
+  let apiError: { title: string; detail: string } | null = null
   try {
     const [anatomy, skillList] = await Promise.all([
       getWorkflowAnatomy(wfId),
@@ -125,10 +126,10 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
     spec = anatomy.spec
     skills = skillList.items
   } catch (err) {
-    if (err instanceof KernelApiError) {
-      apiError = `Kernel API ${err.status}: ${err.detail}`
+    if (err instanceof KernelApiError && err.status === 404) {
+      apiError = { title: 'Workflow not registered.', detail: err.detail }
     } else {
-      apiError = 'Could not reach the kernel API. Run `make api` to start it.'
+      apiError = kernelError(err)
     }
   }
 
@@ -136,7 +137,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
     <>
       {apiError && (
         <div role="alert" className="api-banner">
-          <strong>Kernel API not reachable.</strong> {apiError}
+          <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
 
