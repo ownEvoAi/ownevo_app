@@ -982,6 +982,7 @@ Cell legend:
 | qwen3.6:35b-a3b (Ollama) | ✅ ³ᶜ | ✗ ³ᵈ | n/a | n/a | ³ᶜ 2026-05-10 smoke: native `/api/chat` works because `OllamaChatClient` auto-injects `options.think=false` (ollama_native.py:209). Loop drove cleanly: 5 iters, 7348 out, end_turn. ³ᵈ openai-compat strips think:false silently → verbose thinking → 16501 out tokens → DEFAULT_MAX_TOKENS_OPENAI cap hit in 2 iters. |
 | qwen3.5-9b | — | ✗ ⁴ | ✗ ⁴ | ✅ ⁴ | ⁴ F14g — 0/3 via OpenAI, 3/3 via Anthropic. API-format-load-bearing. |
 | qwen3:30b-a3b | ⚠ ⁴ᵇ | — | — | — | ⁴ᵇ **2026-05-11 tau3-retail smoke** `qwen3_30b_a3b_full_local` (all-3-roles all-Ollama, native preset with `think:false` patch on both sides): same throughput trap as qwen3.6:35b-a3b. Killed at 1/40 in 25 min, reward 0.00 (N=1). Task 5 stuck 22 min on initial attempt. 17-40s per `/api/chat` call. think:false patch holds (no 500s) but per-call latency × no KV-cache-reuse × NUM_PARALLEL=2 makes wall-time unviable. qwen3 family confirmed to share the qwen3.6 family bottleneck on Ollama. |
+| qwen3:30b-instruct | ⚠ ⁴ᶜ | — | — | — | ⁴ᶜ **2026-05-11 tau3-retail smoke** `qwen3_30b_instruct_full_local` (all-3-roles all-Ollama, native preset, think:false on both sides): dense (not MoE) — fastest Ollama start so far (19/40 in 26 min, /api/chat 13-16s). But got stuck on task 49 retry R1 for 33+ min while reward stalled at 0.36 (N=22). Killed at 22/40 after ~53 min. Best Ollama reward signal aside from gpt-oss (0.36) but task 49 burning a concurrency slot indefinitely means the 4 hr per-task timeout would have to fire before completion. Same retry-stall pattern as other all-Ollama configs, just at higher reward. |
 | qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
 | qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
 | Qwq:32b | — | — | — | — | reasoning model; would route via `ollama_chat/`. Untested. |
@@ -1048,6 +1049,7 @@ After 5 attempts spanning different model families, single-model all-3-roles on 
 | `qwen3-coder:30b` | ollama-openai | Loop OK, task agent weak (avg 0.15) | 26/40 at 115 min |
 | `gpt-oss:20b` | ollama-openai | Per-call latency 18s-7m36s | 11/40 at 80 min |
 | `qwen3:30b-a3b` | ollama (native) | Same throughput trap as qwen3.6 | 1/40 in 25 min |
+| `qwen3:30b-instruct` | ollama (native) | Fast start, then 33-min single-task retry stall | 22/40 (reward 0.36) at 53 min |
 
 **Root causes (in order of impact):**
 1. **No KV-cache reuse across turns.** LMS reuses ~30K tokens per turn (`cache_read_input_tokens: 31491` in cycle log). Ollama reprocesses full conversation context every `/api/chat`. Per-call latency × ~30-50 turns per task makes wall-time unviable on a 40-task sweep with concurrency=3.
