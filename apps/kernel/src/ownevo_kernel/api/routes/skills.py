@@ -37,6 +37,42 @@ workflow_skills_router = APIRouter(prefix="/api/workflows", tags=["skills"])
 _RELATED_EVAL_CASES_LIMIT = 12
 
 
+@skill_router.get("", response_model=SkillList)
+async def list_skills(conn: ConnDep) -> SkillList:
+    """Workspace-scoped index of every skill — drives the Skills
+    library page (PLAN row 8.0.4 / `www/preview/.../11-skills-registry.html`).
+
+    Single-tenant for MVP per D4 — no workspace filter is applied yet.
+    Multi-tenant retrofit (TODO-1) adds `WHERE workspace_id = $1`.
+
+    Sorted by `kind` (instruction first, then python, then composite —
+    mirrors the per-workflow listing) then `id` ASC for stable ordering.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT
+            s.id,
+            s.kind::text                AS kind,
+            s.workflow_id,
+            s.capability_tags,
+            s.head_version_id,
+            sv.version_seq              AS head_version_seq,
+            sv.created_at               AS head_created_at
+        FROM skills s
+        LEFT JOIN skill_versions sv ON sv.id = s.head_version_id
+        ORDER BY
+            CASE s.kind
+                WHEN 'instruction' THEN 0
+                WHEN 'python'      THEN 1
+                WHEN 'composite'   THEN 2
+                ELSE 3
+            END,
+            s.id ASC
+        """,
+    )
+    return SkillList(items=[_row_to_skill_summary(r) for r in rows])
+
+
 @workflow_skills_router.get(
     "/{workflow_id}/skills", response_model=SkillList,
 )

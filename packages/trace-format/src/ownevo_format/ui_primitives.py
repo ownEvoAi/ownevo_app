@@ -65,6 +65,20 @@ class KanbanBoard(_UIPrimitiveBase):
     card_title_field: str
 
 
+class ScheduleGrid(_UIPrimitiveBase):
+    """2-D resource × time grid with cell-level status.
+
+    Shift schedules, content calendars, capacity boards, room booking,
+    on-call rotations — anything keyed `resource × time` with a status
+    badge per cell.
+    """
+
+    type: Literal["ScheduleGrid"]
+    rows_source: str
+    cols_source: str
+    cells_source: str
+
+
 class ConversationView(_UIPrimitiveBase):
     """Multi-turn agent transcript with citations."""
 
@@ -96,13 +110,14 @@ UIPrimitive = Annotated[
         | TableView
         | AlertList
         | KanbanBoard
+        | ScheduleGrid
         | ConversationView
         | SideBySideView
         | DocumentReader
     ),
     Field(discriminator="type"),
 ]
-"""Discriminated union over the 8 workflow render primitives."""
+"""Discriminated union over the 9 workflow render primitives."""
 
 
 UIPrimitiveAdapter: TypeAdapter[UIPrimitive] = TypeAdapter(UIPrimitive)
@@ -115,6 +130,7 @@ __all__ = [
     "TableView",
     "AlertList",
     "KanbanBoard",
+    "ScheduleGrid",
     "ConversationView",
     "SideBySideView",
     "DocumentReader",

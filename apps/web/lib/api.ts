@@ -658,6 +658,12 @@ export async function getWorkflowSkills(
   )
 }
 
+// Workspace-scoped Skills library index (PLAN 8.0.4). Single-tenant
+// for MVP per D4 — every skill in the DB is the "workspace".
+export async function listSkills(): Promise<SkillList> {
+  return jsonFetch<SkillList>('/api/skills')
+}
+
 export async function getSkill(skillId: string): Promise<SkillDetail> {
   return jsonFetch<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}`)
 }

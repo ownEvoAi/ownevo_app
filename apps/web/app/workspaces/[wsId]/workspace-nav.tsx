@@ -121,6 +121,21 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
       </a>
 
       <div className="nav-section">Library</div>
+      <a href={`${root}/skills`} className={cls(`${root}/skills`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M2 3 L14 3 L14 13 L2 13 Z M2 6 L14 6" />
+        </svg>
+        <span className="nav-label">Skills</span>
+      </a>
+      <a href={`${root}/primitives`} className={cls(`${root}/primitives`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <rect x="2" y="2" width="5" height="5" />
+          <rect x="9" y="2" width="5" height="5" />
+          <rect x="2" y="9" width="5" height="5" />
+          <rect x="9" y="9" width="5" height="5" />
+        </svg>
+        <span className="nav-label">Views</span>
+      </a>
       <a href={`${root}/audit`} className={cls(`${root}/audit`)}>
         <svg className="nav-icon" viewBox="0 0 16 16">
           <path d="M3 4 L13 4 M3 8 L13 8 M3 12 L9 12" />
