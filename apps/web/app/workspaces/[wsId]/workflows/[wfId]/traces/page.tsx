@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {
   getWorkflowTraces,
+  kernelError,
   KernelApiError,
   type TraceList,
   type TraceSummary,
@@ -19,7 +20,7 @@ export default async function WorkflowTracesPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
   let traces: TraceList = { workflow_id: wfId, items: [] }
-  let apiError: string | null = null
+  let apiError: { title: string; detail: string } | null = null
   let notFound = false
 
   try {
@@ -27,10 +28,8 @@ export default async function WorkflowTracesPage({ params }: PageProps) {
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       notFound = true
-    } else if (err instanceof KernelApiError) {
-      apiError = `Kernel API ${err.status}: ${err.detail}`
     } else {
-      apiError = 'Could not reach the kernel API. Run `make api` to start it.'
+      apiError = kernelError(err)
     }
   }
 
@@ -38,9 +37,10 @@ export default async function WorkflowTracesPage({ params }: PageProps) {
     <>
       {apiError && (
         <div role="alert" className="api-banner">
-          <strong>Kernel API not reachable.</strong> {apiError}
+          <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
+
       {notFound && (
         <div role="alert" className="api-banner">
           <strong>Workflow not found.</strong> No workflow with id{' '}

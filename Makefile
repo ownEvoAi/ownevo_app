@@ -9,7 +9,8 @@
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
-        m5-replay-7day m5-replay-30day m5-replay-bootstrap nl-gen-demo-loop revert-skill
+        m5-replay-7day m5-replay-30day m5-replay-bootstrap nl-gen-demo-loop revert-skill \
+        dev-up dev-down dev-logs dev-ps
 
 help:
 	@printf 'targets:\n'
@@ -72,6 +73,11 @@ help:
 	@printf '  m5-replay-bootstrap one-shot: create DB + apply migrations + seed workflows\n'
 	@printf '                      for `make m5-replay-30day` (REPLAY_BOOTSTRAP_ARGS=...;\n'
 	@printf '                      --workflow-prefix --conditions --skill-version v1|v2)\n'
+	@printf '  dev-up              build + start all services via docker compose (postgres +\n'
+	@printf '                      kernel API + web) in detached mode\n'
+	@printf '  dev-down            stop and remove all compose services\n'
+	@printf '  dev-logs            tail logs from all compose services\n'
+	@printf '  dev-ps              show status of all compose services\n'
 	@printf '\nenv:\n'
 	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
 	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
@@ -368,3 +374,19 @@ DEMO_LOOP_ARGS ?=
 
 nl-gen-demo-loop:
 	cd apps/kernel && uv run python scripts/nl_gen_demo_loop.py $(DEMO_LOOP_ARGS)
+
+# ----------------------------------------------------------------------------
+# Docker Compose — full stack (postgres + kernel API + web)
+# ----------------------------------------------------------------------------
+
+dev-up:
+	docker compose up --build -d
+
+dev-down:
+	docker compose down
+
+dev-logs:
+	docker compose logs -f
+
+dev-ps:
+	docker compose ps

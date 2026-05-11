@@ -1,17 +1,15 @@
-# Exclude heavy/irrelevant paths from the Docker build context.
-# Dockerfile.m5 builds from repo root (so it can COPY both packages/ and apps/kernel/).
-# Without this, the 181MB .venv gets sent to the daemon on every build.
-
-.venv
 .git
+.venv
+__pycache__
+*.pyc
+*.pyo
 .pytest_cache
-**/__pycache__
-**/*.pyc
-**/.pytest_cache
-
-# M5 data (bind-mounted at runtime, not baked in)
-data/
-
-# Web app (not needed by any sandbox image)
-apps/web/node_modules
+.ruff_cache
+.mypy_cache
 apps/web/.next
+apps/web/node_modules
+apps/kernel/tests
+data
+temp
+infra
+*.log

@@ -1,6 +1,6 @@
 import {
   getWorkflowIterations,
-  kernelErrorMessage,
+  kernelError,
   listWorkflows,
   type IterationList,
   type WorkflowList,
@@ -32,7 +32,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
 
   let workflows: WorkflowList = { items: [], total: 0 }
   let primaryIterations: IterationList | null = null
-  let apiError: string | null = null
+  let apiError: { title: string; detail: string } | null = null
 
   try {
     workflows = await listWorkflows()
@@ -40,7 +40,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
       primaryIterations = await getWorkflowIterations(workflows.items[0].id)
     }
   } catch (err) {
-    apiError = kernelErrorMessage(err)
+    apiError = kernelError(err)
   }
 
   const primary = workflows.items[0]
@@ -81,7 +81,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
 
       {apiError && (
         <div role="alert" className="api-banner" style={{ marginBottom: 24 }}>
-          <strong>Kernel API not reachable.</strong> {apiError}
+          <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
 

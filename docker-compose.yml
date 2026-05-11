@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ownevo-postgres
+    environment:
+      POSTGRES_USER: ownevo
+      POSTGRES_PASSWORD: ownevo
+      POSTGRES_DB: ownevo
+    ports:
+      - "${OWNEVO_PG_PORT:-5432}:5432"
+    volumes:
+      - ownevo-pg-data:/var/lib/postgresql/data
+      - ./apps/kernel/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ownevo", "-d", "ownevo"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  kernel:
+    build:
+      context: .
+      dockerfile: apps/kernel/Dockerfile
+    container_name: ownevo-kernel
+    environment:
+      OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    container_name: ownevo-web
+    environment:
+      OWNEVO_KERNEL_API_URL: http://kernel:8000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - kernel
+    restart: unless-stopped
+
+volumes:
+  ownevo-pg-data:

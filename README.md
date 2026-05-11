@@ -41,7 +41,20 @@ packages/
   trace-format/  Typed AgentEvent schema — Pydantic impl + canonical SPEC.md
 infra/           Docker compose for local Langfuse + Postgres + ClickHouse + collector
 docs/            PLAN.md, SCHEMA.md, SKILL_FORMAT.md, STATE_MACHINES.md, api/openapi.yaml
+docker-compose.yml  Full-stack dev: postgres + kernel API + web in one `make dev-up`
 ```
+
+## Quick start (Docker)
+
+```bash
+ANTHROPIC_API_KEY=sk-... make dev-up   # build + start all three services
+# kernel: http://localhost:8000/api/health → {"status":"ok","db":"ok"}
+# web:    http://localhost:3000
+make dev-logs   # tail logs
+make dev-down   # stop
+```
+
+Local dev without Docker: `OWNEVO_DATABASE_URL=postgresql://ownevo:ownevo@localhost:5432/ownevo make api` + `make web-dev`. Postgres must be running separately (e.g. `infra/`).
 
 ## Stack split
 
@@ -59,7 +72,9 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 - **W5 approval surface + benchmark infra** (v0.5.0, W5.1–W5.5): side-by-side diff + per-eval-case gate breakdown (W5.1), LLM-judge stub approver with 30-case ground-truth eval + ≥0.85 gate (W5.2), NL-gen failure clustering wire-up (W5.3), 7-day M5 replay scaffold (W5.4), and meta-eval as quality gate with coverage badge + `/workflows/preview` UI (W5.5).
 - **W6 + W7 customer-facing workspace + benchmarks** (v0.6.0): W6 row 6.1 NL-gen demo loop dry-run cleared (5-min reviewer budget holds, `[0.20, 1.00]` in 15 s); BL.3 conversation compaction + `/no_think` injection; W7 Track 1 complete — full workspace shell under `/workspaces/[wsId]/` with Health/LiftChart, Failures, per-trace inspection, per-skill detail, Agent-anatomy pane, Audit trail, and `make revert-skill` rollback runbook; Deploy/Rollback wired end-to-end (`skills.deployed_version_id`, `POST /api/proposals/{id}/deploy|rollback`); `skills.head_version_id` now tracks best gate-pass (not latest write); τ³ first autonomous lift on 40-task retail fold — **val_score 0.85 → 0.95 (+11.8%)** at iter 11 on skill v38 (prompt-only change); Ollama `/api/chat` native client for A4.4 gate (TODO-25).
 
-Next: 30-day M5 replay across 4 conditions (TODO-29, P1 — ~37h wall job), τ³ prior-art reproduction + Pass³ stretch (W7 Track 3), W8 polish + investor programvideo record.
+- **Full-stack Docker** (PR #83): root-level `docker-compose.yml` — `make dev-up` starts postgres + kernel + web; accurate kernel API error banners (404 → "Workflow not registered", network → "Kernel API not reachable").
+
+Next: τ³ prior-art reproduction + Pass³ stretch (W7 Track 3), W8 polish + investor programvideo record.
 
 ## A4.4 NL-gen smoketest — model comparison (2026-05-05)
 
