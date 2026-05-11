@@ -981,6 +981,7 @@ Cell legend:
 | qwen3.6-35b-a3b (LMS) | — | — | ✅ ³ | ✅ ³ᵇ | ³ drove loop, hit val=0.85 ×2 in multi-cycle. Thinking embedded too deep for `/no_think` to override (LMS strips thinking client-side). ³ᵇ 2026-05-10: works after runner.py `_run_turn_no_stream` fix (commit `4202f1e`); cache_read_input=31491 confirms LMS auto-cache. |
 | qwen3.6:35b-a3b (Ollama) | ✅ ³ᶜ | ✗ ³ᵈ | n/a | n/a | ³ᶜ 2026-05-10 smoke: native `/api/chat` works because `OllamaChatClient` auto-injects `options.think=false` (ollama_native.py:209). Loop drove cleanly: 5 iters, 7348 out, end_turn. ³ᵈ openai-compat strips think:false silently → verbose thinking → 16501 out tokens → DEFAULT_MAX_TOKENS_OPENAI cap hit in 2 iters. |
 | qwen3.5-9b | — | ✗ ⁴ | ✗ ⁴ | ✅ ⁴ | ⁴ F14g — 0/3 via OpenAI, 3/3 via Anthropic. API-format-load-bearing. |
+| qwen3:30b-a3b | ⚠ ⁴ᵇ | — | — | — | ⁴ᵇ **2026-05-11 tau3-retail smoke** `qwen3_30b_a3b_full_local` (all-3-roles all-Ollama, native preset with `think:false` patch on both sides): same throughput trap as qwen3.6:35b-a3b. Killed at 1/40 in 25 min, reward 0.00 (N=1). Task 5 stuck 22 min on initial attempt. 17-40s per `/api/chat` call. think:false patch holds (no 500s) but per-call latency × no KV-cache-reuse × NUM_PARALLEL=2 makes wall-time unviable. qwen3 family confirmed to share the qwen3.6 family bottleneck on Ollama. |
 | qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
 | qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
 | Qwq:32b | — | — | — | — | reasoning model; would route via `ollama_chat/`. Untested. |
@@ -1036,8 +1037,30 @@ the failure modes are usually one of:
 | `presence_penalty=0.0`, `temperature=1.0` | Sampler tuning. Low temp (0.2-0.7) traps the model in reasoning paths; presence_penalty ≥ 1.2 causes instant looping | LMS per-model settings or LiteLLM completion kwargs |
 | System-prompt close-think nudge | Append: "You MUST close your reasoning block with </think> before calling any tool." | `runner.py:_maybe_no_think_suffix` — currently appends `/no_think` (ineffective on qwen3.5/3.6). Replace with the close-tag nudge for that lineage |
 
+### All-3-roles single-model on Ollama — confirmed unviable (2026-05-11)
+
+After 5 attempts spanning different model families, single-model all-3-roles on Ollama consistently fails to surface a val_score on tau3-retail. Each model fails for a different reason but the bottleneck is structural:
+
+| Model | Preset | Fail mode | Killed at |
+|---|---|---|---|
+| `qwen3.6:35b-a3b` | ollama (native) | Throughput trap | 1/40 in 30 min |
+| `gemma4:26b` | ollama (native) | Cycle-1 proposal Python typo | 40/40 NameError |
+| `qwen3-coder:30b` | ollama-openai | Loop OK, task agent weak (avg 0.15) | 26/40 at 115 min |
+| `gpt-oss:20b` | ollama-openai | Per-call latency 18s-7m36s | 11/40 at 80 min |
+| `qwen3:30b-a3b` | ollama (native) | Same throughput trap as qwen3.6 | 1/40 in 25 min |
+
+**Root causes (in order of impact):**
+1. **No KV-cache reuse across turns.** LMS reuses ~30K tokens per turn (`cache_read_input_tokens: 31491` in cycle log). Ollama reprocesses full conversation context every `/api/chat`. Per-call latency × ~30-50 turns per task makes wall-time unviable on a 40-task sweep with concurrency=3.
+2. **`NUM_PARALLEL=2` in `_p.sh` config** means only 2 of 3 concurrent task slots fit on GPU at once.
+3. **`think:false` patch is family-specific.** Helps qwen3.5/3.6/qwen3 families. Doesn't help `gpt-oss` (`reasoning_effort`) or `gemma4` (no thinking). Doesn't address proposer codegen quality.
+
+**Path forward — known-viable configurations not yet exhausted:**
+- **LMS qwen3.6 @ ctx=65536** — already 39/40 clean at ctx=32768; just blocked by 1 ctx-exceeded task. Expected val_score ≈ 0.69.
+- **Mixed roles** — Ollama for loop (single-stream, fewer turns) + LMS for task agents (KV cache reuse). Untested.
+- **Reduce concurrency=1 + Ollama** — eliminates GPU contention. Higher per-task wall-time but possibly viable for smaller sweeps.
+
 **Open dimensions:**
-- **LMS qwen36 ctx ≥ 65536** — froggeric v12 template at ctx=32768 still saw 1/40 task hit `Context size has been exceeded`. Retry with `lms load qwen/qwen3.6-35b-a3b -c 65536` to cover the long-tail retail conversation and surface a real `val_score` (~0.69 expected based on 39/40 in-flight average). Currently low-priority — gemma4 / Ollama qwen36 paths likely surface a val_score first with less GPU pressure.
+- **LMS qwen36 ctx ≥ 65536** — froggeric v12 template at ctx=32768 still saw 1/40 task hit `Context size has been exceeded`. Retry with `lms load qwen/qwen3.6-35b-a3b -c 65536` to cover the long-tail retail conversation and surface a real `val_score` (~0.69 expected based on 39/40 in-flight average). NOW HIGH-PRIORITY after the all-Ollama sweep proved unviable.
 - **lmstudio-community/Qwen3.6-35B-A3B-GGUF** exists on HF (verified 2026-05-10). Ships fixed templates. Now superseded by the froggeric override (cheaper than 22 GB download).
 - **gemma4:26b on Ollama as task agent** untested. Ollama has its own template (independent of LMS jinja) so worth a try as alternative — non-thinking model so the think-patch above doesn't affect it.
 
