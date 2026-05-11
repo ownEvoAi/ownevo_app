@@ -32,14 +32,19 @@ from typing import Literal
 from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 """Frozen at A3.4 (2026-05-04, end of W3) per docs/PLAN.md schema-freeze.
 
-Tag: `v1.0-frozen-2026-W3`. Structural drift is detected by
-`tests/test_nl_gen_schema_freeze.py` against the snapshot at
-`nl_gen/schemas/workflow_spec.v1.0.json`. To intentionally change the
-schema, bump this constant + regenerate the snapshot via
-`scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
+v1.0 → v1.1 (2026-05-11, W8 Track 0): added `ScheduleGrid` to the
+`UIPrimitive` discriminated union (9 primitives, was 8) to close the
+parity gap with `www/preview/s26-rk7p3/27-primitives.html`. Additive
+change — every v1.0 spec validates under v1.1; no `Literal` union was
+narrowed.
+
+Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
+against the snapshot at `nl_gen/schemas/workflow_spec.v1.1.json`. To
+intentionally change the schema, bump this constant + regenerate the
+snapshot via `scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
 
 Domain = Literal[
     "supply-chain",
@@ -245,7 +250,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    schema_version: Literal["1.1"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment

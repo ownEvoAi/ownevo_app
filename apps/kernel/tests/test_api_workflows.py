@@ -388,7 +388,7 @@ async def test_get_workflow_anatomy_returns_spec(
 ):
     """Spec round-trips through JSONB and surfaces in the response."""
     spec = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "id": "wf-anatomy",
         "domain": "supply-chain",
         "tools": [

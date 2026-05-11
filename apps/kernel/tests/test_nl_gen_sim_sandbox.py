@@ -38,7 +38,8 @@ from typing import Any
 
 import pytest
 from ownevo_kernel.agent_tools.run_pipeline import run_pipeline
-from ownevo_kernel.nl_gen import SCHEMA_VERSION, render_simulation_module
+from ownevo_kernel.nl_gen import render_simulation_module
+from ownevo_kernel.nl_gen.sim_plan import SCHEMA_VERSION as SIM_PLAN_SCHEMA_VERSION
 from ownevo_kernel.nl_gen.fixtures import (
     CONTRACT_REVIEW_SIM_PLAN,
     CONTRACT_REVIEW_SPEC,
@@ -138,7 +139,7 @@ async def test_runs_end_to_end_in_sandbox(
         sandbox, plan, spec, seed=plan.seed_default, n_steps=n_steps
     )
     assert outputs["workflow_spec_id"] == spec.id
-    assert outputs["schema_version"] == SCHEMA_VERSION
+    assert outputs["schema_version"] == SIM_PLAN_SCHEMA_VERSION
     assert outputs["seed"] == plan.seed_default
     assert outputs["n_steps"] == n_steps
     assert isinstance(outputs["trajectory"], list)
