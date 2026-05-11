@@ -1,7 +1,7 @@
 import {
   getWorkflowFailureClusters,
+  kernelError,
   KernelApiError,
-  kernelErrorMessage,
   type FailureClusterList,
   type FailureClusterSummary,
 } from '../../../../../../lib/api'
@@ -27,7 +27,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
   let clusters: FailureClusterList = { workflow_id: wfId, items: [] }
-  let apiError: string | null = null
+  let apiError: { title: string; detail: string } | null = null
   let notFound = false
 
   if (isMock(wfId)) {
@@ -40,7 +40,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
       if (err instanceof KernelApiError && err.status === 404) {
         notFound = true
       } else {
-        apiError = kernelErrorMessage(err)
+        apiError = kernelError(err)
       }
     }
   }
@@ -54,7 +54,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
     <>
       {apiError && (
         <div role="alert" className="api-banner">
-          <strong>Kernel API not reachable.</strong> {apiError}
+          <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
 
