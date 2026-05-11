@@ -12,10 +12,16 @@ const TAG_TONE_CLASS: Record<string, string> = {
 }
 
 export function KanbanBoard({ data }: Props) {
+  const cardsByColumn = new Map<string, typeof data.cards>()
+  for (const col of data.columns) cardsByColumn.set(col.key, [])
+  for (const card of data.cards) {
+    cardsByColumn.get(card.column_key)?.push(card)
+  }
+
   return (
     <div className="kanban">
       {data.columns.map((col) => {
-        const cards = data.cards.filter((c) => c.column_key === col.key)
+        const cards = cardsByColumn.get(col.key) ?? []
         return (
           <div className="kanban-col" key={col.key}>
             <div className="kanban-col-header">

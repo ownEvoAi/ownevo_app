@@ -20,7 +20,9 @@ function formatTick(v: number, fmt: TimeSeriesData['y_format']): string {
 }
 
 export function TimeSeriesChart({ data }: Props) {
-  if (!data.series.length) {
+  const allPoints = data.series.flatMap((s) => s.points)
+
+  if (!data.series.length || !allPoints.length) {
     return (
       <div className="chart">
         <div className="chart-header">
@@ -33,7 +35,6 @@ export function TimeSeriesChart({ data }: Props) {
     )
   }
 
-  const allPoints = data.series.flatMap((s) => s.points)
   const values = allPoints.map((p) => p.value)
   if (data.baseline !== undefined) values.push(data.baseline)
   const minRaw = Math.min(...values)

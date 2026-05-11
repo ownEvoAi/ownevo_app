@@ -4,13 +4,12 @@ Source-of-truth for what the natural-language workflow generator produces from
 a plain-English description. Stored as JSONB in `workflows.spec` (see
 `apps/kernel/migrations/0001_substrate.sql:94`).
 
-**Frozen at `schema_version: "1.0"` per the A3.4 ritual at end of W3
-(2026-05-04, tag `v1.0-frozen-2026-W3`).** Structural changes — adding /
-removing fields, narrowing or widening Literal unions, renaming, changing
-defaults — are caught by `tests/test_nl_gen_schema_freeze.py` against the
-snapshot at `nl_gen/schemas/workflow_spec.v1.0.json`. Any diff requires an
-explicit version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and
-a W7 UI re-test before the snapshot is regenerated.
+**Current schema version: "1.1"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
+v1.1 added ScheduleGrid at W8 Track 0 2026-05-11). Structural changes are
+caught by `tests/test_nl_gen_schema_freeze.py` against the snapshot at
+`nl_gen/schemas/workflow_spec.v1.1.json`. Any diff requires an explicit
+version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and a W7 UI
+re-test before the snapshot is regenerated.
 
 The mock at `www/preview/s26-rk7p3/04-new-workflow-step2.html` is the rendering
 target — every field here corresponds to a section the user sees on the

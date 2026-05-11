@@ -158,8 +158,8 @@ const CONTRACT: WorkflowOverviewPrimitives = {
           'Either party may assign its rights or delegate its duties under this Agreement, in whole or in part, to any successor entity arising from a merger, acquisition, or sale of substantially all of its assets, without the consent of the other party, provided that such successor expressly assumes all obligations hereunder.',
         spans: [
           {
-            start: 109,
-            end: 209,
+            start: 104,
+            end: 203,
             kind: 'flagged',
             note: 'Broader than precedent',
           },

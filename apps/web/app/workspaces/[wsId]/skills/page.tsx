@@ -146,7 +146,7 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
           </div>
           {rows.map((r) => (
             <Link
-              key={`${r.workflow_id ?? 'none'}::${r.id}`}
+              key={`${r.isMock ? 'mock' : 'live'}::${r.workflow_id ?? 'none'}::${r.id}`}
               href={`/workspaces/${wsId}/skills/${encodeURIComponent(r.id)}`}
               className="skill-row"
             >

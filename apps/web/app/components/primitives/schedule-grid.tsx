@@ -149,7 +149,7 @@ function RowSlice({
             />
           )
         }
-        const tone = STATUS_TONE[cell.status]
+        const tone = STATUS_TONE[cell.status] ?? STATUS_TONE['ok']
         return (
           <div
             key={col.key}
