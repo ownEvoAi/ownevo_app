@@ -421,90 +421,81 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P2 — Track 0 unblocks demo; layer D unblocks an actual customer using the workspace. Triggers when (a) the first design partner asks "how do I see my own data here?" or (b) τ³ wants to render bench results in the UI.
 - **Depends on:** Track 0 (W8.0.1–8.0.3) shipped; τ³ integration scope clear; multi-tenant retrofit TODO-1 either landed or scheduled.
 
-### TODO-36: Workflow delete + description edit (UI lifecycle gap)
+<!--
+TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 
-- **What:** Add `DELETE /api/workflows/{id}` + `PATCH /api/workflows/{id}` kernel endpoints and the corresponding UI affordances on the workflow detail page — a delete confirmation in a menu and an inline-editable description (with a regenerate-spec opt-in once it lands).
-- **Why:** After 8.4.3 went live, workflows are user-created via the Generate button. There is no UI path to remove a workflow whose spec was poorly generated, or to fix a typo in the description after the fact. Today the only path is `DELETE FROM workflows ... CASCADE` from psql, which is silly for a real product.
-- **Pros:** Closes the "create" side of CRUD. Lets reviewers iterate on descriptions during a demo without restarting the DB.
-- **Cons:** Delete needs to cascade or refuse on foreign-key conflicts (iterations / eval_cases / proposals reference the workflow). FK rules already exist; the question is whether deleting is hard-delete or soft-archive. For MVP, hard-delete + ON DELETE CASCADE is cheapest.
-- **Context:** `apps/kernel/src/ownevo_kernel/api/routes/workflows.py` for endpoints; `apps/web/app/workspaces/[wsId]/workflows/[wfId]/layout.tsx` for the page header (menu button). Found during 2026-05-12 browser audit — two near-duplicate credit-line workflows accumulated from testing with no UI cleanup path.
-- **Effort:** S (human ~half day / CC ~1-2 hours).
-- **Priority:** P2 — non-blocking for the demo, but the first design-partner conversation will hit it.
+  36 workflow delete + description edit       — `970803d` Settings tab + cascade delete
+  37 deploy / rollback button                  — `970803d` proposal sidebar
+  38 eval-case manual add + delete             — `5b564ba` + lifecycle-actions
+  39 Health primary-workflow heuristic         — `504ae5f` pickPrimary()
+  40 sidebar workflow title truncation         — `504ae5f` word-boundary + dual-line rows
+  41 MetricCards "+N all-time" copy            — `504ae5f` "N runs since launch"
+  42 in-flight iteration indicator             — `504ae5f` Health banner + per-row pill
+  43 first-time-user empty state on Health     — `504ae5f` welcome card with on-ramps
+-->
+
+### TODO-44: Per-cluster reasoning summary (post-rationale-plumbing)
+
+- **What:** Each `failure_clusters` row already stores `label` (a one-line tag like "failure pattern: false-negative" from the keyword stub) and `sample_trace_ids`. After PR #85 the agent's per-case rationale rides into `traces.metric_outputs.rationale`. Build a per-cluster summary that LLM-condenses the member rationales into a paragraph: *"In this cluster (N traces) the agent consistently misread elevated DTI when the credit score was above 700, treating credit score as overriding DTI even when DTI > 0.4."* Surface on the Failures cluster card and the per-iteration drill-down.
+- **Why:** The cluster label today is a keyword tag, useful but shallow. The rationale text holds the actual failure mode. LLM-condensing it is the next-best signal after a human reading every rationale row.
+- **Pros:** Turns the Failures tab into the "tell me what's wrong with this agent" surface the pitch deck implies. Lifts cluster utility from "tag" to "diagnosis."
+- **Cons:** One extra LLM call per cluster per iteration (~$0.001 on Haiku). Stale when the cluster gains new members on a subsequent iteration; needs a regenerate-on-merge path.
+- **Context:** Cluster persistence in `apps/kernel/src/ownevo_kernel/clustering/persistence.py`; rationales now in `traces.metric_outputs.rationale` (PR #85). New column `failure_clusters.summary text` + a `summarize_cluster` skill in `apps/kernel/src/ownevo_kernel/clustering/labeler.py` style. UI: `apps/web/app/workspaces/[wsId]/workflows/[wfId]/failures/failure-cluster-card.tsx`.
+- **Effort:** M (human ~half day / CC ~2 hours).
+- **Priority:** P2 — visible wins for the demo arc; depends on having ≥2 iterations of rationale data to summarize.
+- **Depends on:** Per-case rationale plumbing (PR #85 — closed).
+
+### TODO-45: Stale "running" iteration sweep
+
+- **What:** Iterations whose process died mid-run (uvicorn crash, container restart, abandoned API call) sit forever in `state='running'`. The Health page shows them via the new in-flight banner forever, falsely suggesting work is happening. Add a sweep: on kernel boot, transition any `iteration.state='running'` row whose `started_at` is older than the configured wall-clock cap (`_CYCLE_TIMEOUT_SECONDS * 3` from `nl_gen/loop.py`, ~9 min) to `sandbox-error` with a synthetic audit row.
+- **Why:** Found during PR #85 browser-audit — the demo workspace had 2 ghost-running rows from crashed test iterations. The new in-flight indicator surfaces this loudly.
+- **Pros:** Clean boot state. Cheap one-shot at startup.
+- **Cons:** A genuine long-running iteration restarted mid-flight gets falsely buried. Sweep window should be conservative.
+- **Context:** Kernel boot path: `apps/kernel/src/ownevo_kernel/api/app.py` startup hook. Iteration state machine: `apps/kernel/src/ownevo_kernel/iteration_runner.py`.
+- **Effort:** XS (human ~30 min / CC ~10 min).
+- **Priority:** P3.
 - **Depends on:** —
 
-### TODO-37: Deploy / rollback button on approved proposals
+### TODO-46: New-workflow review-before-commit step
 
-- **What:** Surface a `Deploy` button on `/proposals/{id}` when state is `approved-awaiting-deploy`, and a `Rollback` button when state is `deployed`. POST to existing kernel deploy/rollback endpoints (landed in W7 / PR #80).
-- **Why:** The kernel has deploy + rollback paths but the workflow UI has no button — proposals stay in `approved-awaiting-deploy` indefinitely from the user's POV. The state pill says "approved-awaiting-deploy" but there's no obvious next step.
-- **Pros:** Closes the approve → live loop in the UI. Visibility into deploy/rollback is half the audit-trail pitch.
-- **Cons:** Deploy semantics for an instruction-only skill are trivial (HEAD moves), but for code skills (M5) the sandbox image needs rebuilding. The UI should surface that distinction.
-- **Context:** Kernel endpoints: `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` (deploy + rollback POST routes already exist). Web page: `apps/web/app/workspaces/[wsId]/proposals/[id]/page.tsx`. Audit-row pattern already established by Approve/Reject.
-- **Effort:** S (human ~half day / CC ~1 hour).
-- **Priority:** P2 — important for the "domain expert approves a change and watches it deploy" demo arc.
-- **Depends on:** —
-
-### TODO-38: Eval-case manual add + delete
-
-- **What:** Two new endpoints + UI buttons on the workflow Eval cases page: `+ Add eval case` opens a modal with case_id / sim_seed / n_steps / target_step_index / target_label_field / expected_value / rationale fields; per-row Delete with a confirm. Kernel endpoints: `POST /api/workflows/{id}/eval-cases` (single case) and `DELETE /api/eval-cases/{id}`.
-- **Why:** Today eval cases only land via NL-gen's `generate_eval_case_set` (the kernel-side wrapper of `POST /eval-cases/generate`). Reviewers who want to encode a specific past-miss they saw can't — they have to regenerate the whole set, which is non-deterministic. Curation = trust.
-- **Pros:** Lets reviewers shape the test suite, which is the load-bearing claim of the improvement loop. Encodes the "domain expert teaches the system" arc the deck talks about.
-- **Cons:** Need to surface the SimulationPlan's `event_fields` in the Add form so the user picks valid `target_label_field` values — otherwise the case will silently fail at replay time.
-- **Context:** Existing list endpoint: `GET /api/workflows/{id}/eval-cases` (8.4.4). Persistence helper: `apps/kernel/src/ownevo_kernel/eval_cases/registry.py` (`add_eval_case`, `delete_eval_case` — need to add the second).
+- **What:** Mock parity with `www/preview/s26-rk7p3/04-new-workflow-step2.html`. After `POST /api/nl-gen/generate` returns the spec + simulation plan + eval cases + metric, route the operator to a review page that shows what NL-gen produced before the workflow row is committed. Operator clicks Commit to persist, Discard to throw away. Today the endpoint persists immediately and there's no preview.
+- **Why:** When NL-gen produces a poor spec (wrong domain, missing reviewer, hallucinated tool) the only path today is `delete workflow` (now wired, PR #85) and start over — wasting the ~30s LLM round-trip. Preview catches it before the wasted commit.
+- **Pros:** Reduces wasted iterations. Builds operator confidence (sees the AI output before owning it).
+- **Cons:** Adds a step to the "fast path" — operator who knows what they want now has to click twice. Add a "skip review" toggle in workspace settings later.
+- **Context:** `apps/kernel/src/ownevo_kernel/api/routes/nl_gen.py` would need a draft / commit split — generate returns a draft token, commit promotes to a workflow row. `apps/web/app/workspaces/[wsId]/workflows/new/{page,actions,new-workflow-form}.tsx`.
 - **Effort:** M (human ~1 day / CC ~half day).
-- **Priority:** P2 — second-most-asked-for feature after delete, per the demo arc.
-- **Depends on:** TODO-36 nice-to-have but not strict.
-
-### TODO-39: Health page primary-workflow heuristic
-
-- **What:** `apps/web/app/workspaces/[wsId]/page.tsx` currently picks `workflows.items[0]` (kernel-sorted by `created_at ASC`) as the "primary" for the lift chart at the top. With multiple workflows where the first-created one has zero iterations, the lift chart is empty even when other workflows have rich data. Change the heuristic to "most-recent activity" — workflow with the latest `last_improved_at`, falling back to highest iteration count, falling back to `created_at` order.
-- **Why:** Browser audit finding B3 (2026-05-12). On `/workspaces/acme` with `saas-support-ticket-triage` (0 iterations) created first and `credit-risk` (5 iterations) created later, the headline visual is the empty curve from saas while the real signal sits below the fold.
-- **Pros:** Highlights what's actually moving without requiring the user to scroll into the workflows table.
-- **Cons:** "Most recent" is sometimes the wrong answer if a primary workflow has stalled. Could end up with the chart flipping between workflows day-over-day.
-- **Context:** Workflow summary already has `last_improved_at` (W7 slice 2). One conditional change in `page.tsx`.
-- **Effort:** XS (human ~30 min / CC ~10 min).
-- **Priority:** P3 — cosmetic on the demo headline.
+- **Priority:** P3 — pairs with TODO-47 as the new-workflow polish pass.
 - **Depends on:** —
 
-### TODO-40: Sidebar workflow title truncation (mid-word + disambiguation)
+### TODO-47: Baseline-complete landing page
 
-- **What:** Sidebar nav truncates workflow titles to ~40 chars via `workflowDisplayTitle()`, currently mid-word. Two near-duplicate workflows can render with identical truncated labels (e.g. "Recalibrate credit lines monthly across…" appears twice). Switch to word-boundary truncation and append a short `workflow.id` suffix when the truncated title is ambiguous within the visible set.
-- **Why:** Browser audit finding U4 (2026-05-12). Reviewers can't tell two workflows apart in the sidebar.
-- **Pros:** Tiny code change, high readability win.
-- **Cons:** —
-- **Context:** `apps/web/lib/format.ts` (`workflowDisplayTitle`); `apps/web/app/workspaces/[wsId]/workspace-nav.tsx` (consumer). The disambiguation pass needs the full list of workflows in scope.
-- **Effort:** XS (human ~30 min / CC ~10 min).
+- **What:** Mock parity with `www/preview/s26-rk7p3/19-run-baseline.html`. After an operator clicks Run iteration on a workflow with zero iterations, instead of dropping them on the Overview tab with a green "iteration complete" toast, show a dedicated landing page summarizing the baseline run: val_score, n_failed/n_cases, dominant failure cluster, suggested next step (review proposal, regenerate evals, etc.).
+- **Why:** First-iteration outcome is the highest-information event in the loop. Operator currently navigates back to Overview which shows the same lift chart (now with one point) — the framing of "this is your baseline; here's where to go next" is missing.
+- **Pros:** Better first-run UX. Reinforces the "improvement loop" mental model at the moment it lands.
+- **Cons:** Yet another route. Could be a banner on Overview instead.
+- **Context:** `apps/web/app/workspaces/[wsId]/workflows/[wfId]/run-iteration-button.tsx` (current handler); new route `/workflows/[wfId]/baseline-complete`. Or fold into Overview with a `?baseline=true` query param.
+- **Effort:** M (human ~half day / CC ~2 hours).
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-41: MetricCards "+N all-time" delta copy clarification
+### TODO-48: Skills library workflow filter
 
-- **What:** The layer-D resolver's MetricCards bundle has an `Iterations` card with delta `"+4 all-time"` — what's it counting from? Replace with either a real timestamp ("last 30m ago") or drop the delta on the iteration count card and put it only on the value-bearing cards (val_score, lift).
-- **Why:** Browser audit finding U3 (2026-05-12).
-- **Pros:** Cleaner cards.
+- **What:** `/workspaces/[wsId]/skills` shows every skill across every workflow. Add a `?workflow=credit-risk` query param + a chip strip across the top so an operator can scope to one workflow. Skills already carry `workflow_id`; the kernel endpoint just needs an optional query param.
+- **Why:** With ≥3 workflows the skills list gets noisy. The mock `s26-rk7p3/11-skills-registry.html` already references `?workflow=…`.
+- **Pros:** Tiny code change, high noise reduction. Pairs with the existing workflow-scoped Skills tab on the workflow shell (currently absent in the live nav — could light up by linking to this filtered view).
 - **Cons:** —
-- **Context:** `apps/web/lib/primitive-data-resolver.ts` — `resolveMetricCards()`.
+- **Context:** Kernel: `apps/kernel/src/ownevo_kernel/api/routes/skills.py` — `list_skills`. Web: `apps/web/app/workspaces/[wsId]/skills/page.tsx`.
 - **Effort:** XS.
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-42: In-flight iteration indicator (cross-page)
+### TODO-49: Recent activity feed across workflows
 
-- **What:** When a user clicks "Run iteration" and navigates away while the LLM calls are in flight (~15-90s), there's no global indication an iteration is running. Add a small "1 iteration running on credit-risk…" pill in the sidebar or page header, derived from `iterations.state = 'running'` rows.
-- **Why:** Users navigating to other tabs lose visibility into the long-running operation. Comes up when triaging multiple workflows.
-- **Pros:** Cheap visibility. Doubles as a "system is healthy" signal.
-- **Cons:** Polling adds DB load — `SELECT FROM iterations WHERE state='running'` every 5s on the sidebar isn't free. Probably fine for MVP; could batch with the workflow list fetch.
-- **Context:** `apps/web/app/workspaces/[wsId]/layout.tsx` (where workflow list is fetched today); the new pill can render off the same fetch + filter.
-- **Effort:** S (human ~half day / CC ~1 hour).
-- **Priority:** P3.
-- **Depends on:** —
-
-### TODO-43: First-time-user empty state on Health page
-
-- **What:** `/workspaces/[wsId]` on a fresh DB with zero workflows shows the workflow-rows table empty state + lift chart's "no iterations" empty state, but doesn't tell the user where to start. Add a single hero card on the Health page when `workflows.total === 0` pointing at New workflow / `make seed-demo` with a one-paragraph "what is this?" explainer.
-- **Why:** First-touch reviewers in a demo or fresh check-out land on the Health page and currently see four near-empty cards + an empty table + an empty chart. Not great.
-- **Pros:** Better first impression; one place to explain the loop.
-- **Cons:** —
-- **Context:** `apps/web/app/workspaces/[wsId]/page.tsx`.
-- **Effort:** XS.
+- **What:** A workspace-scoped "what just happened" feed showing the last N audit-entries-of-interest across every workflow (proposal-approved, gate-run-completed, cluster-created, skill-version-created). Roughly the workspace inbox but for all state changes, not just gate-passed proposals. Sits at `/workspaces/[wsId]/activity` or as a "Recent activity" card on Health.
+- **Why:** Operators monitoring multiple workflows want a "did anything important happen" surface that doesn't require clicking into each workflow's audit tab.
+- **Pros:** Cross-workflow visibility. Reuses the existing audit-entries data + the workspace-audit page's row renderer.
+- **Cons:** Risks duplication with the Inbox + Audit pages. Needs a clear demarcation — Inbox is "things waiting for you"; Activity is "things that happened."
+- **Context:** Existing workspace audit: `apps/web/app/workspaces/[wsId]/audit/page.tsx`. Filter by kind set + add a polling refresh.
+- **Effort:** S (human ~half day / CC ~1-2 hours).
 - **Priority:** P3.
 - **Depends on:** —
