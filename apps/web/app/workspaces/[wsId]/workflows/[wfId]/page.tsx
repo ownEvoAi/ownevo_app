@@ -17,6 +17,7 @@ import {
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
 import { AlertList } from '@/app/components/primitives/alert-list'
+import { KanbanBoard } from '@/app/components/primitives/kanban-board'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
@@ -159,6 +160,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
               return <TimeSeriesChart key={i} data={p.data} />
             if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
             if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
+            if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
             return null
           })}
           {unresolvedTypes.length > 0 ? (

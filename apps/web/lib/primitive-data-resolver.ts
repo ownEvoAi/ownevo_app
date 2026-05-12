@@ -20,6 +20,7 @@
 
 import type {
   AlertItem,
+  KanbanData,
   MetricCardDatum,
   TableData,
   TimeSeriesData,
@@ -37,6 +38,7 @@ export type ResolvedPrimitive =
   | { kind: 'TimeSeriesChart'; data: TimeSeriesData }
   | { kind: 'TableView'; data: TableData }
   | { kind: 'AlertList'; data: AlertItem[] }
+  | { kind: 'KanbanBoard'; data: KanbanData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -86,6 +88,8 @@ function resolveOne(
       return resolveTableView(inputs)
     case 'AlertList':
       return resolveAlertList(inputs)
+    case 'KanbanBoard':
+      return resolveKanbanBoard(inputs)
     default:
       return {
         kind: 'empty',
@@ -284,6 +288,67 @@ function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
     }
   })
   return { kind: 'AlertList', data }
+}
+
+
+function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
+  // Latest iteration's cases as cards, columned by outcome × fold.
+  // Three columns: Failed (test fold) — what's most operator-actionable
+  // since these are the held-out generalization signal — then Failed
+  // (train fold), then Passed.
+  const co = inputs.caseOutputs
+  if (!co || co.items.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'KanbanBoard',
+      reason:
+        co === undefined
+          ? 'Case-outputs not fetched by this page.'
+          : 'No iteration has produced per-case output yet.',
+    }
+  }
+
+  const TRUNC = 110
+  const truncate = (s: string): string =>
+    s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
+
+  const colKey = (it: { passed: boolean; is_test_fold: boolean }): string => {
+    if (!it.passed && it.is_test_fold) return 'failed-test'
+    if (!it.passed) return 'failed-train'
+    return 'passed'
+  }
+
+  const cards = co.items.map((it, idx) => {
+    const rationale = it.output_json?.rationale
+    const body = typeof rationale === 'string' ? truncate(rationale) : ''
+    const predicted = String(it.output_json?.predicted ?? '?')
+    const expected = String(it.output_json?.expected ?? '?')
+    return {
+      id: `${it.eval_case_id}-${idx}`,
+      column_key: colKey(it),
+      title: it.case_id ?? '(unknown case)',
+      body,
+      meta: `predicted ${predicted} · expected ${expected}`,
+      tags: it.is_test_fold
+        ? ([{ label: 'test fold', tone: 'amber' as const }])
+        : ([{ label: 'train', tone: 'outline' as const }]),
+    }
+  })
+
+  const counts = cards.reduce<Record<string, number>>((acc, c) => {
+    acc[c.column_key] = (acc[c.column_key] ?? 0) + 1
+    return acc
+  }, {})
+
+  const data: KanbanData = {
+    columns: [
+      { key: 'failed-test', label: 'Failed · test fold', count: counts['failed-test'] ?? 0 },
+      { key: 'failed-train', label: 'Failed · train', count: counts['failed-train'] ?? 0 },
+      { key: 'passed', label: 'Passed', count: counts['passed'] ?? 0 },
+    ],
+    cards,
+  }
+  return { kind: 'KanbanBoard', data }
 }
 
 
