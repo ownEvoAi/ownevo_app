@@ -1,12 +1,16 @@
+import Link from 'next/link'
 import {
   getWorkflowAnatomy,
   getWorkflowSkills,
   kernelError,
   KernelApiError,
+  listWorkflowEvalCases,
+  type EvalCaseSummary,
   type SkillSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
+import { GenerateEvalCasesButton } from './eval-cases/generate-button'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -17,14 +21,17 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
 
   let skills: SkillSummary[] = []
   let spec: WorkflowSpecShape | null = null
+  let evalCases: EvalCaseSummary[] = []
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList] = await Promise.all([
+    const [anatomy, skillList, evalList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
+      listWorkflowEvalCases(wfId),
     ])
     spec = anatomy.spec
     skills = skillList.items
+    evalCases = evalList.items
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -34,6 +41,9 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   }
 
   const primitivesPlanned = (spec?.ui?.tabs?.[0]?.primitives ?? []).length
+  const hasEvalCases = evalCases.length > 0
+  const trainCount = evalCases.filter((c) => !c.is_test_fold).length
+  const testCount = evalCases.length - trainCount
 
   return (
     <>
@@ -46,45 +56,47 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
 
       {!apiError ? (
-        <section
-          style={{
-            marginTop: 24,
-            background: 'var(--bg)',
-            border: '1px dashed var(--border)',
-            borderRadius: 8,
-            padding: 20,
-            color: 'var(--text-muted)',
-            fontSize: 13,
-            lineHeight: 1.55,
-          }}
-        >
-          <p style={{ margin: 0, marginBottom: 10 }}>
+        <section className="overview-next-step">
+          <div className="overview-next-step-text">
+            <h3 className="overview-next-step-title">
+              {hasEvalCases ? 'Eval cases ready' : 'Next: generate eval cases'}
+            </h3>
+            <p className="overview-next-step-body">
+              {hasEvalCases ? (
+                <>
+                  This workflow has <strong>{evalCases.length}</strong> eval case
+                  {evalCases.length === 1 ? '' : 's'} ({trainCount} train ·{' '}
+                  {testCount} test). The improvement loop scores proposed
+                  changes against them.
+                </>
+              ) : (
+                <>
+                  The improvement loop needs a test suite to score against.
+                  Generate eval cases from the workflow&rsquo;s spec
+                  (~30&ndash;60s, 2 LLM calls), then run an iteration.
+                </>
+              )}
+            </p>
             {primitivesPlanned > 0 ? (
-              <>
-                <strong>No iteration data yet.</strong> The spec declares{' '}
-                {primitivesPlanned} render primitive
-                {primitivesPlanned === 1 ? '' : 's'} for this workflow&rsquo;s
-                Overview. The metric cards, charts, and tables fill in once an
+              <p className="overview-next-step-meta">
+                Spec declares {primitivesPlanned} render primitive
+                {primitivesPlanned === 1 ? '' : 's'}. They fill in once an
                 iteration has run.
-              </>
+              </p>
+            ) : null}
+          </div>
+          <div className="overview-next-step-action">
+            {hasEvalCases ? (
+              <Link
+                href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}
+                className="btn btn-secondary"
+              >
+                View eval cases &rsaquo;
+              </Link>
             ) : (
-              <>
-                <strong>No render primitives configured.</strong> This
-                workflow&rsquo;s spec has no <code>ui.tabs[0].primitives</code>{' '}
-                block.
-              </>
+              <GenerateEvalCasesButton wsId={wsId} wfId={wfId} hasExisting={false} />
             )}
-          </p>
-          <p style={{ margin: 0, fontSize: 12 }}>
-            Next step:{' '}
-            <a
-              href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}
-              style={{ color: 'var(--accent)' }}
-            >
-              Generate eval cases →
-            </a>{' '}
-            so the improvement loop has something to score against.
-          </p>
+          </div>
         </section>
       ) : null}
     </>
