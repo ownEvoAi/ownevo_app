@@ -332,6 +332,16 @@ export interface WorkflowEnvironmentSpec {
   seasonality?: string[]
 }
 
+export interface WorkflowUITab {
+  name?: string
+  primitives?: Array<{ type: string; [key: string]: unknown }>
+}
+
+export interface WorkflowUILayout {
+  layout?: string
+  tabs?: WorkflowUITab[]
+}
+
 export interface WorkflowSpecShape {
   domain?: string
   environment?: WorkflowEnvironmentSpec
@@ -342,6 +352,7 @@ export interface WorkflowSpecShape {
     target_metric_name?: string
     description?: string
   }
+  ui?: WorkflowUILayout
   [key: string]: unknown
 }
 

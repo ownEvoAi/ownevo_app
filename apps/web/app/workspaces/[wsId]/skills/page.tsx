@@ -6,7 +6,6 @@ import {
   type SkillSummary,
   type WorkflowSummary,
 } from '@/lib/api'
-import { WORKFLOW_MOCKS } from '../workflows/[wfId]/mocks'
 import { relativeTime } from '@/lib/format'
 
 interface PageProps {
@@ -21,14 +20,10 @@ interface SkillRow {
   workflow_title: string
   head_version_seq: number | null
   head_created_at: string | null
-  isMock: boolean
 }
 
-// Skills library — PLAN row 8.0.4. Visual parity with
-// www/preview/s26-rk7p3/11-skills-registry.html. Lists every skill
-// across every workflow in the workspace, plus mock skills from
-// the labour/contract/support positioning workflows so the page
-// renders something even on an empty database.
+// Skills library — workspace-scoped list of every registered skill,
+// joined against workflows for the parent-workflow column.
 export default async function SkillsLibraryPage({ params }: PageProps) {
   const { wsId } = await params
 
@@ -48,7 +43,7 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
     workflowTitleById.set(w.id, w.description || w.id)
   }
 
-  const liveRows: SkillRow[] = liveSkills.map((s) => ({
+  const rows: SkillRow[] = liveSkills.map((s) => ({
     id: s.id,
     kind: s.kind,
     capability_tags: s.capability_tags,
@@ -58,28 +53,7 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
       : '—',
     head_version_seq: s.head_version_seq,
     head_created_at: s.head_created_at,
-    isMock: false,
   }))
-
-  const mockRows: SkillRow[] = []
-  for (const [wfKey, mock] of Object.entries(WORKFLOW_MOCKS)) {
-    for (const s of mock.anatomy.skills) {
-      mockRows.push({
-        id: s.id,
-        kind: s.kind,
-        capability_tags: s.capability_tags,
-        workflow_id: wfKey,
-        workflow_title: mock.title,
-        head_version_seq: s.head_version_seq,
-        head_created_at: s.head_created_at,
-        isMock: true,
-      })
-    }
-  }
-
-  // Live skills first, then mocks. Within each group keep the
-  // backend's sort order (kind ASC, id ASC).
-  const rows = [...liveRows, ...mockRows]
 
   const totalVersions = rows.reduce(
     (acc, r) => acc + (r.head_version_seq ?? 0),
@@ -96,8 +70,8 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
           <h1 className="page-title">Skills library</h1>
           <p className="page-subtitle">
             {rows.length} skill{rows.length === 1 ? '' : 's'} ·{' '}
-            {totalVersions} total versions · across {workflowCount} workflows ·
-            workspace-scoped
+            {totalVersions} total versions · across {workflowCount} workflow
+            {workflowCount === 1 ? '' : 's'} · workspace-scoped
           </p>
         </div>
       </header>
@@ -120,11 +94,11 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
             textAlign: 'center',
           }}
         >
-          No skills registered yet. Seed the demand-prediction baseline with{' '}
+          No skills registered yet. Run{' '}
           <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
-            scripts/seed_m5_baseline.py
+            make seed-demo
           </code>{' '}
-          or describe a workflow under{' '}
+          to populate sample workflows, or describe a new one under{' '}
           <Link
             href={`/workspaces/${wsId}/workflows/new`}
             style={{ color: 'var(--accent)' }}
@@ -146,16 +120,13 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
           </div>
           {rows.map((r) => (
             <Link
-              key={`${r.isMock ? 'mock' : 'live'}::${r.workflow_id ?? 'none'}::${r.id}`}
+              key={`${r.workflow_id ?? 'none'}::${r.id}`}
               href={`/workspaces/${wsId}/skills/${encodeURIComponent(r.id)}`}
               className="skill-row"
             >
               <div className="skill-name-cell">
                 <span className="skill-name">{r.id}</span>
-                <span className="skill-source">
-                  {r.workflow_title}
-                  {r.isMock ? ' · MOCK' : ''}
-                </span>
+                <span className="skill-source">{r.workflow_title}</span>
               </div>
               <div className="cap-tags">
                 {r.capability_tags.length === 0 ? (
