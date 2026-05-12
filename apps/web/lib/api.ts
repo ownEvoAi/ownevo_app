@@ -266,6 +266,24 @@ export async function getPreview(workflowId: string): Promise<PreviewResponse> {
   )
 }
 
+export interface GenerateWorkflowResponse {
+  workflow_id: string
+  description: string
+  spec: WorkflowSpecShape
+}
+
+export async function generateWorkflow(
+  description: string,
+  workflowId?: string,
+): Promise<GenerateWorkflowResponse> {
+  const body: Record<string, unknown> = { description }
+  if (workflowId) body.workflow_id = workflowId
+  return jsonFetch<GenerateWorkflowResponse>('/api/nl-gen/generate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 // W7 slice 2 — workspace Health page + LiftChart
 
 export interface WorkflowSummary {

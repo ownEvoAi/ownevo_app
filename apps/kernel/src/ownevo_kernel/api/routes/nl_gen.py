@@ -1,30 +1,24 @@
-"""`/api/nl-gen/preview` — W5.5 NL-gen UI preview surface.
+"""`/api/nl-gen/*` — natural-language → workflow surface.
 
-Serves the four NL-gen artifacts (spec, sim plan, eval case set,
-metric definition) plus a pre-computed `MetaEvalJudgment` for one of
-the three production fixtures. The web app's `/workflows/preview`
-route renders them with the W5.5 coverage badge as the headliner.
+Two endpoints:
 
-This endpoint is **read-only and DB-free** — it returns deterministic
-hand-authored fixture data so:
+  * `GET /api/nl-gen/preview` (+ `/preview/{id}`) — read-only fixture
+    bundle (spec, sim plan, eval case set, metric, meta-eval judgment).
+    DB-free, key-free; used by tests and the legacy preview UI.
 
-  * `make web-dev` works without a Postgres or an Anthropic key.
-  * The UI contract for the coverage badge can be exercised in CI
-    without consuming API tokens (project policy).
-  * The W6 follow-up (`POST /api/nl-gen/generate`) plugs into the
-    same response shape, so the web UI doesn't need to swap when
-    the live wire-up lands.
-
-`provenance="preview-fixture"` on every response so the UI can show
-a "demo data" banner if it ever ships beyond the preview route.
+  * `POST /api/nl-gen/generate` — live LLM call. Takes a description,
+    runs `generate_workflow_spec`, persists a `workflows` row, returns
+    the new workflow id. Requires `ANTHROPIC_API_KEY` + a DB pool.
 """
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...nl_gen.fixtures import (
     DESCRIPTIONS,
@@ -34,8 +28,22 @@ from ...nl_gen.fixtures import (
     SIM_PLAN_FIXTURES,
 )
 from ...nl_gen.meta_eval import PREVIEW_JUDGMENT_FIXTURES
+from ...nl_gen.workflow_spec_generator import (
+    NoToolUseError,
+    WorkflowSpecValidationError,
+    generate_workflow_spec,
+)
 
 router = APIRouter(prefix="/api/nl-gen", tags=["nl-gen"])
+
+# Description must be substantive enough for NL-gen to anchor a spec, but
+# short enough to fit the model's input + the schema-side cap on
+# `workflow_spec.description`. Smoketest fixtures are ~700 chars; cap at 4 KB.
+_DESCRIPTION_MIN_LEN = 50
+_DESCRIPTION_MAX_LEN = 4096
+
+# Allowed shape for a workflow id (matches the kebab-slug rule on WorkflowSpec.id).
+_WORKFLOW_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 
 
 class PreviewResponse(BaseModel):
@@ -136,4 +144,127 @@ async def preview_one(workflow_id: str) -> PreviewResponse:
     )
 
 
-__all__ = ["PreviewIndex", "PreviewIndexEntry", "PreviewResponse", "router"]
+class GenerateRequest(BaseModel):
+    """Body shape for `POST /api/nl-gen/generate`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(
+        min_length=_DESCRIPTION_MIN_LEN,
+        max_length=_DESCRIPTION_MAX_LEN,
+    )
+    workflow_id: str | None = Field(default=None, max_length=64)
+
+
+class GenerateResponse(BaseModel):
+    """Body shape for `POST /api/nl-gen/generate` success.
+
+    The full `spec` is returned so the client can render the generated
+    artifacts immediately without a follow-up GET.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    workflow_id: str
+    description: str
+    spec: dict[str, Any]
+
+
+@router.post(
+    "/generate",
+    response_model=GenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_workflow(
+    request: Request,
+    body: GenerateRequest,
+) -> GenerateResponse:
+    """Generate a WorkflowSpec from a plain-English description, persist it.
+
+    Calls the existing `generate_workflow_spec` pipeline (Anthropic
+    `messages.create` with forced tool-use against the WorkflowSpec
+    schema), then inserts the workflow row. No skills are written —
+    those land when an iteration runs.
+
+    Errors:
+      * **400** — `workflow_id` not a valid kebab slug (when provided)
+      * **409** — workflow id already exists
+      * **502** — LLM did not emit a tool use, or emitted an invalid spec
+      * **503** — `ANTHROPIC_API_KEY` is not set in the kernel env
+    """
+    if body.workflow_id is not None and not _WORKFLOW_ID_PATTERN.fullmatch(
+        body.workflow_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"workflow_id {body.workflow_id!r} is not a kebab slug "
+                "(must match /^[a-z0-9][a-z0-9-]*[a-z0-9]$/)."
+            ),
+        )
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ANTHROPIC_API_KEY is not set in the kernel environment; "
+                "the NL-gen endpoint requires it to call the LLM."
+            ),
+        )
+
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=api_key)
+    try:
+        spec = await generate_workflow_spec(client, body.description)
+    except NoToolUseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM did not emit a workflow spec: {exc}",
+        ) from exc
+    except WorkflowSpecValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM produced invalid spec: {exc}",
+        ) from exc
+
+    workflow_id = body.workflow_id or spec.id
+
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO workflows (id, description, spec)
+            VALUES ($1, $2, $3::jsonb)
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id
+            """,
+            workflow_id,
+            body.description,
+            spec.model_dump_json(),
+        )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"workflow_id {workflow_id!r} already exists. Pass a different "
+                "workflow_id, or delete the existing row first."
+            ),
+        )
+
+    return GenerateResponse(
+        workflow_id=workflow_id,
+        description=body.description,
+        spec=spec.model_dump(),
+    )
+
+
+__all__ = [
+    "GenerateRequest",
+    "GenerateResponse",
+    "PreviewIndex",
+    "PreviewIndexEntry",
+    "PreviewResponse",
+    "router",
+]
