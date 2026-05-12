@@ -33,6 +33,54 @@ workflow_traces_router = APIRouter(
 trace_router = APIRouter(prefix="/api/traces", tags=["traces"])
 
 
+@trace_router.get("", response_model=TraceList)
+async def list_all_traces(conn: ConnDep) -> TraceList:
+    """Workspace-scoped trace list.
+
+    Same shape as `/api/workflows/{id}/traces` but unscoped — every
+    trace across every workflow, newest first. Drives the workspace
+    Traces tab (mock parity: s26-rk7p3/15-traces.html). Returns
+    workflow_id=None at the top level because the list spans multiple
+    workflows; the per-row workflow_id is still populated.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT
+            t.id,
+            t.workflow_id,
+            t.iteration_id,
+            i.iteration_index,
+            t.skill_version_id,
+            t.started_at,
+            t.ended_at,
+            COALESCE(jsonb_array_length(t.events), 0)       AS event_count,
+            COALESCE(
+                (
+                    SELECT jsonb_object_agg(kind, cnt)
+                    FROM (
+                        SELECT
+                            evt->>'type' AS kind,
+                            COUNT(*)::int AS cnt
+                        FROM jsonb_array_elements(t.events) evt
+                        GROUP BY evt->>'type'
+                    ) k
+                ),
+                '{}'::jsonb
+            )                                                AS kind_counts
+        FROM traces t
+        LEFT JOIN iterations i ON i.id = t.iteration_id
+        ORDER BY t.started_at DESC, t.id DESC
+        LIMIT 500
+        """,
+    )
+    items = [_row_to_summary(r) for r in rows]
+    # Workspace-scoped list has no single workflow_id at the top level —
+    # the response model requires one, so we return an empty string. The
+    # web UI doesn't rely on the top-level workflow_id when rendering the
+    # workspace traces list.
+    return TraceList(workflow_id="", items=items)
+
+
 @workflow_traces_router.get(
     "/{workflow_id}/traces", response_model=TraceList,
 )

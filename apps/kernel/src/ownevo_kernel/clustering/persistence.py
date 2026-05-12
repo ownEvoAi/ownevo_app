@@ -108,6 +108,12 @@ async def insert_cluster(
         round(float(summary.quality_score), 2) if summary.quality_score is not None else None
     )
     fingerprint = _fingerprint(workflow_id, summary.label, len(summary.member_indices))
+    # The unique index on `fingerprint` is partial
+    # (`WHERE fingerprint IS NOT NULL`, per 0002_failure_cluster_fingerprint.sql).
+    # ON CONFLICT must repeat the index predicate verbatim — bare
+    # `ON CONFLICT (fingerprint)` doesn't match a partial index and PG
+    # raises "no unique or exclusion constraint matching the ON CONFLICT
+    # specification".
     row = await conn.fetchrow(
         """
         INSERT INTO failure_clusters (
@@ -115,7 +121,8 @@ async def insert_cluster(
             sample_trace_ids, cluster_size, quality_score, fingerprint
         )
         VALUES ($1, $2, $3, $4::vector, $5::uuid[], $6, $7, $8)
-        ON CONFLICT (fingerprint) DO NOTHING
+        ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL
+            DO NOTHING
         RETURNING id
         """,
         workflow_id,

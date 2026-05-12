@@ -727,6 +727,10 @@ export interface TraceDetail {
   events: AgentEvent[]
 }
 
+export async function listAllTraces(): Promise<TraceList> {
+  return jsonFetch<TraceList>(`/api/traces`)
+}
+
 export async function getWorkflowTraces(
   workflowId: string,
 ): Promise<TraceList> {
