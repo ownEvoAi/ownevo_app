@@ -58,20 +58,33 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
             lineHeight: 1.55,
           }}
         >
-          {primitivesPlanned > 0 ? (
-            <>
-              <strong>No iteration data yet.</strong> The spec declares{' '}
-              {primitivesPlanned} render primitive{primitivesPlanned === 1 ? '' : 's'}{' '}
-              for this workflow&rsquo;s Overview. Run an iteration to populate the
-              metric cards, charts, and tables with real agent output.
-            </>
-          ) : (
-            <>
-              <strong>No render primitives configured.</strong> This workflow&rsquo;s
-              spec has no <code>ui.tabs[0].primitives</code> block. Regenerate the spec
-              or add primitives to surface metrics on the Overview tab.
-            </>
-          )}
+          <p style={{ margin: 0, marginBottom: 10 }}>
+            {primitivesPlanned > 0 ? (
+              <>
+                <strong>No iteration data yet.</strong> The spec declares{' '}
+                {primitivesPlanned} render primitive
+                {primitivesPlanned === 1 ? '' : 's'} for this workflow&rsquo;s
+                Overview. The metric cards, charts, and tables fill in once an
+                iteration has run.
+              </>
+            ) : (
+              <>
+                <strong>No render primitives configured.</strong> This
+                workflow&rsquo;s spec has no <code>ui.tabs[0].primitives</code>{' '}
+                block.
+              </>
+            )}
+          </p>
+          <p style={{ margin: 0, fontSize: 12 }}>
+            Next step:{' '}
+            <a
+              href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}
+              style={{ color: 'var(--accent)' }}
+            >
+              Generate eval cases →
+            </a>{' '}
+            so the improvement loop has something to score against.
+          </p>
         </section>
       ) : null}
     </>

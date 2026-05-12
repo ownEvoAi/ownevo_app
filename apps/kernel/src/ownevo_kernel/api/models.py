@@ -267,6 +267,44 @@ class WorkflowList(_Strict):
     total: int
 
 
+class EvalCaseSummary(_Strict):
+    """One row on the workflow Eval cases page.
+
+    Flattened from the `eval_cases` row: `case_id` / `target_label_field` /
+    `expected_value` / `rationale` come from the `expected_behavior` JSONB
+    (see `nl_gen/eval_persistence.py`). `sim_seed` / `n_steps` /
+    `target_step_index` from `input`.
+    """
+
+    id: UUID
+    case_id: str
+    provenance: str
+    rationale: str | None
+    target_label_field: str | None
+    expected_value: Any
+    sim_seed: int | None
+    n_steps: int | None
+    target_step_index: int | None
+    is_test_fold: bool
+    cluster_id: UUID | None
+    created_at: datetime
+
+
+class EvalCaseList(_Strict):
+    workflow_id: str
+    items: list[EvalCaseSummary]
+    total: int
+
+
+class GenerateEvalCasesResponse(_Strict):
+    """Response from `POST /api/workflows/{id}/eval-cases/generate`."""
+
+    workflow_id: str
+    generated: int
+    train_count: int
+    test_count: int
+
+
 class WorkflowAnatomy(_Strict):
     """Full workflow detail backing the W7 slice 11 (7.1.12) anatomy pane.
 

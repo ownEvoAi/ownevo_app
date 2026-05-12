@@ -284,6 +284,51 @@ export async function generateWorkflow(
   })
 }
 
+export interface EvalCaseSummary {
+  id: string
+  case_id: string
+  provenance: string
+  rationale: string | null
+  target_label_field: string | null
+  expected_value: unknown
+  sim_seed: number | null
+  n_steps: number | null
+  target_step_index: number | null
+  is_test_fold: boolean
+  cluster_id: string | null
+  created_at: string
+}
+
+export interface EvalCaseList {
+  workflow_id: string
+  items: EvalCaseSummary[]
+  total: number
+}
+
+export async function listWorkflowEvalCases(
+  workflowId: string,
+): Promise<EvalCaseList> {
+  return jsonFetch<EvalCaseList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases`,
+  )
+}
+
+export interface GenerateEvalCasesResponse {
+  workflow_id: string
+  generated: number
+  train_count: number
+  test_count: number
+}
+
+export async function generateEvalCases(
+  workflowId: string,
+): Promise<GenerateEvalCasesResponse> {
+  return jsonFetch<GenerateEvalCasesResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases/generate`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
 // W7 slice 2 — workspace Health page + LiftChart
 
 export interface WorkflowSummary {

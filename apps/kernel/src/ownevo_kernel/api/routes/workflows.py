@@ -18,8 +18,11 @@ from fastapi import APIRouter, HTTPException, status
 from ..deps import ConnDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
+    EvalCaseList,
+    EvalCaseSummary,
     FailureClusterList,
     FailureClusterSummary,
+    GenerateEvalCasesResponse,
     IterationList,
     IterationPoint,
     WorkflowAnatomy,
@@ -273,6 +276,145 @@ async def list_failure_clusters(
         for r in rows
     ]
     return FailureClusterList(workflow_id=workflow_id, items=items)
+
+
+@router.get(
+    "/{workflow_id}/eval-cases",
+    response_model=EvalCaseList,
+)
+async def list_workflow_eval_cases(
+    workflow_id: str,
+    conn: ConnDep,
+) -> EvalCaseList:
+    """Return every eval case attached to a workflow.
+
+    Flattens `input` / `expected_behavior` JSONB into the response shape
+    (see `EvalCaseSummary`) so the UI doesn't have to repeat the
+    split-payload convention from `nl_gen/eval_persistence.py`.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    from ...eval_cases.registry import list_eval_cases
+    from ..jsonb import decode_jsonb_obj
+
+    cases = await list_eval_cases(conn, workflow_id=workflow_id)
+    items: list[EvalCaseSummary] = []
+    for c in cases:
+        eb = c.expected_behavior or {}
+        inp = c.input or {}
+        items.append(
+            EvalCaseSummary(
+                id=c.id,
+                case_id=str(eb.get("case_id") or c.id),
+                provenance=c.provenance,
+                rationale=eb.get("rationale"),
+                target_label_field=eb.get("target_label_field"),
+                expected_value=eb.get("expected_value"),
+                sim_seed=inp.get("sim_seed"),
+                n_steps=inp.get("n_steps"),
+                target_step_index=inp.get("target_step_index"),
+                is_test_fold=c.is_test_fold,
+                cluster_id=c.cluster_id,
+                created_at=c.created_at,
+            )
+        )
+    # decode_jsonb_obj imported above is a no-op here — kept available for
+    # any future per-field decode the registry doesn't do.
+    _ = decode_jsonb_obj
+    return EvalCaseList(workflow_id=workflow_id, items=items, total=len(items))
+
+
+@router.post(
+    "/{workflow_id}/eval-cases/generate",
+    response_model=GenerateEvalCasesResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_workflow_eval_cases(
+    workflow_id: str,
+    conn: ConnDep,
+) -> GenerateEvalCasesResponse:
+    """Generate + persist eval cases for an existing workflow.
+
+    Runs `generate_simulation_plan` then `generate_eval_case_set` against
+    the workflow's persisted spec (~2 LLM calls, 30-45s wall-clock), then
+    inserts the cases via `persist_eval_case_set`. The endpoint is
+    idempotent at the eval_cases-row level — re-running generates a fresh
+    case set and appends; the UI surfaces the cumulative list.
+
+    Errors:
+      * **404** — workflow_id not found
+      * **502** — LLM did not emit a sim plan or eval set
+      * **503** — `ANTHROPIC_API_KEY` is not set
+    """
+    import os
+
+    from ...nl_gen.eval_generator import generate_eval_case_set
+    from ...nl_gen.eval_persistence import persist_eval_case_set
+    from ...nl_gen.sim_generator import generate_simulation_plan
+    from ...nl_gen.spec import WorkflowSpec
+    from ..jsonb import decode_jsonb_obj
+
+    row = await conn.fetchrow(
+        "SELECT id, spec FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    spec_dict = decode_jsonb_obj(row["spec"]) or {}
+    if not spec_dict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Workflow has no spec yet — generate one via "
+                "POST /api/nl-gen/generate before generating eval cases."
+            ),
+        )
+
+    workflow_spec = WorkflowSpec.model_validate(spec_dict)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ANTHROPIC_API_KEY is not set in the kernel environment; "
+                "eval-case generation requires it to call the LLM."
+            ),
+        )
+
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=api_key)
+    try:
+        sim_plan = await generate_simulation_plan(client, workflow_spec)
+        case_set = await generate_eval_case_set(client, workflow_spec, sim_plan)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM-side failure during eval-case generation: {exc}",
+        ) from exc
+
+    inserted = await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
+    train_count = sum(1 for r in inserted if not r.is_test_fold)
+    test_count = len(inserted) - train_count
+    return GenerateEvalCasesResponse(
+        workflow_id=workflow_id,
+        generated=len(inserted),
+        train_count=train_count,
+        test_count=test_count,
+    )
 
 
 def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:

@@ -16,6 +16,7 @@ export function WorkflowTabs({ wsId, wfId }: TabsProps) {
 
   const tabs: Array<{ href: string; label: string }> = [
     { href: root, label: 'Overview' },
+    { href: `${root}/eval-cases`, label: 'Eval cases' },
     { href: `${root}/failures`, label: 'Failures' },
     { href: `${root}/traces`, label: 'Traces' },
     { href: `${root}/audit`, label: 'Audit' },
