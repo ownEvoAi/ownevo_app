@@ -109,7 +109,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">High · {high.length}</div>
           <div className="clusters">
             {high.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
@@ -120,7 +120,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Medium · {medium.length}</div>
           <div className="clusters">
             {medium.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
@@ -131,7 +131,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Low · {low.length}</div>
           <div className="clusters">
             {low.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
