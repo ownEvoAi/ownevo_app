@@ -1,5 +1,9 @@
 import type { WorkflowSummary } from '../../../lib/api'
-import { workflowDisplayTitle } from '../../../lib/format'
+import {
+  isStaleRunningIteration,
+  relativeTime,
+  workflowDisplayTitle,
+} from '../../../lib/format'
 
 interface WorkflowsTableProps {
   workflows: WorkflowSummary[]
@@ -53,13 +57,24 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
           <div className="wf-metric">
             <span className="wf-metric-value">{w.iteration_count}</span>
             {w.running_iteration_count && w.running_iteration_count > 0 ? (
-              <span
-                className="wf-inflight"
-                title={`${w.running_iteration_count} running`}
-              >
-                <span className="inflight-dot" />
-                {w.running_iteration_count} running
-              </span>
+              isStaleRunningIteration(w.oldest_running_started_at) ? (
+                <span
+                  className="wf-inflight stale"
+                  title={`Running iteration started ${w.oldest_running_started_at} — may be abandoned`}
+                >
+                  <span className="inflight-dot stale" />
+                  {w.running_iteration_count} stale ·{' '}
+                  {relativeTime(w.oldest_running_started_at!)}
+                </span>
+              ) : (
+                <span
+                  className="wf-inflight"
+                  title={`${w.running_iteration_count} running`}
+                >
+                  <span className="inflight-dot" />
+                  {w.running_iteration_count} running
+                </span>
+              )
             ) : null}
           </div>
           <div className="wf-pending">

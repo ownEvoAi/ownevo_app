@@ -438,6 +438,7 @@ export interface WorkflowSummary {
   mode: string
   iteration_count: number
   running_iteration_count?: number
+  oldest_running_started_at?: string | null
   best_ever_score: number | null
   last_improved_at: string | null
   pending_proposals_count: number
@@ -559,6 +560,8 @@ export interface FailureClusterSummary {
   sample_trace_ids: string[]
   created_at: string
   latest_proposal_id: string | null
+  spawning_iteration_index?: number | null
+  spawning_iteration_id?: string | null
 }
 
 export interface FailureClusterList {

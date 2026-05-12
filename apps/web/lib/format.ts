@@ -13,6 +13,24 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   return `${Math.round(dt / 86400)}d ago`
 }
 
+// Stale-iteration threshold for the Health page. A typical loop on
+// Sonnet completes one iteration in 5-15 min on the M5 substrate; an
+// iteration still "running" after 1h is almost always a crashed kernel
+// that didn't get a chance to mark itself sandbox-error. Past the
+// threshold, the UI surfaces a "may be abandoned" hint rather than
+// quietly counting them under "in flight".
+export const STALE_ITERATION_THRESHOLD_SEC = 3600
+
+export function isStaleRunningIteration(
+  startedAtIso: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!startedAtIso) return false
+  const t = new Date(startedAtIso).getTime()
+  if (Number.isNaN(t)) return false
+  return (now.getTime() - t) / 1000 >= STALE_ITERATION_THRESHOLD_SEC
+}
+
 export function formatScore(value: number | null, digits = 4): string {
   return value === null ? '—' : value.toFixed(digits)
 }

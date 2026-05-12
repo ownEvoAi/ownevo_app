@@ -5,7 +5,12 @@ import {
   type IterationList,
   type WorkflowList,
 } from '../../../lib/api'
-import { workflowDisplayTitle, workspaceLabel } from '../../../lib/format'
+import {
+  isStaleRunningIteration,
+  relativeTime,
+  workflowDisplayTitle,
+  workspaceLabel,
+} from '../../../lib/format'
 import { LiftChart } from './lift-chart'
 import { WorkflowsTable } from './workflows-table'
 
@@ -70,6 +75,26 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
     (acc, w) => acc + (w.running_iteration_count ?? 0),
     0,
   )
+  // Iterations still "running" past the stale threshold are flagged
+  // separately so an abandoned run doesn't pollute the "fresh in flight"
+  // banner. We only know the oldest running iteration per workflow, so
+  // this is a workflow count, not a per-iteration count.
+  const staleWorkflowCount = workflows.items.reduce(
+    (acc, w) =>
+      acc +
+      ((w.running_iteration_count ?? 0) > 0 &&
+      isStaleRunningIteration(w.oldest_running_started_at)
+        ? 1
+        : 0),
+    0,
+  )
+  const oldestStaleStart = workflows.items.reduce<string | null>((acc, w) => {
+    if (!isStaleRunningIteration(w.oldest_running_started_at)) return acc
+    const s = w.oldest_running_started_at ?? null
+    if (!s) return acc
+    if (!acc) return s
+    return new Date(s).getTime() < new Date(acc).getTime() ? s : acc
+  }, null)
   const isFirstTime = !apiError && workflows.items.length === 0
 
   return (
@@ -135,6 +160,16 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
           <strong>{inFlightCount}</strong> iteration
           {inFlightCount === 1 ? '' : 's'} in flight right now — refresh
           for updates.
+        </div>
+      )}
+
+      {staleWorkflowCount > 0 && oldestStaleStart && (
+        <div className="inflight-banner stale" role="status">
+          <span className="inflight-dot stale" />
+          <strong>{staleWorkflowCount}</strong> workflow
+          {staleWorkflowCount === 1 ? '' : 's'} with a running iteration
+          started {relativeTime(oldestStaleStart)} — may be abandoned.
+          Open the workflow to retry or mark the run as failed.
         </div>
       )}
 
