@@ -137,6 +137,13 @@ N_CYCLES="${OWNEVO_TAU3_CYCLES:-10}"
 # (40 min) is sized for cloud Sonnet; slow local backends (Ollama qwen3.6:35b
 # at NUM_PARALLEL=2) need 1.5-3 hr. Override with OWNEVO_TAU3_TASK_TIMEOUT.
 TASK_TIMEOUT="${OWNEVO_TAU3_TASK_TIMEOUT:-2400}"
+# tau2 eval concurrency. LMS handles 4 well; Ollama is throughput-bound, keep at 2.
+case "$BASE_URL_OR_PRESET" in
+    lms-*)              CONCURRENCY_DEFAULT=4 ;;
+    ollama|ollama-*)    CONCURRENCY_DEFAULT=2 ;;
+    *)                  CONCURRENCY_DEFAULT=3 ;;
+esac
+CONCURRENCY="${OWNEVO_TAU3_CONCURRENCY:-$CONCURRENCY_DEFAULT}"
 WORKFLOW_ID="tau3-retail-v1__${WORKFLOW_TAG}"
 MASTER="$LOGDIR/${WORKFLOW_TAG}_p2_master.log"
 
@@ -152,7 +159,7 @@ for i in $(seq 1 "$N_CYCLES"); do
         --llm-model "$MODEL" \
         --task-agent-model "$TASK_AGENT_MODEL" \
         --task-user-model "$TASK_USER_MODEL" \
-        --task-concurrency 3 \
+        --task-concurrency "$CONCURRENCY" \
         --task-timeout-seconds "$TASK_TIMEOUT" \
         > "$log" 2>&1
     rc=$?
