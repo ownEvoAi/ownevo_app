@@ -54,6 +54,17 @@ export function RunIterationButton({
               vector). Run again to try a different angle.
             </p>
           )}
+          <a
+            href={`/workspaces/${wsId}/workflows/${wfId}/proposals`}
+            style={{
+              fontSize: 12,
+              color: 'var(--accent)',
+              marginTop: 8,
+              display: 'inline-block',
+            }}
+          >
+            View all proposals →
+          </a>
         </div>
       ) : null}
     </form>
