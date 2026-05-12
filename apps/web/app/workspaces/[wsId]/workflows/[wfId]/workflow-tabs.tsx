@@ -22,6 +22,9 @@ export function WorkflowTabs({ wsId, wfId }: TabsProps) {
     { href: `${root}/failures`, label: 'Failures' },
     { href: `${root}/traces`, label: 'Traces' },
     { href: `${root}/audit`, label: 'Audit' },
+    { href: `${root}/triggers`, label: 'Triggers' },
+    { href: `${root}/integrations`, label: 'Integrations' },
+    { href: `${root}/permissions`, label: 'Permissions' },
     { href: `${root}/settings`, label: 'Settings' },
   ]
 

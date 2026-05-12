@@ -634,6 +634,101 @@
   color: #b42318;
 }
 
+/* Planned-but-not-yet-wired sub-tab pages (Triggers / Integrations /
+   Permissions). Same shape as the Connect on-ramp's "Planned" card —
+   honest about scope, useful as a documentation surface. */
+.planned-tab {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 28px;
+  box-shadow: var(--shadow-sm);
+  max-width: 820px;
+}
+.planned-tab-pill {
+  display: inline-block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.planned-tab-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+.planned-tab-body {
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.planned-tab-list {
+  margin: 6px 0 16px;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.planned-tab-list li {
+  margin-bottom: 6px;
+}
+.planned-tab-list strong {
+  color: var(--text);
+}
+.planned-tab-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.planned-tab-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.planned-tab-card-head {
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.planned-tab-card-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planned-tab-kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.planned-tab-kv > span:first-child {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.planned-tab-kv strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
 .eval-row {
   display: grid;
   grid-template-columns: 32px 1fr 110px 80px 110px;
