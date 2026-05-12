@@ -1,14 +1,22 @@
 """Demo seed — inserts sample workflows so the workspace UI has something to show.
 
-PLAN row 8.4.2. Writes `credit-risk` and `contract-review` as real workflow
-rows using the existing NL-gen fixtures (CREDIT_RISK_SPEC, CONTRACT_REVIEW_SPEC)
-plus their hand-authored descriptions. No skills are registered — the workflow
-spec enumerates the agent's *tools*, but skill bodies are written when an
-iteration actually runs (8.4.5). So a seeded workflow looks like a real
-customer's first five minutes: description + spec, no iterations yet.
+PLAN row 8.4.2 (extended). Writes `credit-risk` and `contract-review` as
+real workflow rows using the existing NL-gen fixtures (CREDIT_RISK_SPEC,
+CONTRACT_REVIEW_SPEC) plus their hand-authored descriptions. Without
+`--with-iterations`, no agent runs — the seed mimics a customer's first
+five minutes (description + spec + eval cases, no iterations yet).
 
-Idempotent: `INSERT ... ON CONFLICT (id) DO UPDATE` so re-running this after
-the fixtures change refreshes the spec without duplicating rows.
+With `--with-iterations`, the script ALSO runs one iteration per seeded
+workflow so the operator pages light up immediately: case-outputs
+populate the TableView / AlertList / KanbanBoard primitives without a
+manual "Run iteration" click. Requires `ANTHROPIC_API_KEY` — the
+iteration calls the agent + proposer LLM. Skipped silently when the
+key is missing (the workflow rows still seed cleanly).
+
+Idempotent: `INSERT ... ON CONFLICT (id) DO UPDATE` so re-running this
+after the fixtures change refreshes the spec without duplicating rows.
+Re-running with `--with-iterations` ADDS another iteration each time;
+inspect `/api/workflows/{id}/iterations` first if you only want one.
 
 To go to a clean DB: don't run this. Nothing in runtime code depends on it.
 
@@ -20,12 +28,14 @@ Exit codes
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
 from dataclasses import dataclass
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
+ENV_API_KEY = "ANTHROPIC_API_KEY"
 
 
 @dataclass(frozen=True)
@@ -33,6 +43,8 @@ class SeededWorkflow:
     id: str
     description: str
     inserted: bool  # False if the row already existed and was just refreshed
+    iteration_state: str | None = None  # set when --with-iterations runs an iteration
+    iteration_val: float | None = None
 
 
 async def _upsert_workflow(
@@ -70,8 +82,18 @@ async def _upsert_workflow(
     )
 
 
-async def seed_demo(conn) -> list[SeededWorkflow]:
-    """Seed the demo workflows. Returns one entry per workflow touched."""
+async def seed_demo(
+    conn,
+    *,
+    with_iterations: bool = False,
+) -> list[SeededWorkflow]:
+    """Seed the demo workflows. Returns one entry per workflow touched.
+
+    `with_iterations=True` also runs one iteration per seeded workflow so
+    the operator pages have case-output data on first load. Requires
+    ANTHROPIC_API_KEY; iterations are skipped (with a printed note) when
+    the key is missing.
+    """
     from ownevo_kernel.nl_gen.eval_persistence import persist_eval_case_set
     from ownevo_kernel.nl_gen.fixtures import (
         CONTRACT_REVIEW_DESCRIPTION,
@@ -123,10 +145,55 @@ async def seed_demo(conn) -> list[SeededWorkflow]:
             # signal we use for the printed marker.
             if result.inserted:
                 await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
-    return seeded
+
+    if not with_iterations:
+        return seeded
+
+    api_key = os.environ.get(ENV_API_KEY)
+    if not api_key:
+        print(
+            f"note: {ENV_API_KEY} not set — skipping --with-iterations.",
+            file=sys.stderr,
+        )
+        return seeded
+
+    # Run one iteration per workflow so the operator pages have
+    # case-outputs to render. We do this outside the seed transaction —
+    # `run_one_iteration_for_workflow` opens its own transaction for the
+    # persistence step.
+    from anthropic import AsyncAnthropic
+    from ownevo_kernel.iteration_runner import run_one_iteration_for_workflow
+
+    client = AsyncAnthropic(api_key=api_key)
+    updated: list[SeededWorkflow] = []
+    for w in seeded:
+        try:
+            outcome = await run_one_iteration_for_workflow(
+                conn, workflow_id=w.id, client=client,
+            )
+            updated.append(
+                SeededWorkflow(
+                    id=w.id,
+                    description=w.description,
+                    inserted=w.inserted,
+                    iteration_state=str(outcome.state),
+                    iteration_val=(
+                        float(outcome.val_score)
+                        if outcome.val_score is not None
+                        else None
+                    ),
+                )
+            )
+        except Exception as exc:
+            print(
+                f"note: iteration on {w.id} failed: {exc}; workflow row is seeded.",
+                file=sys.stderr,
+            )
+            updated.append(w)
+    return updated
 
 
-async def main_async() -> int:
+async def main_async(args: argparse.Namespace) -> int:
     db_url = os.environ.get(ENV_DB_URL)
     if not db_url:
         print(
@@ -145,7 +212,7 @@ async def main_async() -> int:
         return 4
 
     try:
-        seeded = await seed_demo(conn)
+        seeded = await seed_demo(conn, with_iterations=args.with_iterations)
     finally:
         await conn.close()
 
@@ -156,12 +223,33 @@ async def main_async() -> int:
     )
     for s in seeded:
         marker = "+" if s.inserted else "="
-        print(f"  {marker} {s.id} — {s.description[:60]}{'…' if len(s.description) > 60 else ''}")
+        line = (
+            f"  {marker} {s.id} — "
+            f"{s.description[:60]}{'…' if len(s.description) > 60 else ''}"
+        )
+        if s.iteration_state is not None:
+            val_str = (
+                f"{s.iteration_val:.3f}" if s.iteration_val is not None else "—"
+            )
+            line += f"\n      iteration: {s.iteration_state}, val_score={val_str}"
+        print(line)
     return 0
 
 
 def main() -> int:
-    return asyncio.run(main_async())
+    parser = argparse.ArgumentParser(
+        description="Seed demo workflows for the local dev workspace."
+    )
+    parser.add_argument(
+        "--with-iterations",
+        action="store_true",
+        help=(
+            "Also run one iteration per seeded workflow so the operator "
+            f"pages light up immediately. Requires {ENV_API_KEY}."
+        ),
+    )
+    args = parser.parse_args()
+    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

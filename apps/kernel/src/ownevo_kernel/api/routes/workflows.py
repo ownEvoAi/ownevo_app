@@ -786,12 +786,19 @@ async def generate_workflow_eval_cases(
 
     from ...nl_gen.eval_generator import generate_eval_case_set
     from ...nl_gen.eval_persistence import persist_eval_case_set
+    from ...nl_gen.metric_generator import generate_metric_definition
     from ...nl_gen.sim_generator import generate_simulation_plan
     from ...nl_gen.spec import WorkflowSpec
     from ..jsonb import decode_jsonb_obj
 
     row = await conn.fetchrow(
-        "SELECT id, spec FROM workflows WHERE id = $1",
+        """
+        SELECT id, spec,
+               simulation_plan IS NOT NULL    AS has_sim_plan,
+               metric_definition IS NOT NULL  AS has_metric
+        FROM workflows
+        WHERE id = $1
+        """,
         workflow_id,
     )
     if row is None:
@@ -828,6 +835,13 @@ async def generate_workflow_eval_cases(
     try:
         sim_plan = await generate_simulation_plan(client, workflow_spec)
         case_set = await generate_eval_case_set(client, workflow_spec, sim_plan)
+        # Backfill metric_definition too when the workflow was created
+        # without one — historical rows (PR #85-era nl-gen) sometimes
+        # landed with simulation_plan/metric_definition NULL and the
+        # iteration runner refuses to run without both.
+        metric_def = None
+        if not row["has_metric"]:
+            metric_def = await generate_metric_definition(client, workflow_spec)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -835,6 +849,31 @@ async def generate_workflow_eval_cases(
         ) from exc
 
     inserted = await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
+    # Persist the freshly generated sim_plan (always — the in-memory
+    # generation just happened, so the DB column should match) and
+    # metric_definition (only when one didn't exist before).
+    if metric_def is not None:
+        await conn.execute(
+            """
+            UPDATE workflows
+            SET simulation_plan = $2::jsonb,
+                metric_definition = $3::jsonb
+            WHERE id = $1
+            """,
+            workflow_id,
+            sim_plan.model_dump_json(),
+            metric_def.model_dump_json(),
+        )
+    else:
+        await conn.execute(
+            """
+            UPDATE workflows
+            SET simulation_plan = $2::jsonb
+            WHERE id = $1
+            """,
+            workflow_id,
+            sim_plan.model_dump_json(),
+        )
     train_count = sum(1 for r in inserted if not r.is_test_fold)
     test_count = len(inserted) - train_count
     return GenerateEvalCasesResponse(

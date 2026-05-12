@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from ownevo_format import (
     AlertList,
+    KanbanBoard,
     MetricCards,
     TableView,
     TimeSeriesChart,
@@ -234,6 +235,14 @@ CREDIT_RISK_SPEC = WorkflowSpec(
                         source="recalibration_alerts",
                         severity_field="severity",
                         title_field="account_id",
+                    ),
+                    # Per-case outcome kanban — layer-D resolver fills
+                    # from `iteration_case_outputs` (PLAN 8.4.10).
+                    KanbanBoard(
+                        type="KanbanBoard",
+                        source="case-outputs",
+                        column_field="passed",
+                        card_title_field="case_id",
                     ),
                 ],
             ),
