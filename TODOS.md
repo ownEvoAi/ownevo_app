@@ -409,3 +409,14 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (human ~1-2 weeks / CC ~2-3 days).
 - **Priority:** P3 — wait for multi-agent workflows to actually exist.
 - **Depends on:** customer pull for multi-agent topologies.
+
+### TODO-35: UI primitive layer D — agent output → primitive data resolver
+
+- **What:** Bridge `WorkflowSpec.ui.tabs[].primitives[].source` to real runtime data so the primitive renderers in `apps/web/app/components/primitives/` display agent output instead of hand-curated mock data. Three candidate designs: (a) a "render data" generation step after each agent iteration that emits a typed `PrimitiveRenderBundle` keyed by `source`; (b) agents emit structured outputs alongside `AgentEvent` traces (new event subtype `ui_data`); (c) kernel-side resolver that joins `primitive.source` against iteration outputs at read time. Choice should be made after τ³ integration and multi-tenant retrofit (TODO-1) land — both will shape the data model.
+- **Why:** Track 0 (W8.0.1–8.0.3) ships the visual surface with mock data so the YC video has a credible workspace. Real wiring is the difference between a demo workspace and an operational workspace. Today the workflow Overview page can show "live-looking" but it isn't reading from the same data the agent produced. A customer using ownEvo on their own data would notice the gap immediately.
+- **Pros:** Closes the loop end-to-end: NL-gen describes a workflow → agent runs → renderers display real numbers. Unblocks the "domain expert opens the workspace, sees today's forecast, approves a proposal" flow without engineer hand-curation.
+- **Cons:** Touches three layers (kernel data model, API contract, web renderers). Real cost is design: getting the contract between agent output and primitive `source` right matters more than the implementation. Premature design risks an awkward retrofit when τ³ workflows force different shapes.
+- **Context:** Schema in `packages/trace-format/src/ownevo_format/ui_primitives.py` (each primitive carries a `source: str` or `trace_source: str` field; demand-prediction fixture references `"skus"`, `"markdown_alerts"`, etc.). Fixtures: `apps/kernel/src/ownevo_kernel/nl_gen/fixtures/{demand_prediction,credit_risk,contract_review}.py` § `ui=UILayout(...)`. Renderers: `apps/web/app/components/primitives/` (Track 0). Mock resolver: `apps/web/lib/primitives-mock-data.ts` (Track 0). The marketing preview's input-shape comments in `www/preview/s26-rk7p3/27-primitives.html` are the contract reviewers see.
+- **Effort:** L (human ~1-2 weeks / CC ~3-5 days, design-heavy).
+- **Priority:** P2 — Track 0 unblocks demo; layer D unblocks an actual customer using the workspace. Triggers when (a) the first design partner asks "how do I see my own data here?" or (b) τ³ wants to render bench results in the UI.
+- **Depends on:** Track 0 (W8.0.1–8.0.3) shipped; τ³ integration scope clear; multi-tenant retrofit TODO-1 either landed or scheduled.
