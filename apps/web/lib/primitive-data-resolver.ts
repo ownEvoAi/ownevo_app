@@ -46,6 +46,24 @@ export function resolvePrimitives(inputs: ResolverInputs): ResolvedPrimitive[] {
   return declared.map((primitive) => resolveOne(primitive, inputs))
 }
 
+// Resolve primitives from a specific named tab in the spec UI plan.
+// Returns null when the tab isn't declared so the page can render its
+// own empty state (rather than falling back to tab[0] which would
+// duplicate the Overview).
+export function resolveTabPrimitives(
+  inputs: ResolverInputs,
+  tabName: string,
+): ResolvedPrimitive[] | null {
+  const tabs = inputs.spec?.ui?.tabs ?? []
+  const tab = tabs.find(
+    (t) => (t.name ?? '').toLowerCase() === tabName.toLowerCase(),
+  )
+  if (!tab) return null
+  return (tab.primitives ?? []).map((primitive) =>
+    resolveOne(primitive, inputs),
+  )
+}
+
 function resolveOne(
   primitive: { type: string; [key: string]: unknown },
   inputs: ResolverInputs,

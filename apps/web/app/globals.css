@@ -1481,6 +1481,61 @@
   color: var(--text-muted);
 }
 
+.operate-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+.operate-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.operate-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.operate-status-dot.live {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+.operate-status-dot.idle {
+  background: var(--text-faint);
+}
+.operate-status-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 18px;
+  flex: 1 1 auto;
+}
+.operate-status-cell {
+  min-width: 0;
+}
+.operate-status-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.operate-status-value {
+  font-size: 16px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
 /* ---------------------------------------------------------------------
    W7 slice 6 — Workflow Overview (mock + live).
    --------------------------------------------------------------------- */
