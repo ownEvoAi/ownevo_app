@@ -332,23 +332,20 @@ paths:
   # ---------- skills ----------
   /api/skills:
     get:
+      summary: Workspace-scoped skill library index (PLAN 8.0.4)
+      description: |
+        Returns every skill across all workflows in the workspace, sorted
+        by kind (instruction → python → composite) then id ASC.
+        Single-tenant for MVP per D4 — no workspace filter applied yet.
+        Multi-tenant retrofit (TODO-1) adds WHERE workspace_id = $1.
       tags: [skills]
-      parameters:
-        - name: workflow_id
-          in: query
-          schema: { type: string }
-        - name: capability
-          in: query
-          schema: { type: string }
       responses:
         '200':
           description: ok
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Skill'
+                $ref: '#/components/schemas/SkillListResponse'
 
   # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail + per-workflow list
   /api/workflows/{workflow_id}/skills:
@@ -855,8 +852,9 @@ components:
           description: |
             Raw NL-gen spec JSONB. Conforms to
             packages/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec
-            v1.0 — keys: domain, environment, tools, reviewer,
-            success_criterion, ui.
+            v1.1 — keys: domain, environment, tools, reviewer,
+            success_criterion, ui (ui.tabs[].primitives now includes
+            ScheduleGrid in addition to the original 8 types).
 
     # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail DTOs
     SkillSummaryResponse:

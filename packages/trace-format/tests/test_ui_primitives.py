@@ -13,6 +13,7 @@ from ownevo_format import (
     DocumentReader,
     KanbanBoard,
     MetricCards,
+    ScheduleGrid,
     SideBySideView,
     TableView,
     TimeSeriesChart,
@@ -56,6 +57,25 @@ def test_side_by_side_default_diff_mode_is_text():
 def test_document_reader_annotations_optional():
     p = DocumentReader(type="DocumentReader", source="contracts")
     assert p.annotations_source is None
+
+
+def test_schedule_grid_round_trip():
+    p = ScheduleGrid(
+        type="ScheduleGrid",
+        rows_source="shifts",
+        cols_source="days",
+        cells_source="assignments",
+    )
+    rebuilt = UIPrimitiveAdapter.validate_python(p.model_dump())
+    assert isinstance(rebuilt, ScheduleGrid)
+    assert rebuilt == p
+
+
+def test_schedule_grid_requires_all_sources():
+    with pytest.raises(ValidationError):
+        ScheduleGrid.model_validate(
+            {"type": "ScheduleGrid", "rows_source": "x", "cols_source": "y"},
+        )
 
 
 def test_conversation_view_requires_trace_source():

@@ -141,6 +141,37 @@
       "title": "MetricCards",
       "type": "object"
     },
+    "ScheduleGrid": {
+      "additionalProperties": false,
+      "description": "2-D resource \u00d7 time grid with cell-level status.\n\nShift schedules, content calendars, capacity boards, room booking,\non-call rotations \u2014 anything keyed `resource \u00d7 time` with a status\nbadge per cell.",
+      "properties": {
+        "cells_source": {
+          "title": "Cells Source",
+          "type": "string"
+        },
+        "cols_source": {
+          "title": "Cols Source",
+          "type": "string"
+        },
+        "rows_source": {
+          "title": "Rows Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "ScheduleGrid",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "rows_source",
+        "cols_source",
+        "cells_source"
+      ],
+      "title": "ScheduleGrid",
+      "type": "object"
+    },
     "SideBySideView": {
       "additionalProperties": false,
       "description": "Contract clause + redline, document diff.",
@@ -256,6 +287,7 @@
       "DocumentReader": "#/$defs/DocumentReader",
       "KanbanBoard": "#/$defs/KanbanBoard",
       "MetricCards": "#/$defs/MetricCards",
+      "ScheduleGrid": "#/$defs/ScheduleGrid",
       "SideBySideView": "#/$defs/SideBySideView",
       "TableView": "#/$defs/TableView",
       "TimeSeriesChart": "#/$defs/TimeSeriesChart"
@@ -277,6 +309,9 @@
     },
     {
       "$ref": "#/$defs/KanbanBoard"
+    },
+    {
+      "$ref": "#/$defs/ScheduleGrid"
     },
     {
       "$ref": "#/$defs/ConversationView"

@@ -40,7 +40,7 @@ apps/
 packages/
   trace-format/  Typed AgentEvent schema — Pydantic impl + canonical SPEC.md
 infra/           Docker compose for local Langfuse + Postgres + ClickHouse + collector
-docs/            PLAN.md, SCHEMA.md, SKILL_FORMAT.md, STATE_MACHINES.md, api/openapi.yaml
+docs/            ARCHITECTURE.md (start here), PLAN.md, SCHEMA.md, SKILL_FORMAT.md, STATE_MACHINES.md, api/openapi.yaml
 docker-compose.yml  Full-stack dev: postgres + kernel API + web in one `make dev-up`
 ```
 

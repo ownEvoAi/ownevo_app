@@ -19,6 +19,7 @@ from ownevo_format import (
     DocumentReader,
     KanbanBoard,
     MetricCards,
+    ScheduleGrid,
     SideBySideView,
     TableView,
     TimeSeriesChart,
@@ -48,14 +49,16 @@ from pydantic import ValidationError
 # ---------------------------------------------------------------------------
 
 
-def test_schema_version_is_frozen_at_one_zero():
-    assert SCHEMA_VERSION == "1.0", (
-        "Frozen at A3.4 (2026-W3). Structural drift is caught by "
-        "test_nl_gen_schema_freeze.py against the snapshot at "
-        "src/ownevo_kernel/nl_gen/schemas/workflow_spec.v1.0.json."
+def test_schema_version_is_pinned():
+    assert SCHEMA_VERSION == "1.1", (
+        "Frozen at A3.4 (2026-W3); bumped to v1.1 in W8 Track 0 "
+        "(additive: added ScheduleGrid primitive). Structural drift "
+        "is caught by test_nl_gen_schema_freeze.py against the "
+        "snapshot at "
+        f"src/ownevo_kernel/nl_gen/schemas/workflow_spec.v{SCHEMA_VERSION}.json."
     )
     for spec in FIXTURES.values():
-        assert spec.schema_version == "1.0"
+        assert spec.schema_version == SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +177,7 @@ _ALL_VARIANTS = [
         column_field="status",
         card_title_field="title",
     ),
+    ScheduleGrid(type="ScheduleGrid", rows_source="shifts", cols_source="days", cells_source="assignments"),
     ConversationView(type="ConversationView", trace_source="x"),
     SideBySideView(type="SideBySideView", left_source="a", right_source="b"),
     DocumentReader(type="DocumentReader", source="x"),

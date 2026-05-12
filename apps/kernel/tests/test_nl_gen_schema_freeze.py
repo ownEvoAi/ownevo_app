@@ -45,11 +45,13 @@ _SCHEMAS_DIR = (
 # ---------------------------------------------------------------------------
 
 
-def test_workflow_spec_schema_version_is_one_zero():
-    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.0"
+def test_workflow_spec_schema_version_is_pinned():
+    """v1.0 → v1.1 (W8 Track 0: added ScheduleGrid primitive). Additive
+    change; pin is structural drift detection only."""
+    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.1"
 
 
-def test_simulation_plan_schema_version_is_one_zero():
+def test_simulation_plan_schema_version_is_pinned():
     assert SIM_PLAN_SCHEMA_VERSION == "1.0"
 
 
@@ -110,17 +112,18 @@ def test_simulation_plan_schema_matches_frozen_snapshot():
 # ---------------------------------------------------------------------------
 
 
-def test_all_workflow_spec_fixtures_pin_v1_0():
+def test_all_workflow_spec_fixtures_pin_current_version():
     """The 3 hand-authored WorkflowSpec fixtures all serialize at the
-    frozen schema version. If a fixture lags behind the bump, the live
-    snapshot tests will silently encode old shape into the audit trail."""
+    current frozen schema version. If a fixture lags behind the bump,
+    the live snapshot tests will silently encode old shape into the
+    audit trail."""
     from ownevo_kernel.nl_gen.fixtures import FIXTURES
 
     assert len(FIXTURES) >= 3, f"Expected ≥3 WorkflowSpec fixtures, got {len(FIXTURES)}"
     for fixture_id, spec in FIXTURES.items():
-        assert spec.schema_version == "1.0", (
+        assert spec.schema_version == WORKFLOW_SPEC_SCHEMA_VERSION, (
             f"fixture {fixture_id!r} schema_version is {spec.schema_version!r}, "
-            "expected '1.0'"
+            f"expected {WORKFLOW_SPEC_SCHEMA_VERSION!r}"
         )
 
 

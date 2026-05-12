@@ -221,3 +221,31 @@ async def test_workflow_skills_lists_kind_first_then_id(
     ids = [s["id"] for s in body["items"]]
     # instruction first, then python alphabetical
     assert ids == ["instr.alpha", "aa.first.python", "zz.last.python"]
+
+
+async def test_list_skills_returns_workspace_wide_index(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """PLAN 8.0.4 — `GET /api/skills` returns every skill in the
+    workspace across all workflows, sorted by kind then id."""
+    await _seed_workflow(db, workflow_id="wf-a")
+    await _seed_workflow(db, workflow_id="wf-b")
+    await _seed_skill(db, skill_id="py.a", kind="python", workflow_id="wf-a")
+    await _seed_skill(db, skill_id="py.b", kind="python", workflow_id="wf-b")
+    await _seed_skill(
+        db, skill_id="instr.shared", kind="instruction", workflow_id="wf-a",
+    )
+
+    res = await api_client.get("/api/skills")
+    assert res.status_code == 200
+    body = res.json()
+    ids = [s["id"] for s in body["items"]]
+    # instruction first, then python by id ASC. Other skills in the
+    # DB from earlier seed_skill calls in the same session may sit
+    # before py.a alphabetically — assert that the three skills we
+    # just seeded appear in the expected relative order.
+    assert "instr.shared" in ids
+    assert "py.a" in ids
+    assert "py.b" in ids
+    assert ids.index("instr.shared") < ids.index("py.a")
+    assert ids.index("py.a") < ids.index("py.b")
