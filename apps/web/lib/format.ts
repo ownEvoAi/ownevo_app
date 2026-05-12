@@ -46,5 +46,13 @@ export function workflowDisplayTitle(
   const firstSentence = description.split(/(?<=[.!?])\s/, 1)[0] ?? description
   const trimmed = firstSentence.trim()
   if (trimmed.length <= maxLen) return trimmed
-  return trimmed.slice(0, maxLen - 1).trimEnd() + '…'
+  // Word-boundary truncation — find the last space within the budget so
+  // we don't cut a word in half (TODO-40). Falls back to hard cut when
+  // there's no space (e.g. a long URL or single-word title).
+  const sliced = trimmed.slice(0, maxLen - 1)
+  const lastSpace = sliced.lastIndexOf(' ')
+  if (lastSpace > maxLen / 2) {
+    return sliced.slice(0, lastSpace).trimEnd() + '…'
+  }
+  return sliced.trimEnd() + '…'
 }

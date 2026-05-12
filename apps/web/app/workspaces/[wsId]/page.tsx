@@ -36,14 +36,23 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
 
   try {
     workflows = await listWorkflows()
-    if (workflows.items.length > 0) {
-      primaryIterations = await getWorkflowIterations(workflows.items[0].id)
-    }
   } catch (err) {
     apiError = kernelError(err)
   }
 
-  const primary = workflows.items[0]
+  // TODO-39 — pick the primary workflow by signal, not creation order.
+  // Prefer workflows with iterations recorded; among those, the one
+  // with the most iterations wins (ties broken by best_ever_score, then
+  // creation order). Falls back to the first workflow when nothing has
+  // run yet so the page still has SOMETHING to anchor on.
+  const primary = pickPrimary(workflows.items)
+  try {
+    if (primary) {
+      primaryIterations = await getWorkflowIterations(primary.id)
+    }
+  } catch (err) {
+    if (!apiError) apiError = kernelError(err)
+  }
   // Workflows that have ever shipped at least one approved proposal —
   // NOT a count of approval events (the API doesn't expose that yet).
   // Label below should match this scope.
@@ -57,6 +66,11 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
   )
   const portfolioBest =
     primary && primary.best_ever_score !== null ? primary.best_ever_score : null
+  const inFlightCount = workflows.items.reduce(
+    (acc, w) => acc + (w.running_iteration_count ?? 0),
+    0,
+  )
+  const isFirstTime = !apiError && workflows.items.length === 0
 
   return (
     <>
@@ -85,6 +99,46 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
         </div>
       )}
 
+      {isFirstTime && (
+        <section className="empty-welcome">
+          <h2 className="empty-welcome-title">Welcome to ownEvo.</h2>
+          <p className="empty-welcome-body">
+            No workflows in this workspace yet. ownEvo runs an improvement
+            loop on the workflows that define how your business decides —
+            failures cluster, evals generate, proposals come back to you
+            for review. To start, either:
+          </p>
+          <div className="empty-welcome-actions">
+            <a
+              href={`/workspaces/${wsId}/workflows/new`}
+              className="btn btn-primary"
+            >
+              Describe a new workflow →
+            </a>
+            <a
+              href={`/workspaces/${wsId}/workflows/connect`}
+              className="btn btn-secondary"
+            >
+              Connect an agent you&rsquo;re already running →
+            </a>
+          </div>
+          <p className="empty-welcome-hint">
+            Try <code>make seed-demo</code> in the kernel root to load
+            the demo workflows (credit-risk + contract-review).
+          </p>
+        </section>
+      )}
+
+      {inFlightCount > 0 && (
+        <div className="inflight-banner" role="status">
+          <span className="inflight-dot" />
+          <strong>{inFlightCount}</strong> iteration
+          {inFlightCount === 1 ? '' : 's'} in flight right now — refresh
+          for updates.
+        </div>
+      )}
+
+      {!isFirstTime && (
       <div className="metrics glance" style={{ marginBottom: 24 }}>
         <div className="metric">
           <div className="metric-label">Active workflows</div>
@@ -105,6 +159,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
           </div>
         </div>
       </div>
+      )}
 
       {primary && primaryIterations && (
         <section style={{ marginBottom: 32 }}>
@@ -138,29 +193,54 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
         </section>
       )}
 
-      <section>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            marginBottom: 10,
-          }}
-        >
-          <h2
+      {!isFirstTime && (
+        <section>
+          <div
             style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: 'var(--text-2)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: 10,
             }}
           >
-            Workflows
-          </h2>
-        </div>
-        <WorkflowsTable workflows={workflows.items} wsId={wsId} />
-      </section>
+            <h2
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-2)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Workflows
+            </h2>
+          </div>
+          <WorkflowsTable workflows={workflows.items} wsId={wsId} />
+        </section>
+      )}
     </>
   )
+}
+
+// Primary-workflow picker. The Health hero (lift chart) shows the
+// workflow with the strongest signal — most iterations recorded, ties
+// broken by best_ever_score, then by id for determinism. Falls back to
+// the first workflow when nothing has run yet so the table below the
+// hero is consistent with the hero (workflows[0] === pickPrimary's
+// fallback).
+function pickPrimary(
+  workflows: WorkflowList['items'],
+): WorkflowList['items'][number] | undefined {
+  if (workflows.length === 0) return undefined
+  const withIter = workflows.filter((w) => w.iteration_count > 0)
+  if (withIter.length === 0) return workflows[0]
+  return [...withIter].sort((a, b) => {
+    if (b.iteration_count !== a.iteration_count) {
+      return b.iteration_count - a.iteration_count
+    }
+    const aScore = a.best_ever_score ?? 0
+    const bScore = b.best_ever_score ?? 0
+    if (bScore !== aScore) return bScore - aScore
+    return a.id.localeCompare(b.id)
+  })[0]
 }

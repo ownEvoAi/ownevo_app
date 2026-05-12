@@ -52,6 +52,15 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
           </div>
           <div className="wf-metric">
             <span className="wf-metric-value">{w.iteration_count}</span>
+            {w.running_iteration_count && w.running_iteration_count > 0 ? (
+              <span
+                className="wf-inflight"
+                title={`${w.running_iteration_count} running`}
+              >
+                <span className="inflight-dot" />
+                {w.running_iteration_count} running
+              </span>
+            ) : null}
           </div>
           <div className="wf-pending">
             {w.pending_proposals_count > 0 ? (

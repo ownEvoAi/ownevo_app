@@ -436,6 +436,7 @@ export interface WorkflowSummary {
   description: string
   mode: string
   iteration_count: number
+  running_iteration_count?: number
   best_ever_score: number | null
   last_improved_at: string | null
   pending_proposals_count: number

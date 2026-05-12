@@ -67,6 +67,12 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
                   AND i.state <> 'running'
             )                                           AS iteration_count,
             (
+                SELECT COUNT(*)::int
+                FROM iterations i
+                WHERE i.workflow_id = w.id
+                  AND i.state = 'running'
+            )                                           AS running_iteration_count,
+            (
                 SELECT MAX(i.best_ever_score_after)
                 FROM iterations i
                 WHERE i.workflow_id = w.id
@@ -937,6 +943,7 @@ def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:
         description=row["description"],
         mode=row["mode"],
         iteration_count=row["iteration_count"],
+        running_iteration_count=row.get("running_iteration_count", 0) or 0,
         best_ever_score=(
             float(row["best_ever_score"]) if row["best_ever_score"] is not None else None
         ),

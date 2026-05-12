@@ -249,14 +249,17 @@ class WorkflowSummary(_Strict):
     page renders without N+1 fetches. `iteration_count` is the number of
     finalized iterations on the workflow (gate-pass / gate-blocked / etc.
     — anything not 'running'), driving the right-side "Last improved"
-    cell. `pending_proposals_count` covers gate-passed proposals waiting
-    for human/llm-judge approval.
+    cell. `running_iteration_count` counts iterations currently in the
+    'running' state — drives the Health page in-flight indicator
+    (TODO-42). `pending_proposals_count` covers gate-passed proposals
+    waiting for human/llm-judge approval.
     """
 
     id: str
     description: str
     mode: str  # 'gated' | 'autonomous'
     iteration_count: int
+    running_iteration_count: int = 0
     best_ever_score: float | None
     last_improved_at: datetime | None  # most recent approved proposal's state_updated_at
     pending_proposals_count: int

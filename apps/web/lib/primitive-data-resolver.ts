@@ -110,12 +110,18 @@ function resolveMetricCards(inputs: ResolverInputs): ResolvedPrimitive {
     {
       label: 'Iterations',
       value: iterations.length,
+      // TODO-41: the prior "+N all-time" copy was ambiguous — it looked
+      // like a delta-vs-something. The number IS the delta from the
+      // workflow's launch (every iteration is a step), so name it.
       delta:
         iterations.length > 0
           ? {
-              value: iterations.length === 1 ? 'first run' : `+${iterations.length - 1}`,
+              value:
+                iterations.length === 1
+                  ? 'first run'
+                  : `${iterations.length} runs since launch`,
               direction: iterations.length > 1 ? 'up' : 'flat',
-              scope: 'all-time',
+              scope: '',
             }
           : undefined,
     },

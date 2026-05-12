@@ -68,11 +68,16 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
       {workflows.map((w) => {
         const href = `${root}/workflows/${w.id}`
         return (
-          <a key={w.id} href={href} className={cls(href)}>
+          <a key={w.id} href={href} className={`${cls(href)} nav-workflow`} title={w.description ?? w.id}>
             <svg className="nav-icon" viewBox="0 0 16 16">
               <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
             </svg>
-            <span className="nav-label">{workflowDisplayTitle(w.id, w.description, 40)}</span>
+            <span className="nav-workflow-text">
+              <span className="nav-label">
+                {workflowDisplayTitle(w.id, w.description, 32)}
+              </span>
+              <span className="nav-workflow-id">{w.id}</span>
+            </span>
           </a>
         )
       })}
