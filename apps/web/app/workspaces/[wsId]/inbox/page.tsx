@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { listProposals, type ProposalSummary } from '@/lib/api'
-import { formatScore, relativeTime } from '@/lib/format'
+import { formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
@@ -119,7 +119,12 @@ function ProposalRow({
       </div>
       <div className="inbox-body">
         <div className="inbox-meta-row">
-          <span className="inbox-source">{proposal.workflow_description}</span>
+          <span
+            className="inbox-source"
+            title={proposal.workflow_description}
+          >
+            {workflowDisplayTitle(proposal.workflow_id, proposal.workflow_description, 60)}
+          </span>
           <span className="inbox-dot">·</span>
           <StatePill state={proposal.state} />
           <span className="inbox-dot">·</span>
