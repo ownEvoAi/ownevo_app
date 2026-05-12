@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException, status
 from ..deps import ConnDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
+    CaseOutputList,
+    CaseOutputRow,
     EvalCaseCreate,
     EvalCaseList,
     EvalCaseSummary,
@@ -540,6 +542,115 @@ async def list_workflow_eval_cases(
     # any future per-field decode the registry doesn't do.
     _ = decode_jsonb_obj
     return EvalCaseList(workflow_id=workflow_id, items=items, total=len(items))
+
+
+@router.get(
+    "/{workflow_id}/case-outputs",
+    response_model=CaseOutputList,
+)
+async def list_workflow_case_outputs(
+    workflow_id: str,
+    conn: ConnDep,
+    iteration: str = "latest",
+) -> CaseOutputList:
+    """Per-case agent output for one iteration of a workflow (PLAN 8.4.9).
+
+    `iteration` accepts `"latest"` (default — newest by iteration_index)
+    or a numeric `iteration_index` like `"5"`. The TableView resolver
+    on the operator shell calls this with the default; PLAN 8.4.10
+    binds the response to `Primitive.TableView.binding.source =
+    'case-output'`.
+
+    Returns an empty `items` list (with `iteration_index = None`) when
+    no iteration has run yet — the UI renders the "Coming soon" banner
+    in that state instead of a 404.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1", workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    if iteration == "latest":
+        iter_row = await conn.fetchrow(
+            """
+            SELECT id, iteration_index
+            FROM iterations
+            WHERE workflow_id = $1
+            ORDER BY iteration_index DESC
+            LIMIT 1
+            """,
+            workflow_id,
+        )
+    else:
+        try:
+            iter_idx = int(iteration)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="iteration must be 'latest' or an integer index",
+            )
+        iter_row = await conn.fetchrow(
+            """
+            SELECT id, iteration_index
+            FROM iterations
+            WHERE workflow_id = $1 AND iteration_index = $2
+            """,
+            workflow_id,
+            iter_idx,
+        )
+
+    if iter_row is None:
+        # No iteration matches — empty roster, not 404. The operator
+        # shell distinguishes "haven't run yet" (iteration_index=None,
+        # items=[]) from "ran, no outputs" (iteration_index=N, items=[]).
+        return CaseOutputList(
+            workflow_id=workflow_id,
+            iteration_index=None,
+            iteration_id=None,
+            items=[],
+        )
+
+    rows = await conn.fetch(
+        """
+        SELECT
+            ico.eval_case_id,
+            ico.output_json,
+            ico.passed,
+            ico.created_at,
+            ec.input        AS input,
+            ec.expected_behavior AS expected_behavior,
+            ec.is_test_fold AS is_test_fold,
+            ec.expected_behavior->>'case_id' AS case_id
+        FROM iteration_case_outputs ico
+        JOIN eval_cases ec ON ec.id = ico.eval_case_id
+        WHERE ico.iteration_id = $1
+        ORDER BY ico.created_at ASC, ico.eval_case_id ASC
+        """,
+        iter_row["id"],
+    )
+    items = [
+        CaseOutputRow(
+            eval_case_id=r["eval_case_id"],
+            case_id=r["case_id"],
+            output_json=decode_jsonb_obj(r["output_json"]) or {},
+            input=decode_jsonb_obj(r["input"]) or {},
+            expected_behavior=decode_jsonb_obj(r["expected_behavior"]) or {},
+            passed=bool(r["passed"]),
+            is_test_fold=bool(r["is_test_fold"]),
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+    return CaseOutputList(
+        workflow_id=workflow_id,
+        iteration_index=iter_row["iteration_index"],
+        iteration_id=iter_row["id"],
+        items=items,
+    )
 
 
 @router.post(

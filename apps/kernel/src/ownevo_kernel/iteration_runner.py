@@ -404,6 +404,20 @@ async def run_one_iteration_for_workflow(
         ended_at=cycle_ended_at,
     )
 
+    # PLAN row 8.4.9 (Phase A) — capture per-case structured agent output
+    # alongside the bool the gate scores on. Today the agent emits only
+    # `actual_value: bool` + `rationale: str`, so `output_json` carries a
+    # thin shape; once the agent solver gains a workflow-specific
+    # `submit_case_output` tool (8.4.10 follow-up), the same column will
+    # carry recommendation tables, confidence scores, etc., without
+    # schema change. The operator-shell TableView reads from this table.
+    await _persist_case_outputs(
+        conn,
+        iteration_id=iteration_id,
+        workflow_id=workflow_id,
+        outcomes=cycle.outcomes,
+    )
+
     # Persist failure clusters. The clustering pipeline already wrote
     # ClusterSummary objects into cycle.clusters; persist_clustering_result
     # turns them into failure_clusters rows. Fingerprint dedup means
@@ -687,6 +701,93 @@ def _trace_events_for_outcome(
             "error_class": None,
         },
     ]
+
+
+async def _persist_case_outputs(
+    conn: asyncpg.Connection,
+    *,
+    iteration_id: UUID,
+    workflow_id: str,
+    outcomes: tuple[EvalCaseOutcome, ...],
+) -> None:
+    """One row per case in `iteration_case_outputs` (PLAN row 8.4.9).
+
+    `outcome.case_id` is a kebab-case string the eval-case rows carry
+    inside their `input` jsonb. Resolve once via ANY() to keep this a
+    single round-trip, then INSERT one row per case. The `output_json`
+    shape mirrors what the trace's `metric_outputs` carries today;
+    PLAN 8.4.10 widens it once the agent solver emits a workflow-
+    specific `submit_case_output` tool.
+
+    Idempotent under retry — `ON CONFLICT (iteration_id, eval_case_id)
+    DO UPDATE`. If a case_id doesn't resolve to an `eval_cases` row
+    (e.g. seed-data drift during dev), the row is skipped rather than
+    failing the iteration — the trace + metric_outputs still capture
+    the outcome.
+    """
+    if not outcomes:
+        return
+    case_ids = [o.case_id for o in outcomes]
+    # case_id lives in `expected_behavior->>'case_id'` — A4.1's NL-gen
+    # persistence routes the kebab-case identifier into expected_behavior
+    # (see nl_gen/eval_persistence.py); `input` carries sim_seed / n_steps
+    # / target_step_index instead. Mirror the same lookup the eval-cases
+    # API endpoint uses (workflows.py:526).
+    rows = await conn.fetch(
+        """
+        SELECT id, expected_behavior->>'case_id' AS case_id
+        FROM eval_cases
+        WHERE workflow_id = $1
+          AND expected_behavior->>'case_id' = ANY($2::text[])
+        """,
+        workflow_id,
+        case_ids,
+    )
+    case_id_to_uuid: dict[str, UUID] = {r["case_id"]: r["id"] for r in rows}
+    for outcome in outcomes:
+        eval_case_uuid = case_id_to_uuid.get(outcome.case_id)
+        if eval_case_uuid is None:
+            continue
+        output_json = {
+            "case_id": outcome.case_id,
+            "predicted": _json_safe(outcome.actual_value),
+            "expected": bool(outcome.expected_value),
+            "rationale": outcome.rationale,
+            "is_test_fold": bool(outcome.is_test_fold),
+        }
+        await conn.execute(
+            """
+            INSERT INTO iteration_case_outputs (
+                iteration_id, eval_case_id, output_json, passed
+            )
+            VALUES ($1, $2, $3::jsonb, $4)
+            ON CONFLICT (iteration_id, eval_case_id) DO UPDATE
+                SET output_json = EXCLUDED.output_json,
+                    passed = EXCLUDED.passed
+            """,
+            iteration_id,
+            eval_case_uuid,
+            json.dumps(output_json),
+            bool(outcome.passed),
+        )
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce arbitrary agent output into something json.dumps accepts.
+
+    `EvalCaseOutcome.actual_value` is typed `Any` — today it's bool, but
+    once the agent solver emits structured `submit_case_output` args
+    (PLAN 8.4.10) it'll be dict / list / mixed. Built-in JSON types pass
+    through; anything else falls back to `str()` so the row still writes
+    rather than crashing the iteration.
+    """
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    return str(value)
 
 
 async def _persist_traces(

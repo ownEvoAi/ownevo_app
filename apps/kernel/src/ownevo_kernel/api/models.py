@@ -434,6 +434,43 @@ class IterationCaseRow(_Strict):
     ended_at: datetime | None
 
 
+class CaseOutputRow(_Strict):
+    """One iteration_case_outputs row joined with its eval_case input.
+
+    Drives the operator-shell TableView primitive (PLAN 8.4.10). Today
+    `output_json` carries `{case_id, predicted, expected, rationale,
+    is_test_fold}` — a thin shape mirroring what trace metric_outputs
+    already holds. Once the agent solver gains a workflow-specific
+    `submit_case_output` tool the same field carries recommendation
+    tables / confidence scores / alerts and the TableView binding's
+    column paths resolve directly against it.
+    """
+
+    eval_case_id: UUID
+    case_id: str | None  # kebab-case id pulled out of eval_cases.input
+    output_json: dict[str, Any]
+    expected_behavior: dict[str, Any]
+    input: dict[str, Any]
+    passed: bool
+    is_test_fold: bool
+    created_at: datetime
+
+
+class CaseOutputList(_Strict):
+    """The latest iteration's per-case agent output, oldest-first.
+
+    `iteration_index` echoes which iteration the rows came from so the
+    caller can detect "asked for latest, got iteration #N." `items` is
+    empty when no iteration has run yet — the operator shell renders
+    the "Coming soon" banner in that state.
+    """
+
+    workflow_id: str
+    iteration_index: int | None
+    iteration_id: UUID | None
+    items: list[CaseOutputRow]
+
+
 class IterationDetailFull(_Strict):
     """One iteration with its full per-case outcome roster.
 
