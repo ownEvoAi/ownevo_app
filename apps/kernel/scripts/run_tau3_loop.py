@@ -43,6 +43,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -73,6 +74,27 @@ from ownevo_kernel.traces import trace_session  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 ENV_LLM_HOST = "OWNEVO_LLM_HOST"
+
+# Shell hooks for model swap between proposer and eval phases — set when the
+# proposer + task agent models can't co-reside in VRAM. The hook runs as a
+# shell command (e.g. `lms unload PROPOSER && lms load TASK_AGENT -c 65536`).
+ENV_HOOK_AFTER_PROPOSER = "OWNEVO_TAU3_AFTER_PROPOSER_CMD"
+ENV_HOOK_AFTER_EVAL = "OWNEVO_TAU3_AFTER_EVAL_CMD"
+
+
+def _run_shell_hook(name: str, env_var: str) -> None:
+    """Run an optional shell-hook command. Failures are surfaced but non-fatal."""
+    cmd = os.environ.get(env_var, "").strip()
+    if not cmd:
+        return
+    print(f"hook[{name}]: $ {cmd}", flush=True)
+    try:
+        rc = subprocess.call(cmd, shell=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"hook[{name}]: exception: {exc!r}", file=sys.stderr, flush=True)
+        return
+    if rc != 0:
+        print(f"hook[{name}]: WARNING rc={rc}", file=sys.stderr, flush=True)
 
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
 DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-tau3:0.1.0"
@@ -435,15 +457,21 @@ async def main_async(args: CliArgs) -> int:
             client = OllamaChatClient(base_url=args.llm_base_url)
         elif args.api_format == "openai":
             from openai import AsyncOpenAI  # noqa: PLC0415
+            # 1800s timeout matches the ollama_native.py bump (commit 9a700f1).
+            # Dense / thinking LMS proposers (glm-4.7-flash, qwen3.6:27b) can
+            # take 5-15 min to emit the first streaming token; the 600s SDK
+            # default trips a httpx.ReadTimeout mid-stream.
             client = AsyncOpenAI(
                 api_key=args.llm_api_key,
                 base_url=args.llm_base_url,
+                timeout=1800.0,
             )
         else:
             from anthropic import AsyncAnthropic  # noqa: PLC0415
             client = AsyncAnthropic(
                 api_key=args.llm_api_key,
                 base_url=args.llm_base_url,
+                timeout=1800.0,
             )
 
         # tau3-specific system prompt is optional — fall back to a
@@ -563,6 +591,10 @@ async def main_async(args: CliArgs) -> int:
             f"version_seq={proposal.version_seq}",
         )
 
+        # Model-swap hook: e.g. unload proposer + load task-agent before eval.
+        # See ENV_HOOK_AFTER_PROPOSER in module header.
+        _run_shell_hook("after_proposer", ENV_HOOK_AFTER_PROPOSER)
+
         with tempfile.TemporaryDirectory(prefix="ownevo-tau3-skill-override-") as tmpdir:
             override_dir = Path(tmpdir)
             try:
@@ -643,6 +675,8 @@ async def main_async(args: CliArgs) -> int:
         return 0
     finally:
         await conn.close()
+        # Cycle-cleanup hook: e.g. unload task-agent + load proposer for next cycle.
+        _run_shell_hook("after_eval", ENV_HOOK_AFTER_EVAL)
 
 
 def main() -> int:

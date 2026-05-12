@@ -29,6 +29,21 @@
 #   OWNEVO_LLM_HOST     desktop ip (default 192.168.1.50)
 #   OWNEVO_TAU3_LOGDIR  log directory (default <repo>/log/tau3_p2 — survives reboot)
 #   OWNEVO_TAU3_CYCLES  number of cycles (default 10)
+#   OWNEVO_TAU3_CONCURRENCY  override per-preset default (LMS=4, Ollama=2)
+#
+# Model-swap hooks (for proposer+task models that can't co-reside in VRAM):
+#   OWNEVO_TAU3_SWAP_PROPOSER       LMS id loaded for proposer phase (e.g. "qwen/qwen3-30b-a3b-2507")
+#   OWNEVO_TAU3_SWAP_TASK           LMS id loaded for eval phase   (e.g. "qwen/qwen3.6-35b-a3b")
+#   OWNEVO_TAU3_SWAP_PROPOSER_CTX   ctx for proposer load (default 32768)
+#   OWNEVO_TAU3_SWAP_TASK_CTX       ctx for task load     (default 65536)
+#
+# When both _SWAP_* vars are set, the wrapper:
+#   1. ensures proposer model is loaded at start of cycle
+#   2. between proposer and eval phases, runs:
+#        lms unload <proposer> && lms load <task> -c <task_ctx>
+#   3. after eval, runs:
+#        lms unload <task> && lms load <proposer> -c <proposer_ctx>   (for next cycle)
+# Use only with `lms-*` presets — Ollama doesn't need manual swap.
 #
 # Examples — qwen3.6-35b-a3b on LMS desktop (loop only; task agent on cloud):
 #   bash scripts/tau3_p2_local_loop.sh \
@@ -146,6 +161,24 @@ esac
 CONCURRENCY="${OWNEVO_TAU3_CONCURRENCY:-$CONCURRENCY_DEFAULT}"
 WORKFLOW_ID="tau3-retail-v1__${WORKFLOW_TAG}"
 MASTER="$LOGDIR/${WORKFLOW_TAG}_p2_master.log"
+
+# ── Model-swap mode (set both _SWAP_PROPOSER and _SWAP_TASK to enable) ──
+SWAP_PROPOSER="${OWNEVO_TAU3_SWAP_PROPOSER:-}"
+SWAP_TASK="${OWNEVO_TAU3_SWAP_TASK:-}"
+SWAP_PROPOSER_CTX="${OWNEVO_TAU3_SWAP_PROPOSER_CTX:-32768}"
+SWAP_TASK_CTX="${OWNEVO_TAU3_SWAP_TASK_CTX:-65536}"
+if [[ -n "$SWAP_PROPOSER" && -n "$SWAP_TASK" ]]; then
+    SWAP_MODE=1
+    # Pre-cycle: make sure proposer is the loaded model.
+    echo "swap-mode: loading proposer '$SWAP_PROPOSER' (ctx=$SWAP_PROPOSER_CTX)" | tee -a "$MASTER"
+    lms unload "$SWAP_TASK" 2>/dev/null || true
+    lms load "$SWAP_PROPOSER" --context-length "$SWAP_PROPOSER_CTX"
+    # Hooks consumed by run_tau3_loop.py at phase boundaries.
+    export OWNEVO_TAU3_AFTER_PROPOSER_CMD="lms unload '$SWAP_PROPOSER' && lms load '$SWAP_TASK' --context-length $SWAP_TASK_CTX"
+    export OWNEVO_TAU3_AFTER_EVAL_CMD="lms unload '$SWAP_TASK' && lms load '$SWAP_PROPOSER' --context-length $SWAP_PROPOSER_CTX"
+else
+    SWAP_MODE=0
+fi
 
 for i in $(seq 1 "$N_CYCLES"); do
     ts=$(date -u +%FT%TZ)
