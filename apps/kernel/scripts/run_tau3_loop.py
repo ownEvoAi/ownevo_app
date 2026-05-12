@@ -81,11 +81,28 @@ ENV_LLM_HOST = "OWNEVO_LLM_HOST"
 ENV_HOOK_AFTER_PROPOSER = "OWNEVO_TAU3_AFTER_PROPOSER_CMD"
 ENV_HOOK_AFTER_EVAL = "OWNEVO_TAU3_AFTER_EVAL_CMD"
 
+# Allow only `lms load/unload <model> [--context-length N]` chains joined by
+# `&&`.  Rejects anything with shell metacharacters (`;`, `|`, `$`, backticks,
+# redirects, etc.) before the command reaches subprocess.
+_SAFE_HOOK_RE = re.compile(
+    r"^(?:lms\s+(?:load|unload)\s+'?[a-zA-Z0-9/._:@-]+'?"
+    r"(?:\s+(?:-c|--context-length)\s+\d+)?)"
+    r"(?:\s+&&\s+lms\s+(?:load|unload)\s+'?[a-zA-Z0-9/._:@-]+'?"
+    r"(?:\s+(?:-c|--context-length)\s+\d+)?)*$"
+)
+
 
 def _run_shell_hook(name: str, env_var: str) -> None:
     """Run an optional shell-hook command. Failures are surfaced but non-fatal."""
     cmd = os.environ.get(env_var, "").strip()
     if not cmd:
+        return
+    if not _SAFE_HOOK_RE.match(cmd):
+        print(
+            f"hook[{name}]: REJECTED — command does not match safe lms-only pattern: {cmd!r}",
+            file=sys.stderr,
+            flush=True,
+        )
         return
     print(f"hook[{name}]: $ {cmd}", flush=True)
     try:

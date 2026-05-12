@@ -347,7 +347,10 @@ phase3_full_lms_sweep() {
     # Ollama context override is via `OLLAMA_CONTEXT_LENGTH` on the
     # daemon (already 32K in user's `_p` config) — no per-load step.
     run_with_fallback 3 "qwen3-coder:30b"                  "" "" ollama-openai
-    # run_with_fallback 3 "Qwq:32b"                          "" "" ollama-openai
+    # Qwq:32b — enable with OWNEVO_TAU3_INCLUDE_QWQ=1
+    if [[ "${OWNEVO_TAU3_INCLUDE_QWQ:-}" == "1" ]]; then
+        run_with_fallback 3 "Qwq:32b"                      "" "" ollama-openai
+    fi
     # gpt-oss:120b skipped per user direction — too large for current VRAM topology
 }
 

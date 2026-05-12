@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot: wait for the running sweep (PID = $1, default 26664) to
+# One-shot: wait for the running sweep (PID = $1, required) to
 # exit, then re-run P1.1 (loop=qwen3.6-35b-a3b) and P1.2 (loop=gemma-
 # 4-26b-a4b) with the qwen36-jinja fix in place. Task/user use
 # anthropic/qwen/qwen3.6-35b-a3b → LMS /v1/messages instead of the
@@ -14,7 +14,12 @@
 #     > log/tau3_p2/sweep_p1_rerun_nohup.log 2>&1 &
 set -u
 
-WAIT_PID="${1:-26664}"
+if [[ -z "${1:-}" ]]; then
+    echo "error: provide the sweep parent PID as \$1" >&2
+    echo "  usage: $0 <pid>" >&2
+    exit 2
+fi
+WAIT_PID="$1"
 REPO_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$REPO_ROOT"
 

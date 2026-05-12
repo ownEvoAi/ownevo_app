@@ -650,10 +650,16 @@ async def _run_turn_no_stream(
     except ValueError as exc:
         if "Streaming is required" not in str(exc):
             raise
+        # SDK refuses non-stream for high max_tokens — fall back to streaming.
+        # Route events through StreamEventRouter so content_delta and
+        # tool_call_start events reach the collector (consistent with the
+        # normal streaming path in run_agent_turn).
+        _router = StreamEventRouter(collector=collector, model=model)
         async with client.messages.stream(**kwargs) as stream:
-            async for _ in stream:
-                pass
+            async for event in stream:
+                _router.on_event(event)
             message = await stream.get_final_message()
+        return message, _router.finalize_blocks_in_order(), _router.pop_finished_tool_calls()
     blocks: list[FinalizedBlock] = []
     finished: list[FinalizedToolCall] = []
 
@@ -887,7 +893,6 @@ async def run_agent_turn_ollama(
     max_tokens: int = DEFAULT_MAX_TOKENS_OPENAI,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     short_circuit_on_sandbox_error: bool = True,
-    ollama_num_ctx: int | None = None,
 ) -> AgentTurnResult:
     """Drive one agent run using OllamaChatClient (native /api/chat, non-streaming).
 
@@ -898,6 +903,10 @@ async def run_agent_turn_ollama(
 
     Ollama /api/chat does not return tool call IDs; synthetic IDs are generated
     per turn so that assistant tool_calls and tool results stay consistent.
+
+    Context size is controlled via the server-side Modelfile (Ollama does not
+    expose num_ctx on /api/chat responses); set OLLAMA_CONTEXT_LENGTH on the
+    daemon or rebuild the Modelfile to change it.
     """
     import json as _json
 
@@ -925,11 +934,6 @@ async def run_agent_turn_ollama(
 
         messages = compact_openai_messages(messages)
 
-        # OllamaChatClient passes num_ctx inside options via its own path;
-        # the extra_body key is only understood by AsyncOpenAI, not by httpx
-        # directly. Pass as a top-level kwarg so OllamaChatClient can forward
-        # it if it chooses (currently ignored — num_ctx is wired via Modelfile
-        # on the Ollama side for the loop agent).
         response = await client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
@@ -939,6 +943,11 @@ async def run_agent_turn_ollama(
             stream=False,
         )
 
+        if not response.choices:
+            raise RuntimeError(
+                f"Ollama returned empty choices list for model={model!r}; "
+                "check that the model is loaded and the /api/chat endpoint is reachable"
+            )
         choice = response.choices[0]
         msg = choice.message
         finish_reason = choice.finish_reason or "stop"

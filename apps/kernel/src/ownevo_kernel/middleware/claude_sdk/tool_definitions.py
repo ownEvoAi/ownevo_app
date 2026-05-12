@@ -36,10 +36,8 @@ agent loop.
 
 from __future__ import annotations
 
+import ast
 import json
-import subprocess
-import sys
-import textwrap
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -66,162 +64,57 @@ traceback can run thousands of lines — letting it through unbounded
 would burn context with no upside since the model only needs the
 exception class + first frame to act."""
 
-_SKILL_VALIDATION_TIMEOUT_SECONDS = 15.0
-"""How long the post-write Python validator can run before we abort
-and treat the skill as valid (fail-open). Catches NameError /
-SyntaxError / etc. that surface at module-load time. Without this
-check, broken codegen reaches the gate eval and fails 40/40 tasks
-before the model finds out."""
-
-_SKILL_VALIDATION_BOOTSTRAP = textwrap.dedent('''
-    import sys, types, traceback
-
-    # Mock external modules the skill might import (e.g. tau2.*). We only
-    # care about catching name-resolution errors in the skill's own code,
-    # not import failures of libraries that exist in the real sandbox but
-    # not on the host. Attribute access on a mocked module returns a
-    # fresh empty class via a metaclass — so `class X(MockedBase):` and
-    # `MockedBase(...)` instantiation both work, and the class itself
-    # supports recursive attribute access (`MockedBase.SubAttr`).
-    _mock_class_cache = {}
-
-    class _MockMeta(type):
-        def __getattr__(cls, attr):
-            if attr.startswith("__"):
-                raise AttributeError(attr)
-            return _make_mock_class(f"{cls.__name__}.{attr}")
-        def __getitem__(cls, item):  # generics: MockedBase[T]
-            return cls
-
-    def _make_mock_class(name):
-        if name in _mock_class_cache:
-            return _mock_class_cache[name]
-        cls = _MockMeta(
-            name,
-            (),
-            {
-                "__init__": lambda self, *a, **k: None,
-                "__repr__": lambda self: f"<Mock {name}>",
-                "__getattr__": lambda self, attr: (
-                    _make_mock_class(f"{name}.{attr}")
-                    if not attr.startswith("__")
-                    else (_ for _ in ()).throw(AttributeError(attr))
-                ),
-            },
-        )
-        _mock_class_cache[name] = cls
-        return cls
-
-    class _Mock(types.ModuleType):
-        def __getattr__(self, name):
-            if name.startswith("__"):
-                raise AttributeError(name)
-            return _make_mock_class(f"{self.__name__}.{name}")
-
-    # Intercept ANY further import that fails (e.g. third-party deps the
-    # skill pulls in) by mocking it on the fly. This keeps validation
-    # focused on the skill's own logic rather than dependency presence.
-    import importlib.abc, importlib.machinery
-    class _MockLoader(importlib.abc.Loader):
-        def create_module(self, spec):
-            mod = _Mock(spec.name)
-            mod.__path__ = []  # mark as package so submodule imports work
-            sys.modules[spec.name] = mod
-            return mod
-        def exec_module(self, module):
-            return None
-    class _MockFinder(importlib.abc.MetaPathFinder):
-        def find_spec(self, name, path, target=None):
-            top = name.split(".")[0]
-            # don't shadow real stdlib / pre-loaded modules
-            if name in sys.modules or top in ("sys", "os", "io", "json",
-                "dataclasses", "typing", "re", "abc", "collections",
-                "functools", "itertools", "math", "string", "textwrap",
-                "enum", "copy", "datetime", "uuid", "importlib",
-                "_frozen_importlib", "_frozen_importlib_external",
-                "_thread", "_weakref", "builtins"):
-                return None
-            return importlib.machinery.ModuleSpec(
-                name, _MockLoader(), is_package=True
-            )
-    sys.meta_path.insert(0, _MockFinder())
-
-    try:
-        content = sys.stdin.read()
-        code = compile(content, "<skill_validation>", "exec")
-        ns = {"__name__": "__skill__", "__file__": "<skill_validation>"}
-        exec(code, ns)
-    except SyntaxError as e:
-        # Syntax errors print location naturally via traceback.
-        traceback.print_exc()
-        sys.exit(1)
-    except Exception as e:
-        traceback.print_exc()
-        sys.exit(2)
-
-    # Tier-1 #1: HarnessAgent class must exist. tau3's runner imports
-    # `from agent import HarnessAgent`; a skill without that class hits
-    # the same failure as Run 13 (granite-30B emitted skill but no class
-    # → 40/40 sandbox import failure).
-    cls = ns.get("HarnessAgent")
-    if cls is None:
-        print(
-            "ValidationError: skill must define a top-level "
-            "`HarnessAgent` class. tau3 imports it via "
-            "`from agent import HarnessAgent`.",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-    if not isinstance(cls, type):
-        print(
-            f"ValidationError: `HarnessAgent` is bound to a "
-            f"{type(cls).__name__}, not a class.",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-
-    # Tier-1 #2: HarnessAgent must define generate_next_message. tau2's
-    # orchestrator calls it every turn (see orchestrator.py:865 `agent_msg
-    # = self.agent.generate_next_message(...)`). Missing/non-callable
-    # would crash on the first turn of every task. Inheritance is OK —
-    # walk MRO so a method on LLMAgent or other parent counts.
-    method = getattr(cls, "generate_next_message", None)
-    if not callable(method):
-        print(
-            "ValidationError: `HarnessAgent.generate_next_message` is "
-            "missing or not callable. tau3's orchestrator calls it on "
-            "every turn; without it the agent cannot run.",
-            file=sys.stderr,
-        )
-        sys.exit(4)
-    sys.exit(0)
-''')
-
-
 def _validate_skill_python_loads(content: str) -> tuple[bool, str]:
-    """Try to load the proposed skill's Python in a host subprocess with
-    external imports mocked. Catches module-load-time errors (NameError,
-    SyntaxError, IndentationError, attribute errors on class defs).
+    """Validate a Python skill using AST analysis — no code is executed.
 
-    Fail-open: if the validator itself errors or times out, treat the
-    skill as valid and let the gate eval catch it the old way.
+    Checks:
+      - Tier-1 #1: syntax is valid Python (ast.parse)
+      - Tier-1 #2: a top-level HarnessAgent class exists
+      - Tier-1 #3: HarnessAgent defines generate_next_message directly
+        (note: inherited methods satisfy tau2 at runtime but are
+        undetectable without execution; the gate eval catches those)
 
-    Returns (ok, traceback_or_empty).
+    Safe by construction: no subprocess is spawned and no LLM-generated
+    code runs on the host. The previous exec()-based approach was replaced
+    here because it gave LLM-generated code unrestricted OS access
+    (filesystem, process spawn) — see [forbidden-builtin-name-reference-bypass]
+    learning.
+
+    Returns (ok, error_description_or_empty).
     """
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", _SKILL_VALIDATION_BOOTSTRAP],
-            input=content,
-            capture_output=True,
-            text=True,
-            timeout=_SKILL_VALIDATION_TIMEOUT_SECONDS,
+        tree = ast.parse(content, filename="<skill_validation>")
+    except SyntaxError as exc:
+        return False, f"SyntaxError at line {exc.lineno}: {exc.msg}"
+
+    # Tier-1 #1: HarnessAgent class must exist at module level
+    harness_node: ast.ClassDef | None = None
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "HarnessAgent":
+            harness_node = node
+            break
+
+    if harness_node is None:
+        return False, (
+            "ValidationError: skill must define a top-level `HarnessAgent` class. "
+            "tau3 imports it via `from agent import HarnessAgent`."
         )
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return True, ""
-    if result.returncode == 0:
-        return True, ""
-    tb = (result.stderr or result.stdout or "").strip()
-    return False, tb[:_ERROR_MESSAGE_MAX_CHARS]
+
+    # Tier-1 #2: HarnessAgent must define generate_next_message directly.
+    has_method = any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "generate_next_message"
+        for n in ast.iter_child_nodes(harness_node)
+    )
+    if not has_method:
+        return False, (
+            "ValidationError: `HarnessAgent.generate_next_message` is missing. "
+            "tau3's orchestrator calls it on every turn; without it the agent "
+            "cannot run. (Inherited definitions are accepted at eval time but "
+            "cannot be verified statically.)"
+        )
+
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +541,8 @@ async def _dispatch_write_skill(
     # a fix instead of letting the gate eval discover the bug minutes
     # later across all 40 tasks. See _validate_skill_python_loads().
     if kind == "python":
-        valid, tb = _validate_skill_python_loads(content)
+        import asyncio as _asyncio
+        valid, tb = await _asyncio.to_thread(_validate_skill_python_loads, content)
         if not valid:
             return ToolDispatchResult(
                 output={
