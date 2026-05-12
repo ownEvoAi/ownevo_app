@@ -112,6 +112,8 @@ export default async function IterationDetailPage({ params }: PageProps) {
         </div>
       </header>
 
+      <StateBanner detail={detail} />
+
       <section className="iteration-meta">
         <Meta
           label="Best ever before"
@@ -217,6 +219,72 @@ export default async function IterationDetailPage({ params }: PageProps) {
     </>
   )
 }
+
+// Plain-English explanation of what the iteration's terminal state
+// means — non-developer domain experts shouldn't have to decode
+// `gate-blocked-no-improvement` / `sandbox-error` enum text.
+function StateBanner({ detail }: { detail: IterationDetail }) {
+  const before = detail.best_ever_score_before
+  const score = detail.val_score
+  const after = detail.best_ever_score_after
+  const fmt = (v: number | null) => (v !== null ? formatScore(v) : '—')
+
+  if (detail.state === 'gate-pass') {
+    if (score !== null && before !== null && score > before) {
+      return (
+        <div className="iter-state-banner pass">
+          <strong>Gate passed.</strong> val_score improved from {fmt(before)} →{' '}
+          {fmt(score)}. The proposed instruction edit was promoted; best-ever
+          rose to {fmt(after)}.
+        </div>
+      )
+    }
+    return (
+      <div className="iter-state-banner pass">
+        <strong>Gate passed.</strong> Proposed change cleared the regression
+        gate.
+      </div>
+    )
+  }
+  if (detail.state === 'gate-blocked-no-improvement') {
+    return (
+      <div className="iter-state-banner blocked">
+        <strong>Gate blocked the change.</strong> val_score{' '}
+        {fmt(score)} didn&rsquo;t beat the prior best ({fmt(before)}), so the
+        proposal was rejected. Best-ever stays {fmt(after)}. The agent will
+        try a different edit on the next iteration.
+      </div>
+    )
+  }
+  if (detail.state === 'gate-blocked-regression') {
+    return (
+      <div className="iter-state-banner blocked">
+        <strong>Gate blocked the change.</strong> val_score regressed (
+        {fmt(score)} vs {fmt(before)}). The proposed edit was rejected to
+        protect the production skill.
+      </div>
+    )
+  }
+  if (detail.state === 'sandbox-error') {
+    return (
+      <div className="iter-state-banner error">
+        <strong>Sandbox error.</strong> The proposed code raised an exception
+        when the agent ran it. The iteration didn&rsquo;t score and no
+        proposal was created.
+      </div>
+    )
+  }
+  if (detail.state === 'running') {
+    return (
+      <div className="iter-state-banner running">
+        <strong>Running…</strong> The agent is still scoring eval cases. The
+        roster below will fill in once the iteration finishes.
+      </div>
+    )
+  }
+  return null
+}
+
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
