@@ -1323,6 +1323,164 @@
   color: var(--text-muted);
 }
 
+/* Per-iteration drill-down page (PLAN 8.4.8). */
+.iteration-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 6px;
+}
+.iteration-meta-cell {
+  min-width: 0;
+}
+.iteration-meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.iteration-meta-value {
+  font-size: 13.5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iter-case-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.iter-case-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 110px 70px 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+}
+.iter-case-row:last-child {
+  border-bottom: none;
+}
+.iter-case-row:hover:not(.iter-case-head) {
+  background: var(--surface);
+}
+.iter-case-head {
+  background: var(--surface);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.iter-case-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iter-case-bool {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.iter-case-bool.is-true {
+  color: var(--green);
+}
+.iter-case-bool.is-false {
+  color: #b42318;
+}
+.iter-case-fold {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.iter-case-trace {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  text-align: right;
+}
+.iter-case-list-fail .iter-case-row:not(.iter-case-head) .iter-case-id {
+  color: #b42318;
+}
+
+.iter-overview-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.iter-overview-row {
+  display: grid;
+  grid-template-columns: 60px 90px 90px 1fr 80px 140px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+}
+.iter-overview-row:last-child {
+  border-bottom: none;
+}
+.iter-overview-row:hover:not(.iter-overview-head) {
+  background: var(--surface);
+}
+.iter-overview-head {
+  background: var(--surface);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.iter-overview-idx {
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.iter-overview-num {
+  font-variant-numeric: tabular-nums;
+}
+.iter-overview-state {
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.iter-overview-state.state-pass {
+  color: var(--green);
+}
+.iter-overview-state.state-regression,
+.iter-overview-state.state-error {
+  color: #b42318;
+}
+.iter-overview-state.state-blocked {
+  color: var(--amber);
+}
+.iter-overview-approved {
+  color: var(--green);
+  font-size: 14px;
+  text-align: center;
+}
+.iter-overview-when {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
 /* ---------------------------------------------------------------------
    W7 slice 6 — Workflow Overview (mock + live).
    --------------------------------------------------------------------- */

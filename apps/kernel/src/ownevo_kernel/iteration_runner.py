@@ -727,9 +727,11 @@ async def _persist_traces(
             ended_at,
             json.dumps(
                 {
+                    "case_id": outcome.case_id,
                     "predicted": bool(outcome.actual_value),
                     "expected": bool(outcome.expected_value),
                     "passed": bool(outcome.passed),
+                    "is_test_fold": bool(outcome.is_test_fold),
                 }
             ),
         )

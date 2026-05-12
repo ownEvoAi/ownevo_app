@@ -375,6 +375,59 @@ class WorkflowDeleteResponse(_Strict):
     meta_evals: int
 
 
+class IterationCaseRow(_Strict):
+    """One eval case's outcome on one iteration.
+
+    Sourced from the per-case `traces` row written by the iteration
+    runner. The trace's `metric_outputs` JSONB carries the predicted /
+    expected / passed flags inline; `case_id` is the workflow-local
+    eval case identifier (matches `eval_cases` rows on case_id).
+    """
+
+    case_id: str
+    predicted: bool | None
+    expected: bool | None
+    passed: bool | None
+    is_test_fold: bool
+    trace_id: UUID
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class IterationDetailFull(_Strict):
+    """One iteration with its full per-case outcome roster.
+
+    Drives the lift-chart click-through (PLAN 8.4.8). Distinct from the
+    legacy `IterationDetail` summary (id + state + score columns) —
+    that one stays as-is for the per-iteration summary surface; this
+    one carries the full case-level signal `traces` rows now hold.
+
+    The `cases` list is ordered failed-first so the operator's eye
+    lands on what regressed. `cluster_label` carries the dominant
+    failure cluster's label when one anchored the iteration; None for
+    clean runs.
+    """
+
+    workflow_id: str
+    iteration_id: UUID
+    iteration_index: int
+    state: str
+    val_score: float | None
+    best_ever_score_before: float | None
+    best_ever_score_after: float | None
+    n_cases: int
+    n_passed: int
+    n_failed: int
+    cluster_id: UUID | None
+    cluster_label: str | None
+    parent_skill_version_id: UUID | None
+    proposed_skill_version_id: UUID | None
+    proposal_id: UUID | None
+    started_at: datetime
+    ended_at: datetime | None
+    cases: list[IterationCaseRow]
+
+
 class IterationPoint(_Strict):
     """One point on the lift chart.
 
@@ -662,6 +715,8 @@ __all__ = [
     "TraceDetail",
     "TraceList",
     "TraceSummary",
+    "IterationCaseRow",
+    "IterationDetailFull",
     "WorkflowAnatomy",
     "WorkflowDeleteResponse",
     "WorkflowDetail",

@@ -23,6 +23,8 @@ from ..models import (
     FailureClusterList,
     FailureClusterSummary,
     GenerateEvalCasesResponse,
+    IterationCaseRow,
+    IterationDetailFull,
     IterationList,
     IterationPoint,
     RunIterationResponse,
@@ -188,6 +190,145 @@ async def list_iterations(workflow_id: str, conn: ConnDep) -> IterationList:
         for r in rows
     ]
     return IterationList(workflow_id=workflow_id, items=points)
+
+
+@router.get(
+    "/{workflow_id}/iterations/{iteration_index}",
+    response_model=IterationDetailFull,
+)
+async def get_iteration_detail(
+    workflow_id: str,
+    iteration_index: int,
+    conn: ConnDep,
+) -> IterationDetailFull:
+    """One iteration with the per-case outcome roster.
+
+    The lift-chart click-through lands here. The per-case rows come
+    from the `traces` table — iteration_runner writes one trace per
+    eval case with `metric_outputs = {case_id, predicted, expected,
+    passed, is_test_fold}`. Failed cases sort first so the operator
+    sees what regressed at the top.
+    """
+    iter_row = await conn.fetchrow(
+        """
+        SELECT
+            i.id,
+            i.workflow_id,
+            i.iteration_index,
+            i.state::text                                   AS state,
+            i.val_score,
+            i.best_ever_score_before,
+            i.best_ever_score_after,
+            i.cluster_id,
+            i.parent_skill_version_id,
+            i.proposed_skill_version_id,
+            i.started_at,
+            i.ended_at,
+            fc.label                                        AS cluster_label,
+            (
+                SELECT p.id
+                FROM proposals p
+                WHERE p.iteration_id = i.id
+                ORDER BY p.created_at DESC
+                LIMIT 1
+            )                                                AS proposal_id
+        FROM iterations i
+        LEFT JOIN failure_clusters fc ON fc.id = i.cluster_id
+        WHERE i.workflow_id = $1 AND i.iteration_index = $2
+        """,
+        workflow_id,
+        iteration_index,
+    )
+    if iter_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Iteration not found",
+        )
+
+    case_rows = await conn.fetch(
+        """
+        SELECT
+            t.id                                            AS trace_id,
+            t.started_at,
+            t.ended_at,
+            t.metric_outputs
+        FROM traces t
+        WHERE t.iteration_id = $1
+        ORDER BY t.started_at ASC, t.id ASC
+        """,
+        iter_row["id"],
+    )
+
+    cases: list[IterationCaseRow] = []
+    for r in case_rows:
+        outputs = decode_jsonb_obj(r["metric_outputs"]) or {}
+        cases.append(
+            IterationCaseRow(
+                case_id=str(outputs.get("case_id") or r["trace_id"]),
+                predicted=_to_bool(outputs.get("predicted")),
+                expected=_to_bool(outputs.get("expected")),
+                passed=_to_bool(outputs.get("passed")),
+                is_test_fold=bool(outputs.get("is_test_fold", False)),
+                trace_id=r["trace_id"],
+                started_at=r["started_at"],
+                ended_at=r["ended_at"],
+            )
+        )
+
+    # Failed-first ordering: failed cases (passed=False) before passes,
+    # with unknown (None) sandwiched. Within each group keep started_at
+    # order so the operator's eye scans deterministically.
+    def sort_key(c: IterationCaseRow) -> tuple[int, str]:
+        rank = 0 if c.passed is False else (1 if c.passed is None else 2)
+        return (rank, c.case_id)
+
+    cases.sort(key=sort_key)
+
+    n_passed = sum(1 for c in cases if c.passed is True)
+    n_failed = sum(1 for c in cases if c.passed is False)
+
+    return IterationDetailFull(
+        workflow_id=iter_row["workflow_id"],
+        iteration_id=iter_row["id"],
+        iteration_index=iter_row["iteration_index"],
+        state=iter_row["state"],
+        val_score=(
+            float(iter_row["val_score"]) if iter_row["val_score"] is not None else None
+        ),
+        best_ever_score_before=(
+            float(iter_row["best_ever_score_before"])
+            if iter_row["best_ever_score_before"] is not None
+            else None
+        ),
+        best_ever_score_after=(
+            float(iter_row["best_ever_score_after"])
+            if iter_row["best_ever_score_after"] is not None
+            else None
+        ),
+        n_cases=len(cases),
+        n_passed=n_passed,
+        n_failed=n_failed,
+        cluster_id=iter_row["cluster_id"],
+        cluster_label=iter_row["cluster_label"],
+        parent_skill_version_id=iter_row["parent_skill_version_id"],
+        proposed_skill_version_id=iter_row["proposed_skill_version_id"],
+        proposal_id=iter_row["proposal_id"],
+        started_at=iter_row["started_at"],
+        ended_at=iter_row["ended_at"],
+        cases=cases,
+    )
+
+
+def _to_bool(v: object) -> bool | None:
+    """Trace metric_outputs may come back as JSON bool, None, or string
+    on legacy rows. Coerce defensively."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.lower() in ("true", "1", "yes")
+    return bool(v)
 
 
 @router.get(

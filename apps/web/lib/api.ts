@@ -351,6 +351,47 @@ export async function runWorkflowIteration(
   )
 }
 
+export interface IterationCaseRow {
+  case_id: string
+  predicted: boolean | null
+  expected: boolean | null
+  passed: boolean | null
+  is_test_fold: boolean
+  trace_id: string
+  started_at: string
+  ended_at: string | null
+}
+
+export interface IterationDetail {
+  workflow_id: string
+  iteration_id: string
+  iteration_index: number
+  state: string
+  val_score: number | null
+  best_ever_score_before: number | null
+  best_ever_score_after: number | null
+  n_cases: number
+  n_passed: number
+  n_failed: number
+  cluster_id: string | null
+  cluster_label: string | null
+  parent_skill_version_id: string | null
+  proposed_skill_version_id: string | null
+  proposal_id: string | null
+  started_at: string
+  ended_at: string | null
+  cases: IterationCaseRow[]
+}
+
+export async function getIterationDetail(
+  workflowId: string,
+  iterationIndex: number,
+): Promise<IterationDetail> {
+  return jsonFetch<IterationDetail>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations/${iterationIndex}`,
+  )
+}
+
 export interface WorkflowDeleteResponse {
   id: string
   iterations: number

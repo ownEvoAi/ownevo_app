@@ -162,6 +162,10 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
         </section>
       ) : null}
 
+      {!apiError && iterations.length > 0 ? (
+        <IterationList wsId={wsId} wfId={wfId} iterations={iterations} />
+      ) : null}
+
       <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
 
       {!apiError && hasEvalCases ? (
@@ -183,4 +187,68 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       ) : null}
     </>
   )
+}
+
+function IterationList({
+  wsId,
+  wfId,
+  iterations,
+}: {
+  wsId: string
+  wfId: string
+  iterations: IterationPoint[]
+}) {
+  // Newest first — easier to scan the most recent runs.
+  const rows = [...iterations].reverse()
+  return (
+    <section style={{ marginTop: 24 }}>
+      <h2 className="section-title" style={{ marginBottom: 8 }}>
+        Iterations · {iterations.length}
+      </h2>
+      <div className="iter-overview-list">
+        <div className="iter-overview-row iter-overview-head">
+          <span>Iter</span>
+          <span>val_score</span>
+          <span>Best ever</span>
+          <span>State</span>
+          <span>Approved?</span>
+          <span>Ended</span>
+        </div>
+        {rows.map((it) => (
+          <Link
+            key={it.iteration_index}
+            href={`/workspaces/${wsId}/workflows/${wfId}/iterations/${it.iteration_index}`}
+            className="iter-overview-row"
+          >
+            <span className="iter-overview-idx">#{it.iteration_index}</span>
+            <span className="iter-overview-num">
+              {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
+            </span>
+            <span className="iter-overview-num">
+              {it.best_ever_score_after !== null
+                ? it.best_ever_score_after.toFixed(3)
+                : '—'}
+            </span>
+            <span className={`iter-overview-state state-${stateClass(it.state)}`}>
+              {it.state}
+            </span>
+            <span className="iter-overview-approved">
+              {it.has_approved_proposal ? '✓' : ''}
+            </span>
+            <span className="iter-overview-when">
+              {it.ended_at ? new Date(it.ended_at).toISOString().slice(0, 16).replace('T', ' ') : '—'}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function stateClass(state: string): string {
+  if (state === 'gate-pass') return 'pass'
+  if (state === 'gate-blocked-no-improvement') return 'blocked'
+  if (state === 'gate-blocked-regression') return 'regression'
+  if (state === 'sandbox-error') return 'error'
+  return 'other'
 }
