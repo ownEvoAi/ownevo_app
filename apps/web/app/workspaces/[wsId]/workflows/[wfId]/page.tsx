@@ -5,13 +5,18 @@ import {
   getWorkflowSkills,
   kernelError,
   KernelApiError,
+  listProposals,
   listWorkflowEvalCases,
   type EvalCaseSummary,
   type IterationPoint,
+  type ProposalSummary,
   type SkillSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
+import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
+import { resolvePrimitives } from '@/lib/primitive-data-resolver'
 import { GenerateEvalCasesButton } from './eval-cases/generate-button'
 import { RunIterationButton } from './run-iteration-button'
 
@@ -26,18 +31,21 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   let spec: WorkflowSpecShape | null = null
   let evalCases: EvalCaseSummary[] = []
   let iterations: IterationPoint[] = []
+  let proposals: ProposalSummary[] = []
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList, evalList, iterList] = await Promise.all([
+    const [anatomy, skillList, evalList, iterList, propList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
       listWorkflowEvalCases(wfId),
       getWorkflowIterations(wfId),
+      listProposals({ workflow_id: wfId, limit: 100 }),
     ])
     spec = anatomy.spec
     skills = skillList.items
     evalCases = evalList.items
     iterations = iterList.items
+    proposals = propList.items
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -45,6 +53,10 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       apiError = kernelError(err)
     }
   }
+
+  const resolvedPrimitives = !apiError
+    ? resolvePrimitives({ spec, iterations, evalCases, proposals })
+    : []
 
   const hasEvalCases = evalCases.length > 0
   const iterationCount = iterations.length
@@ -68,6 +80,21 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       )}
 
       <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
+
+      {!apiError && iterations.length > 0 && resolvedPrimitives.length > 0 ? (
+        <section className="overview-primitives">
+          {resolvedPrimitives.map((p, i) => {
+            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
+            if (p.kind === 'TimeSeriesChart')
+              return <TimeSeriesChart key={i} data={p.data} />
+            return (
+              <div key={i} className="overview-primitive-empty">
+                <strong>{p.primitiveType}</strong> — {p.reason}
+              </div>
+            )
+          })}
+        </section>
+      ) : null}
 
       {!apiError ? (
         <section className="overview-next-step">
