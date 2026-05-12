@@ -17,6 +17,75 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (PR #85 follow-up — seven activity-surface improvements, 2026-05-12)
+
+Seven UI gaps surfaced during the post-Tier-1 audit on `feat/real-ui-loop`.
+None blocked the YC demo path on their own, but together they shifted the
+web surface from "runs the loop" to "explains the loop" — each change
+links one entity (cluster, iteration, proposal, audit row) to the next
+one a reviewer needs to see.
+
+- **Stale-iteration cue on Health.** New `WorkflowSummary`
+  field `oldest_running_started_at` (subquery `MIN(started_at) WHERE
+  state = 'running'`). Web surfaces an amber banner + per-row stale
+  pill when the oldest running iteration is older than the threshold
+  in `lib/format.ts` (1 h — typical M5/Sonnet iteration is 5–15 min,
+  so 1 h is 4–10× the happy-path budget and almost always indicates
+  a crashed run that never wrote `sandbox-error`). Counts and copy
+  separate "in flight" from "stale" so abandoned runs don't pollute
+  the fresh-in-flight count.
+- **Skills library workflow filter.** `?workflow=<wfId>` query param
+  with a chip strip listing every workflow that owns at least one
+  skill, plus an `(unscoped)` chip for workflowless skills. Empty
+  state branches on whether a filter is active.
+- **Cluster ↔ iteration signposting.** `FailureClusterSummary`
+  carries `spawning_iteration_index` + `spawning_iteration_id`,
+  resolved by reading `traces.iteration_id` from any sample trace
+  in `failure_clusters.sample_trace_ids`. Cards now render a
+  `← From iteration #N` footer link. Header is still the
+  proposal click-target when one exists — the iteration link is a
+  separate sibling anchor so the markup stays valid.
+- **Inline SkillDiff on iteration detail.** Iteration page fetches
+  the proposal in parallel (when `proposal_id` is set) and renders
+  the existing side-by-side `SkillDiff` component above the case
+  roster. Same component the proposal-detail surface uses — no
+  forked diff path.
+- **Review-before-commit step on new workflow.** Generate now
+  redirects to `/workflows/new/review/[wfId]`. The page shows the
+  original description, `AgentAnatomy` (spec + tools + reviewer),
+  and the eval-case count, with **Confirm** (continue to overview)
+  and **Revise** (delete the row via the existing `DELETE
+  /api/workflows/{id}` cascade + bounce to `/new`) actions. Spec +
+  sim_plan + metric_definition are still committed at the end of
+  step 1; the review is a UX gate, not a DB state gate.
+- **Baseline-complete landing.** When iteration #0 finishes, the
+  run action redirects to `/workflows/baseline/[wfId]` (outside the
+  `[wfId]` layout so the workflow tabs don't clutter the
+  celebration). The page carries a "Baseline complete" hero, a
+  4-cell metric strip (val_score, cases passed, run time, next
+  step), a per-case roster preview, a mini lift chart anchored on
+  iter 0, and Continue/See-the-run actions. Subsequent iterations
+  keep the existing inline result card on Overview.
+- **Cross-workflow activity feed.** New `/workspaces/[wsId]/activity`
+  page + sidebar entry between Inbox and Workflows. Reads
+  `/api/audit` and renders each entry as a human-readable row:
+  icon glyph, sentence summary with workflow chip + entity id,
+  actor, relative time, and a click-through to the related
+  resource. Bucketed by day (Today / Yesterday / weekday) and
+  filterable by workflow + audit kind via a shared chip strip.
+  Covers every audit-kind enum: proposal-{created, approved,
+  rejected, deployed, rolled-back}, gate-run-{started, completed},
+  cluster-{created, relabeled}, eval-case-added,
+  skill-version-created, workflow-created, deployment-{created,
+  updated}, meta-eval-result, schema-migration. Unmapped kinds fall
+  back to a neutral row pointing at the raw audit log. Goes beyond
+  Inbox (which only surfaces pending proposals).
+
+Commits: `44e0200..e28b804` on `feat/real-ui-loop` (9 commits
+including a separate `chore(css)` for ~410 lines of additions to
+`apps/web/app/globals.css`). 1489 kernel tests still passing; web
+`tsc --noEmit` clean.
+
 ## [0.6.0] — 2026-05-09
 
 ### Added (TODO-28 — W6 row 6.1 NL-gen demo loop dry-run + storyboard / CLI fixes)
