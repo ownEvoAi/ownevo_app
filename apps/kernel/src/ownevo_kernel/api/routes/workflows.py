@@ -73,6 +73,12 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
                   AND i.state = 'running'
             )                                           AS running_iteration_count,
             (
+                SELECT MIN(i.started_at)
+                FROM iterations i
+                WHERE i.workflow_id = w.id
+                  AND i.state = 'running'
+            )                                           AS oldest_running_started_at,
+            (
                 SELECT MAX(i.best_ever_score_after)
                 FROM iterations i
                 WHERE i.workflow_id = w.id
@@ -391,7 +397,25 @@ async def list_failure_clusters(
                 WHERE i.cluster_id = fc.id
                 ORDER BY p.created_at DESC
                 LIMIT 1
-            )                                           AS latest_proposal_id
+            )                                           AS latest_proposal_id,
+            (
+                SELECT i.iteration_index
+                FROM traces t
+                JOIN iterations i ON i.id = t.iteration_id
+                WHERE t.id = ANY(fc.sample_trace_ids)
+                  AND t.iteration_id IS NOT NULL
+                ORDER BY i.iteration_index ASC, i.created_at ASC
+                LIMIT 1
+            )                                           AS spawning_iteration_index,
+            (
+                SELECT i.id
+                FROM traces t
+                JOIN iterations i ON i.id = t.iteration_id
+                WHERE t.id = ANY(fc.sample_trace_ids)
+                  AND t.iteration_id IS NOT NULL
+                ORDER BY i.iteration_index ASC, i.created_at ASC
+                LIMIT 1
+            )                                           AS spawning_iteration_id
         FROM failure_clusters fc
         WHERE fc.workflow_id = $1
         ORDER BY
@@ -425,6 +449,8 @@ async def list_failure_clusters(
             sample_trace_ids=list(r["sample_trace_ids"] or []),
             created_at=r["created_at"],
             latest_proposal_id=r["latest_proposal_id"],
+            spawning_iteration_index=r["spawning_iteration_index"],
+            spawning_iteration_id=r["spawning_iteration_id"],
         )
         for r in rows
     ]
@@ -946,6 +972,7 @@ def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:
         mode=row["mode"],
         iteration_count=row["iteration_count"],
         running_iteration_count=row.get("running_iteration_count", 0) or 0,
+        oldest_running_started_at=row.get("oldest_running_started_at"),
         best_ever_score=(
             float(row["best_ever_score"]) if row["best_ever_score"] is not None else None
         ),

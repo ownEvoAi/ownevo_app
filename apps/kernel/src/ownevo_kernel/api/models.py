@@ -260,6 +260,12 @@ class WorkflowSummary(_Strict):
     mode: str  # 'gated' | 'autonomous'
     iteration_count: int
     running_iteration_count: int = 0
+    # When >0 running iterations, the oldest one's started_at. Lets the
+    # Health page flag iterations that have been "running" for hours —
+    # almost always a crashed/abandoned run that didn't get marked
+    # sandbox-error (e.g., kernel killed mid-loop). Null when nothing is
+    # in flight.
+    oldest_running_started_at: datetime | None = None
     best_ever_score: float | None
     last_improved_at: datetime | None  # most recent approved proposal's state_updated_at
     pending_proposals_count: int
@@ -506,6 +512,13 @@ class FailureClusterSummary(_Strict):
     sample_trace_ids: list[UUID]
     created_at: datetime
     latest_proposal_id: UUID | None
+    # The iteration whose evaluation produced the traces this cluster
+    # was built from. Resolved by picking any sample trace and reading
+    # its `traces.iteration_id`. Null only when sample traces predate
+    # the Tier-1 trace-persistence change (legacy clusters) or weren't
+    # produced by an iteration (production traces — not yet wired).
+    spawning_iteration_index: int | None = None
+    spawning_iteration_id: UUID | None = None
 
 
 class FailureClusterList(_Strict):
