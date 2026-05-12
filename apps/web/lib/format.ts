@@ -33,3 +33,18 @@ export function formatDateTime(iso: string): string {
 export function workspaceLabel(slug: string): string {
   return slug.charAt(0).toUpperCase() + slug.slice(1)
 }
+
+// Short display label for a workflow. Descriptions are free-form prose
+// (often multi-paragraph), so the first sentence / first N chars makes a
+// usable list label. Falls back to the id if description is empty.
+export function workflowDisplayTitle(
+  id: string,
+  description: string | null | undefined,
+  maxLen = 60,
+): string {
+  if (!description) return id
+  const firstSentence = description.split(/(?<=[.!?])\s/, 1)[0] ?? description
+  const trimmed = firstSentence.trim()
+  if (trimmed.length <= maxLen) return trimmed
+  return trimmed.slice(0, maxLen - 1).trimEnd() + '…'
+}

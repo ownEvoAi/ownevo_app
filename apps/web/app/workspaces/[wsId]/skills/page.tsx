@@ -6,7 +6,7 @@ import {
   type SkillSummary,
   type WorkflowSummary,
 } from '@/lib/api'
-import { relativeTime } from '@/lib/format'
+import { relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
@@ -40,7 +40,7 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
 
   const workflowTitleById = new Map<string, string>()
   for (const w of workflows) {
-    workflowTitleById.set(w.id, w.description || w.id)
+    workflowTitleById.set(w.id, workflowDisplayTitle(w.id, w.description, 50))
   }
 
   const rows: SkillRow[] = liveSkills.map((s) => ({

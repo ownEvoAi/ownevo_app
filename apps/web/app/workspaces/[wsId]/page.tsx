@@ -5,7 +5,7 @@ import {
   type IterationList,
   type WorkflowList,
 } from '../../../lib/api'
-import { workspaceLabel } from '../../../lib/format'
+import { workflowDisplayTitle, workspaceLabel } from '../../../lib/format'
 import { LiftChart } from './lift-chart'
 import { WorkflowsTable } from './workflows-table'
 
@@ -125,7 +125,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
                 letterSpacing: '0.06em',
               }}
             >
-              Lift — {primary.description || primary.id}
+              Lift — {workflowDisplayTitle(primary.id, primary.description, 60)}
             </h2>
             <a
               href={`/workspaces/${wsId}/workflows/${primary.id}`}

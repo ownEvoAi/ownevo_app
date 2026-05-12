@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { workspaceLabel } from '../../../lib/format'
+import { workflowDisplayTitle, workspaceLabel } from '../../../lib/format'
 import type { WorkflowSummary } from '../../../lib/api'
 
 interface NavProps {
@@ -72,7 +72,7 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
             <svg className="nav-icon" viewBox="0 0 16 16">
               <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
             </svg>
-            <span className="nav-label">{w.description || w.id}</span>
+            <span className="nav-label">{workflowDisplayTitle(w.id, w.description, 40)}</span>
           </a>
         )
       })}

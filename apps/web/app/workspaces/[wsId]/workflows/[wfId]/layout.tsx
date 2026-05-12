@@ -3,6 +3,7 @@ import {
   getWorkflowAnatomy,
   KernelApiError,
 } from '@/lib/api'
+import { workflowDisplayTitle } from '@/lib/format'
 import { WorkflowTabs } from './workflow-tabs'
 
 interface LayoutProps {
@@ -18,7 +19,7 @@ export default async function WorkflowDetailLayout({ children, params }: LayoutP
   let notFound = false
   try {
     const anatomy = await getWorkflowAnatomy(wfId)
-    title = anatomy.description || anatomy.id
+    title = workflowDisplayTitle(anatomy.id, anatomy.description, 100)
     subtitle = `${anatomy.mode === 'gated' ? 'Gated' : 'Autonomous'} · ${anatomy.id}`
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
