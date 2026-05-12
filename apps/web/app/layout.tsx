@@ -18,9 +18,29 @@ export const viewport: Viewport = {
 //   - app/(legacy)/      — flat W2.5/W5.5 routes (/inbox, /proposals,
 //                          /workflows/preview); simple sidebar
 //   - app/workspaces/[wsId]/  — W7 customer-facing workspace shell.
+// Inline theme bootstrap. Runs synchronously in <head> before any
+// paint, so dark-mode users don't get a white flash on every
+// navigation. Reads the same `ownevo-theme` localStorage key the
+// ThemeToggle writes; falls through to the SSR'd `data-theme="light"`
+// default when nothing is stored. The `try/catch` keeps Safari
+// private-mode (no localStorage access) from breaking rendering.
+const THEME_BOOTSTRAP = `
+(function () {
+  try {
+    var t = localStorage.getItem('ownevo-theme');
+    if (t === 'dark' || t === 'light') {
+      document.documentElement.setAttribute('data-theme', t);
+    }
+  } catch (e) {}
+})();
+`
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" data-theme="light">
+    <html lang="en" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+      </head>
       <body>{children}</body>
     </html>
   )

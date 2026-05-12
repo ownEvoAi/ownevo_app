@@ -2,20 +2,25 @@
 
 import { useEffect, useState } from 'react'
 
-// Mirrors the inline <script> in the static mocks: read theme from
-// localStorage on mount, flip on click, persist. Server renders the
-// default (light) without flicker because we only update the
-// attribute after hydration.
+// Reads the theme from <html data-theme>, which the inline bootstrap
+// script in app/layout.tsx applies BEFORE paint based on
+// localStorage. That kills the "light flash on every navigation"
+// regression dark-mode users were hitting; the toggle now just
+// flips and persists.
 const STORAGE_KEY = 'ownevo-theme'
 
 export function ThemeToggle() {
+  // Always renders "light" on the server, then syncs to the actual
+  // applied theme on mount. Label briefly says "Dark mode" before
+  // the effect runs even in dark mode; that's one render frame and
+  // doesn't cause a visible flash because the page itself is
+  // already painted correctly.
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (stored === 'dark' || stored === 'light') {
-      setTheme(stored)
-      document.documentElement.setAttribute('data-theme', stored)
+    const applied = document.documentElement.getAttribute('data-theme')
+    if (applied === 'dark' || applied === 'light') {
+      setTheme(applied)
     }
   }, [])
 
