@@ -524,12 +524,18 @@ export interface AuditVerifyResponse {
 }
 
 export async function listAudit(
-  params: { kind?: string; sinceSeq?: number; limit?: number } = {},
+  params: {
+    kind?: string
+    sinceSeq?: number
+    limit?: number
+    workflowId?: string
+  } = {},
 ): Promise<AuditList> {
   const qs = new URLSearchParams()
   if (params.kind) qs.set('kind', params.kind)
   if (params.sinceSeq !== undefined) qs.set('since_seq', String(params.sinceSeq))
   if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params.workflowId) qs.set('workflow_id', params.workflowId)
   const path = qs.toString() ? `/api/audit?${qs}` : '/api/audit'
   return jsonFetch<AuditList>(path)
 }
