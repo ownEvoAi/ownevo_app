@@ -420,3 +420,91 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** L (human ~1-2 weeks / CC ~3-5 days, design-heavy).
 - **Priority:** P2 — Track 0 unblocks demo; layer D unblocks an actual customer using the workspace. Triggers when (a) the first design partner asks "how do I see my own data here?" or (b) τ³ wants to render bench results in the UI.
 - **Depends on:** Track 0 (W8.0.1–8.0.3) shipped; τ³ integration scope clear; multi-tenant retrofit TODO-1 either landed or scheduled.
+
+### TODO-36: Workflow delete + description edit (UI lifecycle gap)
+
+- **What:** Add `DELETE /api/workflows/{id}` + `PATCH /api/workflows/{id}` kernel endpoints and the corresponding UI affordances on the workflow detail page — a delete confirmation in a menu and an inline-editable description (with a regenerate-spec opt-in once it lands).
+- **Why:** After 8.4.3 went live, workflows are user-created via the Generate button. There is no UI path to remove a workflow whose spec was poorly generated, or to fix a typo in the description after the fact. Today the only path is `DELETE FROM workflows ... CASCADE` from psql, which is silly for a real product.
+- **Pros:** Closes the "create" side of CRUD. Lets reviewers iterate on descriptions during a demo without restarting the DB.
+- **Cons:** Delete needs to cascade or refuse on foreign-key conflicts (iterations / eval_cases / proposals reference the workflow). FK rules already exist; the question is whether deleting is hard-delete or soft-archive. For MVP, hard-delete + ON DELETE CASCADE is cheapest.
+- **Context:** `apps/kernel/src/ownevo_kernel/api/routes/workflows.py` for endpoints; `apps/web/app/workspaces/[wsId]/workflows/[wfId]/layout.tsx` for the page header (menu button). Found during 2026-05-12 browser audit — two near-duplicate credit-line workflows accumulated from testing with no UI cleanup path.
+- **Effort:** S (human ~half day / CC ~1-2 hours).
+- **Priority:** P2 — non-blocking for the demo, but the first design-partner conversation will hit it.
+- **Depends on:** —
+
+### TODO-37: Deploy / rollback button on approved proposals
+
+- **What:** Surface a `Deploy` button on `/proposals/{id}` when state is `approved-awaiting-deploy`, and a `Rollback` button when state is `deployed`. POST to existing kernel deploy/rollback endpoints (landed in W7 / PR #80).
+- **Why:** The kernel has deploy + rollback paths but the workflow UI has no button — proposals stay in `approved-awaiting-deploy` indefinitely from the user's POV. The state pill says "approved-awaiting-deploy" but there's no obvious next step.
+- **Pros:** Closes the approve → live loop in the UI. Visibility into deploy/rollback is half the audit-trail pitch.
+- **Cons:** Deploy semantics for an instruction-only skill are trivial (HEAD moves), but for code skills (M5) the sandbox image needs rebuilding. The UI should surface that distinction.
+- **Context:** Kernel endpoints: `apps/kernel/src/ownevo_kernel/api/routes/proposals.py` (deploy + rollback POST routes already exist). Web page: `apps/web/app/workspaces/[wsId]/proposals/[id]/page.tsx`. Audit-row pattern already established by Approve/Reject.
+- **Effort:** S (human ~half day / CC ~1 hour).
+- **Priority:** P2 — important for the "domain expert approves a change and watches it deploy" demo arc.
+- **Depends on:** —
+
+### TODO-38: Eval-case manual add + delete
+
+- **What:** Two new endpoints + UI buttons on the workflow Eval cases page: `+ Add eval case` opens a modal with case_id / sim_seed / n_steps / target_step_index / target_label_field / expected_value / rationale fields; per-row Delete with a confirm. Kernel endpoints: `POST /api/workflows/{id}/eval-cases` (single case) and `DELETE /api/eval-cases/{id}`.
+- **Why:** Today eval cases only land via NL-gen's `generate_eval_case_set` (the kernel-side wrapper of `POST /eval-cases/generate`). Reviewers who want to encode a specific past-miss they saw can't — they have to regenerate the whole set, which is non-deterministic. Curation = trust.
+- **Pros:** Lets reviewers shape the test suite, which is the load-bearing claim of the improvement loop. Encodes the "domain expert teaches the system" arc the deck talks about.
+- **Cons:** Need to surface the SimulationPlan's `event_fields` in the Add form so the user picks valid `target_label_field` values — otherwise the case will silently fail at replay time.
+- **Context:** Existing list endpoint: `GET /api/workflows/{id}/eval-cases` (8.4.4). Persistence helper: `apps/kernel/src/ownevo_kernel/eval_cases/registry.py` (`add_eval_case`, `delete_eval_case` — need to add the second).
+- **Effort:** M (human ~1 day / CC ~half day).
+- **Priority:** P2 — second-most-asked-for feature after delete, per the demo arc.
+- **Depends on:** TODO-36 nice-to-have but not strict.
+
+### TODO-39: Health page primary-workflow heuristic
+
+- **What:** `apps/web/app/workspaces/[wsId]/page.tsx` currently picks `workflows.items[0]` (kernel-sorted by `created_at ASC`) as the "primary" for the lift chart at the top. With multiple workflows where the first-created one has zero iterations, the lift chart is empty even when other workflows have rich data. Change the heuristic to "most-recent activity" — workflow with the latest `last_improved_at`, falling back to highest iteration count, falling back to `created_at` order.
+- **Why:** Browser audit finding B3 (2026-05-12). On `/workspaces/acme` with `saas-support-ticket-triage` (0 iterations) created first and `credit-risk` (5 iterations) created later, the headline visual is the empty curve from saas while the real signal sits below the fold.
+- **Pros:** Highlights what's actually moving without requiring the user to scroll into the workflows table.
+- **Cons:** "Most recent" is sometimes the wrong answer if a primary workflow has stalled. Could end up with the chart flipping between workflows day-over-day.
+- **Context:** Workflow summary already has `last_improved_at` (W7 slice 2). One conditional change in `page.tsx`.
+- **Effort:** XS (human ~30 min / CC ~10 min).
+- **Priority:** P3 — cosmetic on the demo headline.
+- **Depends on:** —
+
+### TODO-40: Sidebar workflow title truncation (mid-word + disambiguation)
+
+- **What:** Sidebar nav truncates workflow titles to ~40 chars via `workflowDisplayTitle()`, currently mid-word. Two near-duplicate workflows can render with identical truncated labels (e.g. "Recalibrate credit lines monthly across…" appears twice). Switch to word-boundary truncation and append a short `workflow.id` suffix when the truncated title is ambiguous within the visible set.
+- **Why:** Browser audit finding U4 (2026-05-12). Reviewers can't tell two workflows apart in the sidebar.
+- **Pros:** Tiny code change, high readability win.
+- **Cons:** —
+- **Context:** `apps/web/lib/format.ts` (`workflowDisplayTitle`); `apps/web/app/workspaces/[wsId]/workspace-nav.tsx` (consumer). The disambiguation pass needs the full list of workflows in scope.
+- **Effort:** XS (human ~30 min / CC ~10 min).
+- **Priority:** P3.
+- **Depends on:** —
+
+### TODO-41: MetricCards "+N all-time" delta copy clarification
+
+- **What:** The layer-D resolver's MetricCards bundle has an `Iterations` card with delta `"+4 all-time"` — what's it counting from? Replace with either a real timestamp ("last 30m ago") or drop the delta on the iteration count card and put it only on the value-bearing cards (val_score, lift).
+- **Why:** Browser audit finding U3 (2026-05-12).
+- **Pros:** Cleaner cards.
+- **Cons:** —
+- **Context:** `apps/web/lib/primitive-data-resolver.ts` — `resolveMetricCards()`.
+- **Effort:** XS.
+- **Priority:** P3.
+- **Depends on:** —
+
+### TODO-42: In-flight iteration indicator (cross-page)
+
+- **What:** When a user clicks "Run iteration" and navigates away while the LLM calls are in flight (~15-90s), there's no global indication an iteration is running. Add a small "1 iteration running on credit-risk…" pill in the sidebar or page header, derived from `iterations.state = 'running'` rows.
+- **Why:** Users navigating to other tabs lose visibility into the long-running operation. Comes up when triaging multiple workflows.
+- **Pros:** Cheap visibility. Doubles as a "system is healthy" signal.
+- **Cons:** Polling adds DB load — `SELECT FROM iterations WHERE state='running'` every 5s on the sidebar isn't free. Probably fine for MVP; could batch with the workflow list fetch.
+- **Context:** `apps/web/app/workspaces/[wsId]/layout.tsx` (where workflow list is fetched today); the new pill can render off the same fetch + filter.
+- **Effort:** S (human ~half day / CC ~1 hour).
+- **Priority:** P3.
+- **Depends on:** —
+
+### TODO-43: First-time-user empty state on Health page
+
+- **What:** `/workspaces/[wsId]` on a fresh DB with zero workflows shows the workflow-rows table empty state + lift chart's "no iterations" empty state, but doesn't tell the user where to start. Add a single hero card on the Health page when `workflows.total === 0` pointing at New workflow / `make seed-demo` with a one-paragraph "what is this?" explainer.
+- **Why:** First-touch reviewers in a demo or fresh check-out land on the Health page and currently see four near-empty cards + an empty table + an empty chart. Not great.
+- **Pros:** Better first impression; one place to explain the loop.
+- **Cons:** —
+- **Context:** `apps/web/app/workspaces/[wsId]/page.tsx`.
+- **Effort:** XS.
+- **Priority:** P3.
+- **Depends on:** —
