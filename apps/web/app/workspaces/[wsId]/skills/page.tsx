@@ -10,6 +10,7 @@ import { relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
+  searchParams: Promise<{ workflow?: string }>
 }
 
 interface SkillRow {
@@ -24,8 +25,12 @@ interface SkillRow {
 
 // Skills library — workspace-scoped list of every registered skill,
 // joined against workflows for the parent-workflow column.
-export default async function SkillsLibraryPage({ params }: PageProps) {
+export default async function SkillsLibraryPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { wsId } = await params
+  const { workflow: workflowFilter } = await searchParams
 
   let liveSkills: SkillSummary[] = []
   let workflows: WorkflowSummary[] = []
@@ -43,7 +48,7 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
     workflowTitleById.set(w.id, workflowDisplayTitle(w.id, w.description, 50))
   }
 
-  const rows: SkillRow[] = liveSkills.map((s) => ({
+  const allRows: SkillRow[] = liveSkills.map((s) => ({
     id: s.id,
     kind: s.kind,
     capability_tags: s.capability_tags,
@@ -54,6 +59,29 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
     head_version_seq: s.head_version_seq,
     head_created_at: s.head_created_at,
   }))
+
+  // Workflow chips show every workflow that owns a skill, plus a
+  // "(unscoped)" chip when there are skills with no workflow_id.
+  // Built from the full row set so the chip strip doesn't disappear
+  // after a filter narrows the list to one workflow.
+  const workflowFacets = new Map<string, number>()
+  let unscopedCount = 0
+  for (const r of allRows) {
+    if (!r.workflow_id) {
+      unscopedCount += 1
+      continue
+    }
+    workflowFacets.set(r.workflow_id, (workflowFacets.get(r.workflow_id) ?? 0) + 1)
+  }
+  const orderedFacets = [...workflowFacets.entries()].sort((a, b) => b[1] - a[1])
+
+  const activeFilter = workflowFilter && workflowFilter.length > 0 ? workflowFilter : null
+  const rows =
+    activeFilter === null
+      ? allRows
+      : activeFilter === '_unscoped'
+        ? allRows.filter((r) => !r.workflow_id)
+        : allRows.filter((r) => r.workflow_id === activeFilter)
 
   const totalVersions = rows.reduce(
     (acc, r) => acc + (r.head_version_seq ?? 0),
@@ -82,6 +110,36 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
         </div>
       )}
 
+      {(orderedFacets.length > 0 || unscopedCount > 0) && (
+        <div className="chip-strip" role="navigation" aria-label="Filter by workflow">
+          <Link
+            href={`/workspaces/${wsId}/skills`}
+            className={`chip ${activeFilter === null ? 'active' : ''}`}
+          >
+            All <span className="chip-count">{allRows.length}</span>
+          </Link>
+          {orderedFacets.map(([wfId, count]) => (
+            <Link
+              key={wfId}
+              href={`/workspaces/${wsId}/skills?workflow=${encodeURIComponent(wfId)}`}
+              className={`chip ${activeFilter === wfId ? 'active' : ''}`}
+              title={wfId}
+            >
+              {workflowTitleById.get(wfId) ?? wfId}
+              <span className="chip-count">{count}</span>
+            </Link>
+          ))}
+          {unscopedCount > 0 && (
+            <Link
+              href={`/workspaces/${wsId}/skills?workflow=_unscoped`}
+              className={`chip ${activeFilter === '_unscoped' ? 'active' : ''}`}
+            >
+              (unscoped) <span className="chip-count">{unscopedCount}</span>
+            </Link>
+          )}
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div
           style={{
@@ -94,18 +152,30 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
             textAlign: 'center',
           }}
         >
-          No skills registered yet. Run{' '}
-          <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
-            make seed-demo
-          </code>{' '}
-          to populate sample workflows, or describe a new one under{' '}
-          <Link
-            href={`/workspaces/${wsId}/workflows/new`}
-            style={{ color: 'var(--accent)' }}
-          >
-            New workflow
-          </Link>
-          .
+          {activeFilter !== null ? (
+            <>
+              No skills match this filter.{' '}
+              <Link href={`/workspaces/${wsId}/skills`} style={{ color: 'var(--accent)' }}>
+                Clear filter
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              No skills registered yet. Run{' '}
+              <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
+                make seed-demo
+              </code>{' '}
+              to populate sample workflows, or describe a new one under{' '}
+              <Link
+                href={`/workspaces/${wsId}/workflows/new`}
+                style={{ color: 'var(--accent)' }}
+              >
+                New workflow
+              </Link>
+              .
+            </>
+          )}
         </div>
       ) : (
         <div className="table-wrap">
