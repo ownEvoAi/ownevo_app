@@ -351,6 +351,43 @@ export async function runWorkflowIteration(
   )
 }
 
+export interface WorkflowDeleteResponse {
+  id: string
+  iterations: number
+  proposals: number
+  approvals: number
+  traces: number
+  eval_cases: number
+  failure_clusters: number
+  learnings: number
+  skill_versions: number
+  skills: number
+  meta_evals: number
+}
+
+export async function updateWorkflowDescription(
+  workflowId: string,
+  description: string,
+): Promise<WorkflowAnatomy> {
+  return jsonFetch<WorkflowAnatomy>(
+    `/api/workflows/${encodeURIComponent(workflowId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ description }),
+    },
+  )
+}
+
+export async function deleteWorkflow(
+  workflowId: string,
+): Promise<WorkflowDeleteResponse> {
+  return jsonFetch<WorkflowDeleteResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}`,
+    { method: 'DELETE' },
+  )
+}
+
 // W7 slice 2 — workspace Health page + LiftChart
 
 export interface WorkflowSummary {

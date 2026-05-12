@@ -21,6 +21,7 @@ export function WorkflowTabs({ wsId, wfId }: TabsProps) {
     { href: `${root}/failures`, label: 'Failures' },
     { href: `${root}/traces`, label: 'Traces' },
     { href: `${root}/audit`, label: 'Audit' },
+    { href: `${root}/settings`, label: 'Settings' },
   ]
 
   const isActive = (href: string) =>

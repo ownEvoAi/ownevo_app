@@ -1207,6 +1207,122 @@
   cursor: not-allowed;
 }
 
+.btn-danger {
+  background: #b42318;
+  color: #fff;
+  border: 1px solid #912018;
+}
+.btn-danger:hover {
+  background: #912018;
+}
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #b42318;
+}
+
+/* Workflow Settings tab + danger card. */
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 720px;
+}
+.settings-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+}
+.settings-card-danger {
+  border-color: #fda4af;
+  background: #fff5f5;
+}
+@media (prefers-color-scheme: dark) {
+  .settings-card-danger {
+    background: rgba(180, 35, 24, 0.08);
+    border-color: rgba(180, 35, 24, 0.4);
+  }
+}
+.settings-card-header {
+  margin-bottom: 14px;
+}
+.settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+  letter-spacing: 0.01em;
+}
+.settings-card-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.settings-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background: var(--bg);
+  resize: vertical;
+  min-height: 100px;
+}
+.settings-textarea-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+.settings-card-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.settings-confirm-label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin-top: 8px;
+}
+.settings-confirm-label code {
+  font-family: var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.settings-confirm-input {
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+.settings-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 5px;
+  font-size: 12px;
+  color: #b42318;
+}
+.settings-saved-cue {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* ---------------------------------------------------------------------
    W7 slice 6 — Workflow Overview (mock + live).
    --------------------------------------------------------------------- */

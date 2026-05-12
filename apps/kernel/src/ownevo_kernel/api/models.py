@@ -339,6 +339,42 @@ class WorkflowAnatomy(_Strict):
     spec: dict[str, Any]
 
 
+class WorkflowUpdate(_Strict):
+    """Patch payload for `PATCH /api/workflows/{id}`.
+
+    Only fields the operator can safely change post-create. The NL-gen
+    artifacts (`spec`, `simulation_plan`, `metric_definition`) are NOT
+    editable from this endpoint — they regenerate via the dedicated
+    generate endpoints so the cross-checks (workflow_spec_id agreement
+    + meta-eval) stay enforced.
+    """
+
+    description: str = Field(min_length=10, max_length=4096)
+
+
+class WorkflowDeleteResponse(_Strict):
+    """Audit-trail receipt for a workflow hard-delete.
+
+    Returns the row counts deleted per related table so the UI can show
+    a meaningful confirmation ("removed 2 iterations, 24 traces, 3
+    proposals, 1 skill version"). Audit entries are never touched (D2
+    WORM); they keep their original `related_id` pointing at the
+    now-deleted row, dangling but immutable.
+    """
+
+    id: str
+    iterations: int
+    proposals: int
+    approvals: int
+    traces: int
+    eval_cases: int
+    failure_clusters: int
+    learnings: int
+    skill_versions: int
+    skills: int
+    meta_evals: int
+
+
 class IterationPoint(_Strict):
     """One point on the lift chart.
 
@@ -627,7 +663,9 @@ __all__ = [
     "TraceList",
     "TraceSummary",
     "WorkflowAnatomy",
+    "WorkflowDeleteResponse",
     "WorkflowDetail",
     "WorkflowList",
     "WorkflowSummary",
+    "WorkflowUpdate",
 ]

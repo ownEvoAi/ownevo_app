@@ -27,8 +27,10 @@ from ..models import (
     IterationPoint,
     RunIterationResponse,
     WorkflowAnatomy,
+    WorkflowDeleteResponse,
     WorkflowList,
     WorkflowSummary,
+    WorkflowUpdate,
 )
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -500,6 +502,184 @@ async def run_workflow_iteration(
         proposed_instruction=outcome.proposed_instruction,
         proposal_id=outcome.proposal_id,
     )
+
+
+@router.patch("/{workflow_id}", response_model=WorkflowAnatomy)
+async def update_workflow(
+    workflow_id: str,
+    payload: WorkflowUpdate,
+    conn: ConnDep,
+) -> WorkflowAnatomy:
+    """Edit the workflow description.
+
+    The NL-gen `spec` / `simulation_plan` / `metric_definition` are NOT
+    touched here — they regenerate through the dedicated generate
+    endpoints so their cross-checks stay enforced. Editing the
+    description is intentionally side-effect-free: the agent's
+    instruction skills and eval cases continue running against the
+    original generated artifacts.
+    """
+    row = await conn.fetchrow(
+        """
+        UPDATE workflows
+        SET description = $2
+        WHERE id = $1
+        RETURNING id, description, mode::text AS mode, spec
+        """,
+        workflow_id,
+        payload.description.strip(),
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+    spec = decode_jsonb_obj(row["spec"]) or {}
+    return WorkflowAnatomy(
+        id=row["id"],
+        description=row["description"],
+        mode=row["mode"],
+        spec=spec,
+    )
+
+
+@router.delete("/{workflow_id}", response_model=WorkflowDeleteResponse)
+async def delete_workflow(
+    workflow_id: str,
+    conn: ConnDep,
+) -> WorkflowDeleteResponse:
+    """Hard-delete a workflow and every domain row tied to it.
+
+    Cascades manually in FK-safe order inside one transaction:
+    approvals → learnings → proposals → traces → meta_evals →
+    iterations → eval_cases → failure_clusters → skill_versions /
+    skill_deployments / skills → workflow.
+
+    Audit entries are intentionally NOT deleted — `audit_entries` is
+    append-only WORM at the DB level (D2). Existing `related_id`s
+    pointing at the deleted rows become dangling pointers; the
+    workspace-level audit view still shows them, but the workflow
+    audit filter (which joins back through iterations / proposals /
+    clusters) drops them silently. That mirrors the customer-export
+    contract: history of the deletion's *consequences* survives even
+    after the workflow itself is gone.
+    """
+    exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    counts: dict[str, int] = {}
+    async with conn.transaction():
+        # Resolve iteration ids once — used by approvals / learnings / proposals.
+        iter_ids: list = [
+            r["id"]
+            for r in await conn.fetch(
+                "SELECT id FROM iterations WHERE workflow_id = $1",
+                workflow_id,
+            )
+        ]
+
+        counts["approvals"] = await _count_exec(
+            conn,
+            """
+            DELETE FROM approvals
+            WHERE proposal_id IN (
+                SELECT id FROM proposals WHERE iteration_id = ANY($1::uuid[])
+            )
+            """,
+            iter_ids,
+        )
+        counts["learnings"] = await _count_exec(
+            conn,
+            "DELETE FROM learnings WHERE iteration_id = ANY($1::uuid[])",
+            iter_ids,
+        )
+        counts["proposals"] = await _count_exec(
+            conn,
+            "DELETE FROM proposals WHERE iteration_id = ANY($1::uuid[])",
+            iter_ids,
+        )
+        counts["traces"] = await _count_exec(
+            conn,
+            "DELETE FROM traces WHERE workflow_id = $1",
+            workflow_id,
+        )
+        counts["meta_evals"] = await _count_exec(
+            conn,
+            "DELETE FROM meta_evals WHERE workflow_id = $1",
+            workflow_id,
+        )
+        counts["iterations"] = await _count_exec(
+            conn,
+            "DELETE FROM iterations WHERE workflow_id = $1",
+            workflow_id,
+        )
+        counts["eval_cases"] = await _count_exec(
+            conn,
+            "DELETE FROM eval_cases WHERE workflow_id = $1",
+            workflow_id,
+        )
+        counts["failure_clusters"] = await _count_exec(
+            conn,
+            "DELETE FROM failure_clusters WHERE workflow_id = $1",
+            workflow_id,
+        )
+
+        # skills.head_version_id -> skill_versions.id and
+        # skill_versions.skill_id -> skills.id form a cycle. Break it by
+        # NULLing head_version_id before deleting versions, then deleting
+        # versions, then deleting the skills themselves.
+        skill_ids: list = [
+            r["id"]
+            for r in await conn.fetch(
+                "SELECT id FROM skills WHERE workflow_id = $1",
+                workflow_id,
+            )
+        ]
+        if skill_ids:
+            await conn.execute(
+                "UPDATE skills SET head_version_id = NULL, deployed_version_id = NULL "
+                "WHERE id = ANY($1::text[])",
+                skill_ids,
+            )
+            await conn.execute(
+                "UPDATE workflows SET sim_skill_id = NULL WHERE id = $1",
+                workflow_id,
+            )
+            await conn.execute(
+                "DELETE FROM skill_deployments WHERE skill_id = ANY($1::text[])",
+                skill_ids,
+            )
+        counts["skill_versions"] = await _count_exec(
+            conn,
+            "DELETE FROM skill_versions WHERE skill_id = ANY($1::text[])",
+            skill_ids,
+        )
+        counts["skills"] = await _count_exec(
+            conn,
+            "DELETE FROM skills WHERE id = ANY($1::text[])",
+            skill_ids,
+        )
+
+        await conn.execute("DELETE FROM workflows WHERE id = $1", workflow_id)
+
+    return WorkflowDeleteResponse(id=workflow_id, **counts)
+
+
+async def _count_exec(conn: asyncpg.Connection, sql: str, *args) -> int:
+    """Run a DELETE and return the row count. asyncpg's `execute` returns
+    a tag string like `"DELETE 17"` — parse the int off the end."""
+    tag = await conn.execute(sql, *args)
+    parts = tag.split()
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return int(parts[-1])
+    return 0
 
 
 def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:
