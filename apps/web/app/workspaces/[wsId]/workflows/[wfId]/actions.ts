@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { KernelApiError, runWorkflowIteration } from '@/lib/api'
 
 export interface RunIterationState {
@@ -17,19 +18,12 @@ export async function runIterationAction(
   wfId: string,
   _prev: RunIterationState,
 ): Promise<RunIterationState> {
+  let r
   try {
-    const r = await runWorkflowIteration(wfId)
+    r = await runWorkflowIteration(wfId)
     revalidatePath(`/workspaces/${wsId}/workflows/${wfId}`)
     revalidatePath(`/workspaces/${wsId}/inbox`)
     revalidatePath(`/workspaces/${wsId}`)
-    return {
-      error: null,
-      iterationIndex: r.iteration_index,
-      valScore: r.val_score,
-      nFailed: r.n_failed,
-      nCases: r.n_cases,
-      proposalId: r.proposal_id,
-    }
   } catch (err) {
     if (err instanceof KernelApiError) {
       return {
@@ -49,5 +43,23 @@ export async function runIterationAction(
       nCases: null,
       proposalId: null,
     }
+  }
+
+  // First-iteration redirect to the baseline-complete landing — mock
+  // 19 parity. After iteration #0 the operator gets a "here's what
+  // changed" page instead of being dropped back on Overview, where
+  // the next-step card would just say "Improvement loop active". For
+  // every later iteration we keep the inline result card.
+  if (r.iteration_index === 0) {
+    redirect(`/workspaces/${wsId}/workflows/baseline/${wfId}`)
+  }
+
+  return {
+    error: null,
+    iterationIndex: r.iteration_index,
+    valScore: r.val_score,
+    nFailed: r.n_failed,
+    nCases: r.n_cases,
+    proposalId: r.proposal_id,
   }
 }
