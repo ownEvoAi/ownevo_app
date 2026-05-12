@@ -3204,6 +3204,38 @@ a.anatomy-row-name:hover {
   font-weight: 500;
 }
 
+/* Operate-tab CTA → opens the dedicated /operator/[wfId] shell. */
+.operate-agent-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.06), rgba(34, 197, 94, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+.operate-agent-cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.operate-agent-cta-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.operate-agent-cta-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 560px;
+}
+.operate-agent-cta-btn {
+  flex-shrink: 0;
+}
+
 /* Baseline-complete landing — mock 19 parity. Shown once, after the
    very first iteration on a workflow finishes. */
 .baseline-hero {

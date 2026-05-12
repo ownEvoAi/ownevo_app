@@ -7,7 +7,7 @@ import {
   type AuditList,
   type WorkflowSummary,
 } from '@/lib/api'
-import { relativeTime } from '@/lib/format'
+import { relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
@@ -42,8 +42,12 @@ export default async function ActivityFeedPage({ params, searchParams }: PagePro
     apiError = kernelError(err)
   }
 
+  // Use the short display title (first sentence, word-boundary
+  // truncated) — workflow descriptions are full multi-paragraph
+  // NL-gen prompts and dump the whole thing into the activity row
+  // text if we don't shorten them here.
   const workflowTitleById = new Map(
-    workflows.map((w) => [w.id, w.description || w.id] as const),
+    workflows.map((w) => [w.id, workflowDisplayTitle(w.id, w.description, 48)] as const),
   )
 
   // Bucket by day for visual grouping.
@@ -213,7 +217,7 @@ function FilterStrip({
           className={`chip ${activeWorkflow === w.id ? 'active' : ''}`}
           title={w.description}
         >
-          {w.description || w.id}
+          {workflowDisplayTitle(w.id, w.description, 32)}
         </Link>
       ))}
       {KIND_FILTERS.map((k) => (

@@ -11,7 +11,7 @@ import {
   type ProposalSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
-import { formatScore, relativeTime } from '@/lib/format'
+import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolveTabPrimitives } from '@/lib/primitive-data-resolver'
@@ -88,8 +88,28 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
     (p) => p.state === 'gate-passed' || p.state === 'pending',
   )
 
+  const operatorHref = `/operator/${wfId}?ws=${encodeURIComponent(wsId)}`
+
   return (
     <>
+      {/* Prominent CTA to the dedicated operator shell — same data,
+          no improvement-loop chrome. The shell is what a non-developer
+          domain expert would actually use day-to-day; the Operate tab
+          is the in-context preview. */}
+      <section className="operate-agent-cta">
+        <div className="operate-agent-cta-text">
+          <div className="operate-agent-cta-title">Agent-only view</div>
+          <div className="operate-agent-cta-sub">
+            What the agent produces, stripped of eval-loop chrome.
+            Bookmark this for the domain expert who reviews output —
+            no developer concepts in sight.
+          </div>
+        </div>
+        <Link href={operatorHref} className="btn btn-primary operate-agent-cta-btn">
+          Open agent-only view ↗
+        </Link>
+      </section>
+
       <section className="operate-status">
         <div className="operate-status-pill">
           <span
@@ -156,15 +176,16 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
             background: 'var(--bg)',
             border: '1px dashed var(--border)',
             borderRadius: 8,
-            padding: 28,
-            textAlign: 'center',
+            padding: 20,
             color: 'var(--text-muted)',
             fontSize: 13,
+            lineHeight: 1.5,
           }}
         >
-          The workflow spec doesn&rsquo;t declare an <code>Operate</code> tab.
-          Spec layout defines the agent&rsquo;s output surface — regenerate
-          the workflow to compose this view from primitives.
+          This workflow&rsquo;s spec doesn&rsquo;t declare an{' '}
+          <code>Operate</code> tab yet — primitives compose from spec
+          UI layout. The recent runs below + the agent-only view above
+          still give you the live agent surface.
         </div>
       )}
 
@@ -204,6 +225,80 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
           placeholders fill in once the iteration runner captures structured
           predictions beyond <code>bool</code>.
         </p>
+      )}
+
+      {iterations.length > 0 && (
+        <section style={{ marginTop: 18 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: 8,
+            }}
+          >
+            <h2 className="section-title" style={{ margin: 0 }}>
+              Recent runs
+            </h2>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {iterations.length} total · click a row for per-case detail
+            </span>
+          </div>
+          <div className="iter-overview-list">
+            <div className="iter-overview-row iter-overview-head">
+              <span>Iter</span>
+              <span>val_score</span>
+              <span>Best ever</span>
+              <span>State</span>
+              <span>Approved?</span>
+              <span>Ended</span>
+            </div>
+            {[...iterations].reverse().slice(0, 10).map((it) => (
+              <Link
+                key={it.iteration_index}
+                href={`/workspaces/${wsId}/workflows/${wfId}/iterations/${it.iteration_index}`}
+                className="iter-overview-row"
+              >
+                <span className="iter-overview-idx">#{it.iteration_index}</span>
+                <span className="iter-overview-num">
+                  {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
+                </span>
+                <span className="iter-overview-num">
+                  {it.best_ever_score_after !== null
+                    ? it.best_ever_score_after.toFixed(3)
+                    : '—'}
+                </span>
+                <span className="iter-overview-state">{it.state}</span>
+                <span className="iter-overview-approved">
+                  {it.has_approved_proposal ? '✓' : ''}
+                </span>
+                <span className="iter-overview-when">
+                  {it.ended_at
+                    ? formatDateTime(it.ended_at).slice(0, 16)
+                    : '—'}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {iterations.length === 0 && (
+        <div
+          style={{
+            background: 'var(--bg)',
+            border: '1px dashed var(--border)',
+            borderRadius: 8,
+            padding: 28,
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+            marginTop: 14,
+          }}
+        >
+          The agent hasn&rsquo;t run yet on this workflow. Trigger the
+          first iteration from the Overview tab.
+        </div>
       )}
     </>
   )
