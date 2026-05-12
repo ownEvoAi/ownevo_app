@@ -27,6 +27,14 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
   const wsLabel = workspaceLabel(wsId)
   const wsAvatar = wsId.charAt(0).toUpperCase()
 
+  // Partition by workflow.kind. Production workflows are real customer
+  // surfaces; benchmarks (M5 forecasting, tau-bench replays) are kernel
+  // validation runs that share the substrate. They get their own
+  // sidebar section so the demo viewer doesn't confuse "Recalibrate
+  // credit lines" (customer) with "M5-demand-prediction" (benchmark).
+  const production = workflows.filter((w) => w.kind !== 'benchmark')
+  const benchmarks = workflows.filter((w) => w.kind === 'benchmark')
+
   return (
     <aside className="nav">
       <div className="nav-brand">
@@ -73,7 +81,7 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
       </a>
 
       <div className="nav-section">Workflows</div>
-      {workflows.map((w) => {
+      {production.map((w) => {
         const href = `${root}/workflows/${w.id}`
         return (
           <a key={w.id} href={href} className={`${cls(href)} nav-workflow`} title={w.description ?? w.id}>
@@ -99,6 +107,33 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">New workflow</span>
       </a>
+
+      {benchmarks.length > 0 && (
+        <>
+          <div className="nav-section">
+            Benchmarks
+            <span className="nav-section-hint" title="Kernel validation runs — not customer workflows">
+              ⓘ
+            </span>
+          </div>
+          {benchmarks.map((w) => {
+            const href = `${root}/workflows/${w.id}`
+            return (
+              <a key={w.id} href={href} className={`${cls(href)} nav-workflow`} title={w.description ?? w.id}>
+                <svg className="nav-icon" viewBox="0 0 16 16">
+                  <path d="M2 13 L2 3 L4 3 L4 13 M6 13 L6 7 L8 7 L8 13 M10 13 L10 5 L12 5 L12 13" />
+                </svg>
+                <span className="nav-workflow-text">
+                  <span className="nav-label">
+                    {workflowDisplayTitle(w.id, w.description, 32)}
+                  </span>
+                  <span className="nav-workflow-id">{w.id}</span>
+                </span>
+              </a>
+            )
+          })}
+        </>
+      )}
 
       <div className="nav-section">Library</div>
       <a href={`${root}/skills`} className={cls(`${root}/skills`)}>

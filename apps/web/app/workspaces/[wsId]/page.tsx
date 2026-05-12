@@ -45,12 +45,23 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
     apiError = kernelError(err)
   }
 
+  // Benchmarks (M5 / tau-bench) live in workflows table but are not
+  // customer workflows. Carve them out of every Health-page count and
+  // hero pick so the production picture stays clean; we surface a
+  // small "loop validation" hint separately.
+  const productionWorkflows = workflows.items.filter(
+    (w) => w.kind !== 'benchmark',
+  )
+  const benchmarkWorkflows = workflows.items.filter(
+    (w) => w.kind === 'benchmark',
+  )
+
   // Primary workflow picked by signal, not creation order. Prefer
   // workflows with iterations recorded; among those, the one with the
   // most iterations wins (ties broken by best_ever_score, then id).
   // Falls back to the first workflow when nothing has run yet so the
   // page still has SOMETHING to anchor on.
-  const primary = pickPrimary(workflows.items)
+  const primary = pickPrimary(productionWorkflows)
   try {
     if (primary) {
       primaryIterations = await getWorkflowIterations(primary.id)
@@ -60,18 +71,18 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
   }
   // Workflows that have ever shipped at least one approved proposal —
   // NOT a count of approval events (the API doesn't expose that yet).
-  // Label below should match this scope.
-  const improvedWorkflowsCount = workflows.items.reduce(
+  // Label below should match this scope. Benchmarks excluded.
+  const improvedWorkflowsCount = productionWorkflows.reduce(
     (acc, w) => acc + (w.last_improved_at ? 1 : 0),
     0,
   )
-  const pendingCount = workflows.items.reduce(
+  const pendingCount = productionWorkflows.reduce(
     (acc, w) => acc + w.pending_proposals_count,
     0,
   )
   const portfolioBest =
     primary && primary.best_ever_score !== null ? primary.best_ever_score : null
-  const inFlightCount = workflows.items.reduce(
+  const inFlightCount = productionWorkflows.reduce(
     (acc, w) => acc + (w.running_iteration_count ?? 0),
     0,
   )
@@ -79,7 +90,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
   // separately so an abandoned run doesn't pollute the "fresh in flight"
   // banner. We only know the oldest running iteration per workflow, so
   // this is a workflow count, not a per-iteration count.
-  const staleWorkflowCount = workflows.items.reduce(
+  const staleWorkflowCount = productionWorkflows.reduce(
     (acc, w) =>
       acc +
       ((w.running_iteration_count ?? 0) > 0 &&
@@ -88,14 +99,17 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
         : 0),
     0,
   )
-  const oldestStaleStart = workflows.items.reduce<string | null>((acc, w) => {
-    if (!isStaleRunningIteration(w.oldest_running_started_at)) return acc
-    const s = w.oldest_running_started_at ?? null
-    if (!s) return acc
-    if (!acc) return s
-    return new Date(s).getTime() < new Date(acc).getTime() ? s : acc
-  }, null)
-  const isFirstTime = !apiError && workflows.items.length === 0
+  const oldestStaleStart = productionWorkflows.reduce<string | null>(
+    (acc, w) => {
+      if (!isStaleRunningIteration(w.oldest_running_started_at)) return acc
+      const s = w.oldest_running_started_at ?? null
+      if (!s) return acc
+      if (!acc) return s
+      return new Date(s).getTime() < new Date(acc).getTime() ? s : acc
+    },
+    null,
+  )
+  const isFirstTime = !apiError && productionWorkflows.length === 0
 
   return (
     <>
@@ -103,8 +117,11 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
         <div>
           <h1 className="page-title">Workflow health</h1>
           <p className="page-subtitle">
-            {wsLabel} · {workflows.total} workflow
-            {workflows.total === 1 ? '' : 's'}
+            {wsLabel} · {productionWorkflows.length} workflow
+            {productionWorkflows.length === 1 ? '' : 's'}
+            {benchmarkWorkflows.length > 0
+              ? ` · ${benchmarkWorkflows.length} benchmark${benchmarkWorkflows.length === 1 ? '' : 's'}`
+              : ''}
             {primary ? ` · primary: ${primary.id}` : ''}
           </p>
         </div>
@@ -177,7 +194,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
       <div className="metrics glance" style={{ marginBottom: 24 }}>
         <div className="metric">
           <div className="metric-label">Active workflows</div>
-          <div className="metric-value">{workflows.total}</div>
+          <div className="metric-value">{productionWorkflows.length}</div>
         </div>
         <div className="metric">
           <div className="metric-label">Pending reviews</div>
@@ -250,7 +267,36 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
               Workflows
             </h2>
           </div>
-          <WorkflowsTable workflows={workflows.items} wsId={wsId} />
+          <WorkflowsTable workflows={productionWorkflows} wsId={wsId} />
+        </section>
+      )}
+
+      {benchmarkWorkflows.length > 0 && (
+        <section style={{ marginTop: 28 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: 10,
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-2)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Loop validation · benchmarks
+            </h2>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Kernel proof runs — not customer workflows
+            </span>
+          </div>
+          <WorkflowsTable workflows={benchmarkWorkflows} wsId={wsId} />
         </section>
       )}
     </>

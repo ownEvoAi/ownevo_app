@@ -16,11 +16,13 @@ export default async function WorkflowDetailLayout({ children, params }: LayoutP
 
   let title = wfId
   let subtitle: string | null = null
+  let isBenchmark = false
   let notFound = false
   try {
     const anatomy = await getWorkflowAnatomy(wfId)
     title = workflowDisplayTitle(anatomy.id, anatomy.description, 100)
     subtitle = `${anatomy.mode === 'gated' ? 'Gated' : 'Autonomous'} · ${anatomy.id}`
+    isBenchmark = anatomy.kind === 'benchmark'
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       notFound = true
@@ -37,7 +39,17 @@ export default async function WorkflowDetailLayout({ children, params }: LayoutP
           className="wf-title-row"
           style={{ marginTop: 6, justifyContent: 'space-between' }}
         >
-          <h1 className="wf-title">{title}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 className="wf-title">{title}</h1>
+            {isBenchmark && (
+              <span
+                className="pill benchmark-pill"
+                title="Kernel validation run — not a customer workflow"
+              >
+                BENCHMARK
+              </span>
+            )}
+          </div>
           {!notFound ? (
             <a
               href={`/operator/${wfId}?ws=${encodeURIComponent(wsId)}`}

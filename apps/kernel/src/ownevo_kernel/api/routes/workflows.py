@@ -62,6 +62,7 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
             w.id,
             w.description,
             w.mode::text                                AS mode,
+            w.kind                                      AS kind,
             (
                 SELECT COUNT(*)::int
                 FROM iterations i
@@ -123,7 +124,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
     """
     row = await conn.fetchrow(
         """
-        SELECT id, description, mode::text AS mode, spec
+        SELECT id, description, mode::text AS mode, kind, spec
         FROM workflows
         WHERE id = $1
         """,
@@ -140,6 +141,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         id=row["id"],
         description=row["description"],
         mode=row["mode"],
+        kind=row["kind"],
         spec=spec,
     )
 
@@ -836,7 +838,7 @@ async def update_workflow(
         UPDATE workflows
         SET description = $2
         WHERE id = $1
-        RETURNING id, description, mode::text AS mode, spec
+        RETURNING id, description, mode::text AS mode, kind, spec
         """,
         workflow_id,
         payload.description.strip(),
@@ -851,6 +853,7 @@ async def update_workflow(
         id=row["id"],
         description=row["description"],
         mode=row["mode"],
+        kind=row["kind"],
         spec=spec,
     )
 
@@ -999,6 +1002,7 @@ def _row_to_summary(row: asyncpg.Record) -> WorkflowSummary:
         id=row["id"],
         description=row["description"],
         mode=row["mode"],
+        kind=row.get("kind"),
         iteration_count=row["iteration_count"],
         running_iteration_count=row.get("running_iteration_count", 0) or 0,
         oldest_running_started_at=row.get("oldest_running_started_at"),

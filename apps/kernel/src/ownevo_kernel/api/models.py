@@ -258,6 +258,12 @@ class WorkflowSummary(_Strict):
     id: str
     description: str
     mode: str  # 'gated' | 'autonomous'
+    # 'benchmark' tags workflows that exist for kernel validation
+    # (M5 forecasting, tau-bench replays) — they share the substrate
+    # with customer workflows but the UI surfaces them in a separate
+    # sidebar section so a domain expert isn't confused. NULL/absent
+    # = production (default).
+    kind: str | None = None
     iteration_count: int
     running_iteration_count: int = 0
     # When >0 running iterations, the oldest one's started_at. Lets the
@@ -345,6 +351,7 @@ class WorkflowAnatomy(_Strict):
     id: str
     description: str
     mode: str
+    kind: str | None = None  # 'benchmark' | null (production)
     spec: dict[str, Any]
 
 

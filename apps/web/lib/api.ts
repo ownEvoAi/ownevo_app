@@ -436,6 +436,8 @@ export interface WorkflowSummary {
   id: string
   description: string
   mode: string
+  /** 'benchmark' tags M5/tau-bench rows; null/absent = production. */
+  kind?: string | null
   iteration_count: number
   running_iteration_count?: number
   oldest_running_started_at?: string | null
@@ -526,6 +528,8 @@ export interface WorkflowAnatomy {
   id: string
   description: string
   mode: string
+  /** 'benchmark' tags M5/tau-bench rows; null/absent = production. */
+  kind?: string | null
   spec: WorkflowSpecShape
 }
 
