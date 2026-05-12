@@ -88,28 +88,8 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
     (p) => p.state === 'gate-passed' || p.state === 'pending',
   )
 
-  const operatorHref = `/operator/${wfId}?ws=${encodeURIComponent(wsId)}`
-
   return (
     <>
-      {/* Prominent CTA to the dedicated operator shell — same data,
-          no improvement-loop chrome. The shell is what a non-developer
-          domain expert would actually use day-to-day; the Operate tab
-          is the in-context preview. */}
-      <section className="operate-agent-cta">
-        <div className="operate-agent-cta-text">
-          <div className="operate-agent-cta-title">Agent-only view</div>
-          <div className="operate-agent-cta-sub">
-            What the agent produces, stripped of eval-loop chrome.
-            Bookmark this for the domain expert who reviews output —
-            no developer concepts in sight.
-          </div>
-        </div>
-        <Link href={operatorHref} className="btn btn-primary operate-agent-cta-btn">
-          Open agent-only view ↗
-        </Link>
-      </section>
-
       <section className="operate-status">
         <div className="operate-status-pill">
           <span
@@ -169,41 +149,6 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
           {description}
         </p>
       ) : null}
-
-      {!operateTab && (
-        <div
-          style={{
-            background: 'var(--bg)',
-            border: '1px dashed var(--border)',
-            borderRadius: 8,
-            padding: 20,
-            color: 'var(--text-muted)',
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        >
-          This workflow&rsquo;s spec doesn&rsquo;t declare an{' '}
-          <code>Operate</code> tab yet — primitives compose from spec
-          UI layout. The recent runs below + the agent-only view above
-          still give you the live agent surface.
-        </div>
-      )}
-
-      {operateTab && primitives.length === 0 && (
-        <div
-          style={{
-            background: 'var(--bg)',
-            border: '1px dashed var(--border)',
-            borderRadius: 8,
-            padding: 28,
-            textAlign: 'center',
-            color: 'var(--text-muted)',
-            fontSize: 13,
-          }}
-        >
-          The <code>{operateTab.name}</code> tab has no primitives declared.
-        </div>
-      )}
 
       {resolved.length > 0 && (
         <section className="overview-primitives" style={{ marginTop: 12 }}>

@@ -66,7 +66,7 @@ export default async function WorkflowDetailLayout({ children, params }: LayoutP
           </p>
         ) : null}
       </div>
-      <WorkflowTabs wsId={wsId} wfId={wfId} />
+      <WorkflowTabs wsId={wsId} wfId={wfId} isBenchmark={isBenchmark} />
       {children}
     </>
   )
