@@ -28,6 +28,8 @@ from ...nl_gen.fixtures import (
     SIM_PLAN_FIXTURES,
 )
 from ...nl_gen.meta_eval import PREVIEW_JUDGMENT_FIXTURES
+from ...nl_gen.metric_generator import generate_metric_definition
+from ...nl_gen.sim_generator import generate_simulation_plan
 from ...nl_gen.workflow_spec_generator import (
     NoToolUseError,
     WorkflowSpecValidationError,
@@ -229,20 +231,35 @@ async def generate_workflow(
             detail=f"LLM produced invalid spec: {exc}",
         ) from exc
 
+    # The improvement loop needs sim_plan + metric to score iterations.
+    # Generate them eagerly (2 more LLM calls, ~25-40s each) so the user
+    # can run an iteration immediately without a second wait.
+    try:
+        sim_plan = await generate_simulation_plan(client, spec)
+        metric_def = await generate_metric_definition(client, spec)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM-side failure during sim/metric generation: {exc}",
+        ) from exc
+
     workflow_id = body.workflow_id or spec.id
 
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO workflows (id, description, spec)
-            VALUES ($1, $2, $3::jsonb)
+            INSERT INTO workflows (id, description, spec,
+                                   simulation_plan, metric_definition)
+            VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb)
             ON CONFLICT (id) DO NOTHING
             RETURNING id
             """,
             workflow_id,
             body.description,
             spec.model_dump_json(),
+            sim_plan.model_dump_json(),
+            metric_def.model_dump_json(),
         )
     if row is None:
         raise HTTPException(

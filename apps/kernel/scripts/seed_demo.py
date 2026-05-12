@@ -41,20 +41,27 @@ async def _upsert_workflow(
     workflow_id: str,
     description: str,
     spec_json: str,
+    sim_plan_json: str,
+    metric_json: str,
 ) -> SeededWorkflow:
     # Use xmax = 0 to distinguish INSERT (new) from UPDATE (refreshed).
     row = await conn.fetchrow(
         """
-        INSERT INTO workflows (id, description, spec)
-        VALUES ($1, $2, $3::jsonb)
+        INSERT INTO workflows (id, description, spec,
+                               simulation_plan, metric_definition)
+        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb)
         ON CONFLICT (id) DO UPDATE
           SET description = EXCLUDED.description,
-              spec = EXCLUDED.spec
+              spec = EXCLUDED.spec,
+              simulation_plan = EXCLUDED.simulation_plan,
+              metric_definition = EXCLUDED.metric_definition
         RETURNING (xmax = 0) AS inserted
         """,
         workflow_id,
         description,
         spec_json,
+        sim_plan_json,
+        metric_json,
     )
     return SeededWorkflow(
         id=workflow_id,
@@ -65,30 +72,57 @@ async def _upsert_workflow(
 
 async def seed_demo(conn) -> list[SeededWorkflow]:
     """Seed the demo workflows. Returns one entry per workflow touched."""
+    from ownevo_kernel.nl_gen.eval_persistence import persist_eval_case_set
     from ownevo_kernel.nl_gen.fixtures import (
         CONTRACT_REVIEW_DESCRIPTION,
+        CONTRACT_REVIEW_EVAL_CASE_SET,
+        CONTRACT_REVIEW_METRIC,
+        CONTRACT_REVIEW_SIM_PLAN,
         CONTRACT_REVIEW_SPEC,
         CREDIT_RISK_DESCRIPTION,
+        CREDIT_RISK_EVAL_CASE_SET,
+        CREDIT_RISK_METRIC,
+        CREDIT_RISK_SIM_PLAN,
         CREDIT_RISK_SPEC,
     )
 
-    pairs = [
-        ("credit-risk", CREDIT_RISK_DESCRIPTION, CREDIT_RISK_SPEC),
-        ("contract-review", CONTRACT_REVIEW_DESCRIPTION, CONTRACT_REVIEW_SPEC),
+    bundles = [
+        (
+            "credit-risk",
+            CREDIT_RISK_DESCRIPTION,
+            CREDIT_RISK_SPEC,
+            CREDIT_RISK_SIM_PLAN,
+            CREDIT_RISK_METRIC,
+            CREDIT_RISK_EVAL_CASE_SET,
+        ),
+        (
+            "contract-review",
+            CONTRACT_REVIEW_DESCRIPTION,
+            CONTRACT_REVIEW_SPEC,
+            CONTRACT_REVIEW_SIM_PLAN,
+            CONTRACT_REVIEW_METRIC,
+            CONTRACT_REVIEW_EVAL_CASE_SET,
+        ),
     ]
 
     seeded: list[SeededWorkflow] = []
     async with conn.transaction():
-        for workflow_id, description, spec in pairs:
-            spec_json = spec.model_dump_json()
-            seeded.append(
-                await _upsert_workflow(
-                    conn,
-                    workflow_id=workflow_id,
-                    description=description,
-                    spec_json=spec_json,
-                )
+        for workflow_id, description, spec, sim_plan, metric, case_set in bundles:
+            result = await _upsert_workflow(
+                conn,
+                workflow_id=workflow_id,
+                description=description,
+                spec_json=spec.model_dump_json(),
+                sim_plan_json=sim_plan.model_dump_json(),
+                metric_json=metric.model_dump_json(),
             )
+            seeded.append(result)
+            # Seed eval cases only on first INSERT — re-runs of seed-demo
+            # shouldn't multiply cases on every invocation. The workflow
+            # row's xmax-derived `inserted` flag is the same idempotency
+            # signal we use for the printed marker.
+            if result.inserted:
+                await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
     return seeded
 
 

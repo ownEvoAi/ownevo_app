@@ -296,6 +296,21 @@ class EvalCaseList(_Strict):
     total: int
 
 
+class RunIterationResponse(_Strict):
+    """Response from `POST /api/workflows/{id}/iterations/run`."""
+
+    iteration_id: UUID
+    iteration_index: int
+    state: str
+    val_score: float
+    n_cases: int
+    n_failed: int
+    proposed_skill_id: str | None
+    proposed_skill_version_id: UUID | None
+    proposed_instruction: str | None
+    proposal_id: UUID | None
+
+
 class GenerateEvalCasesResponse(_Strict):
     """Response from `POST /api/workflows/{id}/eval-cases/generate`."""
 

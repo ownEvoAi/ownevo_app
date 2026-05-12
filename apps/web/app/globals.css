@@ -1921,3 +1921,16 @@ a.anatomy-row-name:hover {
 .overview-next-step-action {
   flex-shrink: 0;
 }
+
+/* Iteration result card on workflow Overview (8.4.5) */
+.iteration-result-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  max-width: 360px;
+}

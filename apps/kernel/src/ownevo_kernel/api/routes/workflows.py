@@ -25,6 +25,7 @@ from ..models import (
     GenerateEvalCasesResponse,
     IterationList,
     IterationPoint,
+    RunIterationResponse,
     WorkflowAnatomy,
     WorkflowList,
     WorkflowSummary,
@@ -414,6 +415,90 @@ async def generate_workflow_eval_cases(
         generated=len(inserted),
         train_count=train_count,
         test_count=test_count,
+    )
+
+
+@router.post(
+    "/{workflow_id}/iterations/run",
+    response_model=RunIterationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_workflow_iteration(
+    workflow_id: str,
+    conn: ConnDep,
+) -> RunIterationResponse:
+    """Run one improvement-loop iteration synchronously, persist the result.
+
+    Loads the workflow's spec / sim_plan / metric / eval-cases, drives one
+    cycle of `run_nl_gen_demo_loop` (~30-90s wall-clock — one agent run
+    over the case set + failure clustering + one proposer call), and
+    writes:
+      * one `iterations` row in `gate-pass` state (or
+        `gate-blocked-no-improvement` if the proposer didn't emit an edit)
+      * one new `skill_versions` row carrying the proposed instruction
+      * one `proposals` row in `gate-passed` state, ready for human review
+        in the existing /proposals UI
+
+    Errors:
+      * **404** — workflow not found
+      * **409** — workflow missing spec / sim_plan / metric / eval cases
+      * **502** — LLM-side failure mid-iteration
+      * **503** — `ANTHROPIC_API_KEY` is not set
+    """
+    import os
+
+    from ...iteration_runner import (
+        IterationRunnerError,
+        WorkflowNotIterableError,
+        run_one_iteration_for_workflow,
+    )
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ANTHROPIC_API_KEY is not set in the kernel environment; "
+                "the iteration runner needs it to call the LLM."
+            ),
+        )
+
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=api_key)
+    try:
+        outcome = await run_one_iteration_for_workflow(
+            conn,
+            workflow_id=workflow_id,
+            client=client,
+        )
+    except WorkflowNotIterableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except IterationRunnerError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM-side failure mid-iteration: {exc}",
+        ) from exc
+
+    return RunIterationResponse(
+        iteration_id=outcome.iteration_id,
+        iteration_index=outcome.iteration_index,
+        state=outcome.state,
+        val_score=outcome.val_score,
+        n_cases=outcome.n_cases,
+        n_failed=outcome.n_failed,
+        proposed_skill_id=outcome.proposed_skill_id,
+        proposed_skill_version_id=outcome.proposed_skill_version_id,
+        proposed_instruction=outcome.proposed_instruction,
+        proposal_id=outcome.proposal_id,
     )
 
 

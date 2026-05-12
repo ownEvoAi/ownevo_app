@@ -329,6 +329,28 @@ export async function generateEvalCases(
   )
 }
 
+export interface RunIterationResponse {
+  iteration_id: string
+  iteration_index: number
+  state: string
+  val_score: number
+  n_cases: number
+  n_failed: number
+  proposed_skill_id: string | null
+  proposed_skill_version_id: string | null
+  proposed_instruction: string | null
+  proposal_id: string | null
+}
+
+export async function runWorkflowIteration(
+  workflowId: string,
+): Promise<RunIterationResponse> {
+  return jsonFetch<RunIterationResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations/run`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
 // W7 slice 2 — workspace Health page + LiftChart
 
 export interface WorkflowSummary {
