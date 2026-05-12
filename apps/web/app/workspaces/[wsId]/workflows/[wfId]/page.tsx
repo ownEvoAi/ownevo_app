@@ -71,6 +71,14 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
     stage = iterationCount > 0 ? 'iterating' : 'has-evals-no-iter'
   }
 
+  // Resolved primitives the layer-D resolver actually has data for vs. the
+  // ones it can't bind. Split here so we can render the resolved bundle
+  // separately from a single collapsed "unresolved primitives" note.
+  const resolved = resolvedPrimitives.filter((p) => p.kind !== 'empty')
+  const unresolvedTypes = resolvedPrimitives
+    .filter((p): p is Extract<typeof resolvedPrimitives[number], { kind: 'empty' }> => p.kind === 'empty')
+    .map((p) => p.primitiveType)
+
   return (
     <>
       {apiError && (
@@ -78,23 +86,6 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
           <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
-
-      <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
-
-      {!apiError && iterations.length > 0 && resolvedPrimitives.length > 0 ? (
-        <section className="overview-primitives">
-          {resolvedPrimitives.map((p, i) => {
-            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
-            if (p.kind === 'TimeSeriesChart')
-              return <TimeSeriesChart key={i} data={p.data} />
-            return (
-              <div key={i} className="overview-primitive-empty">
-                <strong>{p.primitiveType}</strong> — {p.reason}
-              </div>
-            )
-          })}
-        </section>
-      ) : null}
 
       {!apiError ? (
         <section className="overview-next-step">
@@ -152,6 +143,26 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
           </div>
         </section>
       ) : null}
+
+      {!apiError && iterations.length > 0 && resolved.length > 0 ? (
+        <section className="overview-primitives">
+          {resolved.map((p, i) => {
+            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
+            if (p.kind === 'TimeSeriesChart')
+              return <TimeSeriesChart key={i} data={p.data} />
+            return null
+          })}
+          {unresolvedTypes.length > 0 ? (
+            <p className="overview-primitives-unresolved">
+              Spec also declares{' '}
+              <strong>{unresolvedTypes.join(', ')}</strong> — those primitives
+              need richer per-case agent output than the current loop emits.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
 
       {!apiError && hasEvalCases ? (
         <p

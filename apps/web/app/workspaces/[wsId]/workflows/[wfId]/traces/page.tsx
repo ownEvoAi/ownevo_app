@@ -74,9 +74,9 @@ export default async function WorkflowTracesPage({ params }: PageProps) {
             fontSize: 13,
           }}
         >
-          No traces yet for <code>{wfId}</code>. Traces are written
-          on every gate run; trigger one with{' '}
-          <code>make m5-run</code>.
+          No traces yet for <code>{wfId}</code>. Traces are written on every
+          iteration the agent runs — click <strong>Run iteration</strong>{' '}
+          on the Overview tab to produce one.
         </div>
       ) : (
         <div className="trace-list">

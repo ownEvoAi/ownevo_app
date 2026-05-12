@@ -98,8 +98,9 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
             marginTop: 16,
           }}
         >
-          No failure clusters yet for <code>{wfId}</code>. Run{' '}
-          <code>make m5-cluster-failures</code> to populate them.
+          No failure clusters yet for <code>{wfId}</code>. Clustering runs
+          automatically once enough eval-case failures pile up across
+          iterations — try the Run iteration button on the Overview tab.
         </div>
       )}
 

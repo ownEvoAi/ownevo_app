@@ -420,12 +420,36 @@ async def run_one_iteration_for_workflow(
         else IterationState.GATE_BLOCKED_NO_IMPROVEMENT.value
     )
 
+    # best_ever_score_before is the DB-authoritative max across all prior
+    # non-running iterations; best_ever_score_after is max(before, val_score).
+    # This populates the Health page's "Best val_score" column without
+    # needing the legacy gate.persistence path.
+    best_before = await conn.fetchval(
+        """
+        SELECT MAX(best_ever_score_after)
+        FROM iterations
+        WHERE workflow_id = $1
+          AND state <> 'running'::iteration_state
+          AND id <> $2
+        """,
+        workflow_id,
+        iteration_id,
+    )
+    best_before_float = float(best_before) if best_before is not None else None
+    best_after = (
+        max(best_before_float, float(val_score))
+        if best_before_float is not None
+        else float(val_score)
+    )
+
     await conn.execute(
         """
         UPDATE iterations
         SET state = $2::iteration_state,
             val_score = $3,
             proposed_skill_version_id = $4,
+            best_ever_score_before = $5,
+            best_ever_score_after = $6,
             ended_at = now()
         WHERE id = $1
         """,
@@ -433,6 +457,8 @@ async def run_one_iteration_for_workflow(
         final_state,
         float(val_score),
         proposed_skill_version_id,
+        best_before_float,
+        best_after,
     )
 
     return IterationOutcome(
