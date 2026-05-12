@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import {
   getWorkflowAnatomy,
+  getWorkflowCaseOutputs,
   getWorkflowIterations,
   getWorkflowSkills,
   kernelError,
   KernelApiError,
   listProposals,
   listWorkflowEvalCases,
+  type CaseOutputList,
   type EvalCaseSummary,
   type IterationPoint,
   type ProposalSummary,
@@ -15,6 +17,7 @@ import {
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolvePrimitives } from '@/lib/primitive-data-resolver'
 import { GenerateEvalCasesButton } from './eval-cases/generate-button'
@@ -32,20 +35,23 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   let evalCases: EvalCaseSummary[] = []
   let iterations: IterationPoint[] = []
   let proposals: ProposalSummary[] = []
+  let caseOutputs: CaseOutputList | null = null
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList, evalList, iterList, propList] = await Promise.all([
+    const [anatomy, skillList, evalList, iterList, propList, coList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
       listWorkflowEvalCases(wfId),
       getWorkflowIterations(wfId),
       listProposals({ workflow_id: wfId, limit: 100 }),
+      getWorkflowCaseOutputs(wfId).catch(() => null),
     ])
     spec = anatomy.spec
     skills = skillList.items
     evalCases = evalList.items
     iterations = iterList.items
     proposals = propList.items
+    caseOutputs = coList
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -55,7 +61,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   }
 
   const resolvedPrimitives = !apiError
-    ? resolvePrimitives({ spec, iterations, evalCases, proposals })
+    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs })
     : []
 
   const hasEvalCases = evalCases.length > 0
@@ -150,6 +156,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
             if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
             if (p.kind === 'TimeSeriesChart')
               return <TimeSeriesChart key={i} data={p.data} />
+            if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
             return null
           })}
           {unresolvedTypes.length > 0 ? (

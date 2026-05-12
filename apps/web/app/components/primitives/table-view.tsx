@@ -10,6 +10,8 @@ const PILL_TONES: Record<string, string> = {
   medium: 'pill amber',
   low: 'pill outline',
   ok: 'pill green',
+  pass: 'pill green',
+  fail: 'pill red',
 }
 
 function formatCell(value: unknown, col: TableColumn): React.ReactNode {

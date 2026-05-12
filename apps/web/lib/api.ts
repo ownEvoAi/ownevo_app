@@ -313,6 +313,36 @@ export async function listWorkflowEvalCases(
   )
 }
 
+// PLAN 8.4.9 (Phase A) — per-case agent output. PLAN 8.4.10 (Phase B)
+// wires this to the operator-shell TableView primitive.
+export interface CaseOutputRow {
+  eval_case_id: string
+  case_id: string | null
+  output_json: Record<string, unknown>
+  input: Record<string, unknown>
+  expected_behavior: Record<string, unknown>
+  passed: boolean
+  is_test_fold: boolean
+  created_at: string
+}
+
+export interface CaseOutputList {
+  workflow_id: string
+  iteration_index: number | null
+  iteration_id: string | null
+  items: CaseOutputRow[]
+}
+
+export async function getWorkflowCaseOutputs(
+  workflowId: string,
+  options: { iteration?: number | 'latest' } = {},
+): Promise<CaseOutputList> {
+  const iter = options.iteration ?? 'latest'
+  return jsonFetch<CaseOutputList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/case-outputs?iteration=${encodeURIComponent(String(iter))}`,
+  )
+}
+
 export interface GenerateEvalCasesResponse {
   workflow_id: string
   generated: number

@@ -20,9 +20,11 @@
 
 import type {
   MetricCardDatum,
+  TableData,
   TimeSeriesData,
 } from '@/app/components/primitives/types'
 import type {
+  CaseOutputList,
   EvalCaseSummary,
   IterationPoint,
   ProposalSummary,
@@ -32,6 +34,7 @@ import type {
 export type ResolvedPrimitive =
   | { kind: 'MetricCards'; data: MetricCardDatum[] }
   | { kind: 'TimeSeriesChart'; data: TimeSeriesData }
+  | { kind: 'TableView'; data: TableData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -39,6 +42,10 @@ export interface ResolverInputs {
   iterations: IterationPoint[]
   evalCases: EvalCaseSummary[]
   proposals: ProposalSummary[]
+  // PLAN 8.4.10 (Phase B) — when present, TableView resolves to a
+  // per-case table built from the latest iteration's structured agent
+  // output. Null / empty falls back to the "Coming soon" empty state.
+  caseOutputs?: CaseOutputList | null
 }
 
 export function resolvePrimitives(inputs: ResolverInputs): ResolvedPrimitive[] {
@@ -73,6 +80,8 @@ function resolveOne(
       return resolveMetricCards(inputs)
     case 'TimeSeriesChart':
       return resolveTimeSeries(inputs)
+    case 'TableView':
+      return resolveTableView(inputs)
     default:
       return {
         kind: 'empty',
@@ -165,6 +174,65 @@ function resolveMetricCards(inputs: ResolverInputs): ResolvedPrimitive {
 
   return { kind: 'MetricCards', data }
 }
+
+function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
+  // PLAN 8.4.10 (Phase B) — render the latest iteration's per-case
+  // agent output as a table. The spec's declared `columns` are
+  // advisory today (most spec authors named the workflow's eventual
+  // recommendation-table columns like `account_id` / `sector` which
+  // the agent doesn't emit yet); we render the structured output
+  // the agent actually produces — case_id, predicted, expected,
+  // pass/fail, rationale.
+  const co = inputs.caseOutputs
+  if (!co || co.items.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'TableView',
+      reason:
+        co === undefined
+          ? 'Case-outputs not fetched by this page.'
+          : 'No iteration has produced per-case output yet.',
+    }
+  }
+
+  const columns: TableData['columns'] = [
+    { key: 'case_id', label: 'Case' },
+    { key: 'predicted', label: 'Predicted' },
+    { key: 'expected', label: 'Expected' },
+    { key: 'passed', label: 'Result', type: 'pill' },
+    { key: 'rationale', label: 'Agent rationale' },
+  ]
+
+  const tick = (v: unknown): string =>
+    v === true ? '✓' : v === false ? '✗' : '—'
+
+  const rows = co.items.map((it) => {
+    const rationale = it.output_json?.rationale
+    return {
+      case_id: it.case_id ?? '(unknown)',
+      predicted: tick(it.output_json?.predicted),
+      expected: tick(it.output_json?.expected),
+      passed: it.passed ? 'pass' : 'fail',
+      rationale: typeof rationale === 'string' ? rationale : '',
+    }
+  })
+
+  // Failed-first ordering — the operator's eye lands on what regressed.
+  rows.sort((a, b) => {
+    const ap = a.passed === 'pass' ? 1 : 0
+    const bp = b.passed === 'pass' ? 1 : 0
+    return ap - bp
+  })
+
+  const data: TableData = {
+    title: `Per-case agent output · iteration #${co.iteration_index ?? '?'}`,
+    summary: `${rows.length} case${rows.length === 1 ? '' : 's'} · failed first`,
+    columns,
+    rows,
+  }
+  return { kind: 'TableView', data }
+}
+
 
 function resolveTimeSeries(inputs: ResolverInputs): ResolvedPrimitive {
   const { iterations } = inputs

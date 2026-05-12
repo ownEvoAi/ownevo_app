@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   getWorkflowAnatomy,
+  getWorkflowCaseOutputs,
   getWorkflowIterations,
   KernelApiError,
   listProposals,
   listWorkflowEvalCases,
   listWorkflows,
+  type CaseOutputList,
   type EvalCaseSummary,
   type IterationPoint,
   type ProposalSummary,
@@ -15,6 +17,7 @@ import {
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolveTabPrimitives, resolvePrimitives } from '@/lib/primitive-data-resolver'
 import { WorkflowSwitcher } from './workflow-switcher'
@@ -50,14 +53,18 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
   let evalCases: EvalCaseSummary[] = []
   let proposals: ProposalSummary[] = []
   let allWorkflows: WorkflowSummary[] = []
+  let caseOutputs: CaseOutputList | null = null
 
   try {
-    const [anatomy, iterList, evalList, propList, wfList] = await Promise.all([
+    const [anatomy, iterList, evalList, propList, wfList, coList] = await Promise.all([
       getWorkflowAnatomy(workflowId),
       getWorkflowIterations(workflowId),
       listWorkflowEvalCases(workflowId),
       listProposals({ workflow_id: workflowId, limit: 100 }),
       listWorkflows(),
+      // Tolerate per-fetch failures here — case-outputs is best-effort
+      // and the page still renders without them (empty TableView).
+      getWorkflowCaseOutputs(workflowId).catch(() => null),
     ])
     spec = anatomy.spec
     description = anatomy.description
@@ -66,6 +73,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
     evalCases = evalList.items
     proposals = propList.items
     allWorkflows = wfList.items
+    caseOutputs = coList
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       notFound()
@@ -78,10 +86,10 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
     tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
   const primitives = operateTab
     ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals },
+        { spec, iterations, evalCases, proposals, caseOutputs },
         operateTab.name ?? 'operate',
       ) ?? []
-    : resolvePrimitives({ spec, iterations, evalCases, proposals })
+    : resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs })
 
   const resolved = primitives.filter((p) => p.kind !== 'empty')
   const unresolvedTypes = primitives
@@ -194,6 +202,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
               if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
               if (p.kind === 'TimeSeriesChart')
                 return <TimeSeriesChart key={i} data={p.data} />
+              if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
               return null
             })}
           </section>
