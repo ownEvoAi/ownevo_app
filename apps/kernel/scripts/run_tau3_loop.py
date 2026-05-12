@@ -627,44 +627,80 @@ async def main_async(args: CliArgs) -> int:
             # Tier-1 #3: one-task smoke before the full 40-task gate. Catches
             # runtime bugs the write_skill validator can't see (uninitialized
             # attrs in generate_next_message, missing-class-but-passes-import,
-            # tau2-side template incompat). If task 0 hits infra_error we
-            # abort BEFORE persist_gate_run opens its transaction — no
+            # tau2-side template incompat). If the smoke task hits infra_error
+            # we abort BEFORE persist_gate_run opens its transaction — no
             # iteration row, no eval-wide commit, ~25 min saved. Disable
             # with OWNEVO_TAU3_SKIP_SMOKE=1.
+            #
+            # Task ID choice: retail/test task IDs are not sequential 0..N;
+            # we try a small list of known-existing IDs and use the first
+            # one tau2 accepts. Override the candidate list with
+            # OWNEVO_TAU3_SMOKE_TASK_ID (single ID).
             if os.environ.get("OWNEVO_TAU3_SKIP_SMOKE", "").lower() not in ("1", "true", "yes"):
-                print("smoke: running one-task pre-eval probe (task_ids=[0])", flush=True)
-                try:
-                    await runner.run(task_ids=["0"])
-                except Exception as exc:  # noqa: BLE001
+                override_id = os.environ.get("OWNEVO_TAU3_SMOKE_TASK_ID", "").strip()
+                if override_id:
+                    smoke_candidates = [override_id]
+                else:
+                    # Observed in retail/test from prior runs — pick the smallest.
+                    smoke_candidates = ["1", "5", "2", "3", "9"]
+                smoke_summary: dict | None = None
+                smoke_task_id: str | None = None
+                for cand in smoke_candidates:
+                    print(f"smoke: trying task_ids=['{cand}']", flush=True)
+                    try:
+                        await runner.run(task_ids=[cand])
+                    except Exception as exc:  # noqa: BLE001
+                        msg = str(exc)
+                        # "Not all tasks were found" → task ID doesn't exist
+                        # in this domain/split. Try the next candidate
+                        # without failing the run.
+                        if "Not all tasks were found" in msg:
+                            print(
+                                f"smoke: task_id={cand!r} not in domain/split, "
+                                f"trying next",
+                                flush=True,
+                            )
+                            continue
+                        print(
+                            f"error: smoke crashed: {type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                        )
+                        return 8
+                    smoke_summary = runner.last_summary or {}
+                    smoke_task_id = cand
+                    break
+                if smoke_summary is None:
                     print(
-                        f"error: one-task smoke crashed before persist_gate_run: "
-                        f"{type(exc).__name__}: {exc}",
+                        f"smoke: no candidate task_id resolved "
+                        f"(tried {smoke_candidates}); skipping smoke check, "
+                        f"proceeding to full eval",
                         file=sys.stderr,
                     )
-                    return 8
-                smoke_summary = runner.last_summary or {}
-                smoke_evaluated = int(smoke_summary.get("n_evaluated", 0))
-                smoke_infra = int(smoke_summary.get("infra_errors", 0))
-                print(
-                    f"smoke: evaluated={smoke_evaluated} "
-                    f"infra_errors={smoke_infra}",
-                    flush=True,
-                )
-                if smoke_infra > 0 or smoke_evaluated == 0:
-                    diag_list = smoke_summary.get("infra_diag", [])
-                    diag = ""
-                    if diag_list:
-                        err = diag_list[0].get("error", "")
-                        diag = f"\n  first_error={err[:500]}"
+                else:
+                    smoke_evaluated = int(smoke_summary.get("n_evaluated", 0))
+                    smoke_infra = int(smoke_summary.get("infra_errors", 0))
                     print(
-                        f"error: one-task smoke failed — aborting before "
-                        f"full eval to save ~25 min. "
-                        f"infra_errors={smoke_infra}/1 evaluated={smoke_evaluated}/1"
-                        f"{diag}\n"
-                        f"  (set OWNEVO_TAU3_SKIP_SMOKE=1 to bypass this check)",
-                        file=sys.stderr,
+                        f"smoke: task_id={smoke_task_id!r} "
+                        f"evaluated={smoke_evaluated} "
+                        f"infra_errors={smoke_infra}",
+                        flush=True,
                     )
-                    return 9
+                    if smoke_infra > 0 or smoke_evaluated == 0:
+                        diag_list = smoke_summary.get("infra_diag", [])
+                        diag = ""
+                        if diag_list:
+                            err = diag_list[0].get("error", "")
+                            diag = f"\n  first_error={err[:500]}"
+                        print(
+                            f"error: one-task smoke failed — aborting before "
+                            f"full eval to save ~25 min. "
+                            f"infra_errors={smoke_infra}/1 "
+                            f"evaluated={smoke_evaluated}/1"
+                            f"{diag}\n"
+                            f"  (set OWNEVO_TAU3_SKIP_SMOKE=1 to bypass)",
+                            file=sys.stderr,
+                        )
+                        return 9
 
             persisted = await persist_gate_run(
                 conn,
