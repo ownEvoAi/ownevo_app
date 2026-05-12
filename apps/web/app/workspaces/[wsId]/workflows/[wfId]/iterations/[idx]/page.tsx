@@ -215,10 +215,17 @@ function CaseSection({
           <Link
             key={c.trace_id}
             href={`/workspaces/${wsId}/traces/${c.trace_id}`}
-            className="iter-case-row"
+            className="iter-case-row iter-case-row-rich"
           >
-            <span className="iter-case-id" title={c.case_id}>
-              {c.case_id}
+            <span className="iter-case-id-cell">
+              <span className="iter-case-id" title={c.case_id}>
+                {c.case_id}
+              </span>
+              {c.rationale ? (
+                <span className="iter-case-rationale" title={c.rationale}>
+                  {c.rationale}
+                </span>
+              ) : null}
             </span>
             <span className={`iter-case-bool ${boolClass(c.predicted)}`}>
               {boolLabel(c.predicted)}

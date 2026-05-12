@@ -357,6 +357,7 @@ export interface IterationCaseRow {
   expected: boolean | null
   passed: boolean | null
   is_test_fold: boolean
+  rationale: string | null
   trace_id: string
   started_at: string
   ended_at: string | null

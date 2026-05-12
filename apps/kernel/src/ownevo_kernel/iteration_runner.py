@@ -680,6 +680,7 @@ def _trace_events_for_outcome(
                 "expected": bool(outcome.expected_value),
                 "passed": bool(outcome.passed),
                 "is_test_fold": bool(outcome.is_test_fold),
+                "rationale": outcome.rationale,
             },
             "duration_ms": max(0, int((ended_at - started_at).total_seconds() * 1000)),
             "error": None,
@@ -732,6 +733,7 @@ async def _persist_traces(
                     "expected": bool(outcome.expected_value),
                     "passed": bool(outcome.passed),
                     "is_test_fold": bool(outcome.is_test_fold),
+                    "rationale": outcome.rationale,
                 }
             ),
         )

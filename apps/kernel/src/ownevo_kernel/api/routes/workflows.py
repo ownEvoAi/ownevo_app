@@ -269,6 +269,7 @@ async def get_iteration_detail(
     cases: list[IterationCaseRow] = []
     for r in case_rows:
         outputs = decode_jsonb_obj(r["metric_outputs"]) or {}
+        rationale = outputs.get("rationale")
         cases.append(
             IterationCaseRow(
                 case_id=str(outputs.get("case_id") or r["trace_id"]),
@@ -276,6 +277,7 @@ async def get_iteration_detail(
                 expected=_to_bool(outputs.get("expected")),
                 passed=_to_bool(outputs.get("passed")),
                 is_test_fold=bool(outputs.get("is_test_fold", False)),
+                rationale=rationale if isinstance(rationale, str) else None,
                 trace_id=r["trace_id"],
                 started_at=r["started_at"],
                 ended_at=r["ended_at"],

@@ -405,6 +405,9 @@ class IterationCaseRow(_Strict):
     runner. The trace's `metric_outputs` JSONB carries the predicted /
     expected / passed flags inline; `case_id` is the workflow-local
     eval case identifier (matches `eval_cases` rows on case_id).
+    `rationale` is the agent's per-case explanation (the second
+    argument to the predict_label tool); None for legacy traces from
+    before the rationale plumbing landed.
     """
 
     case_id: str
@@ -412,6 +415,7 @@ class IterationCaseRow(_Strict):
     expected: bool | None
     passed: bool | None
     is_test_fold: bool
+    rationale: str | None = None
     trace_id: UUID
     started_at: datetime
     ended_at: datetime | None

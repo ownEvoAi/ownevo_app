@@ -1687,6 +1687,22 @@
 .iter-case-list-fail .iter-case-row:not(.iter-case-head) .iter-case-id {
   color: #b42318;
 }
+.iter-case-id-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.iter-case-rationale {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 
 .iter-overview-list {
   border: 1px solid var(--border);
