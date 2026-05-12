@@ -807,6 +807,21 @@
   vertical-align: middle;
 }
 
+/* Stale variant: an iteration still "running" past the threshold.
+   Amber instead of blue, no pulse — the run is suspect, not active. */
+.inflight-banner.stale {
+  background: rgba(217, 119, 6, 0.07);
+  border-color: rgba(217, 119, 6, 0.35);
+  color: #b45309;
+}
+.inflight-dot.stale {
+  background: #d97706;
+  animation: none;
+}
+.wf-inflight.stale {
+  color: #b45309;
+}
+
 /* Sidebar workflow row — two lines so near-duplicate workflows are
    distinguishable (TODO-40). */
 .nav-workflow {
@@ -2314,6 +2329,24 @@
   font-weight: 500;
 }
 
+/* Iteration back-link footer — sits below the cluster header so the
+   spawning iteration is one click away when a user lands on a cluster
+   card from elsewhere. */
+.cluster-footer {
+  border-top: 1px dashed var(--border);
+  margin-top: 10px;
+  padding-top: 8px;
+  font-size: 11.5px;
+}
+.cluster-footer-link {
+  color: var(--text-2);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-footer-link:hover {
+  color: var(--accent);
+}
+
 /* ---------------------------------------------------------------------
    W7 slice 8 (7.1.9) — Trace list + per-trace timeline.
    Visual target: www/preview/s26-rk7p3/15-traces.html.
@@ -3169,4 +3202,381 @@ a.anatomy-row-name:hover {
 .overview-primitives-unresolved strong {
   color: var(--text-2);
   font-weight: 500;
+}
+
+/* Baseline-complete landing — mock 19 parity. Shown once, after the
+   very first iteration on a workflow finishes. */
+.baseline-hero {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(59, 130, 246, 0.08));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 36px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+.baseline-hero-check {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.baseline-hero-check svg {
+  width: 28px;
+  height: 28px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+}
+.baseline-hero-title {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+.baseline-hero-sub {
+  font-size: 14px;
+  color: var(--text-2);
+  max-width: 540px;
+  margin: 0 auto;
+  line-height: 1.55;
+}
+.baseline-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.baseline-block {
+  margin-bottom: 22px;
+}
+.baseline-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.baseline-case-list {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.baseline-case-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 60px 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background 0.12s;
+}
+.baseline-case-row:last-child {
+  border-bottom: none;
+}
+.baseline-case-row:hover {
+  background: var(--surface);
+}
+.baseline-case-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: block;
+}
+.baseline-case-dot.pass {
+  background: #22c55e;
+}
+.baseline-case-dot.fail {
+  background: #ef4444;
+}
+.baseline-case-dot.unknown {
+  background: var(--text-faint);
+}
+.baseline-case-id {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.baseline-case-fold {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.baseline-case-status.pass {
+  color: #22c55e;
+}
+.baseline-case-status.fail {
+  color: #ef4444;
+}
+.baseline-case-status.unknown {
+  color: var(--text-faint);
+}
+.baseline-case-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.final-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  gap: 16px;
+}
+.final-row-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  max-width: 440px;
+  line-height: 1.5;
+}
+.final-row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Mini lift preview, also used on baseline-complete. */
+.lift-preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 22px;
+}
+.lift-pre-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.lift-pre-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.lift-pre-current {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.lift-pre-val {
+  font-size: 32px;
+  font-weight: 500;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.lift-pre-unit {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+.lift-pre-meta {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+/* Review-before-commit blocks on the new-workflow flow. Each block is
+   visually separated so the spec / eval cases / description stand
+   apart at a glance. */
+.review-block {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.review-block:last-of-type {
+  border-bottom: none;
+}
+.review-description {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+.review-eval-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.review-eval-empty p {
+  margin: 0;
+}
+
+/* Activity feed — workspace-wide audit rendered as user-friendly rows. */
+.activity-empty {
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.activity-bucket {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.activity-day {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.activity-rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.activity-row {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg);
+  align-items: center;
+}
+.activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+}
+.activity-icon.activity-green {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+.activity-icon.activity-red {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+.activity-icon.activity-amber {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+.activity-icon.activity-accent {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+.activity-icon.activity-neutral {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-2);
+}
+.activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.activity-text {
+  font-size: 13px;
+  color: var(--text);
+}
+.activity-text code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11.5px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.activity-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.activity-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.activity-link:hover {
+  text-decoration: underline;
+}
+
+/* Filter chip strip — used on the Skills library to scope by workflow. */
+.chip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.chip-strip .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.chip-strip .chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chip-strip .chip.active {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.chip-strip .chip-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+.chip-strip .chip.active .chip-count {
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.15);
 }
