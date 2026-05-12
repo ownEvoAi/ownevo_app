@@ -54,6 +54,8 @@ data/
 *.sqlite
 *.sqlite3
 .temp
+.tmp/
 data/m5/
 temp/
 .gstack/
+.claude/
