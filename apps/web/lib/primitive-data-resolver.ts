@@ -19,6 +19,7 @@
 //   gets structured beyond `bool prediction`.
 
 import type {
+  AlertItem,
   MetricCardDatum,
   TableData,
   TimeSeriesData,
@@ -35,6 +36,7 @@ export type ResolvedPrimitive =
   | { kind: 'MetricCards'; data: MetricCardDatum[] }
   | { kind: 'TimeSeriesChart'; data: TimeSeriesData }
   | { kind: 'TableView'; data: TableData }
+  | { kind: 'AlertList'; data: AlertItem[] }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -82,6 +84,8 @@ function resolveOne(
       return resolveTimeSeries(inputs)
     case 'TableView':
       return resolveTableView(inputs)
+    case 'AlertList':
+      return resolveAlertList(inputs)
     default:
       return {
         kind: 'empty',
@@ -200,20 +204,26 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
     { key: 'predicted', label: 'Predicted' },
     { key: 'expected', label: 'Expected' },
     { key: 'passed', label: 'Result', type: 'pill' },
-    { key: 'rationale', label: 'Agent rationale' },
+    { key: 'rationale', label: 'Agent rationale', title_key: 'rationale_full' },
   ]
 
   const tick = (v: unknown): string =>
     v === true ? '✓' : v === false ? '✗' : '—'
+  const TRUNC = 140
+  const truncate = (s: string): string =>
+    s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
 
   const rows = co.items.map((it) => {
     const rationale = it.output_json?.rationale
+    const full = typeof rationale === 'string' ? rationale : ''
     return {
       case_id: it.case_id ?? '(unknown)',
       predicted: tick(it.output_json?.predicted),
       expected: tick(it.output_json?.expected),
       passed: it.passed ? 'pass' : 'fail',
-      rationale: typeof rationale === 'string' ? rationale : '',
+      rationale: truncate(full),
+      // Available to the component for a hover-tooltip on the cell.
+      rationale_full: full,
     }
   })
 
@@ -231,6 +241,49 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
     rows,
   }
   return { kind: 'TableView', data }
+}
+
+
+function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
+  // Surface the iteration's failed cases as high-severity alerts.
+  // Until the agent emits a workflow-specific alert shape (separate
+  // from `submit_case_output`'s structured prediction), failed cases
+  // are the most reliable "things the operator should look at" signal.
+  // Capped at 5 so the list doesn't duplicate the full table above.
+  const co = inputs.caseOutputs
+  if (!co || co.items.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'AlertList',
+      reason:
+        co === undefined
+          ? 'Case-outputs not fetched by this page.'
+          : 'No iteration has produced per-case output yet.',
+    }
+  }
+  const failed = co.items.filter((it) => !it.passed)
+  if (failed.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'AlertList',
+      reason: 'No failed cases on the latest iteration.',
+    }
+  }
+  const TRUNC = 160
+  const truncate = (s: string): string =>
+    s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
+  const data: AlertItem[] = failed.slice(0, 5).map((it) => {
+    const rationale = it.output_json?.rationale
+    const meta = typeof rationale === 'string' ? truncate(rationale) : ''
+    return {
+      severity: 'high',
+      title: it.case_id ?? '(unknown case)',
+      meta:
+        meta ||
+        `predicted ${String(it.output_json?.predicted)} · expected ${String(it.output_json?.expected)}`,
+    }
+  })
+  return { kind: 'AlertList', data }
 }
 
 

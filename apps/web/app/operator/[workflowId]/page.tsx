@@ -16,6 +16,7 @@ import {
   type WorkflowSummary,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
+import { AlertList } from '@/app/components/primitives/alert-list'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
@@ -203,6 +204,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
               if (p.kind === 'TimeSeriesChart')
                 return <TimeSeriesChart key={i} data={p.data} />
               if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
+              if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
               return null
             })}
           </section>

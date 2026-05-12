@@ -58,6 +58,7 @@ export function TableView({ data }: Props) {
                 const v = row[c.key]
                 const numeric =
                   c.type === 'number' || c.align === 'right' || typeof v === 'number'
+                const tooltip = c.title_key ? String(row[c.title_key] ?? '') : undefined
                 return (
                   <td
                     key={c.key}
@@ -67,6 +68,7 @@ export function TableView({ data }: Props) {
                     ]
                       .filter(Boolean)
                       .join(' ')}
+                    title={tooltip || undefined}
                   >
                     {formatCell(v, c)}
                   </td>

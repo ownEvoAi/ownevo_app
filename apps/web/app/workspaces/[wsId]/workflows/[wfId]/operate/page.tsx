@@ -14,6 +14,7 @@ import {
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { formatScore, relativeTime } from '@/lib/format'
+import { AlertList } from '@/app/components/primitives/alert-list'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
@@ -165,6 +166,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
             if (p.kind === 'TimeSeriesChart')
               return <TimeSeriesChart key={i} data={p.data} />
             if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
+            if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
             return null
           })}
         </section>
