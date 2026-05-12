@@ -727,6 +727,51 @@ export interface TraceDetail {
   events: AgentEvent[]
 }
 
+export interface EvalCaseCreatePayload {
+  case_id: string
+  expected_value: boolean
+  target_label_field: string
+  rationale?: string
+  is_test_fold?: boolean
+  sim_seed?: number
+  n_steps?: number
+  target_step_index?: number
+}
+
+export async function createEvalCase(
+  workflowId: string,
+  payload: EvalCaseCreatePayload,
+): Promise<EvalCaseSummary> {
+  return jsonFetch<EvalCaseSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export async function deleteEvalCase(
+  workflowId: string,
+  caseId: string,
+): Promise<void> {
+  // Custom fetch — the endpoint returns 204 No Content; jsonFetch would
+  // choke trying to parse an empty body.
+  const url = `${API_URL}/api/workflows/${encodeURIComponent(workflowId)}/eval-cases/${encodeURIComponent(caseId)}`
+  const res = await fetch(url, { method: 'DELETE', cache: 'no-store' })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { detail?: string }
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // body wasn't JSON
+    }
+    throw new KernelApiError(res.status, detail)
+  }
+}
+
 export async function listAllTraces(): Promise<TraceList> {
   return jsonFetch<TraceList>(`/api/traces`)
 }

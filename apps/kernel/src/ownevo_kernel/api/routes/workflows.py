@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, status
 from ..deps import ConnDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
+    EvalCaseCreate,
     EvalCaseList,
     EvalCaseSummary,
     FailureClusterList,
@@ -474,6 +475,113 @@ async def list_workflow_eval_cases(
     # any future per-field decode the registry doesn't do.
     _ = decode_jsonb_obj
     return EvalCaseList(workflow_id=workflow_id, items=items, total=len(items))
+
+
+@router.post(
+    "/{workflow_id}/eval-cases",
+    response_model=EvalCaseSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_eval_case(
+    workflow_id: str,
+    payload: EvalCaseCreate,
+    conn: ConnDep,
+) -> EvalCaseSummary:
+    """Manually add one eval case to a workflow's regression suite.
+
+    Hand-authored cases carry `provenance='hand-authored'` (D4 — the
+    enum's seeded-by-humans slot). The expected_behavior JSON shape
+    matches what `eval_persistence` writes for NL-gen cases so the
+    regression gate's replay path picks them up uniformly.
+    """
+    from ...eval_cases.registry import add_eval_case
+
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1", workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    case = await add_eval_case(
+        conn,
+        provenance="hand-authored",
+        workflow_id=workflow_id,
+        input={
+            "sim_seed": payload.sim_seed,
+            "n_steps": payload.n_steps,
+            "target_step_index": payload.target_step_index,
+        },
+        expected_behavior={
+            "case_id": payload.case_id,
+            "target_label_field": payload.target_label_field,
+            "expected_value": payload.expected_value,
+            "rationale": payload.rationale or "(manually added)",
+            "provenance": {
+                "kind": "inferred",
+                "source": "hand-authored",
+            },
+        },
+        is_test_fold=payload.is_test_fold,
+    )
+    return EvalCaseSummary(
+        id=case.id,
+        case_id=payload.case_id,
+        provenance=case.provenance,
+        rationale=payload.rationale or "(manually added)",
+        target_label_field=payload.target_label_field,
+        expected_value=payload.expected_value,
+        sim_seed=payload.sim_seed,
+        n_steps=payload.n_steps,
+        target_step_index=payload.target_step_index,
+        is_test_fold=payload.is_test_fold,
+        cluster_id=case.cluster_id,
+        created_at=case.created_at,
+    )
+
+
+@router.delete(
+    "/{workflow_id}/eval-cases/{case_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_eval_case(
+    workflow_id: str,
+    case_id: str,
+    conn: ConnDep,
+) -> None:
+    """Remove one eval case from the suite.
+
+    Case ids are UUIDs from the `eval_cases` table — accepted as `str`
+    here so FastAPI's path parsing doesn't reject mid-format. We resolve
+    the row by (workflow_id, id) so cross-workflow deletion is impossible
+    even if a UUID is reused (it can't be — UUIDs — but the constraint
+    is defensive). Returns 404 if the case doesn't exist or doesn't
+    belong to the workflow.
+    """
+    from uuid import UUID
+
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Eval case not found",
+        ) from exc
+
+    tag = await conn.execute(
+        "DELETE FROM eval_cases WHERE id = $1 AND workflow_id = $2",
+        case_uuid,
+        workflow_id,
+    )
+    parts = tag.split()
+    deleted = len(parts) >= 2 and parts[-1].isdigit() and int(parts[-1]) > 0
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Eval case not found",
+        )
 
 
 @router.post(

@@ -4,6 +4,8 @@ import {
   listWorkflowEvalCases,
   type EvalCaseSummary,
 } from '@/lib/api'
+import { AddEvalCaseForm } from './add-form'
+import { DeleteEvalCaseButton } from './delete-button'
 import { GenerateEvalCasesButton } from './generate-button'
 
 interface PageProps {
@@ -41,7 +43,12 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
           </p>
         </div>
         {!notFound && !apiError ? (
-          <div className="page-actions">
+          <div className="page-actions" style={{ gap: 8 }}>
+            <AddEvalCaseForm
+              wsId={wsId}
+              wfId={wfId}
+              defaultTargetLabel={items[0]?.target_label_field || 'label'}
+            />
             <GenerateEvalCasesButton wsId={wsId} wfId={wfId} hasExisting={items.length > 0} />
           </div>
         ) : null}
@@ -92,6 +99,7 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
             <div>Case</div>
             <div>Expected</div>
             <div>Fold</div>
+            <div />
           </div>
           {items.map((c, i) => (
             <div key={c.id} className="eval-row">
@@ -102,7 +110,8 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
                 {c.target_label_field ? (
                   <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
                     target: <code>{c.target_label_field}</code> · seed {c.sim_seed} ·{' '}
-                    step {c.target_step_index}/{c.n_steps}
+                    step {c.target_step_index}/{c.n_steps} ·{' '}
+                    provenance: <code>{c.provenance}</code>
                   </div>
                 ) : null}
               </div>
@@ -124,6 +133,7 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
                   {c.is_test_fold ? 'test' : 'train'}
                 </span>
               </div>
+              <DeleteEvalCaseButton wsId={wsId} wfId={wfId} caseId={c.id} />
             </div>
           ))}
         </div>

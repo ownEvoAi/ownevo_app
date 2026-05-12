@@ -339,6 +339,26 @@ class WorkflowAnatomy(_Strict):
     spec: dict[str, Any]
 
 
+class EvalCaseCreate(_Strict):
+    """Manual add payload for `POST /api/workflows/{id}/eval-cases`.
+
+    Minimal surface — the operator types a case_id, expected bool, and
+    optional rationale; the kernel fills in target_label_field +
+    sim_seed/n_steps/target_step_index defaults so the gate can score
+    the case via the standard replay path. Manual cases carry
+    provenance='hand-authored' (D4: this is the human-seeded slot).
+    """
+
+    case_id: str = Field(min_length=1, max_length=128)
+    expected_value: bool
+    target_label_field: str = Field(min_length=1, max_length=128)
+    rationale: str = Field(default="", max_length=1024)
+    is_test_fold: bool = False
+    sim_seed: int = Field(default=0, ge=0)
+    n_steps: int = Field(default=1, ge=1)
+    target_step_index: int = Field(default=0, ge=0)
+
+
 class WorkflowUpdate(_Strict):
     """Patch payload for `PATCH /api/workflows/{id}`.
 
@@ -715,6 +735,7 @@ __all__ = [
     "TraceDetail",
     "TraceList",
     "TraceSummary",
+    "EvalCaseCreate",
     "IterationCaseRow",
     "IterationDetailFull",
     "WorkflowAnatomy",

@@ -557,9 +557,86 @@
   border-radius: 6px;
   overflow: hidden;
 }
+/* Eval-case lifecycle (TODO-38) — manual add card + per-row delete. */
+.eval-add-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.eval-add-header {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.eval-add-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.8fr 80px;
+  gap: 10px;
+  align-items: end;
+}
+.eval-add-grid label,
+.eval-add-rationale {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.eval-add-rationale {
+  margin-top: 10px;
+}
+.eval-add-grid label span,
+.eval-add-rationale span {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.eval-add-grid input,
+.eval-add-grid select,
+.eval-add-rationale input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.eval-add-fold {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+  padding: 6px 0;
+  text-transform: none !important;
+}
+.eval-add-fold input {
+  width: 14px;
+  height: 14px;
+}
+.eval-add-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.eval-delete-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.eval-delete-error {
+  font-size: 11px;
+  color: #b42318;
+}
+
 .eval-row {
   display: grid;
-  grid-template-columns: 32px 1fr 110px 80px;
+  grid-template-columns: 32px 1fr 110px 80px 110px;
   gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
