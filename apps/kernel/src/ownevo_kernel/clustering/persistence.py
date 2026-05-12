@@ -47,7 +47,7 @@ async def persist_clustering_result(
     async with conn.transaction():
         for summary in result.clusters:
             persisted.append(
-                await _insert_cluster(
+                await insert_cluster(
                     conn,
                     workflow_id=workflow_id,
                     summary=summary,
@@ -93,13 +93,16 @@ async def fetch_failure_cluster(
 # ---------------------------------------------------------------------------
 
 
-async def _insert_cluster(
+async def insert_cluster(
     conn: asyncpg.Connection,
     *,
     workflow_id: str,
     summary: ClusterSummary,
     sample_trace_ids: list[UUID],
 ) -> PersistedCluster:
+    """Insert one failure_clusters row. Exposed (vs `_insert_cluster`) so
+    the iteration runner can drive per-cluster `sample_trace_ids` without
+    rewriting the pgvector + fingerprint plumbing."""
     centroid_literal = _to_pgvector_literal(summary.centroid.tolist())
     quality = (
         round(float(summary.quality_score), 2) if summary.quality_score is not None else None

@@ -19,15 +19,21 @@ The runner is intentionally one-cycle-at-a-time so the UI button maps
 from __future__ import annotations
 
 import json
+import uuid as _uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import asyncpg
 
+from .audit.writer import append_audit_entry
+from .clustering.persistence import insert_cluster
+from .clustering.types import ClusterSummary
 from .eval_cases.registry import list_eval_cases
+from .eval_runner.runner import EvalCaseOutcome
 from .nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
+from .nl_gen.failure_clustering import NLGenFailureSnapshot
 from .nl_gen.instruction_proposer import (
     InstructionEditValidationError,
     NoInstructionEditToolUseError,
@@ -37,13 +43,14 @@ from .nl_gen.metric_def import MetricDefinition
 from .nl_gen.sim_plan import SimulationPlan
 from .nl_gen.spec import Provenance, WorkflowSpec
 from .skills.registry import register_skill
-from .types import EvalCase, IterationState, ProposalState
+from .types import AuditKind, EvalCase, IterationState, ProposalState
 
 if TYPE_CHECKING:  # pragma: no cover
     from anthropic import AsyncAnthropic
 
 
 _INSTRUCTION_SKILL_KIND = "instruction"
+_ITERATION_ACTOR = "nl-gen-iteration-runner"
 
 
 class IterationRunnerError(RuntimeError):
@@ -272,6 +279,7 @@ async def run_one_iteration_for_workflow(
     """
     spec, sim_plan, metric, case_set = await _load_artifacts(conn, workflow_id)
     instruction_before = await _current_head_instruction(conn, workflow_id)
+    parent_skill_version_id = await _current_head_version_id(conn, workflow_id)
     iteration_index = await _next_iteration_index(conn, workflow_id)
 
     started_at = datetime.now(UTC)
@@ -280,13 +288,32 @@ async def run_one_iteration_for_workflow(
     # can show progress even while the LLM calls are mid-flight.
     iteration_id: UUID = await conn.fetchval(
         """
-        INSERT INTO iterations (workflow_id, iteration_index, state, started_at)
-        VALUES ($1, $2, 'running'::iteration_state, $3)
+        INSERT INTO iterations (
+            workflow_id, iteration_index, state,
+            parent_skill_version_id, started_at
+        )
+        VALUES ($1, $2, 'running'::iteration_state, $3, $4)
         RETURNING id
         """,
         workflow_id,
         iteration_index,
+        parent_skill_version_id,
         started_at,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.GATE_RUN_STARTED,
+        actor=_ITERATION_ACTOR,
+        related_id=iteration_id,
+        payload={
+            "workflow_id": workflow_id,
+            "iteration_index": iteration_index,
+            "n_cases": len(case_set.cases),
+            "parent_skill_version_id": (
+                str(parent_skill_version_id) if parent_skill_version_id else None
+            ),
+        },
     )
 
     # n_cycles=2: cycle 0 runs agent + proposes an instruction edit,
@@ -360,6 +387,65 @@ async def run_one_iteration_for_workflow(
         raise
     val_score = cycle.metric_value
     n_failed = cycle.n_failures
+    cycle_ended_at = datetime.now(UTC)
+
+    # Persist per-case traces (one trace row per eval case). The trace
+    # event stream is synthetic for now — tool_call_start + tool_call_result
+    # for the forced `predict_label` tool — so the per-trace inspector has
+    # something to render. Future work (TODO): capture the real
+    # reasoning_delta / content_delta stream from the agent solver.
+    case_id_to_trace_id = await _persist_traces(
+        conn,
+        workflow_id=workflow_id,
+        iteration_id=iteration_id,
+        skill_version_id=parent_skill_version_id,
+        outcomes=cycle.outcomes,
+        started_at=started_at,
+        ended_at=cycle_ended_at,
+    )
+
+    # Persist failure clusters. The clustering pipeline already wrote
+    # ClusterSummary objects into cycle.clusters; persist_clustering_result
+    # turns them into failure_clusters rows. Fingerprint dedup means
+    # repeated iterations on the same workflow won't create duplicate
+    # cluster rows when the dominant cluster's label + size matches.
+    dominant_cluster_id: UUID | None = None
+    persisted_clusters: list = []
+    if cycle.clustering_result is not None and cycle.clusters:
+        for summary in cycle.clusters:
+            sample_ids = _sample_trace_ids_for_cluster(
+                summary, cycle.snapshots, case_id_to_trace_id
+            )
+            persisted = await insert_cluster(
+                conn,
+                workflow_id=workflow_id,
+                summary=summary,
+                sample_trace_ids=sample_ids,
+            )
+            persisted_clusters.append(persisted)
+            await append_audit_entry(
+                conn,
+                kind=AuditKind.CLUSTER_CREATED,
+                actor=_ITERATION_ACTOR,
+                related_id=persisted.id,
+                payload={
+                    "workflow_id": workflow_id,
+                    "iteration_id": str(iteration_id),
+                    "label": summary.label,
+                    "severity": summary.severity,
+                    "cluster_size": len(summary.member_indices),
+                    "sample_trace_ids": [str(t) for t in sample_ids],
+                },
+            )
+
+        # The dominant cluster (largest member set) anchors the iteration
+        # row — same convention as `_pick_dominant_cluster` in the loop.
+        if persisted_clusters:
+            dominant = max(
+                persisted_clusters,
+                key=lambda p: (len(p.summary.member_indices), p.summary.label),
+            )
+            dominant_cluster_id = dominant.id
 
     # Persist the new instruction as a skill version + open proposal.
     proposed_skill_id: str | None = None
@@ -393,6 +479,21 @@ async def run_one_iteration_for_workflow(
             conn, skill_id=register_result.skill_id, version_id=register_result.version_id
         )
 
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.SKILL_VERSION_CREATED,
+            actor=_ITERATION_ACTOR,
+            related_id=register_result.version_id,
+            payload={
+                "workflow_id": workflow_id,
+                "iteration_id": str(iteration_id),
+                "skill_id": register_result.skill_id,
+                "parent_version_id": (
+                    str(parent_version_id) if parent_version_id else None
+                ),
+            },
+        )
+
         proposal_id = await conn.fetchval(
             """
             INSERT INTO proposals (
@@ -412,6 +513,22 @@ async def run_one_iteration_for_workflow(
             else "Iteration produced an instruction edit (no summary)",
             ProposalState.GATE_PASSED.value,
             float(val_score),
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            actor=_ITERATION_ACTOR,
+            related_id=proposal_id,
+            payload={
+                "workflow_id": workflow_id,
+                "iteration_id": str(iteration_id),
+                "skill_id": register_result.skill_id,
+                "skill_version_id": str(register_result.version_id),
+                "val_score": float(val_score),
+                "n_failed": n_failed,
+                "n_cases": len(case_set.cases),
+            },
         )
 
     final_state = (
@@ -450,6 +567,7 @@ async def run_one_iteration_for_workflow(
             proposed_skill_version_id = $4,
             best_ever_score_before = $5,
             best_ever_score_after = $6,
+            cluster_id = $7,
             ended_at = now()
         WHERE id = $1
         """,
@@ -459,6 +577,30 @@ async def run_one_iteration_for_workflow(
         proposed_skill_version_id,
         best_before_float,
         best_after,
+        dominant_cluster_id,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.GATE_RUN_COMPLETED,
+        actor=_ITERATION_ACTOR,
+        related_id=iteration_id,
+        payload={
+            "workflow_id": workflow_id,
+            "iteration_index": iteration_index,
+            "val_score": float(val_score),
+            "n_cases": len(case_set.cases),
+            "n_failed": n_failed,
+            "state": final_state,
+            "n_clusters": len(persisted_clusters),
+            "dominant_cluster_id": (
+                str(dominant_cluster_id) if dominant_cluster_id else None
+            ),
+            "proposal_id": str(proposal_id) if proposal_id else None,
+            "proposed_skill_version_id": (
+                str(proposed_skill_version_id) if proposed_skill_version_id else None
+            ),
+        },
     )
 
     return IterationOutcome(
@@ -473,6 +615,149 @@ async def run_one_iteration_for_workflow(
         proposed_instruction=new_instruction if new_instruction else None,
         proposal_id=proposal_id,
     )
+
+
+async def _current_head_version_id(
+    conn: asyncpg.Connection,
+    workflow_id: str,
+) -> UUID | None:
+    """The skill_version_id currently deployed for this workflow's
+    instruction skill — used as `parent_skill_version_id` on the iteration
+    row and `skill_version_id` on per-case traces (so the trace inspector
+    can show which version produced each prediction)."""
+    return await conn.fetchval(
+        """
+        SELECT s.head_version_id
+        FROM skills s
+        WHERE s.id = $1
+        """,
+        _instruction_skill_id(workflow_id),
+    )
+
+
+def _trace_events_for_outcome(
+    *,
+    trace_id: UUID,
+    iteration_id: UUID,
+    outcome: EvalCaseOutcome,
+    started_at: datetime,
+    ended_at: datetime,
+) -> list[dict[str, Any]]:
+    """Build a minimal AgentEvent stream for one eval-case prediction.
+
+    Matches `packages/trace-format/SPEC.md` v1.0: tool_call_start +
+    tool_call_result for the forced `predict_label` tool. Real agent
+    runs emit reasoning_delta / content_delta as well, but the iteration
+    runner doesn't capture those today — TODO if we want richer traces.
+    """
+    base = {
+        "trace_id": str(trace_id),
+        "iteration_id": str(iteration_id),
+        "parent_span_id": None,
+    }
+    call_id = f"call-{outcome.case_id}"
+    return [
+        {
+            **base,
+            "event_id": str(_uuid.uuid4()),
+            "timestamp": started_at.isoformat(),
+            "type": "tool_call_start",
+            "call_id": call_id,
+            "name": "predict_label",
+            "args": {"case_id": outcome.case_id},
+        },
+        {
+            **base,
+            "event_id": str(_uuid.uuid4()),
+            "timestamp": ended_at.isoformat(),
+            "type": "tool_call_result",
+            "call_id": call_id,
+            "name": "predict_label",
+            "status": "ok",
+            "output": {
+                "case_id": outcome.case_id,
+                "predicted": bool(outcome.actual_value),
+                "expected": bool(outcome.expected_value),
+                "passed": bool(outcome.passed),
+                "is_test_fold": bool(outcome.is_test_fold),
+            },
+            "duration_ms": max(0, int((ended_at - started_at).total_seconds() * 1000)),
+            "error": None,
+            "error_class": None,
+        },
+    ]
+
+
+async def _persist_traces(
+    conn: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    iteration_id: UUID,
+    skill_version_id: UUID | None,
+    outcomes: tuple[EvalCaseOutcome, ...],
+    started_at: datetime,
+    ended_at: datetime,
+) -> dict[str, UUID]:
+    """One traces row per case. Returns case_id → trace_id so the
+    cluster-persistence step can fill `sample_trace_ids`."""
+    case_id_to_trace_id: dict[str, UUID] = {}
+    for outcome in outcomes:
+        trace_id = _uuid.uuid4()
+        events = _trace_events_for_outcome(
+            trace_id=trace_id,
+            iteration_id=iteration_id,
+            outcome=outcome,
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+        await conn.execute(
+            """
+            INSERT INTO traces (
+                id, workflow_id, iteration_id, skill_version_id,
+                events, started_at, ended_at, metric_outputs
+            )
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb)
+            """,
+            trace_id,
+            workflow_id,
+            iteration_id,
+            skill_version_id,
+            json.dumps(events),
+            started_at,
+            ended_at,
+            json.dumps(
+                {
+                    "predicted": bool(outcome.actual_value),
+                    "expected": bool(outcome.expected_value),
+                    "passed": bool(outcome.passed),
+                }
+            ),
+        )
+        case_id_to_trace_id[outcome.case_id] = trace_id
+    return case_id_to_trace_id
+
+
+def _sample_trace_ids_for_cluster(
+    cluster: ClusterSummary,
+    snapshots: tuple[NLGenFailureSnapshot, ...],
+    case_id_to_trace_id: dict[str, UUID],
+    limit: int = 5,
+) -> list[UUID]:
+    """Resolve the cluster's member snapshot positions back to trace_ids.
+
+    `member_indices` are positions into `snapshots`; each snapshot
+    carries a `case_id`; each case_id has a trace_id from the per-case
+    persistence step.
+    """
+    out: list[UUID] = []
+    for idx in cluster.member_indices[:limit]:
+        if idx >= len(snapshots):
+            continue
+        case_id = snapshots[idx].case_id
+        trace_id = case_id_to_trace_id.get(case_id)
+        if trace_id is not None:
+            out.append(trace_id)
+    return out
 
 
 async def _parent_version_id(
