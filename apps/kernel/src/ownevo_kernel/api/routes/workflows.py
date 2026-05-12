@@ -12,6 +12,8 @@ count.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
@@ -397,25 +399,7 @@ async def list_failure_clusters(
                 WHERE i.cluster_id = fc.id
                 ORDER BY p.created_at DESC
                 LIMIT 1
-            )                                           AS latest_proposal_id,
-            (
-                SELECT i.iteration_index
-                FROM traces t
-                JOIN iterations i ON i.id = t.iteration_id
-                WHERE t.id = ANY(fc.sample_trace_ids)
-                  AND t.iteration_id IS NOT NULL
-                ORDER BY i.iteration_index ASC, i.started_at ASC
-                LIMIT 1
-            )                                           AS spawning_iteration_index,
-            (
-                SELECT i.id
-                FROM traces t
-                JOIN iterations i ON i.id = t.iteration_id
-                WHERE t.id = ANY(fc.sample_trace_ids)
-                  AND t.iteration_id IS NOT NULL
-                ORDER BY i.iteration_index ASC, i.started_at ASC
-                LIMIT 1
-            )                                           AS spawning_iteration_id
+            )                                           AS latest_proposal_id
         FROM failure_clusters fc
         WHERE fc.workflow_id = $1
         ORDER BY
@@ -430,6 +414,43 @@ async def list_failure_clusters(
         """,
         workflow_id,
     )
+
+    # Resolve spawning_iteration per cluster in a single follow-up
+    # query: pick the earliest iteration_index whose traces overlap
+    # any of the cluster's sample_trace_ids. Done in Python (not as
+    # a correlated subquery) because asyncpg's ANY($1::uuid[]) handling
+    # of NULL/empty arrays is brittle and a single batched lookup
+    # over the union of all sample ids is straightforward.
+    all_sample_ids: list[UUID] = []
+    for r in rows:
+        for tid in r["sample_trace_ids"] or []:
+            all_sample_ids.append(tid)
+    spawning_by_cluster: dict[UUID, tuple[int, UUID]] = {}
+    if all_sample_ids:
+        trace_iter_rows = await conn.fetch(
+            """
+            SELECT t.id AS trace_id, i.id AS iter_id, i.iteration_index
+            FROM traces t
+            JOIN iterations i ON i.id = t.iteration_id
+            WHERE t.id = ANY($1::uuid[])
+              AND t.iteration_id IS NOT NULL
+            """,
+            all_sample_ids,
+        )
+        trace_to_iter: dict[UUID, tuple[int, UUID]] = {
+            row["trace_id"]: (row["iteration_index"], row["iter_id"])
+            for row in trace_iter_rows
+        }
+        for r in rows:
+            best: tuple[int, UUID] | None = None
+            for tid in r["sample_trace_ids"] or []:
+                resolved = trace_to_iter.get(tid)
+                if resolved is None:
+                    continue
+                if best is None or resolved[0] < best[0]:
+                    best = resolved
+            if best is not None:
+                spawning_by_cluster[r["id"]] = best
 
     items = [
         FailureClusterSummary(
@@ -449,8 +470,16 @@ async def list_failure_clusters(
             sample_trace_ids=list(r["sample_trace_ids"] or []),
             created_at=r["created_at"],
             latest_proposal_id=r["latest_proposal_id"],
-            spawning_iteration_index=r["spawning_iteration_index"],
-            spawning_iteration_id=r["spawning_iteration_id"],
+            spawning_iteration_index=(
+                spawning_by_cluster[r["id"]][0]
+                if r["id"] in spawning_by_cluster
+                else None
+            ),
+            spawning_iteration_id=(
+                spawning_by_cluster[r["id"]][1]
+                if r["id"] in spawning_by_cluster
+                else None
+            ),
         )
         for r in rows
     ]
