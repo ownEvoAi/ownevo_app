@@ -32,5 +32,11 @@ export async function generateWorkflowAction(
     return { error: err instanceof Error ? err.message : String(err) }
   }
 
-  redirect(`/workspaces/${wsId}/workflows/${encodeURIComponent(result.workflow_id)}`)
+  // Land on the review step instead of the workflow detail. The spec
+  // + sim plan are committed to DB, but eval cases haven't been
+  // generated yet — let the operator confirm what was produced (and
+  // optionally revise) before the loop starts spending tokens.
+  redirect(
+    `/workspaces/${wsId}/workflows/new/review/${encodeURIComponent(result.workflow_id)}`,
+  )
 }
