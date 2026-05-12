@@ -79,25 +79,44 @@ _SKILL_VALIDATION_BOOTSTRAP = textwrap.dedent('''
     # Mock external modules the skill might import (e.g. tau2.*). We only
     # care about catching name-resolution errors in the skill's own code,
     # not import failures of libraries that exist in the real sandbox but
-    # not on the host. Any attribute access returns a sentinel object;
-    # we DON'T recurse into more module mocks (that triggers Python's
-    # type-hint introspection into a recursive loop).
-    class _MockAttr:
-        # Single sentinel used for any attribute pulled out of a mock module.
-        def __repr__(self): return "<MockAttr>"
-        def __call__(self, *a, **k): return _MockAttr()
-        def __getattr__(self, name):
-            if name.startswith("__"):
-                raise AttributeError(name)
-            return _MockAttr()
-        def __class_getitem__(cls, item): return cls  # generics: X[Y]
-    _MOCK_SENTINEL = _MockAttr()
+    # not on the host. Attribute access on a mocked module returns a
+    # fresh empty class via a metaclass — so `class X(MockedBase):` and
+    # `MockedBase(...)` instantiation both work, and the class itself
+    # supports recursive attribute access (`MockedBase.SubAttr`).
+    _mock_class_cache = {}
+
+    class _MockMeta(type):
+        def __getattr__(cls, attr):
+            if attr.startswith("__"):
+                raise AttributeError(attr)
+            return _make_mock_class(f"{cls.__name__}.{attr}")
+        def __getitem__(cls, item):  # generics: MockedBase[T]
+            return cls
+
+    def _make_mock_class(name):
+        if name in _mock_class_cache:
+            return _mock_class_cache[name]
+        cls = _MockMeta(
+            name,
+            (),
+            {
+                "__init__": lambda self, *a, **k: None,
+                "__repr__": lambda self: f"<Mock {name}>",
+                "__getattr__": lambda self, attr: (
+                    _make_mock_class(f"{name}.{attr}")
+                    if not attr.startswith("__")
+                    else (_ for _ in ()).throw(AttributeError(attr))
+                ),
+            },
+        )
+        _mock_class_cache[name] = cls
+        return cls
 
     class _Mock(types.ModuleType):
         def __getattr__(self, name):
             if name.startswith("__"):
                 raise AttributeError(name)
-            return _MOCK_SENTINEL
+            return _make_mock_class(f"{self.__name__}.{name}")
 
     # Intercept ANY further import that fails (e.g. third-party deps the
     # skill pulls in) by mocking it on the fly. This keeps validation
@@ -130,7 +149,8 @@ _SKILL_VALIDATION_BOOTSTRAP = textwrap.dedent('''
     try:
         content = sys.stdin.read()
         code = compile(content, "<skill_validation>", "exec")
-        exec(code, {"__name__": "__skill__", "__file__": "<skill_validation>"})
+        ns = {"__name__": "__skill__", "__file__": "<skill_validation>"}
+        exec(code, ns)
     except SyntaxError as e:
         # Syntax errors print location naturally via traceback.
         traceback.print_exc()
@@ -138,6 +158,42 @@ _SKILL_VALIDATION_BOOTSTRAP = textwrap.dedent('''
     except Exception as e:
         traceback.print_exc()
         sys.exit(2)
+
+    # Tier-1 #1: HarnessAgent class must exist. tau3's runner imports
+    # `from agent import HarnessAgent`; a skill without that class hits
+    # the same failure as Run 13 (granite-30B emitted skill but no class
+    # → 40/40 sandbox import failure).
+    cls = ns.get("HarnessAgent")
+    if cls is None:
+        print(
+            "ValidationError: skill must define a top-level "
+            "`HarnessAgent` class. tau3 imports it via "
+            "`from agent import HarnessAgent`.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+    if not isinstance(cls, type):
+        print(
+            f"ValidationError: `HarnessAgent` is bound to a "
+            f"{type(cls).__name__}, not a class.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    # Tier-1 #2: HarnessAgent must define generate_next_message. tau2's
+    # orchestrator calls it every turn (see orchestrator.py:865 `agent_msg
+    # = self.agent.generate_next_message(...)`). Missing/non-callable
+    # would crash on the first turn of every task. Inheritance is OK —
+    # walk MRO so a method on LLMAgent or other parent counts.
+    method = getattr(cls, "generate_next_message", None)
+    if not callable(method):
+        print(
+            "ValidationError: `HarnessAgent.generate_next_message` is "
+            "missing or not callable. tau3's orchestrator calls it on "
+            "every turn; without it the agent cannot run.",
+            file=sys.stderr,
+        )
+        sys.exit(4)
     sys.exit(0)
 ''')
 

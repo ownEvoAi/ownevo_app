@@ -624,6 +624,48 @@ async def main_async(args: CliArgs) -> int:
                 ollama_api_base=os.environ.get("OLLAMA_API_BASE"),
             )
 
+            # Tier-1 #3: one-task smoke before the full 40-task gate. Catches
+            # runtime bugs the write_skill validator can't see (uninitialized
+            # attrs in generate_next_message, missing-class-but-passes-import,
+            # tau2-side template incompat). If task 0 hits infra_error we
+            # abort BEFORE persist_gate_run opens its transaction — no
+            # iteration row, no eval-wide commit, ~25 min saved. Disable
+            # with OWNEVO_TAU3_SKIP_SMOKE=1.
+            if os.environ.get("OWNEVO_TAU3_SKIP_SMOKE", "").lower() not in ("1", "true", "yes"):
+                print("smoke: running one-task pre-eval probe (task_ids=[0])", flush=True)
+                try:
+                    await runner.run(task_ids=["0"])
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"error: one-task smoke crashed before persist_gate_run: "
+                        f"{type(exc).__name__}: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 8
+                smoke_summary = runner.last_summary or {}
+                smoke_evaluated = int(smoke_summary.get("n_evaluated", 0))
+                smoke_infra = int(smoke_summary.get("infra_errors", 0))
+                print(
+                    f"smoke: evaluated={smoke_evaluated} "
+                    f"infra_errors={smoke_infra}",
+                    flush=True,
+                )
+                if smoke_infra > 0 or smoke_evaluated == 0:
+                    diag_list = smoke_summary.get("infra_diag", [])
+                    diag = ""
+                    if diag_list:
+                        err = diag_list[0].get("error", "")
+                        diag = f"\n  first_error={err[:500]}"
+                    print(
+                        f"error: one-task smoke failed — aborting before "
+                        f"full eval to save ~25 min. "
+                        f"infra_errors={smoke_infra}/1 evaluated={smoke_evaluated}/1"
+                        f"{diag}\n"
+                        f"  (set OWNEVO_TAU3_SKIP_SMOKE=1 to bypass this check)",
+                        file=sys.stderr,
+                    )
+                    return 9
+
             persisted = await persist_gate_run(
                 conn,
                 runner,
