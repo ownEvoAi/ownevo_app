@@ -404,7 +404,7 @@ async def list_failure_clusters(
                 JOIN iterations i ON i.id = t.iteration_id
                 WHERE t.id = ANY(fc.sample_trace_ids)
                   AND t.iteration_id IS NOT NULL
-                ORDER BY i.iteration_index ASC, i.created_at ASC
+                ORDER BY i.iteration_index ASC, i.started_at ASC
                 LIMIT 1
             )                                           AS spawning_iteration_index,
             (
@@ -413,7 +413,7 @@ async def list_failure_clusters(
                 JOIN iterations i ON i.id = t.iteration_id
                 WHERE t.id = ANY(fc.sample_trace_ids)
                   AND t.iteration_id IS NOT NULL
-                ORDER BY i.iteration_index ASC, i.created_at ASC
+                ORDER BY i.iteration_index ASC, i.started_at ASC
                 LIMIT 1
             )                                           AS spawning_iteration_id
         FROM failure_clusters fc
