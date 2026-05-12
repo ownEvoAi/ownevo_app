@@ -11,7 +11,7 @@ import {
   type ProposalSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
-import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
+import { formatScore, relativeTime } from '@/lib/format'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolveTabPrimitives } from '@/lib/primitive-data-resolver'
@@ -163,69 +163,9 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
 
       {unresolvedTypes.length > 0 && (
         <p className="overview-primitives-unresolved" style={{ marginTop: 14 }}>
-          Spec declares{' '}
-          <strong>{Array.from(new Set(unresolvedTypes)).join(', ')}</strong> on
-          the {operateTab?.name ?? 'Operate'} tab — those primitives need
-          richer per-case agent output than the current loop emits. Their
-          placeholders fill in once the iteration runner captures structured
-          predictions beyond <code>bool</code>.
+          Per-case agent output isn&rsquo;t captured yet — recommendations
+          and alerts will land here once the agent produces them.
         </p>
-      )}
-
-      {iterations.length > 0 && (
-        <section style={{ marginTop: 18 }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              marginBottom: 8,
-            }}
-          >
-            <h2 className="section-title" style={{ margin: 0 }}>
-              Recent runs
-            </h2>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {iterations.length} total · click a row for per-case detail
-            </span>
-          </div>
-          <div className="iter-overview-list">
-            <div className="iter-overview-row iter-overview-head">
-              <span>Iter</span>
-              <span>val_score</span>
-              <span>Best ever</span>
-              <span>State</span>
-              <span>Approved?</span>
-              <span>Ended</span>
-            </div>
-            {[...iterations].reverse().slice(0, 10).map((it) => (
-              <Link
-                key={it.iteration_index}
-                href={`/workspaces/${wsId}/workflows/${wfId}/iterations/${it.iteration_index}`}
-                className="iter-overview-row"
-              >
-                <span className="iter-overview-idx">#{it.iteration_index}</span>
-                <span className="iter-overview-num">
-                  {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
-                </span>
-                <span className="iter-overview-num">
-                  {it.best_ever_score_after !== null
-                    ? it.best_ever_score_after.toFixed(3)
-                    : '—'}
-                </span>
-                <span className="iter-overview-state">{it.state}</span>
-                <span className="iter-overview-approved">
-                  {it.has_approved_proposal ? '✓' : ''}
-                </span>
-                <span className="iter-overview-when">
-                  {it.ended_at
-                    ? formatDateTime(it.ended_at).slice(0, 16)
-                    : '—'}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
       )}
 
       {iterations.length === 0 && (

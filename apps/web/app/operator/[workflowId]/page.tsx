@@ -201,12 +201,8 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
 
         {unresolvedTypes.length > 0 && (
           <div className="op-shell-coming">
-            <strong>Planned surfaces.</strong> Spec declares{' '}
-            <code>{Array.from(new Set(unresolvedTypes)).join(', ')}</code> for
-            this workflow — the per-row recommendation table, alerts list,
-            and so on. They light up here when the iteration runner starts
-            capturing structured per-case agent output (not just the bool
-            prediction the regression gate scores).
+            <strong>Coming soon.</strong> Per-case agent recommendations
+            and alerts will appear here once the agent starts producing them.
           </div>
         )}
 
