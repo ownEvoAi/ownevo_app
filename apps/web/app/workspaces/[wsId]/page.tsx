@@ -40,11 +40,11 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
     apiError = kernelError(err)
   }
 
-  // TODO-39 — pick the primary workflow by signal, not creation order.
-  // Prefer workflows with iterations recorded; among those, the one
-  // with the most iterations wins (ties broken by best_ever_score, then
-  // creation order). Falls back to the first workflow when nothing has
-  // run yet so the page still has SOMETHING to anchor on.
+  // Primary workflow picked by signal, not creation order. Prefer
+  // workflows with iterations recorded; among those, the one with the
+  // most iterations wins (ties broken by best_ever_score, then id).
+  // Falls back to the first workflow when nothing has run yet so the
+  // page still has SOMETHING to anchor on.
   const primary = pickPrimary(workflows.items)
   try {
     if (primary) {

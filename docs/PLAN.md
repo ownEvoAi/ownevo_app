@@ -6,7 +6,7 @@
 
 This doc is the executable derivation — what to build, in what order, with what validates each step. When the two conflict, the MVP doc wins; update this one.
 
-*Last updated: 2026-05-12 (v3.27 — W8 Track 4 rows 8.4.7 + 8.4.8 shipped on `feat/real-ui-loop` (PR #85, 9 commits); TODO-36 → TODO-43 closed in the same branch. Beyond plan: operator shell, workspace traces, Connect on-ramp, agent-rationale plumbing. See [Version log](#version-log) for the v3.27 summary.)*
+*Last updated: 2026-05-12 (v3.27 — W8 Track 4 rows 8.4.7 + 8.4.8 shipped on `feat/real-ui-loop` (PR #85, 10 commits). All v3.26 lifecycle + polish TODOs (the eight items spun out into TODOS.md) closed in the same branch; their numbers freed and reused for new gaps surfaced during the build. Beyond plan: operator shell, workspace traces, Connect on-ramp, agent-rationale plumbing. See [Version log](#version-log) for the v3.27 summary.)*
 
 ---
 
@@ -442,7 +442,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 
 **Track 4 exit gate:** A reviewer clones the repo on a fresh machine, runs `make dev-up` + `make seed-demo`, lands at `/workspaces/acme/`, sees seeded workflows with empty Overview (honest "no data yet"), clicks `New workflow`, types a description, watches NL-gen create a workflow live, opens its Eval cases page, clicks `Run iteration`, sees a proposal appear in the inbox, opens it, approves it, sees the audit row update — the entire gen → eval → propose → approve → audit loop runs in the UI with zero hard-coded demo content in runtime code.
 
-**Sequencing note:** 8.4.1 + 8.4.2 ship together (rip + seed are inseparable). 8.4.3 → 8.4.4 → 8.4.5 are strict order. 8.4.6 can land any time after 8.4.5. **8.4.7 + 8.4.8 shipped together in PR #85** (`feat/real-ui-loop`) — alongside lifecycle controls (workflow delete, description edit, deploy/rollback, eval-case manual curation), Health polish, the Operate sub-tab, the operator shell, the Connect on-ramp, workspace Traces, and per-case rationale plumbing. **All TODO-36 → TODO-43 closed in the same PR.** Remaining gaps (per-cluster reasoning summary, stale-running sweep, new-workflow review step, etc.) are captured in [TODOS.md](../TODOS.md) TODO-44+.
+**Sequencing note:** 8.4.1 + 8.4.2 ship together (rip + seed are inseparable). 8.4.3 → 8.4.4 → 8.4.5 are strict order. 8.4.6 can land any time after 8.4.5. **8.4.7 + 8.4.8 shipped together in PR #85** (`feat/real-ui-loop`) — alongside lifecycle controls (workflow delete, description edit, deploy/rollback, eval-case manual curation), Health polish, the Operate sub-tab, the operator shell, the Connect on-ramp, workspace Traces, and per-case rationale plumbing. **All eight v3.26 lifecycle + polish TODOs closed in the same PR; their numbers were reused for new items.** Remaining gaps (per-cluster reasoning summary, stale-running sweep, new-workflow review step, etc.) are captured in [TODOS.md](../TODOS.md).
 
 **Tradeoff vs Track 1 demo materials:** Track 1 rows (8.1.1 YC video, 8.1.4 website screenshots) currently assume the hand-curated demo data shipped in Track 0. After Track 4 lands, video / screenshots show real product state — more credible, but requires running real iterations against seeded workflows ahead of recording. The seed script + 8.4.5 iteration trigger make that loop cheap. Track 1 timing depends on Track 4 reaching 8.4.6 (or accepting empty-state Overview in the video).
 
@@ -577,14 +577,11 @@ Reverse-chronological. Each entry is a one-line headline + bullets of what
 shipped that revision. Deeper detail lives in the corresponding PR and
 `CHANGELOG.md` entry.
 
-### v3.27 — 2026-05-12 — PR #85 (`feat/real-ui-loop`) shipped: 8.4.7 + 8.4.8 + TODO-36..43 + beyond-plan UI surfaces
+### v3.27 — 2026-05-12 — PR #85 (`feat/real-ui-loop`) shipped: 8.4.7 + 8.4.8 + v3.26 TODO pool + beyond-plan UI surfaces
 
 - **8.4.7 + 8.4.8 closed.** Iteration runner now writes per-case `traces` + per-cluster `failure_clusters` + `gate-run-started` / `gate-run-completed` / `cluster-created` / `skill-version-created` / `proposal-created` audit rows. Per-iteration drill-down at `/workflows/[wfId]/iterations/[idx]` shows the failed-first case roster (predicted vs expected vs fold + trace click-through + the agent's per-case rationale text).
-- **All TODO-36 → TODO-43 closed:**
-  - 36 workflow delete (FK-safe cascade across 9 tables, audit kept) + description edit — new Settings tab.
-  - 37 deploy / rollback buttons on the proposal sidebar.
-  - 38 eval-case manual add (hand-authored provenance) + per-row two-step delete.
-  - 39-43 Health polish — primary-by-signal heuristic, word-boundary sidebar truncation + dual-line workflow rows, "+N runs since launch" copy, in-flight banner with pulsing dot + per-row pill, first-time empty state with both on-ramp CTAs.
+- **All eight v3.26 lifecycle + polish TODOs closed.** Workflow delete (FK-safe cascade across 9 tables, audit kept) + description edit (new Settings tab); deploy / rollback buttons on the proposal sidebar; eval-case manual add (hand-authored provenance) + per-row two-step delete; Health polish (primary-by-signal heuristic, word-boundary sidebar truncation + dual-line workflow rows, "+N runs since launch" copy, in-flight banner with pulsing dot + per-row pill, first-time empty state with both on-ramp CTAs).
+- **TODO numbering note.** The eight v3.26 TODO numbers were freed when their work shipped and have been reused for new items surfaced during the build (TODO-36 → TODO-41 in the current TODOS.md). The v3.26 version-log entry below still references the OLD assignment for those numbers — read it as a historical snapshot of what was true at that revision.
 - **Beyond plan (surfaces from the mock audit `www/preview/s26-rk7p3/`):**
   - Operate workflow sub-tab (mocks 06/09/10/10b) — `spec.ui`-driven primitive composition.
   - Operator shell (mocks 28-31) at `/operator/[workflowId]` — separate product surface, no AgentOS sidebar, top-bar workflow switcher.
@@ -593,7 +590,7 @@ shipped that revision. Deeper detail lives in the corresponding PR and
   - Triggers / Integrations / Permissions workflow sub-tab stubs (mocks 12/13/14) — planned-shape pages; Permissions is partially wired (renders the live reviewer-from-spec).
 - **Per-case agent rationale plumbed end-to-end.** `predict_label`'s `rationale` argument now rides through `ReplayResult` → `EvalCaseOutcome` → `traces.metric_outputs.rationale` → the per-iteration UI. Failed cases on the drill-down show the agent's domain reasoning verbatim — turns val_score from a magic number into something the operator can reason about.
 - **Bugs found + fixed in browser-verify pass:** `ON CONFLICT (fingerprint)` partial-index predicate mismatch on the cluster insert (was raising 502 on every iteration); CORS `allow_methods` missing PATCH + DELETE (the new endpoints would have failed from the web). 1489 kernel tests pass throughout; ruff + tsc clean.
-- **Remaining gaps captured in [TODOS.md](../TODOS.md):** TODO-44 per-cluster reasoning summary (next-best signal now that rationales are captured); TODO-45 stale-running iteration sweep; TODO-46 new-workflow review-before-commit; TODO-47 baseline-complete landing; TODO-48 skills library workflow filter; TODO-49 recent-activity feed. Real OTel ingest (TODO-10) and multi-tenant retrofit (TODO-1) remain the two biggest unblocked items.
+- **Remaining gaps captured in [TODOS.md](../TODOS.md) at the recycled numbers:** per-cluster reasoning summary (next-best signal now that rationales are captured); stale-running iteration sweep; new-workflow review-before-commit; baseline-complete landing; skills library workflow filter; recent-activity feed. Real OTel ingest (TODO-10) and multi-tenant retrofit (TODO-1) remain the two biggest unblocked items.
 
 ### v3.26 — 2026-05-12 — W8 Track 4 rows 8.4.7 + 8.4.8 added (dead-end-tabs + drill-down)
 

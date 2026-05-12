@@ -421,20 +421,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P2 — Track 0 unblocks demo; layer D unblocks an actual customer using the workspace. Triggers when (a) the first design partner asks "how do I see my own data here?" or (b) τ³ wants to render bench results in the UI.
 - **Depends on:** Track 0 (W8.0.1–8.0.3) shipped; τ³ integration scope clear; multi-tenant retrofit TODO-1 either landed or scheduled.
 
-<!--
-TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
-
-  36 workflow delete + description edit       — `970803d` Settings tab + cascade delete
-  37 deploy / rollback button                  — `970803d` proposal sidebar
-  38 eval-case manual add + delete             — `5b564ba` + lifecycle-actions
-  39 Health primary-workflow heuristic         — `504ae5f` pickPrimary()
-  40 sidebar workflow title truncation         — `504ae5f` word-boundary + dual-line rows
-  41 MetricCards "+N all-time" copy            — `504ae5f` "N runs since launch"
-  42 in-flight iteration indicator             — `504ae5f` Health banner + per-row pill
-  43 first-time-user empty state on Health     — `504ae5f` welcome card with on-ramps
--->
-
-### TODO-44: Per-cluster reasoning summary (post-rationale-plumbing)
+### TODO-36: Per-cluster reasoning summary (post-rationale-plumbing)
 
 - **What:** Each `failure_clusters` row already stores `label` (a one-line tag like "failure pattern: false-negative" from the keyword stub) and `sample_trace_ids`. After PR #85 the agent's per-case rationale rides into `traces.metric_outputs.rationale`. Build a per-cluster summary that LLM-condenses the member rationales into a paragraph: *"In this cluster (N traces) the agent consistently misread elevated DTI when the credit score was above 700, treating credit score as overriding DTI even when DTI > 0.4."* Surface on the Failures cluster card and the per-iteration drill-down.
 - **Why:** The cluster label today is a keyword tag, useful but shallow. The rationale text holds the actual failure mode. LLM-condensing it is the next-best signal after a human reading every rationale row.
@@ -445,7 +432,7 @@ TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 - **Priority:** P2 — visible wins for the demo arc; depends on having ≥2 iterations of rationale data to summarize.
 - **Depends on:** Per-case rationale plumbing (PR #85 — closed).
 
-### TODO-45: Stale "running" iteration sweep
+### TODO-37: Stale "running" iteration sweep
 
 - **What:** Iterations whose process died mid-run (uvicorn crash, container restart, abandoned API call) sit forever in `state='running'`. The Health page shows them via the new in-flight banner forever, falsely suggesting work is happening. Add a sweep: on kernel boot, transition any `iteration.state='running'` row whose `started_at` is older than the configured wall-clock cap (`_CYCLE_TIMEOUT_SECONDS * 3` from `nl_gen/loop.py`, ~9 min) to `sandbox-error` with a synthetic audit row.
 - **Why:** Found during PR #85 browser-audit — the demo workspace had 2 ghost-running rows from crashed test iterations. The new in-flight indicator surfaces this loudly.
@@ -456,7 +443,7 @@ TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-46: New-workflow review-before-commit step
+### TODO-38: New-workflow review-before-commit step
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/04-new-workflow-step2.html`. After `POST /api/nl-gen/generate` returns the spec + simulation plan + eval cases + metric, route the operator to a review page that shows what NL-gen produced before the workflow row is committed. Operator clicks Commit to persist, Discard to throw away. Today the endpoint persists immediately and there's no preview.
 - **Why:** When NL-gen produces a poor spec (wrong domain, missing reviewer, hallucinated tool) the only path today is `delete workflow` (now wired, PR #85) and start over — wasting the ~30s LLM round-trip. Preview catches it before the wasted commit.
@@ -464,10 +451,10 @@ TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 - **Cons:** Adds a step to the "fast path" — operator who knows what they want now has to click twice. Add a "skip review" toggle in workspace settings later.
 - **Context:** `apps/kernel/src/ownevo_kernel/api/routes/nl_gen.py` would need a draft / commit split — generate returns a draft token, commit promotes to a workflow row. `apps/web/app/workspaces/[wsId]/workflows/new/{page,actions,new-workflow-form}.tsx`.
 - **Effort:** M (human ~1 day / CC ~half day).
-- **Priority:** P3 — pairs with TODO-47 as the new-workflow polish pass.
+- **Priority:** P3 — pairs with TODO-39 as the new-workflow polish pass.
 - **Depends on:** —
 
-### TODO-47: Baseline-complete landing page
+### TODO-39: Baseline-complete landing page
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/19-run-baseline.html`. After an operator clicks Run iteration on a workflow with zero iterations, instead of dropping them on the Overview tab with a green "iteration complete" toast, show a dedicated landing page summarizing the baseline run: val_score, n_failed/n_cases, dominant failure cluster, suggested next step (review proposal, regenerate evals, etc.).
 - **Why:** First-iteration outcome is the highest-information event in the loop. Operator currently navigates back to Overview which shows the same lift chart (now with one point) — the framing of "this is your baseline; here's where to go next" is missing.
@@ -478,7 +465,7 @@ TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-48: Skills library workflow filter
+### TODO-40: Skills library workflow filter
 
 - **What:** `/workspaces/[wsId]/skills` shows every skill across every workflow. Add a `?workflow=credit-risk` query param + a chip strip across the top so an operator can scope to one workflow. Skills already carry `workflow_id`; the kernel endpoint just needs an optional query param.
 - **Why:** With ≥3 workflows the skills list gets noisy. The mock `s26-rk7p3/11-skills-registry.html` already references `?workflow=…`.
@@ -489,7 +476,7 @@ TODO-36 → TODO-43 closed in PR #85 (branch `feat/real-ui-loop`):
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-49: Recent activity feed across workflows
+### TODO-41: Recent activity feed across workflows
 
 - **What:** A workspace-scoped "what just happened" feed showing the last N audit-entries-of-interest across every workflow (proposal-approved, gate-run-completed, cluster-created, skill-version-created). Roughly the workspace inbox but for all state changes, not just gate-passed proposals. Sits at `/workspaces/[wsId]/activity` or as a "Recent activity" card on Health.
 - **Why:** Operators monitoring multiple workflows want a "did anything important happen" surface that doesn't require clicking into each workflow's audit tab.

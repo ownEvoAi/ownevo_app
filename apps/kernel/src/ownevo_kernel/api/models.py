@@ -251,7 +251,7 @@ class WorkflowSummary(_Strict):
     — anything not 'running'), driving the right-side "Last improved"
     cell. `running_iteration_count` counts iterations currently in the
     'running' state — drives the Health page in-flight indicator
-    (TODO-42). `pending_proposals_count` covers gate-passed proposals
+    `pending_proposals_count` covers gate-passed proposals
     waiting for human/llm-judge approval.
     """
 
