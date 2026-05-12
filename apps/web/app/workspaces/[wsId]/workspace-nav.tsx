@@ -107,12 +107,6 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">Skills</span>
       </a>
-      <a href={`${root}/traces`} className={cls(`${root}/traces`)}>
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 11 L6 6 L9 9 L13 4" />
-        </svg>
-        <span className="nav-label">Traces</span>
-      </a>
       <a href={`${root}/primitives`} className={cls(`${root}/primitives`)}>
         <svg className="nav-icon" viewBox="0 0 16 16">
           <rect x="2" y="2" width="5" height="5" />
@@ -121,6 +115,14 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
           <rect x="9" y="9" width="5" height="5" />
         </svg>
         <span className="nav-label">Views</span>
+      </a>
+
+      <div className="nav-section">Records</div>
+      <a href={`${root}/traces`} className={cls(`${root}/traces`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M3 11 L6 6 L9 9 L13 4" />
+        </svg>
+        <span className="nav-label">Traces</span>
       </a>
       <a href={`${root}/audit`} className={cls(`${root}/audit`)}>
         <svg className="nav-icon" viewBox="0 0 16 16">
