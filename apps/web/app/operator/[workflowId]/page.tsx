@@ -88,10 +88,10 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
     tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
   const primitives = operateTab
     ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals, caseOutputs },
+        { spec, iterations, evalCases, proposals, caseOutputs, wsId },
         operateTab.name ?? 'operate',
       ) ?? []
-    : resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs })
+    : resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
 
   const resolved = primitives.filter((p) => p.kind !== 'empty')
   const unresolvedTypes = primitives

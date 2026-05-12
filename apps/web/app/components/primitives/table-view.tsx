@@ -59,6 +59,8 @@ export function TableView({ data }: Props) {
                 const numeric =
                   c.type === 'number' || c.align === 'right' || typeof v === 'number'
                 const tooltip = c.title_key ? String(row[c.title_key] ?? '') : undefined
+                const linkHref = c.link_key ? row[c.link_key] : null
+                const content = formatCell(v, c)
                 return (
                   <td
                     key={c.key}
@@ -70,7 +72,20 @@ export function TableView({ data }: Props) {
                       .join(' ')}
                     title={tooltip || undefined}
                   >
-                    {formatCell(v, c)}
+                    {typeof linkHref === 'string' && linkHref.length > 0 ? (
+                      <a
+                        href={linkHref}
+                        style={{
+                          color: 'var(--accent)',
+                          textDecoration: 'none',
+                          fontFamily: 'var(--mono)',
+                        }}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      content
+                    )}
                   </td>
                 )
               })}

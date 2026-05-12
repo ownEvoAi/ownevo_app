@@ -50,6 +50,11 @@ export interface ResolverInputs {
   // per-case table built from the latest iteration's structured agent
   // output. Null / empty falls back to the "Coming soon" empty state.
   caseOutputs?: CaseOutputList | null
+  // Workspace slug — used to build per-trace links in the TableView's
+  // case_id column. Optional: when missing, the column renders as
+  // plain text (no link). D4 single-tenant means this is cosmetic in
+  // URLs today; the param exists for url stability.
+  wsId?: string
 }
 
 export function resolvePrimitives(inputs: ResolverInputs): ResolvedPrimitive[] {
@@ -204,7 +209,7 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
   }
 
   const columns: TableData['columns'] = [
-    { key: 'case_id', label: 'Case' },
+    { key: 'case_id', label: 'Case', link_key: 'case_href' },
     { key: 'predicted', label: 'Predicted' },
     { key: 'expected', label: 'Expected' },
     { key: 'passed', label: 'Result', type: 'pill' },
@@ -217,9 +222,14 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
   const truncate = (s: string): string =>
     s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
 
+  const wsId = inputs.wsId
   const rows = co.items.map((it) => {
     const rationale = it.output_json?.rationale
     const full = typeof rationale === 'string' ? rationale : ''
+    const href =
+      wsId && it.trace_id
+        ? `/workspaces/${wsId}/traces/${it.trace_id}`
+        : ''
     return {
       case_id: it.case_id ?? '(unknown)',
       predicted: tick(it.output_json?.predicted),
@@ -228,6 +238,8 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
       rationale: truncate(full),
       // Available to the component for a hover-tooltip on the cell.
       rationale_full: full,
+      // Per-row link target for the first column; empty falls back to plain text.
+      case_href: href,
     }
   })
 

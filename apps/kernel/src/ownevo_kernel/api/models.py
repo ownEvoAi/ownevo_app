@@ -447,13 +447,19 @@ class CaseOutputRow(_Strict):
     """
 
     eval_case_id: UUID
-    case_id: str | None  # kebab-case id pulled out of eval_cases.input
+    case_id: str | None  # kebab-case id pulled out of eval_cases.expected_behavior
     output_json: dict[str, Any]
     expected_behavior: dict[str, Any]
     input: dict[str, Any]
     passed: bool
     is_test_fold: bool
     created_at: datetime
+    # The trace row written by the iteration runner for this case on
+    # this iteration, used by the operator-shell TableView to link
+    # each row to /workspaces/{wsId}/traces/{trace_id} for the full
+    # event-stream inspector. NULL only when the persistence path
+    # raced or the case_id didn't resolve cleanly.
+    trace_id: UUID | None = None
 
 
 class CaseOutputList(_Strict):

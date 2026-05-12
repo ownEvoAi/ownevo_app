@@ -83,7 +83,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
 
   const primitives = operateTab
     ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals, caseOutputs },
+        { spec, iterations, evalCases, proposals, caseOutputs, wsId },
         operateTab.name ?? 'operate',
       ) ?? []
     : []

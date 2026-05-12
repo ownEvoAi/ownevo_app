@@ -63,7 +63,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   }
 
   const resolvedPrimitives = !apiError
-    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs })
+    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
     : []
 
   const hasEvalCases = evalCases.length > 0

@@ -624,7 +624,18 @@ async def list_workflow_case_outputs(
             ec.input        AS input,
             ec.expected_behavior AS expected_behavior,
             ec.is_test_fold AS is_test_fold,
-            ec.expected_behavior->>'case_id' AS case_id
+            ec.expected_behavior->>'case_id' AS case_id,
+            -- Left-join on traces by matching the iteration row plus
+            -- the case_id embedded in the trace's metric_outputs jsonb
+            -- (set by `_persist_traces`). One trace per (iter, case);
+            -- the LATERAL keeps the join cardinality at 1.
+            (
+                SELECT t.id
+                FROM traces t
+                WHERE t.iteration_id = ico.iteration_id
+                  AND t.metric_outputs->>'case_id' = ec.expected_behavior->>'case_id'
+                LIMIT 1
+            ) AS trace_id
         FROM iteration_case_outputs ico
         JOIN eval_cases ec ON ec.id = ico.eval_case_id
         WHERE ico.iteration_id = $1
@@ -642,6 +653,7 @@ async def list_workflow_case_outputs(
             passed=bool(r["passed"]),
             is_test_fold=bool(r["is_test_fold"]),
             created_at=r["created_at"],
+            trace_id=r["trace_id"],
         )
         for r in rows
     ]

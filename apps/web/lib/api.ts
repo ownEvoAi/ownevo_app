@@ -324,6 +324,7 @@ export interface CaseOutputRow {
   passed: boolean
   is_test_fold: boolean
   created_at: string
+  trace_id: string | null
 }
 
 export interface CaseOutputList {
