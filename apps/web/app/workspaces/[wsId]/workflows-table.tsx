@@ -1,6 +1,7 @@
 import type { WorkflowSummary } from '../../../lib/api'
 import {
   isStaleRunningIteration,
+  modeLabel,
   relativeTime,
   workflowDisplayTitle,
 } from '../../../lib/format'
@@ -47,7 +48,9 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
             <span className="wf-name-buyer">{w.id}</span>
           </div>
           <div className="wf-metric">
-            <span className="wf-metric-value">{w.mode}</span>
+            <span className="wf-metric-value" title={modeLabel(w.mode).hint}>
+              {modeLabel(w.mode).label}
+            </span>
           </div>
           <div className="wf-metric">
             <span className="wf-metric-value">

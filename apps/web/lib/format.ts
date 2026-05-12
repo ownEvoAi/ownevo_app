@@ -52,6 +52,50 @@ export function workspaceLabel(slug: string): string {
   return slug.charAt(0).toUpperCase() + slug.slice(1)
 }
 
+// Human-readable mode label + one-line meaning. The workflow_mode
+// enum has four values; the UI surfaces them differently across
+// header subtitles, mode chips, and operate-tab CTAs.
+//
+//   eval-only       — score agent runs only; no proposals
+//   eval-propose    — propose changes; never auto-deploy
+//   gated           — propose + gate; human/llm approval to deploy
+//   autonomous      — propose + gate; auto-deploy on gate-pass
+export interface ModeLabel {
+  label: string
+  short: string
+  hint: string
+}
+
+export function modeLabel(mode: string | null | undefined): ModeLabel {
+  switch (mode) {
+    case 'eval-only':
+      return {
+        label: 'Eval only',
+        short: 'eval',
+        hint: 'Scores agent runs against the eval suite; never proposes changes.',
+      }
+    case 'eval-propose':
+      return {
+        label: 'Eval + propose',
+        short: 'propose',
+        hint: 'Scores and proposes changes; you apply fixes yourself — no auto-deploy.',
+      }
+    case 'autonomous':
+      return {
+        label: 'Autonomous',
+        short: 'auto',
+        hint: 'Full loop; gate-pass auto-deploys without human approval.',
+      }
+    case 'gated':
+    default:
+      return {
+        label: 'Gated',
+        short: 'gated',
+        hint: 'Full loop; gate-pass queues a proposal for human approval before deploy.',
+      }
+  }
+}
+
 // Short display label for a workflow. Descriptions are free-form prose
 // (often multi-paragraph), so the first sentence / first N chars makes a
 // usable list label. Falls back to the id if description is empty.
