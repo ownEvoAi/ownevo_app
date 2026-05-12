@@ -63,6 +63,14 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">Inbox</span>
       </a>
+      <a href={`${root}/activity`} className={cls(`${root}/activity`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M2 13 L5 9 L8 11 L11 5 L14 8" />
+          <circle cx="2" cy="13" r="1.2" />
+          <circle cx="14" cy="8" r="1.2" />
+        </svg>
+        <span className="nav-label">Activity</span>
+      </a>
 
       <div className="nav-section">Workflows</div>
       {workflows.map((w) => {
