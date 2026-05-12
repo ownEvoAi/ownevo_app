@@ -2,12 +2,15 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   getIterationDetail,
+  getProposal,
   kernelError,
   KernelApiError,
   type IterationCaseRow,
   type IterationDetail,
+  type ProposalDetail,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
+import { SkillDiff } from '@/app/components/skill-diff'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string; idx: string }>
@@ -39,6 +42,20 @@ export default async function IterationDetailPage({ params }: PageProps) {
         <strong>{apiError.title}</strong> {apiError.detail}
       </div>
     )
+  }
+
+  // Fetch the proposal in parallel only when this iteration produced
+  // one. Skill diff is the most-asked-for context on an iteration —
+  // "what did the agent want to change?" — so render it inline below
+  // the case roster. Swallow errors here: the iteration page should
+  // not 5xx because the proposal endpoint hiccupped.
+  let proposal: ProposalDetail | null = null
+  if (detail.proposal_id) {
+    try {
+      proposal = await getProposal(detail.proposal_id)
+    } catch {
+      proposal = null
+    }
   }
 
   const failedCases = detail.cases.filter((c) => c.passed === false)
@@ -131,6 +148,29 @@ export default async function IterationDetailPage({ params }: PageProps) {
           }
         />
       </section>
+
+      {proposal && (
+        <section style={{ marginTop: 18 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Skill diff · {proposal.skill_id}
+            {proposal.parent_version_seq !== null
+              ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
+              : ' · initial version'}
+            {' · '}
+            <Link
+              href={`/workspaces/${wsId}/proposals/${proposal.id}`}
+              style={{ fontSize: 12, color: 'var(--accent)' }}
+            >
+              Open proposal →
+            </Link>
+          </h2>
+          <SkillDiff
+            current={proposal.parent_version_content}
+            proposed={proposal.proposed_content}
+            parentVersionSeq={proposal.parent_version_seq}
+          />
+        </section>
+      )}
 
       {failedCases.length > 0 && (
         <CaseSection
