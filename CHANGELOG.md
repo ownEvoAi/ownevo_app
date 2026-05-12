@@ -17,6 +17,106 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (PR #85 — workflow taxonomy: benchmark kind + eval-mode enum, 2026-05-12)
+
+Two schema-level changes that the UI needed to talk honestly about what
+each workflow row is and what the improvement loop does with it.
+
+- **`workflows.kind` column (migration `0006_workflow_kind.sql`).** Nullable
+  text, default null = production. Today only `'benchmark'` is consumed;
+  back-fill targets rows whose id starts with `m5-`, `tau-`, `tau2-`,
+  `tau3-`, `taubench-`. Threaded through `WorkflowSummary`,
+  `WorkflowAnatomy`, the list + detail + update routes, and the TS API
+  types. UI surfaces:
+  - workspace-nav splits sidebar into **Workflows** and **Benchmarks**
+    sections with an ⓘ hint "Kernel validation runs — not customer
+    workflows". Benchmarks section hidden when zero rows.
+  - Health page partitions counts so benchmarks never inflate "Active
+    workflows", pending tile, lift-chart primary pick, or
+    stale/in-flight banners. Adds a separate "Loop validation ·
+    benchmarks" table below the main workflows table with caption
+    "Kernel proof runs — not customer workflows".
+  - Workflow detail layout renders an indigo **BENCHMARK** pill inline
+    with the title when `kind='benchmark'`.
+
+- **`workflow_mode` enum extended to four values (migration
+  `0007_workflow_mode_eval_modes.sql`).** New `'eval-only'` and
+  `'eval-propose'` values join `'gated'` and `'autonomous'`. Full
+  taxonomy in `lib/format.ts::modeLabel()`:
+  | Mode | Score | Propose | Auto-deploy |
+  |------|------|---------|-------------|
+  | `eval-only` | yes | no | — |
+  | `eval-propose` | yes | yes | no |
+  | `gated` (default) | yes | yes | requires approval |
+  | `autonomous` | yes | yes | on gate-pass |
+  Surfaces the human label in the workflow detail subtitle and the
+  Workflows-table Mode column (with hint tooltip). Runtime gating
+  (iteration runner / proposer / deployer respecting eval-only +
+  eval-propose) is intentionally **not** in this commit — the mode is
+  descriptive until the Connect-existing-agent backend lands.
+
+PLAN.md gains a Phase-2 retrofit item (item 5): once D4 multi-tenant
+lands, split benchmarks into a dedicated `_benchmarks` workspace and
+seed per-vertical demo workspaces (`demo-legal`, `demo-supply-chain`,
+`demo-credit-risk`, `demo-clinical`, etc.) using the same `kind`
+column carried forward. Commits: `8d834ce`, `31f9aac`.
+
+### Fixed (PR #85 — browser-review round, 2026-05-12)
+
+Eight defects surfaced during a full chrome-devtools walkthrough of
+every workspace surface after the first follow-up round shipped.
+
+- **Failures tab 500** (`da35e3c`, `2b71792`): the new
+  `spawning_iteration_index` SQL referenced `iterations.created_at`,
+  which doesn't exist (column is `started_at`). Kernel tests skipped
+  DB checks on this branch so the typo slipped through. Replaced with
+  a defensive Python-side resolver (one batched lookup for the union
+  of every cluster's `sample_trace_ids`, then earliest-iteration
+  picked per cluster) so empty/NULL `sample_trace_ids` no longer
+  hit asyncpg's brittle `ANY($1::uuid[])` path.
+- **Skill detail 500** (`92220a3`): `GET /api/skills/{id}` fanned four
+  follow-up queries through `asyncio.gather` against a single pooled
+  asyncpg connection. asyncpg disallows concurrent ops on one
+  connection and raised "another operation is in progress". The
+  fan-out comment even predicted "ready for a pool-per-coroutine
+  upgrade" — but no pool wrap landed. Sequentialised (~10ms total)
+  until pool-per-coroutine lands.
+- **Dark-mode flash on every navigation** (`ea27e20`): the root
+  layout SSR'd `<html data-theme="light">` and the ThemeToggle
+  effect only flipped the attribute post-hydrate. Every navigation
+  in dark mode flashed white then snapped dark. Added an inline
+  `<script>` in `<head>` that reads the `ownevo-theme` localStorage
+  key and applies `data-theme` synchronously before any paint;
+  toggle now reads the live attribute on mount to keep the button
+  label aligned with what's actually painted.
+- **Activity feed used full workflow descriptions** (`f8c2b62`): both
+  the filter chips and the "on X" mention in each row dumped the
+  entire multi-paragraph NL-gen prompt. Switched to
+  `workflowDisplayTitle()` so chips and row text stay readable; full
+  text moves to `title=` for hover.
+- **Inbox row source label used full description** (`92220a3`): same
+  pattern as the activity feed. Same fix — `workflowDisplayTitle(60)`
+  with full text on hover.
+- **Operate tab had no path to the agent-only view** (`f8c2b62`):
+  the tab rendered an empty state on workflows whose spec doesn't
+  define an `Operate` tab and never surfaced a link to
+  `/operator/[wfId]`. Added a gradient CTA card linking to the
+  agent-only view and brought in the recent-runs table (mirrors the
+  operator shell) so the tab carries real agent content even without
+  spec-declared primitives.
+- **Nav "Library" grouped operational logs with reference content**
+  (`46fd49f`): split into **Library** (Skills, Views — reusable
+  reference) and **Records** (Traces, Audit — operational logs).
+  Three-section sidebar reads faster than the four-item catch-all.
+- **Database migrations don't auto-run on existing volumes**: the
+  Postgres `docker-entrypoint-initdb.d` mount only runs on first init.
+  Applied `0006` + `0007` manually for the running dev DB via
+  `docker compose exec postgres psql -f`. Production deploys still
+  need an explicit migration runner (TODO-1 retrofit).
+
+Commits on this round: `da35e3c`, `ea27e20`, `46fd49f`, `2b71792`,
+`f8c2b62`, `8d834ce`, `31f9aac`, `92220a3` (8 total).
+
 ### Added (PR #85 follow-up — seven activity-surface improvements, 2026-05-12)
 
 Seven UI gaps surfaced during the post-Tier-1 audit on `feat/real-ui-loop`.
