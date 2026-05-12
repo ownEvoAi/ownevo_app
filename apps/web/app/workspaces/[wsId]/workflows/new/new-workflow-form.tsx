@@ -1,17 +1,56 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
 
 const initialState: GenerateState = { error: null }
 
-export function NewWorkflowForm({ wsId }: { wsId: string }) {
+export interface SampleDescription {
+  id: string
+  label: string
+  description: string
+}
+
+export function NewWorkflowForm({
+  wsId,
+  samples,
+}: {
+  wsId: string
+  samples: SampleDescription[]
+}) {
   const action = generateWorkflowAction.bind(null, wsId)
   const [state, formAction] = useActionState(action, initialState)
+  const [description, setDescription] = useState('')
 
   return (
     <form action={formAction} className="new-workflow-form">
+      {samples.length > 0 ? (
+        <div className="sample-row">
+          <span className="sample-row-label">Try a sample:</span>
+          {samples.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="sample-chip"
+              onClick={() => setDescription(s.description)}
+              title={s.description}
+            >
+              {s.label}
+            </button>
+          ))}
+          {description.length > 0 ? (
+            <button
+              type="button"
+              className="sample-chip-clear"
+              onClick={() => setDescription('')}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <label className="new-workflow-label" htmlFor="description">
         Workflow description
       </label>
@@ -23,6 +62,8 @@ export function NewWorkflowForm({ wsId }: { wsId: string }) {
         required
         minLength={50}
         maxLength={4096}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
         placeholder={
           'Recalibrate credit lines monthly across our 22,000-SMB portfolio. Flag accounts where utilization, DPD, or sector exposure suggest the line should be reduced. The chief risk officer reviews weekly. Past misses: we underweighted hospitality concentration in Q3 2024 and held lines too high through the spring rate-shock.'
         }

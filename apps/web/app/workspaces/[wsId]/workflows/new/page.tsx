@@ -1,8 +1,17 @@
-import Link from 'next/link'
+import { listPreviewWorkflows, type PreviewIndexEntry } from '@/lib/api'
 import { NewWorkflowForm } from './new-workflow-form'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
+}
+
+// Friendly labels for the sample-fill chips. The kernel emits the
+// fixture ids verbatim; this map gives them a more readable name in
+// the UI without coupling the kernel to display copy.
+const SAMPLE_LABEL: Record<string, string> = {
+  'demand-prediction': 'Demand prediction',
+  'credit-risk': 'Credit risk',
+  'contract-review': 'Contract review',
 }
 
 // Live NL-gen flow — describe a workflow, hit Generate, the kernel
@@ -10,6 +19,17 @@ interface PageProps {
 // redirects to the workflow detail page.
 export default async function NewWorkflowPage({ params }: PageProps) {
   const { wsId } = await params
+
+  // Sample descriptions come from the kernel's NL-gen fixtures.
+  // Surfacing them here lets reviewers click-to-fill the textarea
+  // instead of typing a description from scratch.
+  let samples: PreviewIndexEntry[] = []
+  try {
+    samples = (await listPreviewWorkflows()).items
+  } catch {
+    // Form still works without samples — the kernel preview endpoint
+    // is read-only and doesn't gate the live gen path.
+  }
 
   return (
     <div className="preview-wrap">
@@ -25,7 +45,14 @@ export default async function NewWorkflowPage({ params }: PageProps) {
 
       <Steps step="describe" />
 
-      <NewWorkflowForm wsId={wsId} />
+      <NewWorkflowForm
+        wsId={wsId}
+        samples={samples.map((s) => ({
+          id: s.workflow_id,
+          label: SAMPLE_LABEL[s.workflow_id] ?? s.workflow_id,
+          description: s.description,
+        }))}
+      />
 
       <div className="gen-help">
         <h3 className="gen-help-title">What makes a good description?</h3>
@@ -47,18 +74,6 @@ export default async function NewWorkflowPage({ params }: PageProps) {
             want the loop to learn from.
           </li>
         </ul>
-        <p style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
-          Want a sample to start from? Run{' '}
-          <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
-            make seed-demo
-          </code>{' '}
-          to seed credit-risk and contract-review, or browse the seeded
-          workflows from the{' '}
-          <Link href={`/workspaces/${wsId}`} style={{ color: 'var(--accent)' }}>
-            Health page
-          </Link>
-          .
-        </p>
       </div>
     </div>
   )
