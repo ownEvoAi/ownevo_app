@@ -161,7 +161,7 @@ def _parse_ollama_response(data: dict[str, Any]) -> OllamaResponse:
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_TIMEOUT_SECONDS = 600.0
+DEFAULT_TIMEOUT_SECONDS = 1800.0
 """Per-request httpx timeout for Ollama /api/chat calls.
 
 Two distinct call sites with different timeout needs:
@@ -173,12 +173,16 @@ time on top.
 
 (b) τ³ loop agent (1 sequential request, large model): a single chat
 turn on a 26-35B model can emit several thousand tokens. At ~30 tok/s
-on a 35B model with a long prompt, a single turn can run 3-5 minutes
-on its own. The earlier 300s default tripped `httpx.ReadTimeout` on
-gemma4:26b and qwen3.6:35b loop iterations (P1.3f, P2.3f, smoke 1).
+on a 35B MoE model, a single turn runs 3-5 minutes. Dense models
+(e.g. qwen3.6:27b, 27B active params) are ~5-10× slower per token
+AND may need ~5 min for Ollama to load the model from disk on first
+request. The earlier 600s default tripped ReadTimeout on qwen3.6:27b
+(model load + first turn exceeded 600s; wall time ~900s).
 
-600s covers both with headroom and no realistic harm — if a single
-call legitimately takes >10 min the model is wedged anyway.
+1800s (30 min) covers the worst case: 5 min load + 25 min generation
+for a dense 27B model running at 3-5 tok/s with multi-thousand token
+thinking chain. If a call legitimately exceeds 30 min the model is
+wedged and nothing productive can be done anyway.
 """
 
 
