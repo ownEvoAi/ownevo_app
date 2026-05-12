@@ -17,6 +17,92 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (post-PR #85 — operator-shell layer-D parity, 2026-05-12)
+
+The operator shell + workspace Operate/Overview tabs now render real
+per-case iteration data through five typed UI primitives, replacing
+the spec-internals jargon banners with honest empty states (or live
+data once an iteration has run).
+
+- **`iteration_case_outputs` table (migration `0008_iteration_case_outputs.sql`,
+  PLAN 8.4.9).** One row per (iteration, eval_case) — `output_json` jsonb,
+  `passed` bool, ON DELETE CASCADE on both parents, UNIQUE on the pair.
+  Iteration runner's new `_persist_case_outputs` step writes alongside
+  the existing trace persistence; case_id lookup goes through
+  `eval_cases.expected_behavior->>'case_id'`. Idempotent via ON CONFLICT
+  DO UPDATE. Misses on case_id resolution skip the row rather than
+  failing the iteration. New `_json_safe` coerces arbitrary
+  `actual_value` shapes (today bool; later dict/list when the agent
+  emits richer output). Commit `69028d9`.
+- **`GET /api/workflows/{id}/case-outputs?iteration=latest|<idx>`.**
+  Returns `CaseOutputList{workflow_id, iteration_index, iteration_id,
+  items: CaseOutputRow[]}`. Empty roster (not 404) when no iteration
+  matches — operator UI distinguishes "haven't run yet" from "ran,
+  empty". 400 on non-integer iteration; 404 on missing workflow.
+- **Layer-D resolver TableView + AlertList + KanbanBoard branches
+  (PLAN 8.4.10, follow-ups).** `apps/web/lib/primitive-data-resolver.ts`
+  gained three resolved-kind branches that fan out from a new optional
+  `caseOutputs` input. TableView renders 5 columns (case_id ·
+  predicted · expected · pass/fail pill · agent rationale,
+  failed-first sort, rationale truncated to 140 chars with full-text
+  hover tooltip via new `title_key` on `TableColumn`). AlertList
+  renders the latest iteration's failed cases as high-severity alerts
+  (capped at 5). KanbanBoard columns cases by outcome × fold
+  (failed-test / failed-train / passed) with rationale-truncated
+  cards. `pass` / `fail` added to PILL_TONES (green / red). Three
+  caller pages — operator shell, workspace Operate tab, workspace
+  Overview tab — pass case-outputs through and render the new kinds.
+  Commits: `319ea77`, `22f2155`, `24e5155`.
+- **Fixtures gained `KanbanBoard` primitive.** credit-risk + contract-review
+  spec fixtures (`apps/kernel/src/ownevo_kernel/nl_gen/fixtures/`) now
+  declare a fifth primitive (`KanbanBoard`, `source: 'case-outputs'`)
+  so seed-demo writes specs that auto-light-up under the new resolver.
+  Re-seeding is idempotent and preserves the new primitive.
+- **`make seed-demo-with-iter` + `seed_demo.py --with-iterations`.**
+  After upserting the workflows + eval cases, runs one iteration per
+  workflow via `run_one_iteration_for_workflow`. Requires
+  `ANTHROPIC_API_KEY`; gracefully skipped (with a printed note) when
+  missing. Operator pages render real data on a reviewer's first
+  visit, no manual "Run iteration" click needed. Commit `2e118ed`.
+
+### Fixed (post-PR #85 — operator-shell follow-ups, 2026-05-12)
+
+- **`eval-cases/generate` now persists `simulation_plan` + `metric_definition`.**
+  Pre-fix, the endpoint regenerated the sim_plan in memory to drive
+  case generation but never wrote it back. Workflows created via
+  earlier paths landed with simulation_plan/metric_definition NULL
+  and the iteration runner refused to run. Endpoint now UPDATEs
+  the row with the fresh sim_plan unconditionally, and generates +
+  persists `metric_definition` when one didn't exist. Verified on
+  `sku-store-demand-markdown`: pre-fix has_plan=f / has_metric=f →
+  post-fix has_plan=t / has_metric=t after one call. Commit `2e118ed`.
+- **Operate tab + operator-shell de-duplication.** The header's
+  "Open operator view ↗" button (visible from every workflow tab)
+  was duplicated by a gradient "Open agent-only view" CTA card on
+  the Operate tab. Card removed; header button is the single entry
+  point. Two dev-jargon banners on the Operate tab (no-Operate-spec-tab
+  / no-primitives-declared) shipped raw `WorkflowSpec` internals to a
+  non-developer audience — both dropped. Commits `b28e13e`, `ece6e86`.
+- **Benchmark workflows hide Operate / Triggers / Integrations /
+  Permissions / Settings tabs.** Tabs filtered when `kind='benchmark'`;
+  Overview / Eval cases / Proposals / Failures / Traces / Audit stay
+  — every surface that proves the loop is improving. Commit `b28e13e`.
+- **Iteration drill-down: plain-English gate-state banner.** The
+  iteration detail page surfaced terminal state as raw enum text
+  (`gate-blocked-no-improvement`, `gate-blocked-regression`,
+  `sandbox-error`, `running`). New `StateBanner` translates each into
+  a sentence for a domain expert ("Gate blocked the change. val_score
+  X didn't beat the prior best Y, so the proposal was rejected"). New
+  `.iter-state-banner` CSS tone-tints by state (green / amber / red /
+  accent). Commit `10b9c14`.
+- **Operate-tab "Recent runs" duplicate removed.** Workspace Overview
+  already shows the full iteration list; Operate tab's truncated
+  10-row table was redundant. Operate keeps live status + description
+  + spec-declared primitives. Long "primitives need richer per-case
+  agent output … iteration runner captures structured predictions
+  beyond bool" banner rewritten as a one-liner aimed at the
+  domain-expert audience. Commit `ece6e86`.
+
 ### Added (PR #85 — workflow taxonomy: benchmark kind + eval-mode enum, 2026-05-12)
 
 Two schema-level changes that the UI needed to talk honestly about what
