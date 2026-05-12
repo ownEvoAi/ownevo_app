@@ -33,8 +33,20 @@ export default async function WorkflowDetailLayout({ children, params }: LayoutP
         <a href={`/workspaces/${wsId}`} className="wf-back">
           ‹ Workflows
         </a>
-        <div className="wf-title-row" style={{ marginTop: 6 }}>
+        <div
+          className="wf-title-row"
+          style={{ marginTop: 6, justifyContent: 'space-between' }}
+        >
           <h1 className="wf-title">{title}</h1>
+          {!notFound ? (
+            <a
+              href={`/operator/${wfId}?ws=${encodeURIComponent(wsId)}`}
+              className="btn btn-secondary"
+              style={{ fontSize: 12, padding: '6px 12px' }}
+            >
+              Open operator view ↗
+            </a>
+          ) : null}
         </div>
         {subtitle && !notFound ? (
           <p className="wf-buyer" style={{ marginTop: 6 }}>
