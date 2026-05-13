@@ -1571,6 +1571,57 @@ This guide stays committed; that file is throwaway.
 
 ---
 
+---
+
+## AA Intelligence Index — τ³ retail sweep candidates (2026-05-13)
+
+Source: [Artificial Analysis Intelligence Index v4.0](https://artificialanalysis.ai/models/open-source/small?models=qwen3-6-27b%2Cqwen3-6-35b-a3b%2Cgemma-4-31b%2Cqwen3-6-27b-non-reasoning%2Cqwen3-5-9b%2Cgemma-4-31b-non-reasoning%2Cqwen3-6-35b-a3b-non-reasoning%2Cgemma-4-26b-a4b%2Cqwen3-5-35b-a3b-non-reasoning%2Cexaone-4-5-33b%2Cnemotron-cascade-2-30b-a3b%2Capriel-v1-6-15b-thinker%2Cqwen3-5-9b-non-reasoning%2Cgemma-4-26b-a4b-non-reasoning%2Cgpt-oss-20b%2Cnvidia-nemotron-3-nano-30b-a3b-reasoning%2Cdevstral-small-2%2Cgemma-4-e4b%2Cexaone-4-0-32b-reasoning%2Cministral-3-14b%2Cgemma-4-e2b%2Cnvidia-nemotron-nano-9b-v2-reasoning%2Cgranite-4-1-30b%2Czaya1-8b%2Cgranite-4-1-8b%2Clfm2-24b-a2b%2Cphi-4%2Clfm2-8b-a1b#intelligence-evaluations)
+
+Index v4.0 aggregates 10 evals: GDPval-AA, τ²-Bench Telecom, Terminal-Bench Hard, SciCode, AA-LCR, AA-Omniscience, IFBench, Humanity's Last Exam, GPQA Diamond, CritPt. Lightbulb icon = reasoning mode.
+
+| AA Intel | τ²-Tel | TBH | HLE | IFBench | Model | Reasoning | τ³ retail val_score | Notes |
+|---|---|---|---|---|---|---|---|---|
+| 46 | 94% | 30% | 18% | 68% | Qwen3.6 27B | ✓ | — | Not on machine |
+| **43** | **95%** | **35%** | **22%** | **67%** | **Qwen3.6 35B A3B** | ✓ | **0.750** | Winner. LMS task agent + proposer |
+| 39 | ~53% | 36% | 23% | 76% | Gemma 4 31B | ✓ | 🔄 Run B | Expected ~0.60-0.65 |
+| 37 | 94% | 24% | 13% | 65% | Qwen3.6 27B | — | — | Non-reasoning |
+| 32 | ~85% | 25% | 14% | 65% | Qwen3.5 9B | ✓ | 0.575 | LMS, ctx=65536 |
+| 32 | ~53% | 35% | 11% | 72% | Gemma 4 31B | — | 🔄 Run B | Non-reasoning mode |
+| 32 | ~87% | 30% | 13% | 67% | Qwen3.6 35B A3B | — | — | Non-reasoning mode |
+| 31 | 44% | 26% | 20% | 71% | Gemma 4 26B A4B | ✓ | 0.00 | **Outlier** — high AA + IFBench, 0 retail. max_steps every task. MoE ~4B active insufficient for multi-turn. |
+| 31 | ~86% | 14% | 13% | ~46% | Qwen3.5 35B A3B | — | — | Non-reasoning |
+| 30 | **69%** | 21% | 12% | 54% | EXAONE 4.5 33B | — | — | Run G queued. High τ²-Tel for AA intel rank |
+| 28 | 42% | 21% | 12% | **80%** | Nemotron Cascade 2 30B A3B | ✓ | — | Run F (LMS) + Run I (Ollama/bartowski). **#1 IFBench of all models shown** |
+| 28 | **66%** | 17% | 10% | 69% | Apriel-v1.6-15B-Thinker | ✓ | — | Run H queued. 9.66 GB, no swap needed. **Punches above weight on τ²-Tel + IFBench** |
+| 27 | ~85% | 11% | 9% | ~64% | Qwen3.5 9B | — | — | Non-reasoning |
+| 27 | 40% | ~14% | ~11% | ~45% | Gemma 4 26B A4B | — | 0.00 | Non-reasoning. Same retail failure as reasoning mode. |
+| 24 | 60% | 8% | 10% | 58% | gpt-oss-20B (high) | — | 0.300 | LMS task agent |
+| 24 | 41% | 14% | 11% | ~45% | NVIDIA Nemotron 3 Nano 30B A3B | ✓ | — | Different from Cascade 2 |
+| 19 | 22% | 18% | 3% | ~28% | Devstral Small 2 | — | ~0.33 partial | Full-eval-infeasible (tau2 retry depth) |
+| 19 | 21% | 5% | ~4% | ~38% | Gemma 4 E4B | ✓ | — | — |
+| 17 | 17% | 2% | ~4% | ~36% | EXAONE 4.0 32B | ✓ | — | — |
+| 16 | 23% | 4% | 5% | ~39% | Ministral 3 14B | — | — | — |
+| 15 | 21% | ~4% | 5% | ~36% | Gemma 4 E2B | ✓ | 0.00 | Retail-weak (~2B active) |
+| 15 | 21% | ~11% | ~4% | ~44% | NVIDIA Nemotron Nano 9B V2 | ✓ | — | — |
+| 15 | 31% | 11% | ~4% | 46% | Granite 4.1 30B | — | — | — |
+| 14 | 28% | 4% | ~4% | ~44% | ZAYA1-8B | — | — | — |
+| 12 | 27% | ~2% | ~4% | ~38% | Granite 4.1 8B | — | — | — |
+| 10 | 0% | 0% | 5% | ~31% | LFM2 24B A2B | — | — | — |
+| 10 | ~11% | 0% | ~4% | 24% | Phi-4 | — | — | — |
+| 7 | 0% | 0% | ~4% | ~26% | LFM2 8B A1B | — | — | — |
+
+_τ²-Tel = τ²-Bench Telecom (agentic tool use, same benchmark family as τ³ retail). TBH = Terminal-Bench Hard (agentic coding). HLE = Humanity's Last Exam (reasoning & knowledge). IFBench = instruction following. Source: [AA Intelligence Index v4.0, 2026-05-13](https://artificialanalysis.ai/models/open-source/small?models=qwen3-6-27b%2Cqwen3-6-35b-a3b%2Cgemma-4-31b%2Cqwen3-6-27b-non-reasoning%2Cqwen3-5-9b%2Cgemma-4-31b-non-reasoning%2Cqwen3-6-35b-a3b-non-reasoning%2Cgemma-4-26b-a4b%2Cqwen3-5-35b-a3b-non-reasoning%2Cexaone-4-5-33b%2Cnemotron-cascade-2-30b-a3b%2Capriel-v1-6-15b-thinker%2Cqwen3-5-9b-non-reasoning%2Cgemma-4-26b-a4b-non-reasoning%2Cgpt-oss-20b%2Cnvidia-nemotron-3-nano-30b-a3b-reasoning%2Cdevstral-small-2%2Cgemma-4-e4b%2Cexaone-4-0-32b-reasoning%2Cministral-3-14b%2Cgemma-4-e2b%2Cnvidia-nemotron-nano-9b-v2-reasoning%2Cgranite-4-1-30b%2Czaya1-8b%2Cgranite-4-1-8b%2Clfm2-24b-a2b%2Cphi-4%2Clfm2-8b-a1b#intelligence-evaluations)._
+
+**Correlation & prediction notes:**
+- AA Intel composite predicts τ³ retail reasonably (43→0.75, 32→0.575, 24→0.30). Notable outlier: Gemma 4 26B A4B (index=31, IFBench=71%, retail=0.00) — fails retail due to max_steps, not reasoning or instruction quality.
+- **τ²-Bench Telecom is the best direct predictor** (same benchmark family). EXAONE 4.5 33B (69%) and Apriel (66%) rank higher than their AA index suggests.
+- **IFBench standout: Nemotron Cascade 2 30B A3B = 80%** — highest of all models, validating the hypothesis that it may show better instruction-following adaptability as a task agent than its AA index (28) implies.
+- **Apriel at 69% IFBench and 66% τ²-Tel is exceptional for 15B / 9.66 GB** — no swap needed, high ceiling relative to its size.
+- Devstral Small 2: τ²-Tel=22%, IFBench~28%, consistent with ~0.33 retail.
+- qwen3.6-35b-a3b: 95% telecom vs 75% retail — ~20pp domain gap expected.
+
+---
+
 ## Known gaps / followups
 
 - **F3 (SKILL_FORMAT validation):** add a strict parse on `write_skill`

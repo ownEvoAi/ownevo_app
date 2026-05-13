@@ -194,9 +194,11 @@ The matrix above measures **loop-driver capability**. A model that drives the lo
 | `openai/granite-4.1-8b` (LMS, ctx=16384) **as task agent in mixed run** | 🚫 UTF-8 surrogate bug | **2026-05-12 Run 37 v2 `qwen36_loop_granite8b_task_smoke_c4_v2`**: smoke-rejected (rc=9) in ~4 min — `litellm.InternalServerError: 'utf-8' codec can't encode characters in position 310-311: surrogates not allowed`. Same family bug as `granite4.1:8b` em-dash issue. **Verdict: task-agent-unviable** on the openai/LMS path. Earlier 2026-05-11 smoke (`qwen36loop_graniteagent_64k_smoke`, c=3, 4/40 in 30 min @ avg 0.50) ran without surrogate errors at ctx=16384 — implies either codepath drift or a tokenizer-state-dependent surrogate emission. Either way: don't retry without fixing the unicode-escape sanitization before LiteLLM payload. |
 | `ollama_chat/granite4.1:8b` (Ollama, NUM_PARALLEL=4 + c=4) **as task agent in mixed run** | 🚫 retail-weak | **2026-05-12 Run 38 v2 `qwen36_loop_granite8b_ollama_task_smoke_c4`** (killed at 20/40 @ avg **0.10**, 27 min): UTF-8 surrogate bug ABSENT (Modelfile template avoids the LMS bundled-jinja bug). But trajectory locked at ceiling **~0.10-0.12** — granite4.1:8b is the **WEAKEST task agent in this branch**, below gpt-oss-20b (0.30) and real qwen3.5-4b (~0.22-0.30). Granite4.1:8b also hits `Simulation terminated prematurely. too_many_errors` at conv depth ≥10 (4+ tasks in this run). **Verdict: granite family retail-unviable as task agent regardless of stack.** Skip granite4.1:3b and (lower priority) granite3.3:8b retries. Prefer MoE Ollama variants (qwen3:30b-a3b) for task-agent role going forward. Run 38 v1 (NUM_PARALLEL=1, killed at 4/40 @ 0.50) was misleading on small sample. |
 | `anthropic/qwen/qwen3.5-4b` (LMS) | ❌ **INVALID IDENTIFIER** | **2026-05-12 discovery:** this identifier **does not exist** in LMS (only `qwen3.5-4b` no-prefix and `qwen/qwen3.5-9b` with prefix are valid). Run 21's 0.8250 was generated with JIT enabled, so this name silently fell back to whatever was loaded (`qwen/qwen3.6-35b-a3b`). The "inverse scaling 4B > 9B > 35B" claim is invalidated. Real `qwen3.5-4b` (loaded, JIT disabled) tested 2026-05-12T06:46Z: avg reward **0.30** at N=10 (Run 21 was ~0.80 at N=10) — real 4B is significantly worse, not better. |
-| `ollama_chat/devstral-small-2:latest` (Ollama) | ⚠ infra-viable, contaminated | **Run 39 (2026-05-12T23:02Z → 23:20Z, killed at 4/40):** Ollama Modelfile chat template correctly handles tau3's tool-call/result turns — **LMS jinja alternation error is stack-specific, not model-specific** (Run 26 failed on LMS; Run 39 smoke PASSED on Ollama). Proposer codegen had bug: `_resolve_gaps_from_facts` method called but not defined → `AttributeError` on ~50% of tasks. Contaminated run — reward on the 2 successful tasks was 0.50, but N too small to signal. Per-task ~3-4 min (Ollama, no KV reuse). **Verdict: infra-viable on Ollama; clean retry with a good proposer would give real reward signal.** |
+| `ollama_chat/devstral-small-2:latest` (Ollama) | ⚠ retail-capable, full-eval-infeasible | **Run 39 (2026-05-12T23:02Z → 23:20Z, killed at 4/40):** Contaminated by proposer bug. Infra-viable. **Run 44 (TASK_TIMEOUT=2400s):** SANDBOX_ERROR, partial avg_reward=0.33 (N=3) at 5/40. **Run 45 (TASK_TIMEOUT=7200s, 2026-05-13T04:22Z → 06:25Z, ~2hr):** SANDBOX_ERROR again — 10/40 complete, avg_reward=0.33 (N=6). Individual tasks hit R2/R3 retries; task 27 ran ~1800s on R1, task 38 reached R3. Root cause: devstral's response quality triggers tau2 retries frequently; at c=2 a single 30+ min task blocks a slot indefinitely. **Final verdict: retail-capable at ~0.33 (3 consistent measurements: Runs 39/44/45), but full-eval-infeasible — retry depth makes TASK_TIMEOUT=7200 insufficient for 40/40 completion. Do not retry further.** Comparable to gpt-oss-20b (0.30) and real qwen3.5-4b (~0.22-0.30). |
 | `ollama_chat/qwen3:30b-a3b` (Ollama) | 🚫 thinking-bound | **Run 40 (2026-05-12T23:25Z, killed at smoke ~450s):** qwen3:30b-a3b is a thinking model (qwen3moe family, 30.5B Q4_K_M). Sandbox LiteLLM path does NOT inject `think:false` for `ollama_chat/` models generically — the existing `tau2_patches.py` patch only covers qwen3* models that match the specific prefix, and qwen3:30b-a3b burns unbounded thinking tokens on every task turn (~450s/smoke task). Throughput projection: 40 tasks × 450s / c=2 ≈ 9000s (2.5 hr), far exceeds TASK_TIMEOUT=2400s. **Verdict: qwen3moe family on Ollama as task agent is thinking-bound unviable without sandbox-side `think:false` injection fix.** |
 | `ollama_chat/gemma4:e2b` (Ollama) | ✗ retail-weak | **Run 41 v1 (2026-05-12T23:37Z, rc=9):** OLLAMA_API_BASE routing bug — wrapper set default to LMS port (1234) instead of Ollama port (11434) when proposer is lms-anthropic. **Fixed:** `tau3_p2_local_loop.sh` now defaults `OLLAMA_API_BASE=http://${LLM_HOST}:11434`. **Run 41 v2 (2026-05-12T23:42Z → 05-13T00:31Z):** Smoke PASSED (infra routing fix confirmed). Full eval: SANDBOX_ERROR, val_score=None. Observed avg_reward=0.00 across all 3 completed tasks (N=3). TASK_TIMEOUT=2400s budget exhausted before full 40-task eval could complete (proposer ~8 min + smoke ~2 min = 600s overhead; 40 tasks at 90-120s each at c=2 needs ~2100s but only ~1800s remained). **Verdict: gemma4:e2b infra-viable on Ollama but retail-weak (~2B active params; 0.00 reward on multi-turn retail conversations).** |
+| `ollama_chat/gemma3:12b` (Ollama) | 🚫 no tool support | **Run 42 (2026-05-13T02:41Z, rc=9, ~4 min):** `litellm.APIConnectionError: Ollama_chatException - {"error":"registry.ollama.ai/library/gemma3:12b does not support tools"}`. Prior-generation gemma3 lacks tool-calling capability in Ollama's Modelfile template. Hard API rejection — no `ollama_chat/` workaround. gemma4 family (e2b, 26b, 31b) added tool support that gemma3 lacks. **Verdict: task-agent-unviable.** |
+| `ollama_chat/gemma4:26b` (Ollama) | ✗ retail-weak + too slow | **Run 43 (2026-05-13T02:48Z → 03:36Z, ~48 min):** Smoke PASSED (Ollama routing confirmed working, v_seq=233). Full eval: SANDBOX_ERROR, val_score=None. Tasks took ~360-380s each at c=2 (vs 90-120s for cloud Sonnet, 90-120s for gemma4:e2b). TASK_TIMEOUT=2400s budget exhausted — only ~5-7 tasks completed before timeout. All completed tasks: avg_reward=0.00, termination reason `max_steps` (simulation hit step limit without completing task). Despite 4B active MoE params (vs ~2B for e2b), retail performance is identical. **Verdict: gemma4 family (e2b and 26b) retail-weak as task agent — 0.00 avg reward at any MoE scale tested. gemma4:26b additionally too slow for TASK_TIMEOUT=2400s.** |
 | `anthropic/qwen/qwen3.5-9b` (LMS, v13 template, **ctx=65536**) | ✅ working, weak | **Run 28 (2026-05-12T17:09Z → 17:31Z):** PASS val_score=**0.5750**, 40/40 clean. With JIT disabled + explicit prior load (real 9B served, not JIT-fallback). Confirms **bigger > smaller** for retail τ³ task agent: 0.5750 (9B) vs 0.7500 (35b-a3b baseline). **Run 22's reported 0.7250 was JIT-fallback** to qwen3.6-35b-a3b (15pp gap = no way real 9B produced it). ⚠ **ctx=32768 was insufficient** — Run 27 hit 3 ctx-exceeded infra_errors; ctx=65536 fixed it. |
 | `anthropic/qwen/qwen3.6-35b-a3b` (LMS, **froggeric v13 template**) | ✅ **REAL WINNER** | This is what Runs 15, 21, 22, 23v2 actually used as task agent under JIT-fallback. The v13 template + /v1/messages routing is the actual lift driver (0.7500 → 0.8250). **Run 24 scale-up (2026-05-12, 5 cycles): 0.7500/0.6750/0.7250/0.8250/0.7000, mean 0.7350.** Cycle 4 reproduced 0.8250 via a *different* skill (lookup_tracker + STOP at 8 tool calls, proposal `917d8d89`) — confirms 0.825 ceiling is reachable via multiple skill patterns. |
 | `openai/openai/gpt-oss-20b` (LMS) | ⚠ weak | **Run 25 (task-agent test #6, 2026-05-12):** PASS val_score=**0.3000**, 40/40 clean, ~22 min. With qwen3.6-35b-a3b proposer. 52pp below baseline — task-agent quality is the ceiling, skill cannot lift a weak agent. |
@@ -346,6 +348,32 @@ Write `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` with three-condition tabl
 | 28 | qwen/qwen3.5-9b LMS (v13, ctx=65k) | 0.5750 | Real 9B post-JIT-disabled |
 | 25 | openai/gpt-oss-20b LMS | 0.3000 | 40/40 clean |
 | 36 v2 (partial) | qwen3.5-4b LMS | ~0.22-0.30 | Killed at 9/40; trajectory locked |
+| 41 v2 | ollama_chat/gemma4:e2b | ~0.00 | SANDBOX_ERROR, avg_reward=0.00, retail-weak |
+| 43 | ollama_chat/gemma4:26b | ~0.00 | SANDBOX_ERROR, avg_reward=0.00, too slow + retail-weak |
+| 44/45 | ollama_chat/devstral-small-2:latest | ~0.33 (partial) | Full-eval-infeasible (TASK_TIMEOUT), partial avg=0.33 (N=6) |
+
+**P2-LOCAL LMS task-agent sweep (2026-05-13, post-Ollama queue):**
+
+Mixed topology: qwen3.6-35b-a3b LMS as proposer + various LMS models as task agent, swap mode, ctx=65536, c=4.
+
+⚠️ **LiteLLM prefix rule discovered (Run B v2):** All LMS task-agent models need `openai/<id>` or `anthropic/<id>` prefix — bare LMS IDs (e.g. `google/gemma-4-31b`) fail with `LLM Provider NOT provided`.
+
+| Run | LMS task agent | val_score | Notes |
+|---|---|---|---|
+| A (⚠ deferred) | `anthropic/qwen/qwen3-30b-a3b-2507` | ctx=32768 overflow | Systemic overflow on ~50% retail tasks. Needs ctx=65536, fresh LMS session. |
+| B v1 (✗) | `anthropic/google/gemma-4-31b` | smoke fail | Anthropic-compat format incompatible with gemma4-31b. |
+| B v2 (✗) | `google/gemma-4-31b` (no prefix) | smoke fail, rc=9 | liteLLM provider prefix missing. |
+| B v3 (🔄) | `openai/google/gemma-4-31b` | in progress | Fix: `openai/` prefix + `OPENAI_API_BASE=http://192.168.1.50:1234/v1`. |
+| C | `anthropic/qwen/qwen3-32b` | queued | Dense 32B qwen3, froggeric v13 template. |
+| D | `anthropic/qwen/qwen3-14b` | queued | 9 GB, v13 template, ctx=65536. |
+| E | `openai/mistralai/mistral-small-3.2` | queued | 24B, Llama arch, new function-calling. |
+| F | LMS native nemotron-cascade | queued | LMS hub nvidia_nemotron-cascade-2-30b-a3b (22.45 GB). |
+| G | `openai/LGAI-EXAONE/EXAONE-4.5-33B-GGUF` | queued | GGUF Q4_K_M, 33B, LG AI. |
+| H | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker-GGUF` | queued | 15B Thinker GGUF, ServiceNow-AI. |
+| I | `openai/bartowski/nvidia_Nemotron-Cascade-2-30B-A3B-GGUF` | queued | bartowski Q4_K_S GGUF on LMS. |
+| J | `openai/lmstudio-community/Apriel-Nemotron-15b-Thinker-GGUF` | queued | Apriel×Nemotron 15B Thinker, GGUF Q4_K_M. |
+| K | `anthropic/nvidia/nemotron-3-nano-4b` | queued | 4B, speed floor test. |
+| ⚠ | `nvidia/nemotron-3-nano-omni` | blocked | Main GGUF missing (only mmproj downloaded). |
 
 **NeoSigma reference (cloud GPT-5.4, no gate):** 0.56 → 0.78 (+39.3%), 18 iterations, 96 experiments.
 
@@ -388,12 +416,12 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 
 ## Next action
 
-**Branch is merge-ready.** Pre-merge checklist:
+**Active sweep (2026-05-13):** LMS task-agent sweep Runs B–K. Run B v3 in progress (PID 1652436, `openai/google/gemma-4-31b`, swap mode, c=4). Queue above lists C–K.
 
-1. Delete `STATUS.md` from working tree (gitignored — already not committed; the `?? STATUS.md` in `git status` is expected).
+**After sweep completes:**
+1. Delete `STATUS.md` from working tree (gitignored).
 2. Open PR `feat/ollama-loop-runner` → `main`.
-3. After merge: pick up post-merge backlog from `STATUS.md` § "POST-MERGE BACKLOG" (Ollama task-agent queue: devstral-small-2, qwen3:30b-a3b, qwen3.5:4B, granite4.1:3b, gemma4:e2b, granite3.3:8b, gemma3:12b, qwen3.6:35b-a3b swap-mode; plus dense LMS proposers and code-change items #3 concurrency-default, #4 SIGTERM-trap, #5 swap-mode-for-Ollama).
-4. Then P3 (gated loop with LLM-judge) and P4 (results doc).
+3. P3 (gated loop with LLM-judge) and P4 (results doc).
 
 **To reproduce the winning local config:**
 
