@@ -358,22 +358,23 @@ Mixed topology: qwen3.6-35b-a3b LMS as proposer + various LMS models as task age
 
 ⚠️ **LiteLLM prefix rule discovered (Run B v2):** All LMS task-agent models need `openai/<id>` or `anthropic/<id>` prefix — bare LMS IDs (e.g. `google/gemma-4-31b`) fail with `LLM Provider NOT provided`.
 
-| Run | LMS task agent | val_score | Notes |
-|---|---|---|---|
-| A (⚠ deferred) | `anthropic/qwen/qwen3-30b-a3b-2507` | ctx=32768 overflow | Systemic overflow on ~50% retail tasks. Needs ctx=65536, fresh LMS session. |
-| B v1 (✗) | `anthropic/google/gemma-4-31b` | smoke fail | Anthropic-compat format incompatible with gemma4-31b. |
-| B v2 (✗) | `google/gemma-4-31b` (no prefix) | smoke fail, rc=9 | liteLLM provider prefix missing. |
-| B v3 (🔄) | `openai/google/gemma-4-31b` | in progress | Fix: `openai/` prefix + `OPENAI_API_BASE=http://192.168.1.50:1234/v1`. |
-| C | `anthropic/qwen/qwen3-32b` | queued | Dense 32B qwen3, froggeric v13 template. |
-| D | `anthropic/qwen/qwen3-14b` | queued | 9 GB, v13 template, ctx=65536. |
-| E | `openai/mistralai/mistral-small-3.2` | queued | 24B, Llama arch, new function-calling. |
-| F | LMS native nemotron-cascade | queued | LMS hub nvidia_nemotron-cascade-2-30b-a3b (22.45 GB). |
-| G | `openai/LGAI-EXAONE/EXAONE-4.5-33B-GGUF` | queued | GGUF Q4_K_M, 33B, LG AI. |
-| H | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker-GGUF` | queued | 15B Thinker GGUF, ServiceNow-AI. |
-| I | `openai/bartowski/nvidia_Nemotron-Cascade-2-30B-A3B-GGUF` | queued | bartowski Q4_K_S GGUF on LMS. |
-| J | `openai/lmstudio-community/Apriel-Nemotron-15b-Thinker-GGUF` | queued | Apriel×Nemotron 15B Thinker, GGUF Q4_K_M. |
-| K | `anthropic/nvidia/nemotron-3-nano-4b` | queued | 4B, speed floor test. |
-| ⚠ | `nvidia/nemotron-3-nano-omni` | blocked | Main GGUF missing (only mmproj downloaded). |
+LMS IDs from `lms ls` (authoritative). GGUF models registered with short IDs (e.g. `nvidia_nemotron-cascade-2-30b-a3b` = bartowski Q4_K_S GGUF).
+
+| Run | LMS ID (`lms ls`) | liteLLM model arg | Size | val_score |
+|---|---|---|---|---|
+| A (⚠ deferred) | `qwen/qwen3-30b-a3b-2507` | `anthropic/qwen/qwen3-30b-a3b-2507` | 17.28 GB | ctx=32768 overflow — needs ctx=65536 + fresh LMS session |
+| B v1 (✗) | `google/gemma-4-31b` | `anthropic/google/gemma-4-31b` | 19.89 GB | smoke fail — anthropic format incompatible with gemma4 |
+| B v2 (✗) | `google/gemma-4-31b` | bare (no prefix) | 19.89 GB | rc=9 — liteLLM provider prefix missing |
+| B v3 (🔄) | `google/gemma-4-31b` | `openai/google/gemma-4-31b` | 19.89 GB | in progress |
+| C | `qwen/qwen3-32b` | `anthropic/qwen/qwen3-32b` | 19.76 GB | queued — dense 32B qwen3, v13 template |
+| D | `qwen/qwen3-14b` | `anthropic/qwen/qwen3-14b` | 9.00 GB | queued — v13 template |
+| E | `mistralai/mistral-small-3.2` | `openai/mistralai/mistral-small-3.2` | 15.21 GB | queued — Llama arch |
+| F | `nvidia_nemotron-cascade-2-30b-a3b` | `openai/nvidia_nemotron-cascade-2-30b-a3b` | 22.45 GB | queued — MoE, #1 IFBench=80% |
+| G | `exaone-4.5-33b` | `openai/exaone-4.5-33b` | 25.19 GB | queued — exaone4 arch |
+| H | `apriel-1.6-15b-thinker` | `openai/apriel-1.6-15b-thinker` | 9.66 GB | queued — Thinker 15B |
+| I | `nvidia/nemotron-3-nano-omni` | `openai/nvidia/nemotron-3-nano-omni` | 26.10 GB | queued — 30B-A3B Omni hub model |
+| J | `nvidia/nemotron-3-nano-4b` | `openai/nvidia/nemotron-3-nano-4b` | 2.84 GB | queued — 4B floor test |
+| skip | `apriel-nemotron-15b-thinker` | — | 9.11 GB | skipped per user |
 
 **NeoSigma reference (cloud GPT-5.4, no gate):** 0.56 → 0.78 (+39.3%), 18 iterations, 96 experiments.
 
