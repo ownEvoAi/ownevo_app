@@ -388,42 +388,66 @@ Pure task-agent capability: baseline `agent.py` run directly via `tau3_baseline.
 
 Script: `scripts/tau3_baseline.py` — takes `--agent-model`, `--user-model`, `--concurrency`, `--timeout-seconds`, `--no-db`. Reads `OPENAI_API_BASE` / `ANTHROPIC_API_BASE` from env and forwards to the sandbox (patched 2026-05-13).
 
-Command template:
+Command templates — 4 topologies (matching `docs/local-model-testing.md` compat matrix columns):
 ```bash
-# openai/ format (gemma4, mistral-small, nemotron GGUF, exaone, apriel, nemotron-nano)
+# lms-openai: LMS OpenAI-compat /v1/chat/completions (gemma4, mistral-small, nemotron GGUF)
 lms load "<lms-model-id>" -c 65536
 OPENAI_API_KEY=lm-studio OPENAI_API_BASE=http://192.168.1.50:1234/v1 \
-  uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+  nohup uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
     --agent-model "openai/<lms-model-id>" --user-model "openai/<lms-model-id>" \
     --concurrency 4 --timeout-seconds 2400 --no-db \
   > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
 
-# anthropic/ format (qwen3 family — qwen3-32b, qwen3-14b; froggeric v13 template required)
-# ⚠️ NO /v1 suffix in ANTHROPIC_API_BASE — litellm appends /v1 itself (POST /v1/v1/messages bug)
+# lms-anthropic: LMS Anthropic-compat /v1/messages (qwen3 family; froggeric v13 template required)
+# ⚠️ NO /v1 suffix in ANTHROPIC_API_BASE — litellm appends /v1 itself → double /v1 bug
 lms load "<lms-model-id>" -c 65536
 ANTHROPIC_API_KEY=lm-studio ANTHROPIC_API_BASE=http://192.168.1.50:1234 \
-  uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+  nohup uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
     --agent-model "anthropic/<lms-model-id>" --user-model "anthropic/<lms-model-id>" \
     --concurrency 4 --timeout-seconds 2400 --no-db \
+  > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
+
+# ollama-openai: Ollama OpenAI-compat /v1/chat/completions (openai/ prefix → Ollama /v1)
+OPENAI_API_KEY=ollama OPENAI_API_BASE=http://192.168.1.50:11434/v1 \
+  nohup uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+    --agent-model "openai/<ollama-model>" --user-model "openai/<ollama-model>" \
+    --concurrency 4 --timeout-seconds <N> --no-db \
+  > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
+
+# ollama (native): Ollama /api/chat (ollama_chat/ prefix + OLLAMA_API_BASE)
+# think:false auto-injected by tau2_patches.py for qwen3* models
+# ⚠ qwen3.5:* blocked (LiteLLM ollama_chat adapter HTTP 415 — use ollama-openai instead)
+OLLAMA_API_BASE=http://192.168.1.50:11434 \
+  nohup uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+    --agent-model "ollama_chat/<ollama-model>" --user-model "ollama_chat/<ollama-model>" \
+    --concurrency 4 --timeout-seconds <N> --no-db \
   > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
 ```
 
 **Plan (2026-05-13): skip proposer for all remaining runs — baseline only. B/E/F/G/H/J baselines dropped.**
 
-| Run | Model / LMS-or-Ollama ID | liteLLM model arg | timeout | baseline_val_score | Status |
-|---|---|---|---|---|---|
-| ref | `qwen/qwen3.6-35b-a3b` (LMS) | `anthropic/qwen/qwen3.6-35b-a3b` | 2400s | **0.75** | ✅ known |
-| I-base | `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | `openai/nvidia/nemotron-3-nano-omni` | **7200s** | **0.6250** | ✅ PASS (N=40/40, ~45 min) |
-| F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **7200s** | **~0.43 est** | ⚠ PARTIAL (37/40, per-task timeout on last task) |
-| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | ✅ PASS (N=40/40, infra_errors=0, ~34 min) |
-| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | `anthropic/qwen/qwen3-32b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
-| D-base | `qwen/qwen3-14b` (LMS, 9 GB) | `anthropic/qwen/qwen3-14b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
-| qwen36-27b-base | `qwen/qwen3.6-27b` (LMS, 17 GB) | `anthropic/qwen/qwen3.6-27b` | **7200s** | **0.8750** | ✅ PASS (N=40/40, infra_errors=0, ~90 min) — new record |
-| qwen35-9b-base | `qwen/qwen3.5-9b` (LMS, 6.5 GB) | `anthropic/qwen/qwen3.5-9b` | 2400s | ☐ | ⏳ queued — Run 28 scored **0.575** with proposer |
-| gpt-oss-base | `openai/gpt-oss-20b` (LMS, 12 GB) | `openai/openai/gpt-oss-20b` | 2400s | ☐ | ⏳ queued — Run 25 scored **0.30** with proposer |
-| J-base | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | `openai/nvidia/nemotron-3-nano-4b` | 2400s | ☐ | ⏳ queued — J scored **0.30** with proposer |
-| qwen35-4b-base | `qwen3.5-4b` (LMS, 3.4 GB, no `qwen/` prefix) | `openai/qwen3.5-4b` | 2400s | ☐ | ⏳ queued — true 4B floor |
-| K-base | `ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` (Ollama) | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` | **7200s** | ☐ | ❌ **DROPPED** — too slow (6/40 avg=0.50 in 65 min; Ollama serialized inference + thinker = infeasible for 40 tasks) |
+Topology labels: `lms-anthropic` | `lms-openai` | `ollama-openai` (OAI shim `/v1`) | `ollama` (native `/api/chat`)
+
+| Run | Model / LMS-or-Ollama ID | topo | liteLLM model arg | timeout | baseline_val_score | Status |
+|---|---|---|---|---|---|---|
+| ref | `qwen/qwen3.6-35b-a3b` (LMS) | lms-anthropic | `anthropic/qwen/qwen3.6-35b-a3b` | 2400s | **0.75** | ✅ known |
+| I-base | `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-omni` | **7200s** | **0.6250** | ✅ PASS (N=40/40, ~45 min) |
+| F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | lms-openai | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **7200s** | **~0.43 est** | ⚠ PARTIAL (37/40, per-task timeout on last task) |
+| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | ✅ PASS (N=40/40, infra_errors=0, ~34 min) |
+| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | lms-anthropic | `anthropic/qwen/qwen3-32b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
+| D-base | `qwen/qwen3-14b` (LMS, 9 GB) | lms-anthropic | `anthropic/qwen/qwen3-14b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
+| qwen36-27b-base | `qwen/qwen3.6-27b` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3.6-27b` | **7200s** | **0.8750** | ✅ PASS (N=40/40, infra_errors=0, ~90 min) — new record |
+| qwen35-9b-base | `qwen/qwen3.5-9b` (LMS, 6.5 GB) | lms-anthropic | `anthropic/qwen/qwen3.5-9b` | 2400s | ☐ | ⏳ queued — Run 28 scored **0.575** with proposer |
+| gpt-oss-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | 2400s | ☐ | 🔄 **IN PROGRESS** (2026-05-13T~23:10Z) |
+| gpt-oss-native-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama** | `ollama_chat/gpt-oss:20b` | 2400s | ☐ | ⏳ queued — after gpt-oss-base |
+| qwen3-14b-oai-base | `qwen3:14b` (Ollama, 8 GB) | **ollama-openai** | `openai/qwen3:14b` | **7200s** | ☐ | ⏳ queued |
+| qwen3-14b-native-base | `qwen3:14b` (Ollama, 8 GB) | **ollama** | `ollama_chat/qwen3:14b` | **7200s** | ☐ | ⏳ queued — think:false auto-injected |
+| qwen3-32b-oai-base | `qwen3:32b` (Ollama, 18 GB) | **ollama-openai** | `openai/qwen3:32b` | **7200s** | ☐ | ⏳ queued — may need NUM_PARALLEL=2 |
+| qwen35-9b-oai-base | `qwen3.5:9B` (Ollama, 6 GB) | **ollama-openai** | `openai/qwen3.5:9B` | **7200s** | ☐ | ⏳ queued — ⚠ `ollama_chat/qwen3.5:*` blocked (HTTP 415) |
+| qwen35-4b-oai-base | `qwen3.5:4B` (Ollama, 3 GB) | **ollama-openai** | `openai/qwen3.5:4B` | 2400s | ☐ | ⏳ queued |
+| J-base | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-4b` | 2400s | ☐ | ⏳ queued — J scored **0.30** with proposer |
+| qwen35-4b-lms-base | `qwen3.5-4b` (LMS, 3.4 GB, no `qwen/` prefix) | lms-openai | `openai/qwen3.5-4b` | 2400s | ☐ | ⏳ queued — true 4B LMS floor |
+| K-base | `ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` (Ollama) | ollama-openai | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` | **7200s** | ☐ | ❌ **DROPPED** — too slow (thinker + Ollama serial = infeasible) |
 
 ⚠️ **qwen3.5-9b ref note:** Run 28's 0.575 was 1-cycle through the full loop (proposer ran). True no-proposer baseline for qwen3.5-9b is unknown. Add to this table when running D-base (same family).
 
