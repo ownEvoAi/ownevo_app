@@ -205,6 +205,7 @@ The matrix above measures **loop-driver capability**. A model that drives the lo
 | `openai/mistralai/devstral-small-2-2512` (LMS, default template) | ❌ jinja template incompatible | **Run 26 (task-agent test #5, 2026-05-12T03:30Z):** SANDBOX_ERROR, 40/40 infra. LMS jinja: "After the optional system message, conversation roles must alternate user and assistant roles except for tool calls and results." Devstral's bundled template can't represent tau3's tool-call/result turns. Loop side ran clean (v_seq=192). **Deferred:** needs froggeric-style template override in LMS UI. |
 | `openai/qwen3.5:4B` via Ollama /v1 (`openai/` prefix, `OPENAI_API_BASE=http://LLM_HOST:11434/v1`) | — | **Planned Run H.** Different path from failed `ollama_chat/qwen3.5:4B` (HTTP 415 LiteLLM adapter bug). The `openai/` adapter via Ollama's `/v1/chat/completions` is untested — may avoid the 415 bug. Requires `OPENAI_API_BASE` env override since wrapper defaults OPENAI_API_BASE to the loop preset URL. |
 | `openai/qwen3.5:9B` via Ollama /v1 | — | **Planned Run I.** Same as H, 9B variant. |
+| `openai/exaone-4.5-33b` (LMS) | 🚫 arch-unviable | **Run G (2026-05-13T12:22Z, rc=9, ~3 min):** `lms load 'exaone-4.5-33b' --context-length 65536` → "Error: Failed to load model" (exit code 1). Model registered in `lms ls` (25.19 GB, exaone4 arch) but LMS binary can't execute it. Smoke ran with no model → infra_error=1/1. Proposer v_seq=259 was clean. **Verdict: exaone4 arch not supported in this LMS version. Skip G-base too.** |
 
 **Sandbox-image dependency for `ollama_chat/qwen3*` task agents:**
 The fix above lives in `tau2_patches.py` which is baked into
@@ -365,18 +366,82 @@ LMS IDs from `lms ls` (authoritative). GGUF models registered with short IDs (e.
 | A (⚠ deferred) | `qwen/qwen3-30b-a3b-2507` | `anthropic/qwen/qwen3-30b-a3b-2507` | 17.28 GB | ctx=32768 overflow — needs ctx=65536 + fresh LMS session |
 | B v1 (✗) | `google/gemma-4-31b` | `anthropic/google/gemma-4-31b` | 19.89 GB | smoke fail — anthropic format incompatible with gemma4 |
 | B v2 (✗) | `google/gemma-4-31b` | bare (no prefix) | 19.89 GB | rc=9 — liteLLM provider prefix missing |
-| B v3 (🔄) | `google/gemma-4-31b` | `openai/google/gemma-4-31b` | 19.89 GB | in progress |
-| C | `qwen/qwen3-32b` | `anthropic/qwen/qwen3-32b` | 19.76 GB | queued — dense 32B qwen3, v13 template |
-| D | `qwen/qwen3-14b` | `anthropic/qwen/qwen3-14b` | 9.00 GB | queued — v13 template |
-| E | `mistralai/mistral-small-3.2` | `openai/mistralai/mistral-small-3.2` | 15.21 GB | queued — Llama arch |
-| F | `nvidia_nemotron-cascade-2-30b-a3b` | `openai/nvidia_nemotron-cascade-2-30b-a3b` | 22.45 GB | queued — MoE, #1 IFBench=80% |
-| G | `exaone-4.5-33b` | `openai/exaone-4.5-33b` | 25.19 GB | queued — exaone4 arch |
-| H | `apriel-1.6-15b-thinker` | `openai/apriel-1.6-15b-thinker` | 9.66 GB | queued — Thinker 15B |
-| I | `nvidia/nemotron-3-nano-omni` | `openai/nvidia/nemotron-3-nano-omni` | 26.10 GB | queued — 30B-A3B Omni hub model |
-| J | `nvidia/nemotron-3-nano-4b` | `openai/nvidia/nemotron-3-nano-4b` | 2.84 GB | queued — 4B floor test |
+| B v3 (✗) | `google/gemma-4-31b` | `openai/google/gemma-4-31b` | 19.89 GB | rc=9 — proposer codegen bug (`_resolve_gaps_from_facts` undef, v_seq=249); NOT gemma4 failure |
+| B v4 (✗) | `google/gemma-4-31b` | `openai/google/gemma-4-31b` | 19.89 GB | SANDBOX_ERROR — TASK_TIMEOUT=2400s too short (hard tasks ~37 min); 1/40 complete reward=1.00; Run 19 prior ~0.62 |
+| C (✗) | `qwen/qwen3-32b` | `anthropic/qwen/qwen3-32b` | 19.76 GB | rc=9 — `lms load --context-length 65536` fails (Exit code: null) for dense qwen3; proposer v_seq=253 clean |
+| D (⚠ deferred) | `qwen/qwen3-14b` | `anthropic/qwen/qwen3-14b` | 9.00 GB | same dense-qwen3 ctx-flag issue as C; needs LMS UI ctx=65536 + v13 template applied before retry |
+| E (✅) | `mistralai/mistral-small-3.2` | `openai/mistralai/mistral-small-3.2` | 15.21 GB | **val_score=0.0750** — 40/40 clean, 0 infra_errors. Retail-weak. Llama arch poor on multi-turn retail. ctx=65536 flag WORKS for Llama. |
+| F (✅ v2) | `nvidia_nemotron-cascade-2-30b-a3b` | `openai/nvidia_nemotron-cascade-2-30b-a3b` | 22.45 GB | v1 SANDBOX_ERROR (2400s timeout). **v2 PASS val_score=0.5000** — N=40/40, infra_errors=0, TASK_TIMEOUT=7200 (~44 min). Best non-qwen3.6 proposer+task result. |
+| G (✗) | `exaone-4.5-33b` | `openai/exaone-4.5-33b` | 25.19 GB | rc=9 — exaone4 arch not supported in LMS (load fails exit code 1); proposer v_seq=259 clean |
+| H (⚠) | `apriel-1.6-15b-thinker` | `openai/apriel-1.6-15b-thinker` | 9.66 GB | SANDBOX_ERROR (2400s timeout); partial **avg_reward=0.09 (N=11/40)** — retail-weak. Task 36 stalled 22+ min (thinking-model retry). ctx=65536 WORKS (Llama arch). |
+| I (⚠) | `nvidia/nemotron-3-nano-omni` | `openai/nvidia/nemotron-3-nano-omni` | 26.10 GB | SANDBOX_ERROR (2400s timeout); partial **avg_reward=0.38 (N≥16/40)**. Trajectory: 0.60 (N=5) → 0.38 (N=16). nemotron_h_moe consistent ~0.38-0.41. Extended retry queued (TASK_TIMEOUT=7200). |
+| J (✅) | `nvidia/nemotron-3-nano-4b` | `openai/nvidia/nemotron-3-nano-4b` | 2.84 GB | **val_score=0.3000** — 40/40 clean, 0 infra_errors, ~41 min. 4B floor: surprisingly capable. ctx=65536 WORKS (nemotron_h arch). |
 | skip | `apriel-nemotron-15b-thinker` | — | 9.11 GB | skipped per user |
 
 **NeoSigma reference (cloud GPT-5.4, no gate):** 0.56 → 0.78 (+39.3%), 18 iterations, 96 experiments.
+
+---
+
+**P2-LOCAL no-proposer baseline sweep (added 2026-05-13):**
+
+Pure task-agent capability: baseline `agent.py` run directly via `tau3_baseline.py`, no proposer step. Eliminates proposer-codegen noise; gives the clean floor score for each model. Run after each model's proposer-sweep entry completes (or in parallel if VRAM allows — no proposer loaded, full 48 GB available).
+
+Script: `scripts/tau3_baseline.py` — takes `--agent-model`, `--user-model`, `--concurrency`, `--timeout-seconds`, `--no-db`. Reads `OPENAI_API_BASE` / `ANTHROPIC_API_BASE` from env and forwards to the sandbox (patched 2026-05-13).
+
+Command template:
+```bash
+# openai/ format (gemma4, mistral-small, nemotron GGUF, exaone, apriel, nemotron-nano)
+lms load "<lms-model-id>" -c 65536
+OPENAI_API_KEY=lm-studio OPENAI_API_BASE=http://192.168.1.50:1234/v1 \
+  uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+    --agent-model "openai/<lms-model-id>" --user-model "openai/<lms-model-id>" \
+    --concurrency 4 --timeout-seconds 2400 --no-db \
+  > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
+
+# anthropic/ format (qwen3 family — qwen3-32b, qwen3-14b; froggeric v13 template required)
+# ⚠️ NO /v1 suffix in ANTHROPIC_API_BASE — litellm appends /v1 itself (POST /v1/v1/messages bug)
+lms load "<lms-model-id>" -c 65536
+ANTHROPIC_API_KEY=lm-studio ANTHROPIC_API_BASE=http://192.168.1.50:1234 \
+  uv run --directory apps/kernel --extra agent python scripts/tau3_baseline.py \
+    --agent-model "anthropic/<lms-model-id>" --user-model "anthropic/<lms-model-id>" \
+    --concurrency 4 --timeout-seconds 2400 --no-db \
+  > log/tau3_p2/<tag>_nopr_baseline.log 2>&1 &
+```
+
+**Plan (2026-05-13): skip proposer for all remaining runs — baseline only. B/E/F/G/H/J baselines dropped.**
+
+| Run | Model / LMS-or-Ollama ID | liteLLM model arg | timeout | baseline_val_score | Status |
+|---|---|---|---|---|---|
+| ref | `qwen/qwen3.6-35b-a3b` (LMS) | `anthropic/qwen/qwen3.6-35b-a3b` | 2400s | **0.75** | ✅ known |
+| I-base | `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | `openai/nvidia/nemotron-3-nano-omni` | **7200s** | **0.6250** | ✅ PASS (N=40/40, ~45 min) |
+| F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **7200s** | **~0.43 est** | ⚠ PARTIAL (37/40, per-task timeout on last task) |
+| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | ✅ PASS (N=40/40, infra_errors=0, ~34 min) |
+| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | `anthropic/qwen/qwen3-32b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
+| D-base | `qwen/qwen3-14b` (LMS, 9 GB) | `anthropic/qwen/qwen3-14b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
+| qwen36-27b-base | `qwen/qwen3.6-27b` (LMS, 17 GB) | `anthropic/qwen/qwen3.6-27b` | **7200s** | **0.8750** | ✅ PASS (N=40/40, infra_errors=0, ~90 min) — new record |
+| qwen35-9b-base | `qwen/qwen3.5-9b` (LMS, 6.5 GB) | `anthropic/qwen/qwen3.5-9b` | 2400s | ☐ | ⏳ queued — Run 28 scored **0.575** with proposer |
+| gpt-oss-base | `openai/gpt-oss-20b` (LMS, 12 GB) | `openai/openai/gpt-oss-20b` | 2400s | ☐ | ⏳ queued — Run 25 scored **0.30** with proposer |
+| J-base | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | `openai/nvidia/nemotron-3-nano-4b` | 2400s | ☐ | ⏳ queued — J scored **0.30** with proposer |
+| qwen35-4b-base | `qwen3.5-4b` (LMS, 3.4 GB, no `qwen/` prefix) | `openai/qwen3.5-4b` | 2400s | ☐ | ⏳ queued — true 4B floor |
+| K-base | `ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` (Ollama) | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` | **7200s** | ☐ | ❌ **DROPPED** — too slow (6/40 avg=0.50 in 65 min; Ollama serialized inference + thinker = infeasible for 40 tasks) |
+
+⚠️ **qwen3.5-9b ref note:** Run 28's 0.575 was 1-cycle through the full loop (proposer ran). True no-proposer baseline for qwen3.5-9b is unknown. Add to this table when running D-base (same family).
+
+---
+
+## Proposer lift candidates (Phase 2 pull-cycle targets)
+
+Models with confirmed baselines that are good candidates for running a full proposer loop to show lift. Priority: models with mid-range baseline scores (proposer has room to help; strong models plateau, weak models can't exploit diffs).
+
+| Model | liteLLM arg | Baseline val_score | Priority | Notes |
+|---|---|---|---|---|
+| `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | `openai/nvidia/nemotron-3-nano-omni` | **0.6250** | ⭐ High | I-base PASS N=40/40. Strong mid-range — good lift candidate. |
+| `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **~0.43** | Medium | F-base PARTIAL (37/40). Baseline estimate reliable enough. |
+| `openai/gpt-oss-20b` (LMS, 12 GB) | `openai/openai/gpt-oss-20b` | **0.30** | Low | Weak baseline; lift possible but starting floor is low. Run 25 had proposer — need clean baseline first. |
+| `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | `openai/nvidia/nemotron-3-nano-4b` | **0.30** | Low | 4B floor. Same caveat as gpt-oss. Run J had proposer — need clean baseline. |
+| `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | `anthropic/qwen/qwen3-30b-a3b-2507` | **0.4250** | Medium | A-base PASS N=40/40. Lower than expected — lift candidate but weaker floor. |
+
+**When to run lift cycles:** After all baselines complete. Use qwen3.6-35b-a3b as proposer (confirmed lift driver). Focus on I-base first (nemotron-omni, 0.6250) — best risk/reward ratio.
 
 ---
 
@@ -417,7 +482,7 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 
 ## Next action
 
-**Active sweep (2026-05-13):** LMS task-agent sweep Runs B–K. Run B v3 in progress (PID 1652436, `openai/google/gemma-4-31b`, swap mode, c=4). Queue above lists C–K.
+**Active sweep (2026-05-13T16:06Z):** Run F v2 DONE — val_score=0.5000, PASS, N=40/40 clean. **I-base LAUNCHING** — `nvidia/nemotron-3-nano-omni` baseline (no proposer, tau3_baseline.py, TASK_TIMEOUT=7200). After I-base: F-base, then A/C/D/qwen36-27b/qwen35-9b/gpt-oss/J/qwen35-4b/K baselines in order.
 
 **After sweep completes:**
 1. Delete `STATUS.md` from working tree (gitignored).

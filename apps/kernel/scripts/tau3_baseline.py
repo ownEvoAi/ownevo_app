@@ -47,6 +47,8 @@ ENV_DB_URL = "OWNEVO_DATABASE_URL"
 ENV_ANTHROPIC = "ANTHROPIC_API_KEY"
 ENV_OPENAI = "OPENAI_API_KEY"
 ENV_OLLAMA = "OLLAMA_API_BASE"
+ENV_OPENAI_BASE = "OPENAI_API_BASE"
+ENV_ANTHROPIC_BASE = "ANTHROPIC_API_BASE"
 
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
 DEFAULT_IMAGE = "ownevo-sandbox-tau3:0.1.0"
@@ -191,6 +193,8 @@ async def _run_baseline(args: CliArgs):
         anthropic_api_key=os.environ.get(ENV_ANTHROPIC),
         openai_api_key=os.environ.get(ENV_OPENAI),
         ollama_api_base=os.environ.get(ENV_OLLAMA),
+        openai_api_base=os.environ.get(ENV_OPENAI_BASE),
+        anthropic_api_base=os.environ.get(ENV_ANTHROPIC_BASE),
     )
     result = await runner.run(
         task_ids=list(args.task_ids) if args.task_ids else None,
