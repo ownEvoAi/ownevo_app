@@ -126,8 +126,11 @@ if [[ "$TASK_AGENT_MODEL" == openai/* || "$TASK_USER_MODEL" == openai/* ]]; then
 fi
 if [[ "$TASK_AGENT_MODEL" == ollama_chat/* || "$TASK_AGENT_MODEL" == ollama/* \
    || "$TASK_USER_MODEL" == ollama_chat/* || "$TASK_USER_MODEL" == ollama/* ]]; then
-    # OLLAMA_API_BASE is the host root (no /v1 suffix); strip if present.
-    export OLLAMA_API_BASE="${OLLAMA_API_BASE:-${BASE_URL%/v1}}"
+    # OLLAMA_API_BASE must point at the Ollama daemon host root (no /v1 suffix).
+    # Default to Ollama native port on LLM_HOST, NOT BASE_URL — when the proposer
+    # runs on LMS (lms-openai/lms-anthropic, port 1234), BASE_URL is the LMS
+    # address and would route ollama_chat/ calls to the wrong backend.
+    export OLLAMA_API_BASE="${OLLAMA_API_BASE:-http://${LLM_HOST}:11434}"
 fi
 # anthropic/<model> on a non-cloud base_url ⇒ LMS Anthropic-compat at
 # /v1/messages. The Anthropic SDK appends /v1/messages itself, so the
