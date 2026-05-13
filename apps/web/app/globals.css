@@ -2313,37 +2313,6 @@
   padding: 4px 0;
   box-shadow: var(--shadow-sm);
 }
-.activity-item {
-  display: flex;
-  gap: 10px;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.activity-item:last-child {
-  border-bottom: 0;
-}
-.activity-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-top: 7px;
-  flex-shrink: 0;
-}
-.activity-body {
-  font-size: 12.5px;
-  color: var(--text-2);
-  line-height: 1.45;
-  min-width: 0;
-}
-.activity-body strong {
-  font-weight: 500;
-  color: var(--text);
-}
-.activity-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
 
 /* ---------------------------------------------------------------------
    W7 slice 7 (7.1.4) — Failure cluster card click-through affordance.

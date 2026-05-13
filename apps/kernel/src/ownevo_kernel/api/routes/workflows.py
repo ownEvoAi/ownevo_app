@@ -17,7 +17,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
-from ..deps import ConnDep
+from ..deps import ConnDep, PoolDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
@@ -538,9 +538,6 @@ async def list_workflow_eval_cases(
                 created_at=c.created_at,
             )
         )
-    # decode_jsonb_obj imported above is a no-op here — kept available for
-    # any future per-field decode the registry doesn't do.
-    _ = decode_jsonb_obj
     return EvalCaseList(workflow_id=workflow_id, items=items, total=len(items))
 
 
@@ -580,6 +577,7 @@ async def list_workflow_case_outputs(
             SELECT id, iteration_index
             FROM iterations
             WHERE workflow_id = $1
+              AND state <> 'running'::iteration_state
             ORDER BY iteration_index DESC
             LIMIT 1
             """,
@@ -748,23 +746,20 @@ async def delete_eval_case(
     is defensive). Returns 404 if the case doesn't exist or doesn't
     belong to the workflow.
     """
-    from uuid import UUID
-
     try:
         case_uuid = UUID(case_id)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Eval case not found",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="case_id must be a valid UUID",
         ) from exc
 
-    tag = await conn.execute(
+    deleted = await _count_exec(
+        conn,
         "DELETE FROM eval_cases WHERE id = $1 AND workflow_id = $2",
         case_uuid,
         workflow_id,
     )
-    parts = tag.split()
-    deleted = len(parts) >= 2 and parts[-1].isdigit() and int(parts[-1]) > 0
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -860,32 +855,33 @@ async def generate_workflow_eval_cases(
             detail=f"LLM-side failure during eval-case generation: {exc}",
         ) from exc
 
-    inserted = await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
-    # Persist the freshly generated sim_plan (always — the in-memory
-    # generation just happened, so the DB column should match) and
-    # metric_definition (only when one didn't exist before).
-    if metric_def is not None:
-        await conn.execute(
-            """
-            UPDATE workflows
-            SET simulation_plan = $2::jsonb,
-                metric_definition = $3::jsonb
-            WHERE id = $1
-            """,
-            workflow_id,
-            sim_plan.model_dump_json(),
-            metric_def.model_dump_json(),
-        )
-    else:
-        await conn.execute(
-            """
-            UPDATE workflows
-            SET simulation_plan = $2::jsonb
-            WHERE id = $1
-            """,
-            workflow_id,
-            sim_plan.model_dump_json(),
-        )
+    async with conn.transaction():
+        inserted = await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
+        # Persist the freshly generated sim_plan (always) and metric_definition
+        # (only when one didn't exist before) in the same transaction as the
+        # eval cases so the workflow row and cases are never partially committed.
+        if metric_def is not None:
+            await conn.execute(
+                """
+                UPDATE workflows
+                SET simulation_plan = $2::jsonb,
+                    metric_definition = $3::jsonb
+                WHERE id = $1
+                """,
+                workflow_id,
+                sim_plan.model_dump_json(),
+                metric_def.model_dump_json(),
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE workflows
+                SET simulation_plan = $2::jsonb
+                WHERE id = $1
+                """,
+                workflow_id,
+                sim_plan.model_dump_json(),
+            )
     train_count = sum(1 for r in inserted if not r.is_test_fold)
     test_count = len(inserted) - train_count
     return GenerateEvalCasesResponse(
@@ -903,7 +899,7 @@ async def generate_workflow_eval_cases(
 )
 async def run_workflow_iteration(
     workflow_id: str,
-    conn: ConnDep,
+    pool: PoolDep,
 ) -> RunIterationResponse:
     """Run one improvement-loop iteration synchronously, persist the result.
 
@@ -917,9 +913,14 @@ async def run_workflow_iteration(
       * one `proposals` row in `gate-passed` state, ready for human review
         in the existing /proposals UI
 
+    Uses `PoolDep` rather than `ConnDep` so the pool connection is not held
+    during the 30-90s LLM window. The runner acquires connections only for
+    the short pre-LLM setup and post-LLM persistence phases.
+
     Errors:
       * **404** — workflow not found
-      * **409** — workflow missing spec / sim_plan / metric / eval cases
+      * **409** — workflow missing spec / sim_plan / metric / eval cases,
+                  OR another iteration is already running for this workflow
       * **502** — LLM-side failure mid-iteration
       * **503** — `ANTHROPIC_API_KEY` is not set
     """
@@ -941,12 +942,41 @@ async def run_workflow_iteration(
             ),
         )
 
+    # Concurrent-run guard: reject immediately if another iteration is
+    # already in-flight. One running iteration per workflow at a time;
+    # the 30-90s LLM window makes queuing impractical for the MVP.
+    async with pool.acquire() as conn:
+        workflow_exists = await conn.fetchval(
+            "SELECT 1 FROM workflows WHERE id = $1", workflow_id
+        )
+        if not workflow_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found",
+            )
+        running = await conn.fetchval(
+            """
+            SELECT 1 FROM iterations
+            WHERE workflow_id = $1 AND state = 'running'::iteration_state
+            LIMIT 1
+            """,
+            workflow_id,
+        )
+        if running:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "An iteration is already running for this workflow. "
+                    "Wait for it to finish before starting a new one."
+                ),
+            )
+
     from anthropic import AsyncAnthropic
 
     client = AsyncAnthropic(api_key=api_key)
     try:
         outcome = await run_one_iteration_for_workflow(
-            conn,
+            pool,
             workflow_id=workflow_id,
             client=client,
         )

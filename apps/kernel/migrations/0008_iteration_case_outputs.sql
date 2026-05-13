@@ -14,7 +14,7 @@
 -- One row per (iteration, eval_case). ON DELETE CASCADE for both parents
 -- so deleting a workflow / iteration / eval case cleans up automatically.
 
-CREATE TABLE iteration_case_outputs (
+CREATE TABLE IF NOT EXISTS iteration_case_outputs (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     iteration_id    uuid NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
     eval_case_id    uuid NOT NULL REFERENCES eval_cases(id) ON DELETE CASCADE,
@@ -24,8 +24,8 @@ CREATE TABLE iteration_case_outputs (
     UNIQUE (iteration_id, eval_case_id)
 );
 
-CREATE INDEX iteration_case_outputs_iter_idx
+CREATE INDEX IF NOT EXISTS iteration_case_outputs_iter_idx
     ON iteration_case_outputs(iteration_id);
 
-CREATE INDEX iteration_case_outputs_case_idx
+CREATE INDEX IF NOT EXISTS iteration_case_outputs_case_idx
     ON iteration_case_outputs(eval_case_id);

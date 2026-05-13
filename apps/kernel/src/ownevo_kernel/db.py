@@ -78,10 +78,20 @@ async def migrate(conn: asyncpg.Connection, directory: Path = MIGRATIONS_DIR) ->
     Used by tests to bootstrap a fresh database. Production migration runner
     will track applied versions in a `schema_migrations` table — out of
     scope for the W1 substrate.
+
+    Files containing `ALTER TYPE ... ADD VALUE` must run outside a transaction
+    block (Postgres requirement). Those files are executed directly; all other
+    files run via conn.execute() which asyncpg wraps in an implicit transaction.
     """
     applied: list[str] = []
     for path in migration_files(directory):
         sql = path.read_text()
-        await conn.execute(sql)
+        if "ADD VALUE" in sql.upper():
+            # ALTER TYPE ... ADD VALUE cannot run inside a transaction block.
+            # Use autocommit by executing outside any transaction context.
+            await conn.execute("COMMIT")
+            await conn.execute(sql)
+        else:
+            await conn.execute(sql)
         applied.append(path.name)
     return applied

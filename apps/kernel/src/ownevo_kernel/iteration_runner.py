@@ -18,6 +18,7 @@ The runner is intentionally one-cycle-at-a-time so the UI button maps
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid as _uuid
 from dataclasses import dataclass
@@ -91,18 +92,12 @@ def _instruction_skill_id(workflow_id: str) -> str:
 def _build_skill_file(*, workflow_id: str, body: str) -> str:
     """Render the `skills/format.py` YAML-frontmatter file the registry
     expects for an instruction skill."""
-    frontmatter = {
-        "id": _instruction_skill_id(workflow_id),
-        "kind": _INSTRUCTION_SKILL_KIND,
-        "created_by": "nl-gen-iteration-runner",
-        "capability_tags": [],
-        "retention": {"remembers": [], "refetches": [], "stateless": True},
-    }
+    skill_id = _instruction_skill_id(workflow_id)
     yaml_lines = [
         "---",
-        f"id: {frontmatter['id']}",
-        f"kind: {frontmatter['kind']}",
-        f"created_by: {frontmatter['created_by']}",
+        f"id: {skill_id}",
+        f"kind: {_INSTRUCTION_SKILL_KIND}",
+        f"created_by: {_ITERATION_ACTOR}",
         "capability_tags: []",
         "retention:",
         "  remembers: []",
@@ -266,56 +261,69 @@ async def _next_iteration_index(
 
 
 async def run_one_iteration_for_workflow(
-    conn: asyncpg.Connection,
+    pool: asyncpg.Pool,
     *,
     workflow_id: str,
     client: AsyncAnthropic,
 ) -> IterationOutcome:
     """Run one cycle and persist its outcome.
 
-    Caller-supplied `conn` should be an exclusive connection from the
-    pool — the runner takes a transaction for the persistence step at
-    the end. The agent + proposer LLM calls run outside the transaction.
+    Accepts a pool rather than a bare connection so the DB connection is
+    not held during the 30-90s LLM window. Three phases:
+
+    1. Pre-LLM (brief): load artifacts, insert 'running' iteration row.
+       Connection acquired and released before LLM calls begin.
+    2. LLM calls: agent solver + proposer. No DB connection held.
+    3. Persistence (brief): write traces, clusters, skill version, proposal,
+       update iteration state — all inside one transaction.
+
+    On any failure in phase 2 or 3 the iteration row is updated to
+    'sandbox-error' via a fresh connection (outside any rolled-back
+    transaction) before re-raising.
     """
-    spec, sim_plan, metric, case_set = await _load_artifacts(conn, workflow_id)
-    instruction_before = await _current_head_instruction(conn, workflow_id)
-    parent_skill_version_id = await _current_head_version_id(conn, workflow_id)
-    iteration_index = await _next_iteration_index(conn, workflow_id)
+    # --- Phase 1: pre-LLM setup (connection released before LLM starts) ---
+    async with pool.acquire() as conn:
+        spec, sim_plan, metric, case_set = await _load_artifacts(conn, workflow_id)
+        instruction_before = await _current_head_instruction(conn, workflow_id)
+        parent_skill_version_id = await _current_head_version_id(conn, workflow_id)
+        iteration_index = await _next_iteration_index(conn, workflow_id)
 
-    started_at = datetime.now(UTC)
+        started_at = datetime.now(UTC)
 
-    # Insert the iteration row immediately in 'running' state so the UI
-    # can show progress even while the LLM calls are mid-flight.
-    iteration_id: UUID = await conn.fetchval(
-        """
-        INSERT INTO iterations (
-            workflow_id, iteration_index, state,
-            parent_skill_version_id, started_at
+        # Insert the iteration row immediately in 'running' state so the UI
+        # can show progress even while the LLM calls are mid-flight.
+        iteration_id: UUID = await conn.fetchval(
+            """
+            INSERT INTO iterations (
+                workflow_id, iteration_index, state,
+                parent_skill_version_id, started_at
+            )
+            VALUES ($1, $2, 'running'::iteration_state, $3, $4)
+            RETURNING id
+            """,
+            workflow_id,
+            iteration_index,
+            parent_skill_version_id,
+            started_at,
         )
-        VALUES ($1, $2, 'running'::iteration_state, $3, $4)
-        RETURNING id
-        """,
-        workflow_id,
-        iteration_index,
-        parent_skill_version_id,
-        started_at,
-    )
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.GATE_RUN_STARTED,
-        actor=_ITERATION_ACTOR,
-        related_id=iteration_id,
-        payload={
-            "workflow_id": workflow_id,
-            "iteration_index": iteration_index,
-            "n_cases": len(case_set.cases),
-            "parent_skill_version_id": (
-                str(parent_skill_version_id) if parent_skill_version_id else None
-            ),
-        },
-    )
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.GATE_RUN_STARTED,
+            actor=_ITERATION_ACTOR,
+            related_id=iteration_id,
+            payload={
+                "workflow_id": workflow_id,
+                "iteration_index": iteration_index,
+                "n_cases": len(case_set.cases),
+                "parent_skill_version_id": (
+                    str(parent_skill_version_id) if parent_skill_version_id else None
+                ),
+            },
+        )
+    # connection released back to pool here
 
+    # --- Phase 2: LLM calls (no DB connection held) ---
     # n_cycles=2: cycle 0 runs agent + proposes an instruction edit,
     # cycle 1 runs the agent against the new instruction. We only persist
     # cycle 0's outcome — cycle 1 exists so that `is_last` doesn't
@@ -351,7 +359,259 @@ async def run_one_iteration_for_workflow(
                 client=client,
                 n_cycles=1,
             )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE iterations
+                    SET state = 'sandbox-error'::iteration_state,
+                        ended_at = now()
+                    WHERE id = $1
+                    """,
+                    iteration_id,
+                )
+            raise
+        if not fallback_report.cycles:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE iterations
+                    SET state = 'sandbox-error'::iteration_state,
+                        ended_at = now()
+                    WHERE id = $1
+                    """,
+                    iteration_id,
+                )
+            raise IterationRunnerError("fallback loop produced no cycles") from None
+        cycle = fallback_report.cycles[0]
+    except (Exception, asyncio.CancelledError):
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE iterations
+                SET state = 'sandbox-error'::iteration_state,
+                    ended_at = now()
+                WHERE id = $1
+                """,
+                iteration_id,
+            )
+        raise
+    val_score = cycle.metric_value
+    n_failed = cycle.n_failures
+    cycle_ended_at = datetime.now(UTC)
+
+    # --- Phase 3: persistence (fresh connection, single transaction) ---
+    # All persistence runs inside one transaction so a partial write
+    # never leaves the iteration in an inconsistent state. On any
+    # failure (including asyncio.CancelledError from a dropped HTTP
+    # connection) the transaction rolls back and we mark the iteration
+    # row sandbox-error in a separate autocommit statement.
+    final_state: str = IterationState.GATE_BLOCKED_NO_IMPROVEMENT.value
+    dominant_cluster_id: UUID | None = None
+    proposed_skill_id: str | None = None
+    proposed_skill_version_id: UUID | None = None
+    proposal_id: UUID | None = None
+    new_instruction: str | None = cycle.instruction_after
+    persisted_clusters: list = []
+
+    async with pool.acquire() as conn:
+        try:
+            async with conn.transaction():
+                case_id_to_trace_id = await _persist_traces(
+                    conn,
+                    workflow_id=workflow_id,
+                    iteration_id=iteration_id,
+                    skill_version_id=parent_skill_version_id,
+                    outcomes=cycle.outcomes,
+                    started_at=started_at,
+                    ended_at=cycle_ended_at,
+                )
+
+                await _persist_case_outputs(
+                    conn,
+                    iteration_id=iteration_id,
+                    workflow_id=workflow_id,
+                    outcomes=cycle.outcomes,
+                )
+
+                if cycle.clustering_result is not None and cycle.clusters:
+                    for summary in cycle.clusters:
+                        sample_ids = _sample_trace_ids_for_cluster(
+                            summary, cycle.snapshots, case_id_to_trace_id
+                        )
+                        persisted = await insert_cluster(
+                            conn,
+                            workflow_id=workflow_id,
+                            summary=summary,
+                            sample_trace_ids=sample_ids,
+                        )
+                        persisted_clusters.append(persisted)
+                        await append_audit_entry(
+                            conn,
+                            kind=AuditKind.CLUSTER_CREATED,
+                            actor=_ITERATION_ACTOR,
+                            related_id=persisted.id,
+                            payload={
+                                "workflow_id": workflow_id,
+                                "iteration_id": str(iteration_id),
+                                "label": summary.label,
+                                "severity": summary.severity,
+                                "cluster_size": len(summary.member_indices),
+                                "sample_trace_ids": [str(t) for t in sample_ids],
+                            },
+                        )
+
+                    if persisted_clusters:
+                        dominant = max(
+                            persisted_clusters,
+                            key=lambda p: (len(p.summary.member_indices), p.summary.label),
+                        )
+                        dominant_cluster_id = dominant.id
+
+                if new_instruction and new_instruction.strip() and new_instruction != instruction_before:
+                    skill_file = _build_skill_file(workflow_id=workflow_id, body=new_instruction)
+                    register_result = await register_skill(
+                        conn,
+                        skill_file,
+                        created_by=f"nl-gen-iteration:{iteration_id}",
+                        diff_summary=(
+                            f"Iteration {iteration_index} on {workflow_id}: "
+                            f"val_score {val_score:.3f}, {n_failed}/{len(case_set.cases)} failed"
+                        ),
+                    )
+                    proposed_skill_id = register_result.skill_id
+                    proposed_skill_version_id = register_result.version_id
+
+                    await conn.execute(
+                        "UPDATE skills SET workflow_id = $1 WHERE id = $2 AND workflow_id IS NULL",
+                        workflow_id,
+                        register_result.skill_id,
+                    )
+
+                    parent_version_id = await _parent_version_id(
+                        conn, skill_id=register_result.skill_id, version_id=register_result.version_id
+                    )
+
+                    await append_audit_entry(
+                        conn,
+                        kind=AuditKind.SKILL_VERSION_CREATED,
+                        actor=_ITERATION_ACTOR,
+                        related_id=register_result.version_id,
+                        payload={
+                            "workflow_id": workflow_id,
+                            "iteration_id": str(iteration_id),
+                            "skill_id": register_result.skill_id,
+                            "parent_version_id": (
+                                str(parent_version_id) if parent_version_id else None
+                            ),
+                        },
+                    )
+
+                    proposal_id = await conn.fetchval(
+                        """
+                        INSERT INTO proposals (
+                            iteration_id, skill_id, parent_version_id,
+                            proposed_content, plain_language_summary,
+                            state, eval_score
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6::proposal_state, $7)
+                        RETURNING id
+                        """,
+                        iteration_id,
+                        register_result.skill_id,
+                        parent_version_id,
+                        skill_file,
+                        cycle.instruction_edit.appended_text
+                        if cycle.instruction_edit
+                        else "Iteration produced an instruction edit (no summary)",
+                        ProposalState.GATE_PASSED.value,
+                        float(val_score),
+                    )
+
+                    await append_audit_entry(
+                        conn,
+                        kind=AuditKind.PROPOSAL_CREATED,
+                        actor=_ITERATION_ACTOR,
+                        related_id=proposal_id,
+                        payload={
+                            "workflow_id": workflow_id,
+                            "iteration_id": str(iteration_id),
+                            "skill_id": register_result.skill_id,
+                            "skill_version_id": str(register_result.version_id),
+                            "val_score": float(val_score),
+                            "n_failed": n_failed,
+                            "n_cases": len(case_set.cases),
+                        },
+                    )
+
+                final_state = (
+                    IterationState.GATE_PASS.value
+                    if proposal_id is not None
+                    else IterationState.GATE_BLOCKED_NO_IMPROVEMENT.value
+                )
+
+                best_before = await conn.fetchval(
+                    """
+                    SELECT MAX(best_ever_score_after)
+                    FROM iterations
+                    WHERE workflow_id = $1
+                      AND state <> 'running'::iteration_state
+                      AND id <> $2
+                    """,
+                    workflow_id,
+                    iteration_id,
+                )
+                best_before_float = float(best_before) if best_before is not None else None
+                best_after = (
+                    max(best_before_float, float(val_score))
+                    if best_before_float is not None
+                    else float(val_score)
+                )
+
+                await conn.execute(
+                    """
+                    UPDATE iterations
+                    SET state = $2::iteration_state,
+                        val_score = $3,
+                        proposed_skill_version_id = $4,
+                        best_ever_score_before = $5,
+                        best_ever_score_after = $6,
+                        cluster_id = $7,
+                        ended_at = now()
+                    WHERE id = $1
+                    """,
+                    iteration_id,
+                    final_state,
+                    float(val_score),
+                    proposed_skill_version_id,
+                    best_before_float,
+                    best_after,
+                    dominant_cluster_id,
+                )
+
+                await append_audit_entry(
+                    conn,
+                    kind=AuditKind.GATE_RUN_COMPLETED,
+                    actor=_ITERATION_ACTOR,
+                    related_id=iteration_id,
+                    payload={
+                        "workflow_id": workflow_id,
+                        "iteration_index": iteration_index,
+                        "val_score": float(val_score),
+                        "n_cases": len(case_set.cases),
+                        "n_failed": n_failed,
+                        "state": final_state,
+                        "n_clusters": len(persisted_clusters),
+                        "dominant_cluster_id": (
+                            str(dominant_cluster_id) if dominant_cluster_id else None
+                        ),
+                        "proposal_id": str(proposal_id) if proposal_id else None,
+                        "proposed_skill_version_id": (
+                            str(proposed_skill_version_id) if proposed_skill_version_id else None
+                        ),
+                    },
+                )
+        except (Exception, asyncio.CancelledError):
             await conn.execute(
                 """
                 UPDATE iterations
@@ -362,260 +622,6 @@ async def run_one_iteration_for_workflow(
                 iteration_id,
             )
             raise
-        if not fallback_report.cycles:
-            await conn.execute(
-                """
-                UPDATE iterations
-                SET state = 'sandbox-error'::iteration_state,
-                    ended_at = now()
-                WHERE id = $1
-                """,
-                iteration_id,
-            )
-            raise IterationRunnerError("fallback loop produced no cycles") from None
-        cycle = fallback_report.cycles[0]
-    except Exception:
-        await conn.execute(
-            """
-            UPDATE iterations
-            SET state = 'sandbox-error'::iteration_state,
-                ended_at = now()
-            WHERE id = $1
-            """,
-            iteration_id,
-        )
-        raise
-    val_score = cycle.metric_value
-    n_failed = cycle.n_failures
-    cycle_ended_at = datetime.now(UTC)
-
-    # Persist per-case traces (one trace row per eval case). The trace
-    # event stream is synthetic for now — tool_call_start + tool_call_result
-    # for the forced `predict_label` tool — so the per-trace inspector has
-    # something to render. Future work (TODO): capture the real
-    # reasoning_delta / content_delta stream from the agent solver.
-    case_id_to_trace_id = await _persist_traces(
-        conn,
-        workflow_id=workflow_id,
-        iteration_id=iteration_id,
-        skill_version_id=parent_skill_version_id,
-        outcomes=cycle.outcomes,
-        started_at=started_at,
-        ended_at=cycle_ended_at,
-    )
-
-    # PLAN row 8.4.9 (Phase A) — capture per-case structured agent output
-    # alongside the bool the gate scores on. Today the agent emits only
-    # `actual_value: bool` + `rationale: str`, so `output_json` carries a
-    # thin shape; once the agent solver gains a workflow-specific
-    # `submit_case_output` tool (8.4.10 follow-up), the same column will
-    # carry recommendation tables, confidence scores, etc., without
-    # schema change. The operator-shell TableView reads from this table.
-    await _persist_case_outputs(
-        conn,
-        iteration_id=iteration_id,
-        workflow_id=workflow_id,
-        outcomes=cycle.outcomes,
-    )
-
-    # Persist failure clusters. The clustering pipeline already wrote
-    # ClusterSummary objects into cycle.clusters; persist_clustering_result
-    # turns them into failure_clusters rows. Fingerprint dedup means
-    # repeated iterations on the same workflow won't create duplicate
-    # cluster rows when the dominant cluster's label + size matches.
-    dominant_cluster_id: UUID | None = None
-    persisted_clusters: list = []
-    if cycle.clustering_result is not None and cycle.clusters:
-        for summary in cycle.clusters:
-            sample_ids = _sample_trace_ids_for_cluster(
-                summary, cycle.snapshots, case_id_to_trace_id
-            )
-            persisted = await insert_cluster(
-                conn,
-                workflow_id=workflow_id,
-                summary=summary,
-                sample_trace_ids=sample_ids,
-            )
-            persisted_clusters.append(persisted)
-            await append_audit_entry(
-                conn,
-                kind=AuditKind.CLUSTER_CREATED,
-                actor=_ITERATION_ACTOR,
-                related_id=persisted.id,
-                payload={
-                    "workflow_id": workflow_id,
-                    "iteration_id": str(iteration_id),
-                    "label": summary.label,
-                    "severity": summary.severity,
-                    "cluster_size": len(summary.member_indices),
-                    "sample_trace_ids": [str(t) for t in sample_ids],
-                },
-            )
-
-        # The dominant cluster (largest member set) anchors the iteration
-        # row — same convention as `_pick_dominant_cluster` in the loop.
-        if persisted_clusters:
-            dominant = max(
-                persisted_clusters,
-                key=lambda p: (len(p.summary.member_indices), p.summary.label),
-            )
-            dominant_cluster_id = dominant.id
-
-    # Persist the new instruction as a skill version + open proposal.
-    proposed_skill_id: str | None = None
-    proposed_skill_version_id: UUID | None = None
-    proposal_id: UUID | None = None
-    new_instruction = cycle.instruction_after
-
-    if new_instruction and new_instruction.strip() and new_instruction != instruction_before:
-        skill_file = _build_skill_file(workflow_id=workflow_id, body=new_instruction)
-        register_result = await register_skill(
-            conn,
-            skill_file,
-            created_by=f"nl-gen-iteration:{iteration_id}",
-            diff_summary=(
-                f"Iteration {iteration_index} on {workflow_id}: "
-                f"val_score {val_score:.3f}, {n_failed}/{len(case_set.cases)} failed"
-            ),
-        )
-        proposed_skill_id = register_result.skill_id
-        proposed_skill_version_id = register_result.version_id
-
-        # Wire the workflow → skill ownership on the first iteration so
-        # the skills library page shows it.
-        await conn.execute(
-            "UPDATE skills SET workflow_id = $1 WHERE id = $2 AND workflow_id IS NULL",
-            workflow_id,
-            register_result.skill_id,
-        )
-
-        parent_version_id = await _parent_version_id(
-            conn, skill_id=register_result.skill_id, version_id=register_result.version_id
-        )
-
-        await append_audit_entry(
-            conn,
-            kind=AuditKind.SKILL_VERSION_CREATED,
-            actor=_ITERATION_ACTOR,
-            related_id=register_result.version_id,
-            payload={
-                "workflow_id": workflow_id,
-                "iteration_id": str(iteration_id),
-                "skill_id": register_result.skill_id,
-                "parent_version_id": (
-                    str(parent_version_id) if parent_version_id else None
-                ),
-            },
-        )
-
-        proposal_id = await conn.fetchval(
-            """
-            INSERT INTO proposals (
-                iteration_id, skill_id, parent_version_id,
-                proposed_content, plain_language_summary,
-                state, eval_score
-            )
-            VALUES ($1, $2, $3, $4, $5, $6::proposal_state, $7)
-            RETURNING id
-            """,
-            iteration_id,
-            register_result.skill_id,
-            parent_version_id,
-            skill_file,
-            cycle.instruction_edit.appended_text
-            if cycle.instruction_edit
-            else "Iteration produced an instruction edit (no summary)",
-            ProposalState.GATE_PASSED.value,
-            float(val_score),
-        )
-
-        await append_audit_entry(
-            conn,
-            kind=AuditKind.PROPOSAL_CREATED,
-            actor=_ITERATION_ACTOR,
-            related_id=proposal_id,
-            payload={
-                "workflow_id": workflow_id,
-                "iteration_id": str(iteration_id),
-                "skill_id": register_result.skill_id,
-                "skill_version_id": str(register_result.version_id),
-                "val_score": float(val_score),
-                "n_failed": n_failed,
-                "n_cases": len(case_set.cases),
-            },
-        )
-
-    final_state = (
-        IterationState.GATE_PASS.value
-        if proposal_id is not None
-        else IterationState.GATE_BLOCKED_NO_IMPROVEMENT.value
-    )
-
-    # best_ever_score_before is the DB-authoritative max across all prior
-    # non-running iterations; best_ever_score_after is max(before, val_score).
-    # This populates the Health page's "Best val_score" column without
-    # needing the legacy gate.persistence path.
-    best_before = await conn.fetchval(
-        """
-        SELECT MAX(best_ever_score_after)
-        FROM iterations
-        WHERE workflow_id = $1
-          AND state <> 'running'::iteration_state
-          AND id <> $2
-        """,
-        workflow_id,
-        iteration_id,
-    )
-    best_before_float = float(best_before) if best_before is not None else None
-    best_after = (
-        max(best_before_float, float(val_score))
-        if best_before_float is not None
-        else float(val_score)
-    )
-
-    await conn.execute(
-        """
-        UPDATE iterations
-        SET state = $2::iteration_state,
-            val_score = $3,
-            proposed_skill_version_id = $4,
-            best_ever_score_before = $5,
-            best_ever_score_after = $6,
-            cluster_id = $7,
-            ended_at = now()
-        WHERE id = $1
-        """,
-        iteration_id,
-        final_state,
-        float(val_score),
-        proposed_skill_version_id,
-        best_before_float,
-        best_after,
-        dominant_cluster_id,
-    )
-
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.GATE_RUN_COMPLETED,
-        actor=_ITERATION_ACTOR,
-        related_id=iteration_id,
-        payload={
-            "workflow_id": workflow_id,
-            "iteration_index": iteration_index,
-            "val_score": float(val_score),
-            "n_cases": len(case_set.cases),
-            "n_failed": n_failed,
-            "state": final_state,
-            "n_clusters": len(persisted_clusters),
-            "dominant_cluster_id": (
-                str(dominant_cluster_id) if dominant_cluster_id else None
-            ),
-            "proposal_id": str(proposal_id) if proposal_id else None,
-            "proposed_skill_version_id": (
-                str(proposed_skill_version_id) if proposed_skill_version_id else None
-            ),
-        },
-    )
 
     return IterationOutcome(
         iteration_id=iteration_id,

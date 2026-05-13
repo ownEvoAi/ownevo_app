@@ -49,6 +49,8 @@ class IterationState(StrEnum):
 
 
 class WorkflowMode(StrEnum):
+    EVAL_ONLY = "eval-only"
+    EVAL_PROPOSE = "eval-propose"
     GATED = "gated"
     AUTONOMOUS = "autonomous"
 

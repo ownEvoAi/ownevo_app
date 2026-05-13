@@ -317,7 +317,7 @@ class RunIterationResponse(_Strict):
     iteration_id: UUID
     iteration_index: int
     state: str
-    val_score: float
+    val_score: float | None = None
     n_cases: int
     n_failed: int
     proposed_skill_id: str | None
