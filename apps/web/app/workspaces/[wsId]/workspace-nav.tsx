@@ -2,26 +2,19 @@
 
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { workspaceLabel } from '../../../lib/format'
+import { workflowDisplayTitle, workspaceLabel } from '../../../lib/format'
+import type { WorkflowSummary } from '../../../lib/api'
 
 interface NavProps {
   wsId: string
+  workflows: WorkflowSummary[]
   themeToggle: ReactNode
 }
 
 // Sidebar for /workspaces/[wsId]/... routes. Active-item highlight
-// derived from the current pathname; the rest is static markup
-// matching www/preview/s26-rk7p3/01-health.html.
-//
-// Workflow IDs are intentionally hard-coded for MVP — the YC demo
-// shows demand-prediction (live) + labour/contract/support (mocks).
-// Multi-tenant retrofit (TODO-1) replaces this with a workspace-
-// scoped query.
-//
-// COUPLING: the IDs `labour`, `contract`, `support` must stay in sync
-// with the keys in `workflows/[wfId]/mocks.ts` (WORKFLOW_MOCKS). If a
-// mock is renamed there, update the matching <a href> below.
-export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
+// derived from the current pathname; workflow list comes from the
+// kernel (passed in from the workspace layout server component).
+export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
   const pathname = usePathname() ?? ''
   const root = `/workspaces/${wsId}`
 
@@ -31,9 +24,16 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
   }
   const cls = (href: string) => `nav-item${isActive(href) ? ' active' : ''}`
 
-  // Workspace label is cosmetic until D4 retrofit.
   const wsLabel = workspaceLabel(wsId)
   const wsAvatar = wsId.charAt(0).toUpperCase()
+
+  // Partition by workflow.kind. Production workflows are real customer
+  // surfaces; benchmarks (M5 forecasting, tau-bench replays) are kernel
+  // validation runs that share the substrate. They get their own
+  // sidebar section so the demo viewer doesn't confuse "Recalibrate
+  // credit lines" (customer) with "M5-demand-prediction" (benchmark).
+  const production = workflows.filter((w) => w.kind !== 'benchmark')
+  const benchmarks = workflows.filter((w) => w.kind === 'benchmark')
 
   return (
     <aside className="nav">
@@ -71,44 +71,32 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">Inbox</span>
       </a>
+      <a href={`${root}/activity`} className={cls(`${root}/activity`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M2 13 L5 9 L8 11 L11 5 L14 8" />
+          <circle cx="2" cy="13" r="1.2" />
+          <circle cx="14" cy="8" r="1.2" />
+        </svg>
+        <span className="nav-label">Activity</span>
+      </a>
 
       <div className="nav-section">Workflows</div>
-      <a
-        href={`${root}/workflows/m5-demand-prediction`}
-        className={cls(`${root}/workflows/m5-demand-prediction`)}
-      >
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
-        </svg>
-        <span className="nav-label">Demand prediction</span>
-      </a>
-      <a href={`${root}/workflows/labour`} className={cls(`${root}/workflows/labour`)}>
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
-        </svg>
-        <span className="nav-label">Labour management</span>
-      </a>
-      <a href={`${root}/workflows/contract`} className={cls(`${root}/workflows/contract`)}>
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
-        </svg>
-        <span className="nav-label">Union contract review</span>
-      </a>
-      <a href={`${root}/workflows/support`} className={cls(`${root}/workflows/support`)}>
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
-        </svg>
-        <span className="nav-label">Customer support</span>
-      </a>
-      <a
-        href={`${root}/workflows/tau3-retail-v1`}
-        className={cls(`${root}/workflows/tau3-retail-v1`)}
-      >
-        <svg className="nav-icon" viewBox="0 0 16 16">
-          <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
-        </svg>
-        <span className="nav-label">τ³-bench retail</span>
-      </a>
+      {production.map((w) => {
+        const href = `${root}/workflows/${w.id}`
+        return (
+          <a key={w.id} href={href} className={`${cls(href)} nav-workflow`} title={w.description ?? w.id}>
+            <svg className="nav-icon" viewBox="0 0 16 16">
+              <path d="M3 3 L13 3 L13 13 L3 13 Z M3 7 L13 7 M7 7 L7 13" />
+            </svg>
+            <span className="nav-workflow-text">
+              <span className="nav-label">
+                {workflowDisplayTitle(w.id, w.description, 32)}
+              </span>
+              <span className="nav-workflow-id">{w.id}</span>
+            </span>
+          </a>
+        )
+      })}
       <a
         href={`${root}/workflows/new`}
         className={cls(`${root}/workflows/new`)}
@@ -119,6 +107,33 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
         </svg>
         <span className="nav-label">New workflow</span>
       </a>
+
+      {benchmarks.length > 0 && (
+        <>
+          <div className="nav-section">
+            Benchmarks
+            <span className="nav-section-hint" title="Kernel validation runs — not customer workflows">
+              ⓘ
+            </span>
+          </div>
+          {benchmarks.map((w) => {
+            const href = `${root}/workflows/${w.id}`
+            return (
+              <a key={w.id} href={href} className={`${cls(href)} nav-workflow`} title={w.description ?? w.id}>
+                <svg className="nav-icon" viewBox="0 0 16 16">
+                  <path d="M2 13 L2 3 L4 3 L4 13 M6 13 L6 7 L8 7 L8 13 M10 13 L10 5 L12 5 L12 13" />
+                </svg>
+                <span className="nav-workflow-text">
+                  <span className="nav-label">
+                    {workflowDisplayTitle(w.id, w.description, 32)}
+                  </span>
+                  <span className="nav-workflow-id">{w.id}</span>
+                </span>
+              </a>
+            )
+          })}
+        </>
+      )}
 
       <div className="nav-section">Library</div>
       <a href={`${root}/skills`} className={cls(`${root}/skills`)}>
@@ -135,6 +150,14 @@ export function WorkspaceNav({ wsId, themeToggle }: NavProps) {
           <rect x="9" y="9" width="5" height="5" />
         </svg>
         <span className="nav-label">Views</span>
+      </a>
+
+      <div className="nav-section">Records</div>
+      <a href={`${root}/traces`} className={cls(`${root}/traces`)}>
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M3 11 L6 6 L9 9 L13 4" />
+        </svg>
+        <span className="nav-label">Traces</span>
       </a>
       <a href={`${root}/audit`} className={cls(`${root}/audit`)}>
         <svg className="nav-icon" viewBox="0 0 16 16">

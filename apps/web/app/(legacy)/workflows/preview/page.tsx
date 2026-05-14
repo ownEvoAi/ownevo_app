@@ -1,21 +1,10 @@
 import { redirect } from 'next/navigation'
 
-interface PageProps {
-  searchParams: Promise<{ workflow_id?: string }>
-}
-
-// W7 slice 5 — `/workflows/preview` moved into the workspace shell at
+// Legacy `/workflows/preview` URL — moved into the workspace shell as
 // `/workspaces/[wsId]/workflows/new`. This redirect preserves any
-// existing bookmarks (W5.5 launch demos, internal links) while
-// pointing new traffic at the workspace-scoped surface.
-//
-// Slug is hardcoded to "acme" per the W7_SLICE.md cosmetic-URL
-// decision; D4 single-tenant means the backend ignores the value.
-export default async function LegacyPreviewRedirect({ searchParams }: PageProps) {
-  const { workflow_id } = await searchParams
-  const target =
-    workflow_id !== undefined
-      ? `/workspaces/acme/workflows/new?workflow_id=${encodeURIComponent(workflow_id)}`
-      : `/workspaces/acme/workflows/new`
-  redirect(target)
+// existing bookmarks. The 8.4.3 rewrite dropped the `?workflow_id=`
+// query param (the preview-fixture picker is gone); the new form is
+// purely a textarea, so the redirect lands on the bare URL.
+export default async function LegacyPreviewRedirect() {
+  redirect('/workspaces/acme/workflows/new')
 }

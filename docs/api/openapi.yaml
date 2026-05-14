@@ -136,6 +136,224 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/workflows/{id}/iterations/{iteration_index}:
+    get:
+      tags: [workflows]
+      summary: Iteration detail with per-case outcome roster (W8 drill-down)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: iteration_index
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IterationDetailFullResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/eval-cases:
+    get:
+      tags: [workflows]
+      summary: List eval cases attached to a workflow
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvalCaseListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [workflows]
+      summary: Manually add one eval case to the regression suite
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalCaseCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvalCaseSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/eval-cases/generate:
+    post:
+      tags: [workflows]
+      summary: Generate + persist eval cases via LLM (NL-gen pipeline)
+      description: |
+        Calls generate_simulation_plan → generate_eval_case_set → persist_eval_case_set.
+        ~30-45s wall-clock. Idempotent at the eval_cases-row level; re-running
+        generates a fresh case set and appends.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateEvalCasesResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Workflow has no spec — call POST /api/workflows first
+        '502':
+          description: LLM-side failure
+        '503':
+          description: ANTHROPIC_API_KEY not set
+
+  /api/workflows/{id}/eval-cases/{case_id}:
+    delete:
+      tags: [workflows]
+      summary: Remove one eval case from the regression suite
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: case_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: case_id is not a valid UUID
+
+  /api/workflows/{id}/case-outputs:
+    get:
+      tags: [workflows]
+      summary: Per-case agent output for one iteration (PLAN 8.4.9)
+      description: |
+        Returns an empty items list (iteration_index=null) when no iteration
+        has run yet. The operator-shell TableView binds to this endpoint.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: iteration
+          in: query
+          schema:
+            type: string
+            default: latest
+          description: "'latest' (default) or a numeric iteration_index."
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseOutputListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/workflows/{id}/iterations/run:
+    post:
+      tags: [workflows]
+      summary: Run one improvement-loop iteration synchronously (~30-90s)
+      description: |
+        Drives one cycle of run_nl_gen_demo_loop: agent solver over the case
+        set → failure clustering → instruction proposer. Persists the result
+        as an iterations row + skill_versions row + proposals row.
+        Returns 409 if another iteration is already running for this workflow.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Iteration completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunIterationResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Workflow missing required artifacts OR another iteration already running
+        '502':
+          description: LLM-side failure
+        '503':
+          description: ANTHROPIC_API_KEY not set
+
+  /api/workflows/{id}:
+    patch:
+      tags: [workflows]
+      summary: Edit the workflow description
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAnatomyResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [workflows]
+      summary: Hard-delete a workflow and every domain row tied to it
+      description: |
+        Cascades in FK-safe order inside one transaction. Audit entries are
+        intentionally NOT deleted (append-only WORM per D2).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deletion summary with row counts per table
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDeleteResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/workflows/{id}/stream:
     get:
       tags: [workflows]
@@ -449,7 +667,7 @@ components:
       enum: [pending, in-gate, gate-failed, gate-passed, rejected, approved-awaiting-deploy, deployed, rolled-back]
     WorkflowMode:
       type: string
-      enum: [gated, autonomous]
+      enum: [eval-only, eval-propose, gated, autonomous]
     ApproverType:
       type: string
       enum: [human, llm-judge, autonomous]
@@ -515,7 +733,10 @@ components:
         id: { type: string }
         description: { type: string }
         mode: { $ref: '#/components/schemas/WorkflowMode' }
+        kind: { type: string, nullable: true, description: "Workflow kind tag (e.g. 'nl-gen'). Null on legacy rows." }
         iteration_count: { type: integer }
+        running_iteration_count: { type: integer, description: "Number of iterations currently in 'running' state." }
+        oldest_running_started_at: { type: string, format: date-time, nullable: true, description: "started_at of the oldest running iteration; null when none." }
         best_ever_score: { type: number, format: float, nullable: true }
         last_improved_at: { type: string, format: date-time, nullable: true }
         pending_proposals_count: { type: integer }
@@ -844,9 +1065,8 @@ components:
       properties:
         id: { type: string }
         description: { type: string }
-        mode:
-          type: string
-          enum: [gated, autonomous]
+        mode: { $ref: '#/components/schemas/WorkflowMode' }
+        kind: { type: string, nullable: true }
         spec:
           type: object
           description: |
@@ -960,6 +1180,157 @@ components:
             monitor_signal).
           items:
             type: object
+
+    # ---------- W8 iteration detail + eval-case + case-output DTOs ----------
+    IterationCaseRow:
+      type: object
+      required: [case_id, trace_id, started_at]
+      properties:
+        case_id: { type: string }
+        predicted: { type: boolean, nullable: true }
+        expected: { type: boolean, nullable: true }
+        passed: { type: boolean, nullable: true }
+        is_test_fold: { type: boolean }
+        rationale: { type: string, nullable: true }
+        trace_id: { type: string, format: uuid }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time, nullable: true }
+
+    IterationDetailFullResponse:
+      type: object
+      required: [workflow_id, iteration_id, iteration_index, state, n_cases, n_passed, n_failed, cases]
+      properties:
+        workflow_id: { type: string }
+        iteration_id: { type: string, format: uuid }
+        iteration_index: { type: integer }
+        state: { $ref: '#/components/schemas/IterationState' }
+        val_score: { type: number, nullable: true }
+        best_ever_score_before: { type: number, nullable: true }
+        best_ever_score_after: { type: number, nullable: true }
+        n_cases: { type: integer }
+        n_passed: { type: integer }
+        n_failed: { type: integer }
+        cluster_id: { type: string, format: uuid, nullable: true }
+        cluster_label: { type: string, nullable: true }
+        parent_skill_version_id: { type: string, format: uuid, nullable: true }
+        proposed_skill_version_id: { type: string, format: uuid, nullable: true }
+        proposal_id: { type: string, format: uuid, nullable: true }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time, nullable: true }
+        cases:
+          type: array
+          items: { $ref: '#/components/schemas/IterationCaseRow' }
+
+    EvalCaseSummary:
+      type: object
+      required: [id, case_id, provenance, is_test_fold, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        case_id: { type: string }
+        provenance: { $ref: '#/components/schemas/ProvenanceKind' }
+        rationale: { type: string, nullable: true }
+        target_label_field: { type: string, nullable: true }
+        expected_value: { nullable: true }
+        sim_seed: { type: integer, nullable: true }
+        n_steps: { type: integer, nullable: true }
+        target_step_index: { type: integer, nullable: true }
+        is_test_fold: { type: boolean }
+        cluster_id: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    EvalCaseListResponse:
+      type: object
+      required: [workflow_id, items, total]
+      properties:
+        workflow_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EvalCaseSummary' }
+        total: { type: integer }
+
+    EvalCaseCreateRequest:
+      type: object
+      required: [case_id, target_label_field, expected_value]
+      properties:
+        case_id: { type: string }
+        target_label_field: { type: string }
+        expected_value: {}
+        rationale: { type: string }
+        sim_seed: { type: integer, default: 0 }
+        n_steps: { type: integer, default: 1 }
+        target_step_index: { type: integer, default: 0 }
+        is_test_fold: { type: boolean, default: false }
+
+    GenerateEvalCasesResponse:
+      type: object
+      required: [workflow_id, generated, train_count, test_count]
+      properties:
+        workflow_id: { type: string }
+        generated: { type: integer }
+        train_count: { type: integer }
+        test_count: { type: integer }
+
+    CaseOutputRow:
+      type: object
+      required: [eval_case_id, case_id, output_json, input, expected_behavior, passed, is_test_fold, created_at]
+      properties:
+        eval_case_id: { type: string, format: uuid }
+        case_id: { type: string, nullable: true }
+        output_json: { type: object }
+        input: { type: object }
+        expected_behavior: { type: object }
+        passed: { type: boolean }
+        is_test_fold: { type: boolean }
+        created_at: { type: string, format: date-time }
+        trace_id: { type: string, format: uuid, nullable: true }
+
+    CaseOutputListResponse:
+      type: object
+      required: [workflow_id, items]
+      properties:
+        workflow_id: { type: string }
+        iteration_index: { type: integer, nullable: true }
+        iteration_id: { type: string, format: uuid, nullable: true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CaseOutputRow' }
+
+    RunIterationResponse:
+      type: object
+      required: [iteration_id, iteration_index, state, n_cases, n_failed]
+      properties:
+        iteration_id: { type: string, format: uuid }
+        iteration_index: { type: integer }
+        state: { $ref: '#/components/schemas/IterationState' }
+        val_score: { type: number, nullable: true }
+        n_cases: { type: integer }
+        n_failed: { type: integer }
+        proposed_skill_id: { type: string, nullable: true }
+        proposed_skill_version_id: { type: string, format: uuid, nullable: true }
+        proposed_instruction: { type: string, nullable: true }
+        proposal_id: { type: string, format: uuid, nullable: true }
+
+    WorkflowUpdateRequest:
+      type: object
+      required: [description]
+      properties:
+        description: { type: string, minLength: 1 }
+
+    WorkflowDeleteResponse:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        approvals: { type: integer }
+        learnings: { type: integer }
+        proposals: { type: integer }
+        traces: { type: integer }
+        meta_evals: { type: integer }
+        iterations: { type: integer }
+        eval_cases: { type: integer }
+        failure_clusters: { type: integer }
+        skill_versions: { type: integer }
+        skills: { type: integer }
 
     # ---------- SSE event types ----------
     SSEEvent:

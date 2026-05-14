@@ -17,6 +17,261 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added (post-PR #85 — operator-shell layer-D parity, 2026-05-12)
+
+The operator shell + workspace Operate/Overview tabs now render real
+per-case iteration data through five typed UI primitives, replacing
+the spec-internals jargon banners with honest empty states (or live
+data once an iteration has run).
+
+- **`iteration_case_outputs` table (migration `0008_iteration_case_outputs.sql`,
+  PLAN 8.4.9).** One row per (iteration, eval_case) — `output_json` jsonb,
+  `passed` bool, ON DELETE CASCADE on both parents, UNIQUE on the pair.
+  Iteration runner's new `_persist_case_outputs` step writes alongside
+  the existing trace persistence; case_id lookup goes through
+  `eval_cases.expected_behavior->>'case_id'`. Idempotent via ON CONFLICT
+  DO UPDATE. Misses on case_id resolution skip the row rather than
+  failing the iteration. New `_json_safe` coerces arbitrary
+  `actual_value` shapes (today bool; later dict/list when the agent
+  emits richer output). Commit `69028d9`.
+- **`GET /api/workflows/{id}/case-outputs?iteration=latest|<idx>`.**
+  Returns `CaseOutputList{workflow_id, iteration_index, iteration_id,
+  items: CaseOutputRow[]}`. Empty roster (not 404) when no iteration
+  matches — operator UI distinguishes "haven't run yet" from "ran,
+  empty". 400 on non-integer iteration; 404 on missing workflow.
+- **Layer-D resolver TableView + AlertList + KanbanBoard branches
+  (PLAN 8.4.10, follow-ups).** `apps/web/lib/primitive-data-resolver.ts`
+  gained three resolved-kind branches that fan out from a new optional
+  `caseOutputs` input. TableView renders 5 columns (case_id ·
+  predicted · expected · pass/fail pill · agent rationale,
+  failed-first sort, rationale truncated to 140 chars with full-text
+  hover tooltip via new `title_key` on `TableColumn`). AlertList
+  renders the latest iteration's failed cases as high-severity alerts
+  (capped at 5). KanbanBoard columns cases by outcome × fold
+  (failed-test / failed-train / passed) with rationale-truncated
+  cards. `pass` / `fail` added to PILL_TONES (green / red). Three
+  caller pages — operator shell, workspace Operate tab, workspace
+  Overview tab — pass case-outputs through and render the new kinds.
+  Commits: `319ea77`, `22f2155`, `24e5155`.
+- **Fixtures gained `KanbanBoard` primitive.** credit-risk + contract-review
+  spec fixtures (`apps/kernel/src/ownevo_kernel/nl_gen/fixtures/`) now
+  declare a fifth primitive (`KanbanBoard`, `source: 'case-outputs'`)
+  so seed-demo writes specs that auto-light-up under the new resolver.
+  Re-seeding is idempotent and preserves the new primitive.
+- **`make seed-demo-with-iter` + `seed_demo.py --with-iterations`.**
+  After upserting the workflows + eval cases, runs one iteration per
+  workflow via `run_one_iteration_for_workflow`. Requires
+  `ANTHROPIC_API_KEY`; gracefully skipped (with a printed note) when
+  missing. Operator pages render real data on a reviewer's first
+  visit, no manual "Run iteration" click needed. Commit `2e118ed`.
+
+### Fixed (post-PR #85 — operator-shell follow-ups, 2026-05-12)
+
+- **`eval-cases/generate` now persists `simulation_plan` + `metric_definition`.**
+  Pre-fix, the endpoint regenerated the sim_plan in memory to drive
+  case generation but never wrote it back. Workflows created via
+  earlier paths landed with simulation_plan/metric_definition NULL
+  and the iteration runner refused to run. Endpoint now UPDATEs
+  the row with the fresh sim_plan unconditionally, and generates +
+  persists `metric_definition` when one didn't exist. Verified on
+  `sku-store-demand-markdown`: pre-fix has_plan=f / has_metric=f →
+  post-fix has_plan=t / has_metric=t after one call. Commit `2e118ed`.
+- **Operate tab + operator-shell de-duplication.** The header's
+  "Open operator view ↗" button (visible from every workflow tab)
+  was duplicated by a gradient "Open agent-only view" CTA card on
+  the Operate tab. Card removed; header button is the single entry
+  point. Two dev-jargon banners on the Operate tab (no-Operate-spec-tab
+  / no-primitives-declared) shipped raw `WorkflowSpec` internals to a
+  non-developer audience — both dropped. Commits `b28e13e`, `ece6e86`.
+- **Benchmark workflows hide Operate / Triggers / Integrations /
+  Permissions / Settings tabs.** Tabs filtered when `kind='benchmark'`;
+  Overview / Eval cases / Proposals / Failures / Traces / Audit stay
+  — every surface that proves the loop is improving. Commit `b28e13e`.
+- **Iteration drill-down: plain-English gate-state banner.** The
+  iteration detail page surfaced terminal state as raw enum text
+  (`gate-blocked-no-improvement`, `gate-blocked-regression`,
+  `sandbox-error`, `running`). New `StateBanner` translates each into
+  a sentence for a domain expert ("Gate blocked the change. val_score
+  X didn't beat the prior best Y, so the proposal was rejected"). New
+  `.iter-state-banner` CSS tone-tints by state (green / amber / red /
+  accent). Commit `10b9c14`.
+- **Operate-tab "Recent runs" duplicate removed.** Workspace Overview
+  already shows the full iteration list; Operate tab's truncated
+  10-row table was redundant. Operate keeps live status + description
+  + spec-declared primitives. Long "primitives need richer per-case
+  agent output … iteration runner captures structured predictions
+  beyond bool" banner rewritten as a one-liner aimed at the
+  domain-expert audience. Commit `ece6e86`.
+
+### Added (PR #85 — workflow taxonomy: benchmark kind + eval-mode enum, 2026-05-12)
+
+Two schema-level changes that the UI needed to talk honestly about what
+each workflow row is and what the improvement loop does with it.
+
+- **`workflows.kind` column (migration `0006_workflow_kind.sql`).** Nullable
+  text, default null = production. Today only `'benchmark'` is consumed;
+  back-fill targets rows whose id starts with `m5-`, `tau-`, `tau2-`,
+  `tau3-`, `taubench-`. Threaded through `WorkflowSummary`,
+  `WorkflowAnatomy`, the list + detail + update routes, and the TS API
+  types. UI surfaces:
+  - workspace-nav splits sidebar into **Workflows** and **Benchmarks**
+    sections with an ⓘ hint "Kernel validation runs — not customer
+    workflows". Benchmarks section hidden when zero rows.
+  - Health page partitions counts so benchmarks never inflate "Active
+    workflows", pending tile, lift-chart primary pick, or
+    stale/in-flight banners. Adds a separate "Loop validation ·
+    benchmarks" table below the main workflows table with caption
+    "Kernel proof runs — not customer workflows".
+  - Workflow detail layout renders an indigo **BENCHMARK** pill inline
+    with the title when `kind='benchmark'`.
+
+- **`workflow_mode` enum extended to four values (migration
+  `0007_workflow_mode_eval_modes.sql`).** New `'eval-only'` and
+  `'eval-propose'` values join `'gated'` and `'autonomous'`. Full
+  taxonomy in `lib/format.ts::modeLabel()`:
+  | Mode | Score | Propose | Auto-deploy |
+  |------|------|---------|-------------|
+  | `eval-only` | yes | no | — |
+  | `eval-propose` | yes | yes | no |
+  | `gated` (default) | yes | yes | requires approval |
+  | `autonomous` | yes | yes | on gate-pass |
+  Surfaces the human label in the workflow detail subtitle and the
+  Workflows-table Mode column (with hint tooltip). Runtime gating
+  (iteration runner / proposer / deployer respecting eval-only +
+  eval-propose) is intentionally **not** in this commit — the mode is
+  descriptive until the Connect-existing-agent backend lands.
+
+PLAN.md gains a Phase-2 retrofit item (item 5): once D4 multi-tenant
+lands, split benchmarks into a dedicated `_benchmarks` workspace and
+seed per-vertical demo workspaces (`demo-legal`, `demo-supply-chain`,
+`demo-credit-risk`, `demo-clinical`, etc.) using the same `kind`
+column carried forward. Commits: `8d834ce`, `31f9aac`.
+
+### Fixed (PR #85 — browser-review round, 2026-05-12)
+
+Eight defects surfaced during a full chrome-devtools walkthrough of
+every workspace surface after the first follow-up round shipped.
+
+- **Failures tab 500** (`da35e3c`, `2b71792`): the new
+  `spawning_iteration_index` SQL referenced `iterations.created_at`,
+  which doesn't exist (column is `started_at`). Kernel tests skipped
+  DB checks on this branch so the typo slipped through. Replaced with
+  a defensive Python-side resolver (one batched lookup for the union
+  of every cluster's `sample_trace_ids`, then earliest-iteration
+  picked per cluster) so empty/NULL `sample_trace_ids` no longer
+  hit asyncpg's brittle `ANY($1::uuid[])` path.
+- **Skill detail 500** (`92220a3`): `GET /api/skills/{id}` fanned four
+  follow-up queries through `asyncio.gather` against a single pooled
+  asyncpg connection. asyncpg disallows concurrent ops on one
+  connection and raised "another operation is in progress". The
+  fan-out comment even predicted "ready for a pool-per-coroutine
+  upgrade" — but no pool wrap landed. Sequentialised (~10ms total)
+  until pool-per-coroutine lands.
+- **Dark-mode flash on every navigation** (`ea27e20`): the root
+  layout SSR'd `<html data-theme="light">` and the ThemeToggle
+  effect only flipped the attribute post-hydrate. Every navigation
+  in dark mode flashed white then snapped dark. Added an inline
+  `<script>` in `<head>` that reads the `ownevo-theme` localStorage
+  key and applies `data-theme` synchronously before any paint;
+  toggle now reads the live attribute on mount to keep the button
+  label aligned with what's actually painted.
+- **Activity feed used full workflow descriptions** (`f8c2b62`): both
+  the filter chips and the "on X" mention in each row dumped the
+  entire multi-paragraph NL-gen prompt. Switched to
+  `workflowDisplayTitle()` so chips and row text stay readable; full
+  text moves to `title=` for hover.
+- **Inbox row source label used full description** (`92220a3`): same
+  pattern as the activity feed. Same fix — `workflowDisplayTitle(60)`
+  with full text on hover.
+- **Operate tab had no path to the agent-only view** (`f8c2b62`):
+  the tab rendered an empty state on workflows whose spec doesn't
+  define an `Operate` tab and never surfaced a link to
+  `/operator/[wfId]`. Added a gradient CTA card linking to the
+  agent-only view and brought in the recent-runs table (mirrors the
+  operator shell) so the tab carries real agent content even without
+  spec-declared primitives.
+- **Nav "Library" grouped operational logs with reference content**
+  (`46fd49f`): split into **Library** (Skills, Views — reusable
+  reference) and **Records** (Traces, Audit — operational logs).
+  Three-section sidebar reads faster than the four-item catch-all.
+- **Database migrations don't auto-run on existing volumes**: the
+  Postgres `docker-entrypoint-initdb.d` mount only runs on first init.
+  Applied `0006` + `0007` manually for the running dev DB via
+  `docker compose exec postgres psql -f`. Production deploys still
+  need an explicit migration runner (TODO-1 retrofit).
+
+Commits on this round: `da35e3c`, `ea27e20`, `46fd49f`, `2b71792`,
+`f8c2b62`, `8d834ce`, `31f9aac`, `92220a3` (8 total).
+
+### Added (PR #85 follow-up — seven activity-surface improvements, 2026-05-12)
+
+Seven UI gaps surfaced during the post-Tier-1 audit on `feat/real-ui-loop`.
+None blocked the YC demo path on their own, but together they shifted the
+web surface from "runs the loop" to "explains the loop" — each change
+links one entity (cluster, iteration, proposal, audit row) to the next
+one a reviewer needs to see.
+
+- **Stale-iteration cue on Health.** New `WorkflowSummary`
+  field `oldest_running_started_at` (subquery `MIN(started_at) WHERE
+  state = 'running'`). Web surfaces an amber banner + per-row stale
+  pill when the oldest running iteration is older than the threshold
+  in `lib/format.ts` (1 h — typical M5/Sonnet iteration is 5–15 min,
+  so 1 h is 4–10× the happy-path budget and almost always indicates
+  a crashed run that never wrote `sandbox-error`). Counts and copy
+  separate "in flight" from "stale" so abandoned runs don't pollute
+  the fresh-in-flight count.
+- **Skills library workflow filter.** `?workflow=<wfId>` query param
+  with a chip strip listing every workflow that owns at least one
+  skill, plus an `(unscoped)` chip for workflowless skills. Empty
+  state branches on whether a filter is active.
+- **Cluster ↔ iteration signposting.** `FailureClusterSummary`
+  carries `spawning_iteration_index` + `spawning_iteration_id`,
+  resolved by reading `traces.iteration_id` from any sample trace
+  in `failure_clusters.sample_trace_ids`. Cards now render a
+  `← From iteration #N` footer link. Header is still the
+  proposal click-target when one exists — the iteration link is a
+  separate sibling anchor so the markup stays valid.
+- **Inline SkillDiff on iteration detail.** Iteration page fetches
+  the proposal in parallel (when `proposal_id` is set) and renders
+  the existing side-by-side `SkillDiff` component above the case
+  roster. Same component the proposal-detail surface uses — no
+  forked diff path.
+- **Review-before-commit step on new workflow.** Generate now
+  redirects to `/workflows/new/review/[wfId]`. The page shows the
+  original description, `AgentAnatomy` (spec + tools + reviewer),
+  and the eval-case count, with **Confirm** (continue to overview)
+  and **Revise** (delete the row via the existing `DELETE
+  /api/workflows/{id}` cascade + bounce to `/new`) actions. Spec +
+  sim_plan + metric_definition are still committed at the end of
+  step 1; the review is a UX gate, not a DB state gate.
+- **Baseline-complete landing.** When iteration #0 finishes, the
+  run action redirects to `/workflows/baseline/[wfId]` (outside the
+  `[wfId]` layout so the workflow tabs don't clutter the
+  celebration). The page carries a "Baseline complete" hero, a
+  4-cell metric strip (val_score, cases passed, run time, next
+  step), a per-case roster preview, a mini lift chart anchored on
+  iter 0, and Continue/See-the-run actions. Subsequent iterations
+  keep the existing inline result card on Overview.
+- **Cross-workflow activity feed.** New `/workspaces/[wsId]/activity`
+  page + sidebar entry between Inbox and Workflows. Reads
+  `/api/audit` and renders each entry as a human-readable row:
+  icon glyph, sentence summary with workflow chip + entity id,
+  actor, relative time, and a click-through to the related
+  resource. Bucketed by day (Today / Yesterday / weekday) and
+  filterable by workflow + audit kind via a shared chip strip.
+  Covers every audit-kind enum: proposal-{created, approved,
+  rejected, deployed, rolled-back}, gate-run-{started, completed},
+  cluster-{created, relabeled}, eval-case-added,
+  skill-version-created, workflow-created, deployment-{created,
+  updated}, meta-eval-result, schema-migration. Unmapped kinds fall
+  back to a neutral row pointing at the raw audit log. Goes beyond
+  Inbox (which only surfaces pending proposals).
+
+Commits: `44e0200..e28b804` on `feat/real-ui-loop` (9 commits
+including a separate `chore(css)` for ~410 lines of additions to
+`apps/web/app/globals.css`). 1489 kernel tests still passing; web
+`tsc --noEmit` clean.
+
 ## [0.6.0] — 2026-05-09
 
 ### Added (TODO-28 — W6 row 6.1 NL-gen demo loop dry-run + storyboard / CLI fixes)

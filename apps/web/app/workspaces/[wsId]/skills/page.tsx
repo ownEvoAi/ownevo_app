@@ -6,11 +6,11 @@ import {
   type SkillSummary,
   type WorkflowSummary,
 } from '@/lib/api'
-import { WORKFLOW_MOCKS } from '../workflows/[wfId]/mocks'
-import { relativeTime } from '@/lib/format'
+import { relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
+  searchParams: Promise<{ workflow?: string }>
 }
 
 interface SkillRow {
@@ -21,16 +21,16 @@ interface SkillRow {
   workflow_title: string
   head_version_seq: number | null
   head_created_at: string | null
-  isMock: boolean
 }
 
-// Skills library — PLAN row 8.0.4. Visual parity with
-// www/preview/s26-rk7p3/11-skills-registry.html. Lists every skill
-// across every workflow in the workspace, plus mock skills from
-// the labour/contract/support positioning workflows so the page
-// renders something even on an empty database.
-export default async function SkillsLibraryPage({ params }: PageProps) {
+// Skills library — workspace-scoped list of every registered skill,
+// joined against workflows for the parent-workflow column.
+export default async function SkillsLibraryPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { wsId } = await params
+  const { workflow: workflowFilter } = await searchParams
 
   let liveSkills: SkillSummary[] = []
   let workflows: WorkflowSummary[] = []
@@ -45,10 +45,10 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
 
   const workflowTitleById = new Map<string, string>()
   for (const w of workflows) {
-    workflowTitleById.set(w.id, w.description || w.id)
+    workflowTitleById.set(w.id, workflowDisplayTitle(w.id, w.description, 50))
   }
 
-  const liveRows: SkillRow[] = liveSkills.map((s) => ({
+  const allRows: SkillRow[] = liveSkills.map((s) => ({
     id: s.id,
     kind: s.kind,
     capability_tags: s.capability_tags,
@@ -58,28 +58,30 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
       : '—',
     head_version_seq: s.head_version_seq,
     head_created_at: s.head_created_at,
-    isMock: false,
   }))
 
-  const mockRows: SkillRow[] = []
-  for (const [wfKey, mock] of Object.entries(WORKFLOW_MOCKS)) {
-    for (const s of mock.anatomy.skills) {
-      mockRows.push({
-        id: s.id,
-        kind: s.kind,
-        capability_tags: s.capability_tags,
-        workflow_id: wfKey,
-        workflow_title: mock.title,
-        head_version_seq: s.head_version_seq,
-        head_created_at: s.head_created_at,
-        isMock: true,
-      })
+  // Workflow chips show every workflow that owns a skill, plus a
+  // "(unscoped)" chip when there are skills with no workflow_id.
+  // Built from the full row set so the chip strip doesn't disappear
+  // after a filter narrows the list to one workflow.
+  const workflowFacets = new Map<string, number>()
+  let unscopedCount = 0
+  for (const r of allRows) {
+    if (!r.workflow_id) {
+      unscopedCount += 1
+      continue
     }
+    workflowFacets.set(r.workflow_id, (workflowFacets.get(r.workflow_id) ?? 0) + 1)
   }
+  const orderedFacets = [...workflowFacets.entries()].sort((a, b) => b[1] - a[1])
 
-  // Live skills first, then mocks. Within each group keep the
-  // backend's sort order (kind ASC, id ASC).
-  const rows = [...liveRows, ...mockRows]
+  const activeFilter = workflowFilter && workflowFilter.length > 0 ? workflowFilter : null
+  const rows =
+    activeFilter === null
+      ? allRows
+      : activeFilter === '_unscoped'
+        ? allRows.filter((r) => !r.workflow_id)
+        : allRows.filter((r) => r.workflow_id === activeFilter)
 
   const totalVersions = rows.reduce(
     (acc, r) => acc + (r.head_version_seq ?? 0),
@@ -96,8 +98,8 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
           <h1 className="page-title">Skills library</h1>
           <p className="page-subtitle">
             {rows.length} skill{rows.length === 1 ? '' : 's'} ·{' '}
-            {totalVersions} total versions · across {workflowCount} workflows ·
-            workspace-scoped
+            {totalVersions} total versions · across {workflowCount} workflow
+            {workflowCount === 1 ? '' : 's'} · workspace-scoped
           </p>
         </div>
       </header>
@@ -105,6 +107,36 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
       {apiError && (
         <div role="alert" className="api-banner" style={{ marginBottom: 16 }}>
           <strong>{apiError.title}</strong> {apiError.detail}
+        </div>
+      )}
+
+      {(orderedFacets.length > 0 || unscopedCount > 0) && (
+        <div className="chip-strip" role="navigation" aria-label="Filter by workflow">
+          <Link
+            href={`/workspaces/${wsId}/skills`}
+            className={`chip ${activeFilter === null ? 'active' : ''}`}
+          >
+            All <span className="chip-count">{allRows.length}</span>
+          </Link>
+          {orderedFacets.map(([wfId, count]) => (
+            <Link
+              key={wfId}
+              href={`/workspaces/${wsId}/skills?workflow=${encodeURIComponent(wfId)}`}
+              className={`chip ${activeFilter === wfId ? 'active' : ''}`}
+              title={wfId}
+            >
+              {workflowTitleById.get(wfId) ?? wfId}
+              <span className="chip-count">{count}</span>
+            </Link>
+          ))}
+          {unscopedCount > 0 && (
+            <Link
+              href={`/workspaces/${wsId}/skills?workflow=_unscoped`}
+              className={`chip ${activeFilter === '_unscoped' ? 'active' : ''}`}
+            >
+              (unscoped) <span className="chip-count">{unscopedCount}</span>
+            </Link>
+          )}
         </div>
       )}
 
@@ -120,18 +152,30 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
             textAlign: 'center',
           }}
         >
-          No skills registered yet. Seed the demand-prediction baseline with{' '}
-          <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
-            scripts/seed_m5_baseline.py
-          </code>{' '}
-          or describe a workflow under{' '}
-          <Link
-            href={`/workspaces/${wsId}/workflows/new`}
-            style={{ color: 'var(--accent)' }}
-          >
-            New workflow
-          </Link>
-          .
+          {activeFilter !== null ? (
+            <>
+              No skills match this filter.{' '}
+              <Link href={`/workspaces/${wsId}/skills`} style={{ color: 'var(--accent)' }}>
+                Clear filter
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              No skills registered yet. Run{' '}
+              <code style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace" }}>
+                make seed-demo
+              </code>{' '}
+              to populate sample workflows, or describe a new one under{' '}
+              <Link
+                href={`/workspaces/${wsId}/workflows/new`}
+                style={{ color: 'var(--accent)' }}
+              >
+                New workflow
+              </Link>
+              .
+            </>
+          )}
         </div>
       ) : (
         <div className="table-wrap">
@@ -146,16 +190,13 @@ export default async function SkillsLibraryPage({ params }: PageProps) {
           </div>
           {rows.map((r) => (
             <Link
-              key={`${r.isMock ? 'mock' : 'live'}::${r.workflow_id ?? 'none'}::${r.id}`}
+              key={`${r.workflow_id ?? 'none'}::${r.id}`}
               href={`/workspaces/${wsId}/skills/${encodeURIComponent(r.id)}`}
               className="skill-row"
             >
               <div className="skill-name-cell">
                 <span className="skill-name">{r.id}</span>
-                <span className="skill-source">
-                  {r.workflow_title}
-                  {r.isMock ? ' · MOCK' : ''}
-                </span>
+                <span className="skill-source">{r.workflow_title}</span>
               </div>
               <div className="cap-tags">
                 {r.capability_tags.length === 0 ? (

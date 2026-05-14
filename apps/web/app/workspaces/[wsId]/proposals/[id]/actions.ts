@@ -1,7 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { approveProposal, rejectProposal, KernelApiError } from '@/lib/api'
+import {
+  approveProposal,
+  deployProposal,
+  KernelApiError,
+  rejectProposal,
+  rollbackProposal,
+} from '@/lib/api'
 
 interface DecideInput {
   proposalId: string
@@ -46,6 +52,47 @@ export async function decideAction(input: DecideInput): Promise<DecideResult> {
       // 409 (illegal state) is the most common user-facing error here.
       // Surface the kernel's detail string verbatim — it already names
       // the actual state vs the expected gate-passed.
+      return { ok: false, error: err.detail }
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+interface DeployInput {
+  proposalId: string
+  wsId: string
+  workflowId: string
+  action: 'deploy' | 'rollback'
+  decidedBy: string
+}
+
+type DeployResult =
+  | { ok: true; state: string }
+  | { ok: false; error: string }
+
+// Deploy / rollback share the same shape: POST to the kernel with the
+// reviewer identity, then revalidate the surfaces that show the
+// proposal state (proposal page, workflow Overview / Proposals,
+// skill detail, Health). We use a unified action with an `action`
+// discriminator so the client island has one code path.
+export async function deployAction(input: DeployInput): Promise<DeployResult> {
+  if (!input.decidedBy.trim()) {
+    return { ok: false, error: 'Reviewer identity is required.' }
+  }
+  const fn = input.action === 'deploy' ? deployProposal : rollbackProposal
+  try {
+    const res = await fn(input.proposalId, { decided_by: input.decidedBy })
+    revalidatePath(`/workspaces/${input.wsId}/proposals/${input.proposalId}`)
+    revalidatePath(`/workspaces/${input.wsId}/workflows/${input.workflowId}`, 'layout')
+    revalidatePath(`/workspaces/${input.wsId}/skills`)
+    revalidatePath(`/workspaces/${input.wsId}/audit`)
+    revalidatePath(`/workspaces/${input.wsId}`)
+    return { ok: true, state: res.state }
+  } catch (err) {
+    if (err instanceof KernelApiError) {
       return { ok: false, error: err.detail }
     }
     return {

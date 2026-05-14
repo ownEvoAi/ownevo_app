@@ -249,14 +249,29 @@ class WorkflowSummary(_Strict):
     page renders without N+1 fetches. `iteration_count` is the number of
     finalized iterations on the workflow (gate-pass / gate-blocked / etc.
     — anything not 'running'), driving the right-side "Last improved"
-    cell. `pending_proposals_count` covers gate-passed proposals waiting
-    for human/llm-judge approval.
+    cell. `running_iteration_count` counts iterations currently in the
+    'running' state — drives the Health page in-flight indicator
+    `pending_proposals_count` covers gate-passed proposals
+    waiting for human/llm-judge approval.
     """
 
     id: str
     description: str
     mode: str  # 'gated' | 'autonomous'
+    # 'benchmark' tags workflows that exist for kernel validation
+    # (M5 forecasting, tau-bench replays) — they share the substrate
+    # with customer workflows but the UI surfaces them in a separate
+    # sidebar section so a domain expert isn't confused. NULL/absent
+    # = production (default).
+    kind: str | None = None
     iteration_count: int
+    running_iteration_count: int = 0
+    # When >0 running iterations, the oldest one's started_at. Lets the
+    # Health page flag iterations that have been "running" for hours —
+    # almost always a crashed/abandoned run that didn't get marked
+    # sandbox-error (e.g., kernel killed mid-loop). Null when nothing is
+    # in flight.
+    oldest_running_started_at: datetime | None = None
     best_ever_score: float | None
     last_improved_at: datetime | None  # most recent approved proposal's state_updated_at
     pending_proposals_count: int
@@ -265,6 +280,59 @@ class WorkflowSummary(_Strict):
 class WorkflowList(_Strict):
     items: list[WorkflowSummary]
     total: int
+
+
+class EvalCaseSummary(_Strict):
+    """One row on the workflow Eval cases page.
+
+    Flattened from the `eval_cases` row: `case_id` / `target_label_field` /
+    `expected_value` / `rationale` come from the `expected_behavior` JSONB
+    (see `nl_gen/eval_persistence.py`). `sim_seed` / `n_steps` /
+    `target_step_index` from `input`.
+    """
+
+    id: UUID
+    case_id: str
+    provenance: str
+    rationale: str | None
+    target_label_field: str | None
+    expected_value: Any
+    sim_seed: int | None
+    n_steps: int | None
+    target_step_index: int | None
+    is_test_fold: bool
+    cluster_id: UUID | None
+    created_at: datetime
+
+
+class EvalCaseList(_Strict):
+    workflow_id: str
+    items: list[EvalCaseSummary]
+    total: int
+
+
+class RunIterationResponse(_Strict):
+    """Response from `POST /api/workflows/{id}/iterations/run`."""
+
+    iteration_id: UUID
+    iteration_index: int
+    state: str
+    val_score: float | None = None
+    n_cases: int
+    n_failed: int
+    proposed_skill_id: str | None
+    proposed_skill_version_id: UUID | None
+    proposed_instruction: str | None
+    proposal_id: UUID | None
+
+
+class GenerateEvalCasesResponse(_Strict):
+    """Response from `POST /api/workflows/{id}/eval-cases/generate`."""
+
+    workflow_id: str
+    generated: int
+    train_count: int
+    test_count: int
 
 
 class WorkflowAnatomy(_Strict):
@@ -283,7 +351,164 @@ class WorkflowAnatomy(_Strict):
     id: str
     description: str
     mode: str
+    kind: str | None = None  # 'benchmark' | null (production)
     spec: dict[str, Any]
+
+
+class EvalCaseCreate(_Strict):
+    """Manual add payload for `POST /api/workflows/{id}/eval-cases`.
+
+    Minimal surface — the operator types a case_id, expected bool, and
+    optional rationale; the kernel fills in target_label_field +
+    sim_seed/n_steps/target_step_index defaults so the gate can score
+    the case via the standard replay path. Manual cases carry
+    provenance='hand-authored' (D4: this is the human-seeded slot).
+    """
+
+    case_id: str = Field(min_length=1, max_length=128)
+    expected_value: bool
+    target_label_field: str = Field(min_length=1, max_length=128)
+    rationale: str = Field(default="", max_length=1024)
+    is_test_fold: bool = False
+    sim_seed: int = Field(default=0, ge=0)
+    n_steps: int = Field(default=1, ge=1)
+    target_step_index: int = Field(default=0, ge=0)
+
+
+class WorkflowUpdate(_Strict):
+    """Patch payload for `PATCH /api/workflows/{id}`.
+
+    Only fields the operator can safely change post-create. The NL-gen
+    artifacts (`spec`, `simulation_plan`, `metric_definition`) are NOT
+    editable from this endpoint — they regenerate via the dedicated
+    generate endpoints so the cross-checks (workflow_spec_id agreement
+    + meta-eval) stay enforced.
+    """
+
+    description: str = Field(min_length=10, max_length=4096)
+
+
+class WorkflowDeleteResponse(_Strict):
+    """Audit-trail receipt for a workflow hard-delete.
+
+    Returns the row counts deleted per related table so the UI can show
+    a meaningful confirmation ("removed 2 iterations, 24 traces, 3
+    proposals, 1 skill version"). Audit entries are never touched (D2
+    WORM); they keep their original `related_id` pointing at the
+    now-deleted row, dangling but immutable.
+    """
+
+    id: str
+    iterations: int
+    proposals: int
+    approvals: int
+    traces: int
+    eval_cases: int
+    failure_clusters: int
+    learnings: int
+    skill_versions: int
+    skills: int
+    meta_evals: int
+
+
+class IterationCaseRow(_Strict):
+    """One eval case's outcome on one iteration.
+
+    Sourced from the per-case `traces` row written by the iteration
+    runner. The trace's `metric_outputs` JSONB carries the predicted /
+    expected / passed flags inline; `case_id` is the workflow-local
+    eval case identifier (matches `eval_cases` rows on case_id).
+    `rationale` is the agent's per-case explanation (the second
+    argument to the predict_label tool); None for legacy traces from
+    before the rationale plumbing landed.
+    """
+
+    case_id: str
+    predicted: bool | None
+    expected: bool | None
+    passed: bool | None
+    is_test_fold: bool
+    rationale: str | None = None
+    trace_id: UUID
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class CaseOutputRow(_Strict):
+    """One iteration_case_outputs row joined with its eval_case input.
+
+    Drives the operator-shell TableView primitive (PLAN 8.4.10). Today
+    `output_json` carries `{case_id, predicted, expected, rationale,
+    is_test_fold}` — a thin shape mirroring what trace metric_outputs
+    already holds. Once the agent solver gains a workflow-specific
+    `submit_case_output` tool the same field carries recommendation
+    tables / confidence scores / alerts and the TableView binding's
+    column paths resolve directly against it.
+    """
+
+    eval_case_id: UUID
+    case_id: str | None  # kebab-case id pulled out of eval_cases.expected_behavior
+    output_json: dict[str, Any]
+    expected_behavior: dict[str, Any]
+    input: dict[str, Any]
+    passed: bool
+    is_test_fold: bool
+    created_at: datetime
+    # The trace row written by the iteration runner for this case on
+    # this iteration, used by the operator-shell TableView to link
+    # each row to /workspaces/{wsId}/traces/{trace_id} for the full
+    # event-stream inspector. NULL only when the persistence path
+    # raced or the case_id didn't resolve cleanly.
+    trace_id: UUID | None = None
+
+
+class CaseOutputList(_Strict):
+    """The latest iteration's per-case agent output, oldest-first.
+
+    `iteration_index` echoes which iteration the rows came from so the
+    caller can detect "asked for latest, got iteration #N." `items` is
+    empty when no iteration has run yet — the operator shell renders
+    the "Coming soon" banner in that state.
+    """
+
+    workflow_id: str
+    iteration_index: int | None
+    iteration_id: UUID | None
+    items: list[CaseOutputRow]
+
+
+class IterationDetailFull(_Strict):
+    """One iteration with its full per-case outcome roster.
+
+    Drives the lift-chart click-through (PLAN 8.4.8). Distinct from the
+    legacy `IterationDetail` summary (id + state + score columns) —
+    that one stays as-is for the per-iteration summary surface; this
+    one carries the full case-level signal `traces` rows now hold.
+
+    The `cases` list is ordered failed-first so the operator's eye
+    lands on what regressed. `cluster_label` carries the dominant
+    failure cluster's label when one anchored the iteration; None for
+    clean runs.
+    """
+
+    workflow_id: str
+    iteration_id: UUID
+    iteration_index: int
+    state: str
+    val_score: float | None
+    best_ever_score_before: float | None
+    best_ever_score_after: float | None
+    n_cases: int
+    n_passed: int
+    n_failed: int
+    cluster_id: UUID | None
+    cluster_label: str | None
+    parent_skill_version_id: UUID | None
+    proposed_skill_version_id: UUID | None
+    proposal_id: UUID | None
+    started_at: datetime
+    ended_at: datetime | None
+    cases: list[IterationCaseRow]
 
 
 class IterationPoint(_Strict):
@@ -337,6 +562,13 @@ class FailureClusterSummary(_Strict):
     sample_trace_ids: list[UUID]
     created_at: datetime
     latest_proposal_id: UUID | None
+    # The iteration whose evaluation produced the traces this cluster
+    # was built from. Resolved by picking any sample trace and reading
+    # its `traces.iteration_id`. Null only when sample traces predate
+    # the Tier-1 trace-persistence change (legacy clusters) or weren't
+    # produced by an iteration (production traces — not yet wired).
+    spawning_iteration_index: int | None = None
+    spawning_iteration_id: UUID | None = None
 
 
 class FailureClusterList(_Strict):
@@ -573,8 +805,13 @@ __all__ = [
     "TraceDetail",
     "TraceList",
     "TraceSummary",
+    "EvalCaseCreate",
+    "IterationCaseRow",
+    "IterationDetailFull",
     "WorkflowAnatomy",
+    "WorkflowDeleteResponse",
     "WorkflowDetail",
     "WorkflowList",
     "WorkflowSummary",
+    "WorkflowUpdate",
 ]

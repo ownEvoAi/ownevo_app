@@ -9,6 +9,7 @@ import {
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
 import { SkillDiff } from '@/app/components/skill-diff'
 import { DecideForm } from './decide-form'
+import { DeployForm } from './deploy-form'
 
 interface PageProps {
   params: Promise<{ wsId: string; id: string }>
@@ -41,6 +42,8 @@ export default async function ProposalDetailPage({ params }: PageProps) {
   }
 
   const canDecide = proposal.state === 'gate-passed'
+  const canDeploy = proposal.state === 'approved-awaiting-deploy'
+  const canRollback = proposal.state === 'deployed'
   const wfHref = `/workspaces/${wsId}/workflows/${proposal.workflow.id}/failures`
 
   return (
@@ -90,6 +93,14 @@ export default async function ProposalDetailPage({ params }: PageProps) {
             <DecideForm proposalId={proposal.id} wsId={wsId} />
           ) : (
             <DecisionRecorded proposal={proposal} />
+          )}
+          {(canDeploy || canRollback) && (
+            <DeployForm
+              proposalId={proposal.id}
+              wsId={wsId}
+              workflowId={proposal.workflow.id}
+              state={canDeploy ? 'approved-awaiting-deploy' : 'deployed'}
+            />
           )}
         </aside>
       </div>

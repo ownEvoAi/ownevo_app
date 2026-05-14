@@ -47,6 +47,16 @@ async def list_audit(
             "etc.). See SCHEMA.md § audit_kind for the enum."
         ),
     ),
+    workflow_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description=(
+            "Filter to entries whose related_id ties back to this workflow — "
+            "via proposals.id (whose iteration belongs to the workflow), "
+            "iterations.id, or failure_clusters.id. Entries with a NULL "
+            "related_id are workspace-level and not returned by this filter."
+        ),
+    ),
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
 ) -> AuditList:
     """Chronological audit entries, newest seq first.
@@ -66,6 +76,29 @@ async def list_audit(
             detail=f"Invalid audit_kind value: {kind!r}",
         ) from exc
 
+    if workflow_id is not None:
+        # Resolve the set of related_ids that anchor this workflow's
+        # audit footprint. Audit entries are workspace-level today (D4
+        # single-tenant) so this is the closest we get to "per-workflow
+        # audit" without a workflow_id column.
+        related_rows = await conn.fetch(
+            """
+            SELECT id FROM iterations WHERE workflow_id = $1
+            UNION ALL
+            SELECT p.id FROM proposals p
+              JOIN iterations i ON i.id = p.iteration_id
+              WHERE i.workflow_id = $1
+            UNION ALL
+            SELECT id FROM failure_clusters WHERE workflow_id = $1
+            """,
+            workflow_id,
+        )
+        wf_related_ids = {r["id"] for r in related_rows}
+        entries = [
+            e for e in entries
+            if e.related_id is not None and e.related_id in wf_related_ids
+        ]
+
     # `export_audit_log` returns ASC. Reverse + cap for the UI.
     sliced = list(reversed(entries))[:limit]
 
@@ -82,7 +115,10 @@ async def list_audit(
         for e in sliced
     ]
 
-    total = await conn.fetchval("SELECT COUNT(*)::int FROM audit_entries") or 0
+    if workflow_id is not None:
+        total = len(entries)
+    else:
+        total = await conn.fetchval("SELECT COUNT(*)::int FROM audit_entries") or 0
     # `truncated` reflects whether the [:limit] cap dropped rows from the
     # filtered result set — not whether there are more unfiltered entries.
     truncated = len(entries) > len(sliced)

@@ -700,6 +700,7 @@ async def solve_with_agent(
                 passed=pred.value == case.expected_value,
                 actual_value=pred.value,
                 expected_value=case.expected_value,
+                rationale=pred.rationale,
             )
             for pred, case in zip(predictions, case_set.cases)
         ]
@@ -714,6 +715,7 @@ async def solve_with_agent(
                 passed=prediction.value == case.expected_value,
                 actual_value=prediction.value,
                 expected_value=case.expected_value,
+                rationale=prediction.rationale,
             )
         )
     return results

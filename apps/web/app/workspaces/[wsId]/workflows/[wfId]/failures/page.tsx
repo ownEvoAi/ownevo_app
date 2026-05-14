@@ -3,26 +3,15 @@ import {
   kernelError,
   KernelApiError,
   type FailureClusterList,
-  type FailureClusterSummary,
 } from '../../../../../../lib/api'
 import { FailureClusterCard } from './failure-cluster-card'
-import { getMockClusters, isMock } from '../mocks'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
 }
 
-// W7 slice 3 — Failures view.
-//
 // One card per active cluster, sorted high → medium → low, then by
 // cluster_size. Visual target: www/preview/s26-rk7p3/16-failures.html.
-// Cluster cards are read-only for slice 3 — clicking a card lands on
-// the proposal-detail page once cluster→proposal linkage is in place
-// (W8 polish).
-//
-// Mock workflows (labour / contract / support) render hand-authored
-// cluster fixtures from `mocks.ts` so the layout matches the Overview
-// tab's STATIC MOCK banner instead of returning a 404 from the kernel.
 export default async function WorkflowFailuresPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
@@ -30,18 +19,13 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
   let apiError: { title: string; detail: string } | null = null
   let notFound = false
 
-  if (isMock(wfId)) {
-    const mockItems = getMockClusters(wfId) ?? []
-    clusters = { workflow_id: wfId, items: mockItems as FailureClusterSummary[] }
-  } else {
-    try {
-      clusters = await getWorkflowFailureClusters(wfId)
-    } catch (err) {
-      if (err instanceof KernelApiError && err.status === 404) {
-        notFound = true
-      } else {
-        apiError = kernelError(err)
-      }
+  try {
+    clusters = await getWorkflowFailureClusters(wfId)
+  } catch (err) {
+    if (err instanceof KernelApiError && err.status === 404) {
+      notFound = true
+    } else {
+      apiError = kernelError(err)
     }
   }
 
@@ -114,8 +98,9 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
             marginTop: 16,
           }}
         >
-          No failure clusters yet for <code>{wfId}</code>. Run{' '}
-          <code>make m5-cluster-failures</code> to populate them.
+          No failure clusters yet for <code>{wfId}</code>. Clustering runs
+          automatically once enough eval-case failures pile up across
+          iterations — try the Run iteration button on the Overview tab.
         </div>
       )}
 
@@ -124,7 +109,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">High · {high.length}</div>
           <div className="clusters">
             {high.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
@@ -135,7 +120,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Medium · {medium.length}</div>
           <div className="clusters">
             {medium.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
@@ -146,7 +131,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
           <div className="group-head">Low · {low.length}</div>
           <div className="clusters">
             {low.map((c) => (
-              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} />
+              <FailureClusterCard key={c.id} cluster={c} wsId={wsId} wfId={wfId} />
             ))}
           </div>
         </>
