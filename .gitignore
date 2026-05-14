@@ -67,3 +67,6 @@ temp/
 # bloating history with regenerable .png artifacts. Live copy is at
 # ../_demo-video-temp/ (sibling of ownevo_app).
 docs/demo-video/
+
+# Fly.io local CLI state
+.fly/

@@ -82,7 +82,12 @@ def create_app(
         lifespan=lifespan,
     )
 
-    origins = cors_origins if cors_origins is not None else ["http://localhost:3000"]
+    if cors_origins is not None:
+        origins = cors_origins
+    elif env_origins := os.environ.get("OWNEVO_CORS_ORIGINS", ""):
+        origins = [o.strip() for o in env_origins.split(",") if o.strip()]
+    else:
+        origins = ["http://localhost:3000"]
     if origins:
         api.add_middleware(
             CORSMiddleware,
