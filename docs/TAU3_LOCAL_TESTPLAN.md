@@ -12,8 +12,12 @@
 
 **Alternative proposers (PASS but lower lift):**
 - `glm-4.7-flash:latest` on **Ollama** (DeepSeek-2 arch) — Run 32 v2 PASS **0.6750**. Architecture diversity proven.
-- `qwen/qwen3-coder-30b` LMS — Run 15 PASS but retail-weak (0.1250).
-- `google/gemma-4-e4b` LMS — Run 12 PASS but weak (0.1750).
+- *(low priority)* `qwen/qwen3-coder-30b` LMS — Run 15 PASS but retail-weak (0.1250). Codegen-specialist; only useful if other proposers fail to write clean patches.
+
+**Proposer candidates (untested as proposer, to try):**
+- `qwen/qwen3.6-27b` **LMS** (lms-anthropic, v13 template, ctx=65536) — baseline 0.8750 as task agent (new record); strong candidate as proposer with thinking suppression. Replaces the Ollama variant (Run 23 v2 0.6750 with uncontrolled thinking — dropped).
+- `google/gemma-4-31b` LMS (19.89 GB, lms-openai) — scored 0.6750 as task agent (Run 23 v2); untested as proposer. Replaces gemma-4-e4b (too small, 0.1750). Dense 31B — expect similar tier to qwen3.6:27b Ollama.
+- `qwen/qwen3-30b-a3b` LMS (18.56 GB, MoE) — same MoE architecture as the winning proposer (qwen3.6-35b-a3b); only difference is qwen3 vs qwen3.6 base. Best untested candidate — high probability of matching or approaching 0.82.
 
 **Real task-agent ranking on retail τ³** (JIT-fallback discovery, 2026-05-12):
 `qwen3.6-35b-a3b (0.75)` > `qwen3.5-9b (0.575)` > `gpt-oss-20b (0.30)` ≈ `qwen3.5-4b (0.22-0.30)`. **Bigger > smaller.** The earlier "4B > 9B > 35B inverse-scaling" claim (Runs 21/22 at 0.825/0.725) was invalidated when LMS JIT was discovered to silently route the invalid identifier `anthropic/qwen/qwen3.5-4b` to the loaded model (qwen3.6-35b-a3b). See § "Task-agent role compat" for the full record.
@@ -433,18 +437,19 @@ Topology labels: `lms-anthropic` | `lms-openai` | `ollama-openai` (OAI shim `/v1
 | ref | `qwen/qwen3.6-35b-a3b` (LMS) | lms-anthropic | `anthropic/qwen/qwen3.6-35b-a3b` | 2400s | **0.75** | known |
 | I-base | `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-omni` | **7200s** | **0.6250** | PASS (N=40/40, ~45 min) |
 | F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | lms-openai | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **7200s** | **~0.43 est** | ⚠ PARTIAL (37/40, per-task timeout on last task) |
-| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | PASS (N=40/40, infra_errors=0, ~34 min) |
-| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | lms-anthropic | `anthropic/qwen/qwen3-32b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
+| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | ✅ PASS (N=40/40, infra_errors=0, ~34 min) |
+| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | lms-anthropic | `anthropic/qwen/qwen3-32b` | **7200s** | **~0.25** | ❌ KILLED — avg=0.25 at 4/40; qwen3 base weaker than qwen3.6 series; API think-off patch confirmed working |
 | D-base | `qwen/qwen3-14b` (LMS, 9 GB) | lms-anthropic | `anthropic/qwen/qwen3-14b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
 | qwen36-27b-base | `qwen/qwen3.6-27b` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3.6-27b` | **7200s** | **0.8750** | PASS (N=40/40, infra_errors=0, ~90 min) — new record |
 | qwen35-9b-base | `qwen/qwen3.5-9b` (LMS, 6.5 GB) | lms-anthropic | `anthropic/qwen/qwen3.5-9b` | 2400s | ☐ | ⏳ queued — Run 28 scored **0.575** with proposer |
-| gpt-oss-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | 2400s | ☐ | 🔄 **IN PROGRESS** (2026-05-13T~23:10Z) |
-| gpt-oss-native-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama** | `ollama_chat/gpt-oss:20b` | 2400s | ☐ | ⏳ queued — after gpt-oss-base |
-| qwen3-14b-oai-base | `qwen3:14b` (Ollama, 8 GB) | **ollama-openai** | `openai/qwen3:14b` | **7200s** | ☐ | ⏳ queued |
-| qwen3-14b-native-base | `qwen3:14b` (Ollama, 8 GB) | **ollama** | `ollama_chat/qwen3:14b` | **7200s** | ☐ | ⏳ queued — think:false auto-injected |
-| qwen3-32b-oai-base | `qwen3:32b` (Ollama, 18 GB) | **ollama-openai** | `openai/qwen3:32b` | **7200s** | ☐ | ⏳ queued — may need NUM_PARALLEL=2 |
-| qwen35-9b-oai-base | `qwen3.5:9B` (Ollama, 6 GB) | **ollama-openai** | `openai/qwen3.5:9B` | **7200s** | ☐ | ⏳ queued — ⚠ `ollama_chat/qwen3.5:*` blocked (HTTP 415) |
-| qwen35-4b-oai-base | `qwen3.5:4B` (Ollama, 3 GB) | **ollama-openai** | `openai/qwen3.5:4B` | 2400s | ☐ | ⏳ queued |
+| gpt-oss-base v1 | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | 2400s | ☐ | ⚠ **TIMEOUT** — 30/40 partial avg=0.47 (N=30); 2400s wall-clock too short |
+| gpt-oss-base v2 | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | **7200s** | **0.4000** | ✅ PASS (N=40/40, infra_errors=0) |
+| gpt-oss-native-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama** | `ollama_chat/gpt-oss:20b` | 2400s | — | ❌ SKIPPED (user) |
+| qwen3-14b-oai-base | `qwen3:14b` (Ollama, 8 GB) | **ollama-openai** | `openai/qwen3:14b` | **7200s** | — | ❌ SKIPPED — thinking model, think:false not injected on openai path; 0/40 at 240s |
+| qwen3-14b-native-base | `qwen3:14b` (Ollama, 8 GB) | **ollama** | `ollama_chat/qwen3:14b` | **7200s** | ~0.35 partial | ⚠ PARTIAL (17/40, container 7200s wall-clock, qwen3:14b too slow even with think:false) |
+| qwen3-32b-oai-base | `qwen3:32b` (Ollama, 18 GB) | **ollama-openai** | `openai/qwen3:32b` | **7200s** | — | ❌ SKIPPED — qwen3 thinking model too slow on Ollama; 14B took 7200s for 17/40, 32B worse |
+| qwen35-9b-oai-base | `qwen3.5:9B` (Ollama, 6 GB) | **ollama-openai** | `openai/qwen3.5:9B` | **7200s** | — | ❌ SKIPPED — ~1400s/task on Ollama, same pattern as qwen3:14b; 3/40 at 29 min, killed |
+| qwen35-4b-oai-base | `qwen3.5:4B` (Ollama, 3 GB) | **ollama-openai** | `openai/qwen3.5:4B` | **7200s** | — | ❌ SKIPPED — 0/40 at 14 min, all tasks >840s, same pattern as 9B; qwen3.5:xB uniformly too slow on Ollama |
 | J-base | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-4b` | 2400s | ☐ | ⏳ queued — J scored **0.30** with proposer |
 | qwen35-4b-lms-base | `qwen3.5-4b` (LMS, 3.4 GB, no `qwen/` prefix) | lms-openai | `openai/qwen3.5-4b` | 2400s | ☐ | ⏳ queued — true 4B LMS floor |
 | K-base | `ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` (Ollama) | ollama-openai | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` | **7200s** | ☐ | ❌ **DROPPED** — too slow (thinker + Ollama serial = infeasible) |
@@ -465,7 +470,7 @@ Models with confirmed baselines that are good candidates for running a full prop
 | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | `openai/nvidia/nemotron-3-nano-4b` | **0.30** | Low | 4B floor. Same caveat as gpt-oss. Run J had proposer — need clean baseline. |
 | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | `anthropic/qwen/qwen3-30b-a3b-2507` | **0.4250** | Medium | A-base PASS N=40/40. Lower than expected — lift candidate but weaker floor. |
 
-**When to run lift cycles:** After all baselines complete. Use qwen3.6-35b-a3b as proposer (confirmed lift driver). Focus on I-base first (nemotron-omni, 0.6250) — best risk/reward ratio.
+**When to run lift cycles:** After all baselines complete. Primary proposer: `qwen3.6-35b-a3b` (confirmed). For proposer ablation (which proposer gives best lift): try `qwen/qwen3-30b-a3b` LMS (MoE, same arch — highest probability), then `qwen/qwen3.6-27b` LMS, then `google/gemma-4-31b` LMS. Focus task-agent lift on I-base first (nemotron-omni, 0.6250) — best risk/reward ratio.
 
 ---
 
@@ -512,6 +517,9 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 1. Delete `STATUS.md` from working tree (gitignored).
 2. Open PR `feat/ollama-loop-runner` → `main`.
 3. P3 (gated loop with LLM-judge) and P4 (results doc).
+
+**Low-priority follow-on (post-sweep):**
+- **qwen3.6-27b proposer sweep** — baseline 0.8750 is the record; explore 1–3 proposer cycles to see if score lifts further. Use swap-mode loop: `tau3_p2_local_loop.sh` with qwen3.6-27b as task agent, qwen3.6-35b-a3b as proposer. May squeeze 1–2pp above 0.875.
 
 **To reproduce the winning local config:**
 
