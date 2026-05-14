@@ -17,7 +17,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
-from ..deps import ConnDep, PoolDep
+from ..deps import ConnDep, DemoModeCheck, PoolDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
@@ -736,6 +736,7 @@ async def delete_eval_case(
     workflow_id: str,
     case_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> None:
     """Remove one eval case from the suite.
 
@@ -775,6 +776,7 @@ async def delete_eval_case(
 async def generate_workflow_eval_cases(
     workflow_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> GenerateEvalCasesResponse:
     """Generate + persist eval cases for an existing workflow.
 
@@ -900,6 +902,7 @@ async def generate_workflow_eval_cases(
 async def run_workflow_iteration(
     workflow_id: str,
     pool: PoolDep,
+    _: DemoModeCheck,
 ) -> RunIterationResponse:
     """Run one improvement-loop iteration synchronously, persist the result.
 
@@ -1054,6 +1057,7 @@ async def update_workflow(
 async def delete_workflow(
     workflow_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> WorkflowDeleteResponse:
     """Hard-delete a workflow and every domain row tied to it.
 

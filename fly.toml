@@ -1,0 +1,35 @@
+# Fly.io config for the ownEvo kernel API (Python / FastAPI).
+#
+# Build context is the repo root (same as docker-compose.yml).
+# The web app has its own fly.toml at apps/web/fly.toml.
+#
+# First-time setup: see docs/runbooks/fly-deploy.md
+
+app = "ownevo-kernel"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "apps/kernel/Dockerfile"
+
+[env]
+  PORT      = "8000"
+  DEMO_MODE = "true"
+  # OWNEVO_DATABASE_URL   → set via: flyctl secrets set OWNEVO_DATABASE_URL=...
+  # ANTHROPIC_API_KEY     → set via: flyctl secrets set ANTHROPIC_API_KEY=...
+  # OWNEVO_CORS_ORIGINS   → set via: flyctl secrets set OWNEVO_CORS_ORIGINS=https://ownevo-web.fly.dev,https://demo.ownevo.ai
+
+[deploy]
+  # Runs migrations before each new version goes live.
+  release_command = "uv run --package ownevo-kernel --extra api python apps/kernel/scripts/migrate.py"
+
+[http_service]
+  internal_port        = 8000
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind  = "shared"
+  cpus      = 1
+  memory_mb = 512

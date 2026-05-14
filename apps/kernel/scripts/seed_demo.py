@@ -86,6 +86,7 @@ async def seed_demo(
     conn,
     *,
     with_iterations: bool = False,
+    _pool=None,
 ) -> list[SeededWorkflow]:
     """Seed the demo workflows. Returns one entry per workflow touched.
 
@@ -169,7 +170,7 @@ async def seed_demo(
     for w in seeded:
         try:
             outcome = await run_one_iteration_for_workflow(
-                conn, workflow_id=w.id, client=client,
+                _pool, workflow_id=w.id, client=client,
             )
             updated.append(
                 SeededWorkflow(
@@ -205,16 +206,31 @@ async def main_async(args: argparse.Namespace) -> int:
 
     import asyncpg
 
-    try:
-        conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresError, OSError) as exc:
-        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
-        return 4
+    # run_one_iteration_for_workflow requires a Pool (calls pool.acquire()).
+    # Use a pool for with_iterations; a bare connection is fine otherwise.
+    if args.with_iterations:
+        try:
+            pool = await asyncpg.create_pool(db_url, min_size=1, max_size=3, timeout=10)
+        except (asyncpg.PostgresError, OSError) as exc:
+            print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+            return 4
 
-    try:
-        seeded = await seed_demo(conn, with_iterations=args.with_iterations)
-    finally:
-        await conn.close()
+        try:
+            async with pool.acquire() as conn:
+                seeded = await seed_demo(conn, with_iterations=True, _pool=pool)
+        finally:
+            await pool.close()
+    else:
+        try:
+            conn = await asyncpg.connect(db_url, timeout=10)
+        except (asyncpg.PostgresError, OSError) as exc:
+            print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+            return 4
+
+        try:
+            seeded = await seed_demo(conn, with_iterations=False)
+        finally:
+            await conn.close()
 
     inserted = sum(1 for s in seeded if s.inserted)
     refreshed = len(seeded) - inserted

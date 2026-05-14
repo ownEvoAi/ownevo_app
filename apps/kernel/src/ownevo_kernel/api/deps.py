@@ -11,11 +11,12 @@ or by attaching their own `app.state.pool`.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import asyncpg
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 
 
 async def get_pool(request: Request) -> asyncpg.Pool:
@@ -43,3 +44,19 @@ async def get_conn(pool: PoolDep) -> AsyncGenerator[asyncpg.Connection, None]:
 
 
 ConnDep = Annotated[asyncpg.Connection, Depends(get_conn)]
+
+
+def require_not_demo_mode() -> None:
+    """Raise 503 when DEMO_MODE=true — blocks write ops on the live demo."""
+    if os.environ.get("DEMO_MODE", "").lower() == "true":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "This action is disabled in the live demo. "
+                "Clone the repo and run locally: "
+                "https://github.com/ownEvoAi/ownevo_app"
+            ),
+        )
+
+
+DemoModeCheck = Annotated[None, Depends(require_not_demo_mode)]

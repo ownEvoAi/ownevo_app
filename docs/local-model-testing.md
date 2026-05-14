@@ -186,7 +186,7 @@ Same model (`qwen3-coder:30b`):
 
 | Backend | Input tokens | cache_read | Outcome |
 |---|---|---|---|
-| LMS Anthropic streaming | 157,000 | 142,000 | ✅ write_skill, gate ran |
+| LMS Anthropic streaming | 157,000 | 142,000 | write_skill, gate ran |
 | Ollama `/v1` (NUM_PARALLEL=4) | 23,170 | 0 | ⚠️ end_turn early |
 | Ollama `/v1` (NUM_PARALLEL=1, no patch) | 30,884 | 0 | ⚠️ end_turn early |
 
@@ -409,8 +409,8 @@ correctly enforces improvement on iteration 2:
 
 v12's rationale: *"val_score 0.3851 did not beat best_ever 0.3951
 (epsilon 0)"* — confirms direction (higher = better) and demonstrates
-the regression-blocking path. **B4.2 (First lift on M5)** ✅ achieved
-at v10; **B4.3 (First gate-blocked regression)** ✅ achieved at v12.
+the regression-blocking path. **B4.2 (First lift on M5)** achieved
+at v10; **B4.3 (First gate-blocked regression)** achieved at v12.
 
 **Takeaway:** the F6 bug pattern is **task-shape-specific**, not
 model-class-specific. Both qwen3-coder-30b (open-weight, local) and
@@ -641,12 +641,12 @@ above the table for cloud comparison):
 
 | backend | model | demand-pred (recall ≥0.50) | credit-risk (balanced_acc ≥0.40) | contract-review (f1 ≥0.75) | wall | cost |
 |---|---|---:|---:|---:|---:|---:|
-| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 ✅ | ~60s | $0.10 |
-| Anthropic | **sonnet 4.6** (cloud reference) | **0.60 ✅** | **0.50 ✅** | 0.77 ✅ | ~128s | $0.50 |
-| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 ✅ (thin) | 1.00 ✅ | ~100s | $2 |
-| Ollama | qwen2.5-coder:32b | 1.00 ✅ (always-True) | 0.50 ✅ | 0.89 ✅ | ~117s | $0 |
-| Ollama | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 ✅ | ~90s | $0 |
-| Ollama | **devstral-small-2** (24B, local reference) | **0.80 ✅** | **0.42 ✅** | 0.89 ✅ | ~100s | $0 |
+| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 | ~60s | $0.10 |
+| Anthropic | **sonnet 4.6** (cloud reference) | **0.60** | **0.50** | 0.77 | ~128s | $0.50 |
+| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 (thin) | 1.00 | ~100s | $2 |
+| Ollama | qwen2.5-coder:32b | 1.00 (always-True) | 0.50 | 0.89 | ~117s | $0 |
+| Ollama | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 | ~90s | $0 |
+| Ollama | **devstral-small-2** (24B, local reference) | **0.80** | **0.42** | 0.89 | ~100s | $0 |
 | Ollama | gpt-oss:20b | err (max_tokens before tool-call) | — | — | — | $0 |
 
 **Findings:**
@@ -733,13 +733,13 @@ model could pass:
 
 | model | ctx | demand | credit | contract | wall |
 |---|---|---:|---:|---:|---:|
-| `granite-4.1-8b` | 32k | 1.00 ✅ | 0.50 ✅ | 0.91 ✅ | 33s |
-| `google/gemma-4-e4b` | 32k | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 34s |
-| `ibm/granite-3.2-8b` | 32k | 1.00 ✅ | 0.50 ✅ | 0.83 ✅ | 43s |
-| `mistralai/ministral-3-14b-reasoning` | 32k | 1.00 ✅ | 0.50 ✅ | 0.91 ✅ | 47s |
-| `qwen/qwen3-32b` | 32k | 0.60 ✅ | 0.42 ✅ | 0.83 ✅ | 96s |
-| `qwen2.5-coder-32b-instruct` | 16k | 1.00 ✅ | 0.50 ✅ | 0.89 ✅ | 98s |
-| `google/gemma-4-31b` | 32k | 0.60 ✅ | 0.42 ✅ | 1.00 ✅ | 229s |
+| `granite-4.1-8b` | 32k | 1.00 | 0.50 | 0.91 | 33s |
+| `google/gemma-4-e4b` | 32k | 0.60 | 0.42 | 0.89 | 34s |
+| `ibm/granite-3.2-8b` | 32k | 1.00 | 0.50 | 0.83 | 43s |
+| `mistralai/ministral-3-14b-reasoning` | 32k | 1.00 | 0.50 | 0.91 | 47s |
+| `qwen/qwen3-32b` | 32k | 0.60 | 0.42 | 0.83 | 96s |
+| `qwen2.5-coder-32b-instruct` | 16k | 1.00 | 0.50 | 0.89 | 98s |
+| `google/gemma-4-31b` | 32k | 0.60 | 0.42 | 1.00 | 229s |
 
 Full sweep logs: `temp/lmstudio_sweep/20260506-124340/summary.md`
 (25-model canonical run) + per-model dirs from the 17-model resume run.
@@ -751,8 +751,8 @@ Full sweep logs: `temp/lmstudio_sweep/20260506-124340/summary.md`
 | `ibm/granite-4-h-tiny` | contract-review | 0.62 ❌ |
 | `microsoft/phi-4` | credit-risk | 0.17 ❌ |
 | `mistralai/magistral-small` | contract-review | 0.33 ❌ |
-| `liquid/lfm2-24b-a2b` | contract-review | 0.67 ❌ (variance; once ✅) |
-| `openai/gpt-oss-20b` | credit-risk | 0.25 ❌ (variance; once 0.42 ✅) |
+| `liquid/lfm2-24b-a2b` | contract-review | 0.67 ❌ (variance; once passed) |
+| `openai/gpt-oss-20b` | credit-risk | 0.25 ❌ (variance; once 0.42) |
 
 #### F14b — Laptop LMS (32k context, 8k max-tokens) — 8 / 62
 
@@ -763,14 +763,14 @@ to pass any A4.4 gate to date.
 
 | model | demand | credit | contract | wall |
 |---|---:|---:|---:|---:|
-| `qwen/qwen3-4b-2507` | 1.00 ✅ | 0.42 ✅ | 0.91 ✅ | 152s |
-| `openai/gpt-oss-20b` | 0.80 ✅ | 0.42 ✅ | 1.00 ✅ | 197s |
-| `qwen3.5-4b` | 0.80 ✅ | 0.42 ✅ | 0.89 ✅ | 304s |
-| `nvidia_nvidia-nemotron-nano-9b-v2` | 1.00 ✅ | 0.58 ✅ | 0.83 ✅ | 548s |
-| `qwen/qwen3-1.7b` | 0.80 ✅ | 0.50 ✅ | 0.89 ✅ | 826s |
-| `qwen/qwen3-4b` | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 1855s |
-| `qwen/qwen3-8b` | 1.00 ✅ | 0.42 ✅ | 0.89 ✅ | 3141s |
-| `qwen/qwen3-14b` | 0.80 ✅ | 0.58 ✅ | 0.89 ✅ | 4734s (79 min) |
+| `qwen/qwen3-4b-2507` | 1.00 | 0.42 | 0.91 | 152s |
+| `openai/gpt-oss-20b` | 0.80 | 0.42 | 1.00 | 197s |
+| `qwen3.5-4b` | 0.80 | 0.42 | 0.89 | 304s |
+| `nvidia_nvidia-nemotron-nano-9b-v2` | 1.00 | 0.58 | 0.83 | 548s |
+| `qwen/qwen3-1.7b` | 0.80 | 0.50 | 0.89 | 826s |
+| `qwen/qwen3-4b` | 0.60 | 0.42 | 0.89 | 1855s |
+| `qwen/qwen3-8b` | 1.00 | 0.42 | 0.89 | 3141s |
+| `qwen/qwen3-14b` | 0.80 | 0.58 | 0.89 | 4734s (79 min) |
 
 Full sweep log: `temp/lmstudio_sweep/20260506-184434/summary.md`.
 
@@ -778,10 +778,10 @@ Full sweep log: `temp/lmstudio_sweep/20260506-184434/summary.md`.
 
 | model | desktop wall | laptop wall | desktop pass | laptop pass |
 |---|---:|---:|---|---|
-| `openai/gpt-oss-20b` | 36s (0.25 ❌ credit) | 197s (3/3 ✅) | ❌ 2/3 | ✅ 3/3 |
-| `qwen/qwen3-32b` | 96s (3/3 ✅) | 0.0s (load failed) | ✅ 3/3 | ❌ |
+| `openai/gpt-oss-20b` | 36s (0.25 ❌ credit) | 197s (3/3 pass) | ❌ 2/3 | 3/3 |
+| `qwen/qwen3-32b` | 96s (3/3 pass) | 0.0s (load failed) | 3/3 | ❌ |
 
-The variance on `gpt-oss-20b` between desktop runs (0.42 ✅ → 0.25 ❌)
+The variance on `gpt-oss-20b` between desktop runs (0.42 → 0.25 ❌)
 plus laptop's clean 3/3 suggests it's a credible 3/3 model with run noise
 on the credit-risk metric. Counted in laptop totals.
 
@@ -794,10 +794,10 @@ reasoning models need >8k for partial-info classification gates.
 
 | model | demand | credit | contract | wall |
 |---|---:|---:|---:|---:|
-| `qwen3:8b` | 0.80 ✅ | 0.42 ✅ | 0.91 ✅ | 373s |
-| `mychen76/qwen3_cline_roocode:14b` | 0.60 ✅ | 0.67 ✅ | 1.00 ✅ | 629s |
-| `qwen3.5:35b-a3b` | 0.60 ✅ | 0.58 ✅ | 0.91 ✅ | 669s (11 min) |
-| `Qwq:32b` | 0.60 ✅ | 0.50 ✅ | 0.83 ✅ | 2301s (38 min) |
+| `qwen3:8b` | 0.80 | 0.42 | 0.91 | 373s |
+| `mychen76/qwen3_cline_roocode:14b` | 0.60 | 0.67 | 1.00 | 629s |
+| `qwen3.5:35b-a3b` | 0.60 | 0.58 | 0.91 | 669s (11 min) |
+| `Qwq:32b` | 0.60 | 0.50 | 0.83 | 2301s (38 min) |
 
 Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
 
@@ -809,7 +809,7 @@ Full sweep log: `temp/ollama_sweep/20260506-175042/summary.md`.
 | `qwen3:32b` | demand-pred | 0.40 ❌ |
 | `qwen3:14b` | demand-pred | 0.40 ❌ |
 | `granite4.1:30b` | demand-pred | 0.40 ❌ |
-| `gpt-oss:120b` | credit-risk | 0.42 ✅ but contract 0.80 / demand 0.40 ❌ (40 min wall) |
+| `gpt-oss:120b` | credit-risk | 0.42 but contract 0.80 / demand 0.40 ❌ (40 min wall) |
 | `gemma4:e4b` | demand-pred | 0.40 ❌ |
 | `qwen3:30b-instruct` | credit-risk | 0.08 ❌ (weak on credit) |
 | `qwen3:4b-instruct` | contract-review | 0.50 ❌ (very fast 40s, demand+credit pass) |
@@ -931,15 +931,15 @@ differs.
 
 | model | OpenAI baseline | Anthropic retry | wall |
 |---|---|---|---:|
-| **`qwen/qwen3.5-9b`** | 0/3 (`stop_reason='stop'`) | **3/3 ✅** (0.60 / 0.42 / 0.89) | 52s |
+| **`qwen/qwen3.5-9b`** | 0/3 (`stop_reason='stop'`) | **3/3 pass** (0.60 / 0.42 / 0.89) | 52s |
 
 **Partial recoveries (0/3 → 2/3):**
 
 | model | host | demand | credit | contract | wall |
 |---|---|---:|---:|---:|---:|
-| `qwen/qwen3.6-27b` | desktop | 0.40 ❌ | 0.50 ✅ | 0.91 ✅ | 123s |
-| `google/gemma-4-26b-a4b` | desktop | 0.40 ❌ | 0.42 ✅ | 1.00 ✅ | 71s |
-| `google/gemma-3-12b` | laptop | 1.00 ✅ | 0.33 ❌ | 0.83 ✅ | 393s |
+| `qwen/qwen3.6-27b` | desktop | 0.40 ❌ | 0.50 | 0.91 | 123s |
+| `google/gemma-4-26b-a4b` | desktop | 0.40 ❌ | 0.42 | 1.00 | 71s |
+| `google/gemma-3-12b` | laptop | 1.00 | 0.33 ❌ | 0.83 | 393s |
 
 **Why this works:** Anthropic-format tool use uses `tool_use` content
 blocks with structured `input` rather than the OpenAI `tool_calls`
@@ -982,8 +982,8 @@ below). 15 actually completed; **none passed 3/3**, but two reached
 
 | model | host | demand | credit | contract | wall |
 |---|---|---:|---:|---:|---:|
-| **`nemotron-3-nano:4b`** | laptop | 0.40 ❌ | **0.75 ✅** | **0.91 ✅** | 892s |
-| `gemma4:e2b` | laptop | 0.40 ❌ | 0.42 ✅ | 0.89 ✅ | 639s |
+| **`nemotron-3-nano:4b`** | laptop | 0.40 ❌ | **0.75** | **0.91** | 892s |
+| `gemma4:e2b` | laptop | 0.40 ❌ | 0.42 | 0.89 | 639s |
 
 `nemotron-3-nano:4b` has the **highest credit-risk balanced-accuracy of
 any local 4B-class model in any sweep** (0.75 vs typical 0.42-0.50)
@@ -995,9 +995,9 @@ flip demand and make this a competitive laptop pick.
 
 | model | host | passing workflow | wall |
 |---|---|---:|---:|
-| `gemma4:e4b` | laptop | contract 0.91 ✅ | 287s |
-| `lfm2:24b` | laptop | credit 0.50 ✅ | 51s |
-| `rnj-1:latest` | laptop | credit 0.67 ✅ | 331s |
+| `gemma4:e4b` | laptop | contract 0.91 | 287s |
+| `lfm2:24b` | laptop | credit 0.50 | 51s |
+| `rnj-1:latest` | laptop | credit 0.67 | 331s |
 
 **0/3 — tool-reject 400s (Ollama gate, see F14f):** `gemma3:4b`,
 `gemma3:12b`, `gemma4:latest`, `granite3.3:8b`, `granite4:3b`,
@@ -1074,11 +1074,11 @@ it).
 
 | model | demand | credit | contract | wall | prior result |
 |---|---:|---:|---:|---:|---|
-| `qwen3:14b` | 0.60 ✅ | 0.67 ✅ | 1.00 ✅ | 551 s | was 2/3 (demand 0.40) |
-| `qwen3:30b-a3b` | 1.00 ✅ | 0.42 ✅ | 1.00 ✅ | 786 s | was 1/3 |
-| `qwen3:32b` | 0.60 ✅ | 0.42 ✅ | 1.00 ✅ | 1007 s | was 2/3 (demand 0.40) |
-| **`qwen3-coder:30b`** | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | **82 s** | was 2/3 (demand 0.40) |
-| `qwen3-coder-next:latest` | 0.60 ✅ | 0.42 ✅ | 0.89 ✅ | 382 s | was 2/3 (demand 0.20) |
+| `qwen3:14b` | 0.60 | 0.67 | 1.00 | 551 s | was 2/3 (demand 0.40) |
+| `qwen3:30b-a3b` | 1.00 | 0.42 | 1.00 | 786 s | was 1/3 |
+| `qwen3:32b` | 0.60 | 0.42 | 1.00 | 1007 s | was 2/3 (demand 0.40) |
+| **`qwen3-coder:30b`** | 0.60 | 0.42 | 0.89 | **82 s** | was 2/3 (demand 0.40) |
+| `qwen3-coder-next:latest` | 0.60 | 0.42 | 0.89 | 382 s | was 2/3 (demand 0.20) |
 
 `qwen3-coder:30b` at **82 s wall** is the new fast 3/3 candidate on
 the Ollama side (4× faster than the next Ollama 3/3 `qwen3:8b` at
@@ -1096,7 +1096,7 @@ fast trio (`granite-4.1-8b` 33 s, `gemma-4-e4b` 34 s,
   the next-major qwen-thinking generation, expected to behave like
   qwen3.5.
 - `qwen3:30b-a3b-instruct-2507-q4_K_M` — 2/3 (credit 0.33 ❌, demand
-  0.60 ✅, contract 0.89 ✅, **73 s wall**). Faster than non-instruct
+  0.60, contract 0.89, **73 s wall**). Faster than non-instruct
   variants (no thinking) but credit just below threshold.
 - All laptop qwen3-family (covered in F14h-hang) — laptop Ollama's
   builds either lack the parser entirely (qwen3.5:4b's 13-char
@@ -1119,10 +1119,10 @@ desktop CUDA and laptop Apple Metal:
 
 | run | host | hardware | demand | credit | contract | wall | result |
 |---|---|---|---:|---:|---:|---:|---|
-| 1 | desktop LMS | RTX 3090 | 1.00 ✅ | **0.50 ✅** | 0.91 ✅ | 33 s | 3/3 |
-| 2 | desktop LMS | RTX 3090 | 1.00 ✅ | **0.42 ✅** | 0.91 ✅ | 32 s | 3/3 |
-| 3 | laptop LMS | Apple Metal | 0.60 ✅ | **0.33 ❌** | 0.77 ✅ | 279 s | 2/3 |
-| 4 | laptop LMS | Apple Metal | 0.80 ✅ | **0.25 ❌** | 0.91 ✅ | 284 s | 2/3 |
+| 1 | desktop LMS | RTX 3090 | 1.00 | **0.50** | 0.91 | 33 s | 3/3 |
+| 2 | desktop LMS | RTX 3090 | 1.00 | **0.42** | 0.91 | 32 s | 3/3 |
+| 3 | laptop LMS | Apple Metal | 0.60 | **0.33 ❌** | 0.77 | 279 s | 2/3 |
+| 4 | laptop LMS | Apple Metal | 0.80 | **0.25 ❌** | 0.91 | 284 s | 2/3 |
 
 - **Within-host variance** (run 1 vs 2 on each host): ~0.08 on credit,
   ~0.20 on demand-recall — consistent with non-zero-temperature
@@ -1143,10 +1143,10 @@ credit just below threshold):**
 
 | backend | host | model | demand | credit | contract | wall |
 |---|---|---|---:|---:|---:|---:|
-| LMS | laptop | `granite-4.1-8b` | 0.60 ✅ | 0.33 ❌ | 0.77 ✅ | 279 s |
-| LMS | laptop | `granite-4.1-8b` (run 2) | 0.80 ✅ | 0.25 ❌ | 0.91 ✅ | 284 s |
-| Ollama | laptop | `granite4.1:8b` | 0.60 ✅ | 0.58 ✅ | 0.73 ❌ | 368 s |
-| Ollama | laptop | `qwen3:4b-instruct` | 1.00 ✅ | 0.67 ✅ | 0.67 ❌ | 264 s |
+| LMS | laptop | `granite-4.1-8b` | 0.60 | 0.33 ❌ | 0.77 | 279 s |
+| LMS | laptop | `granite-4.1-8b` (run 2) | 0.80 | 0.25 ❌ | 0.91 | 284 s |
+| Ollama | laptop | `granite4.1:8b` | 0.60 | 0.58 | 0.73 ❌ | 368 s |
+| Ollama | laptop | `qwen3:4b-instruct` | 1.00 | 0.67 | 0.67 ❌ | 264 s |
 
 The pattern is consistent: laptop runs land in the "almost 3/3" zone
 where one workflow falls 0.02–0.10 below threshold. Some of this is
@@ -1169,11 +1169,11 @@ clears the 0.40 gate twice in a row instead of failing twice in a row.
 
 | run | host | model | quant | demand | credit | contract | wall | result |
 |---|---|---|---|---:|---:|---:|---:|---|
-| F14j-3 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.60 ✅ | **0.33 ❌** | 0.77 ✅ | 279 s | 2/3 |
-| F14j-4 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.80 ✅ | **0.25 ❌** | 0.91 ✅ | 284 s | 2/3 |
-| F14k-1 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 ✅ | **0.50 ✅** | 0.91 ✅ | 314 s | **3/3** |
-| F14k-2 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 ✅ | **0.50 ✅** | 0.73 ❌ | 281 s | 2/3 |
-| F14k-3 | laptop LMS | `lmstudio-community/granite-4.1-8b` | Q4_K_M | 0.40 ❌ | **0.58 ✅** | 0.80 ✅ | 334 s | 2/3 |
+| F14j-3 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.60 | **0.33 ❌** | 0.77 | 279 s | 2/3 |
+| F14j-4 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 0.80 | **0.25 ❌** | 0.91 | 284 s | 2/3 |
+| F14k-1 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 | **0.50** | 0.91 | 314 s | **3/3** |
+| F14k-2 | laptop LMS | `unsloth/granite-4.1-8b` | Q4_K_S | 1.00 | **0.50** | 0.73 ❌ | 281 s | 2/3 |
+| F14k-3 | laptop LMS | `lmstudio-community/granite-4.1-8b` | Q4_K_M | 0.40 ❌ | **0.58** | 0.80 | 334 s | 2/3 |
 | F14k-4 | laptop LMS | `granite-4.1-8b-fp8` (ibm-granite) | FP8 | — | — | — | — | **load fail** |
 
 - **Laptop credit-risk across 4 unsloth Q4_K_S trials:** 0.33, 0.25,
@@ -1333,14 +1333,14 @@ shim rejects the model).
 
 | Model | A4.4 gate (LMS OpenAI-compat, 32k ctx) | Loop status (LMS Anthropic streaming) |
 |---|---|---|
-| `qwen/qwen3-coder-30b` | not swept (16k ctx fallback) | ✅ end-to-end PASS via Anthropic streaming (val_score 0.4642 on synthetic) |
-| `granite-4.1-8b` | ✅ 3/3 (1.00 / 0.50 / 0.91, 33s) | ⚠️ read-loop stall via Anthropic (F4) |
-| `ibm/granite-3.2-8b` | ✅ 3/3 (1.00 / 0.50 / 0.83, 43s) | ⚠️ read-loop stall via Anthropic (F4) |
-| `mistralai/ministral-3-14b-reasoning` | ✅ 3/3 (1.00 / 0.50 / 0.91, 47s) | not yet smoked |
-| `qwen/qwen3-32b` | ✅ 3/3 (0.60 / 0.42 / 0.83, 96s) | not yet smoked |
-| `qwen2.5-coder-32b-instruct` | ✅ 3/3 (1.00 / 0.50 / 0.89, 98s, 16k ctx) | not yet smoked |
-| `google/gemma-4-31b` | ✅ 3/3 (0.60 / 0.42 / 1.00, 229s) | not yet smoked |
-| `google/gemma-4-e4b` | ✅ 3/3 (0.60 / 0.42 / 0.89, 34s) | not yet smoked |
+| `qwen/qwen3-coder-30b` | not swept (16k ctx fallback) | end-to-end PASS via Anthropic streaming (val_score 0.4642 on synthetic) |
+| `granite-4.1-8b` | 3/3 (1.00 / 0.50 / 0.91, 33s) | ⚠️ read-loop stall via Anthropic (F4) |
+| `ibm/granite-3.2-8b` | 3/3 (1.00 / 0.50 / 0.83, 43s) | ⚠️ read-loop stall via Anthropic (F4) |
+| `mistralai/ministral-3-14b-reasoning` | 3/3 (1.00 / 0.50 / 0.91, 47s) | not yet smoked |
+| `qwen/qwen3-32b` | 3/3 (0.60 / 0.42 / 0.83, 96s) | not yet smoked |
+| `qwen2.5-coder-32b-instruct` | 3/3 (1.00 / 0.50 / 0.89, 98s, 16k ctx) | not yet smoked |
+| `google/gemma-4-31b` | 3/3 (0.60 / 0.42 / 1.00, 229s) | not yet smoked |
+| `google/gemma-4-e4b` | 3/3 (0.60 / 0.42 / 0.89, 34s) | not yet smoked |
 | `ibm/granite-4-h-tiny` | ❌ 2/3 (contract 0.62) | not yet smoked |
 | `microsoft/phi-4` | ❌ 2/3 (credit 0.17) | not yet smoked |
 | `mistralai/magistral-small` | ❌ 2/3 (contract 0.33) | not yet smoked |
