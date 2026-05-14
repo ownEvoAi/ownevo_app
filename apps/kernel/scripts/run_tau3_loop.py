@@ -43,6 +43,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -73,6 +74,44 @@ from ownevo_kernel.traces import trace_session  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 ENV_LLM_HOST = "OWNEVO_LLM_HOST"
+
+# Shell hooks for model swap between proposer and eval phases — set when the
+# proposer + task agent models can't co-reside in VRAM. The hook runs as a
+# shell command (e.g. `lms unload PROPOSER && lms load TASK_AGENT -c 65536`).
+ENV_HOOK_AFTER_PROPOSER = "OWNEVO_TAU3_AFTER_PROPOSER_CMD"
+ENV_HOOK_AFTER_EVAL = "OWNEVO_TAU3_AFTER_EVAL_CMD"
+
+# Allow only `lms load/unload <model> [--context-length N]` chains joined by
+# `&&`.  Rejects anything with shell metacharacters (`;`, `|`, `$`, backticks,
+# redirects, etc.) before the command reaches subprocess.
+_SAFE_HOOK_RE = re.compile(
+    r"^(?:lms\s+(?:load|unload)\s+'?[a-zA-Z0-9/._:@-]+'?"
+    r"(?:\s+(?:-c|--context-length)\s+\d+)?)"
+    r"(?:\s+&&\s+lms\s+(?:load|unload)\s+'?[a-zA-Z0-9/._:@-]+'?"
+    r"(?:\s+(?:-c|--context-length)\s+\d+)?)*$"
+)
+
+
+def _run_shell_hook(name: str, env_var: str) -> None:
+    """Run an optional shell-hook command. Failures are surfaced but non-fatal."""
+    cmd = os.environ.get(env_var, "").strip()
+    if not cmd:
+        return
+    if not _SAFE_HOOK_RE.match(cmd):
+        print(
+            f"hook[{name}]: REJECTED — command does not match safe lms-only pattern: {cmd!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    print(f"hook[{name}]: $ {cmd}", flush=True)
+    try:
+        rc = subprocess.call(cmd, shell=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"hook[{name}]: exception: {exc!r}", file=sys.stderr, flush=True)
+        return
+    if rc != 0:
+        print(f"hook[{name}]: WARNING rc={rc}", file=sys.stderr, flush=True)
 
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
 DEFAULT_SANDBOX_IMAGE = "ownevo-sandbox-tau3:0.1.0"
@@ -196,7 +235,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     parser.add_argument("--llm-base-url", default=None)
     parser.add_argument("--llm-api-key", default=DEFAULT_LLM_API_KEY)
     parser.add_argument("--api-format", default=DEFAULT_LLM_API_FORMAT,
-                        choices=["openai", "anthropic"])
+                        choices=["openai", "anthropic", "ollama"])
     parser.add_argument("--no-stream", action="store_true",
                         help="Force non-streaming Anthropic mode (LMS proxy "
                              "compat). No effect with --api-format=openai.")
@@ -212,7 +251,7 @@ def parse_args(argv: list[str]) -> CliArgs:
 
     ns = parser.parse_args(argv)
     base_url = ns.llm_base_url or (
-        DEFAULT_LLM_BASE_URL_OPENAI if ns.api_format == "openai"
+        DEFAULT_LLM_BASE_URL_OPENAI if ns.api_format in ("openai", "ollama")
         else DEFAULT_LLM_BASE_URL_ANTHROPIC
     )
     return CliArgs(
@@ -430,17 +469,26 @@ async def main_async(args: CliArgs) -> int:
             default_workflow_id=args.workflow_id,
         )
 
-        if args.api_format == "openai":
+        if args.api_format == "ollama":
+            from ownevo_kernel.eval_runner.ollama_native import OllamaChatClient  # noqa: PLC0415
+            client = OllamaChatClient(base_url=args.llm_base_url)
+        elif args.api_format == "openai":
             from openai import AsyncOpenAI  # noqa: PLC0415
+            # 1800s timeout matches the ollama_native.py bump (commit 9a700f1).
+            # Dense / thinking LMS proposers (glm-4.7-flash, qwen3.6:27b) can
+            # take 5-15 min to emit the first streaming token; the 600s SDK
+            # default trips a httpx.ReadTimeout mid-stream.
             client = AsyncOpenAI(
                 api_key=args.llm_api_key,
                 base_url=args.llm_base_url,
+                timeout=1800.0,
             )
         else:
             from anthropic import AsyncAnthropic  # noqa: PLC0415
             client = AsyncAnthropic(
                 api_key=args.llm_api_key,
                 base_url=args.llm_base_url,
+                timeout=1800.0,
             )
 
         # tau3-specific system prompt is optional — fall back to a
@@ -455,7 +503,7 @@ async def main_async(args: CliArgs) -> int:
 
         _p = _urlparse(args.llm_base_url)
         _safe_url = f"{_p.scheme}://{_p.hostname}:{_p.port or ''}"
-        _stream_flag = "" if args.api_format == "openai" else (
+        _stream_flag = "" if args.api_format in ("openai", "ollama") else (
             " no_stream=True" if args.no_stream else ""
         )
         print(
@@ -485,7 +533,18 @@ async def main_async(args: CliArgs) -> int:
 
         async with trace_session(conn, workflow_id=args.workflow_id) as collector:
             kickoff = _kickoff_message(args.workflow_id, past_attempts_block)
-            if args.api_format == "openai":
+            if args.api_format == "ollama":
+                from ownevo_kernel.middleware.claude_sdk import run_agent_turn_ollama  # noqa: PLC0415
+                agent_result = await run_agent_turn_ollama(
+                    client,
+                    system=system_prompt,
+                    user_message=kickoff,
+                    kernel_context=kernel_context,
+                    collector=collector,
+                    model=args.llm_model,
+                    max_iterations=args.max_iterations,
+                )
+            elif args.api_format == "openai":
                 agent_result = await run_agent_turn_openai(
                     client,
                     system=system_prompt,
@@ -549,6 +608,10 @@ async def main_async(args: CliArgs) -> int:
             f"version_seq={proposal.version_seq}",
         )
 
+        # Model-swap hook: e.g. unload proposer + load task-agent before eval.
+        # See ENV_HOOK_AFTER_PROPOSER in module header.
+        _run_shell_hook("after_proposer", ENV_HOOK_AFTER_PROPOSER)
+
         with tempfile.TemporaryDirectory(prefix="ownevo-tau3-skill-override-") as tmpdir:
             override_dir = Path(tmpdir)
             try:
@@ -572,9 +635,89 @@ async def main_async(args: CliArgs) -> int:
                 memory_mb=args.task_memory_mb,
                 skill_override_dir=override_dir,
                 anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                anthropic_api_base=os.environ.get("ANTHROPIC_API_BASE"),
                 openai_api_key=os.environ.get("OPENAI_API_KEY"),
+                openai_api_base=os.environ.get("OPENAI_API_BASE"),
                 ollama_api_base=os.environ.get("OLLAMA_API_BASE"),
             )
+
+            # Tier-1 #3: one-task smoke before the full 40-task gate. Catches
+            # runtime bugs the write_skill validator can't see (uninitialized
+            # attrs in generate_next_message, missing-class-but-passes-import,
+            # tau2-side template incompat). If the smoke task hits infra_error
+            # we abort BEFORE persist_gate_run opens its transaction — no
+            # iteration row, no eval-wide commit, ~25 min saved. Disable
+            # with OWNEVO_TAU3_SKIP_SMOKE=1.
+            #
+            # Task ID choice: retail/test task IDs are not sequential 0..N;
+            # we try a small list of known-existing IDs and use the first
+            # one tau2 accepts. Override the candidate list with
+            # OWNEVO_TAU3_SMOKE_TASK_ID (single ID).
+            if os.environ.get("OWNEVO_TAU3_SKIP_SMOKE", "").lower() not in ("1", "true", "yes"):
+                override_id = os.environ.get("OWNEVO_TAU3_SMOKE_TASK_ID", "").strip()
+                if override_id:
+                    smoke_candidates = [override_id]
+                else:
+                    # Observed in retail/test from prior runs — pick the smallest.
+                    smoke_candidates = ["1", "5", "2", "3", "9"]
+                smoke_summary: dict | None = None
+                smoke_task_id: str | None = None
+                for cand in smoke_candidates:
+                    print(f"smoke: trying task_ids=['{cand}']", flush=True)
+                    try:
+                        await runner.run(task_ids=[cand])
+                    except Exception as exc:  # noqa: BLE001
+                        msg = str(exc)
+                        # "Not all tasks were found" → task ID doesn't exist
+                        # in this domain/split. Try the next candidate
+                        # without failing the run.
+                        if "Not all tasks were found" in msg:
+                            print(
+                                f"smoke: task_id={cand!r} not in domain/split, "
+                                f"trying next",
+                                flush=True,
+                            )
+                            continue
+                        print(
+                            f"error: smoke crashed: {type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                        )
+                        return 8
+                    smoke_summary = runner.last_summary or {}
+                    smoke_task_id = cand
+                    break
+                if smoke_summary is None:
+                    print(
+                        f"smoke: no candidate task_id resolved "
+                        f"(tried {smoke_candidates}); skipping smoke check, "
+                        f"proceeding to full eval",
+                        file=sys.stderr,
+                    )
+                else:
+                    smoke_evaluated = int(smoke_summary.get("n_evaluated", 0))
+                    smoke_infra = int(smoke_summary.get("infra_errors", 0))
+                    print(
+                        f"smoke: task_id={smoke_task_id!r} "
+                        f"evaluated={smoke_evaluated} "
+                        f"infra_errors={smoke_infra}",
+                        flush=True,
+                    )
+                    if smoke_infra > 0 or smoke_evaluated == 0:
+                        diag_list = smoke_summary.get("infra_diag", [])
+                        diag = ""
+                        if diag_list:
+                            err = diag_list[0].get("error", "")
+                            diag = f"\n  first_error={err[:500]}"
+                        print(
+                            f"error: one-task smoke failed — aborting before "
+                            f"full eval to save ~25 min. "
+                            f"infra_errors={smoke_infra}/1 "
+                            f"evaluated={smoke_evaluated}/1"
+                            f"{diag}\n"
+                            f"  (set OWNEVO_TAU3_SKIP_SMOKE=1 to bypass)",
+                            file=sys.stderr,
+                        )
+                        return 9
 
             persisted = await persist_gate_run(
                 conn,
@@ -611,9 +754,24 @@ async def main_async(args: CliArgs) -> int:
         )
         if runner.last_summary:
             print(f"  raw_summary={json.dumps(runner.last_summary)}")
+        elif gr.decision.name == "SANDBOX_ERROR" and runner.last_pipeline_result is not None:
+            # last_summary stays None when the sandbox itself fails (result.ok=False)
+            # before tau-bench produces any diagnostics. Surface the pipeline error
+            # so the failure mode is visible without re-running with extra flags.
+            pr = runner.last_pipeline_result
+            print(
+                f"  pipeline_error: status={pr.status} "
+                f"error_class={pr.error_class} "
+                f"error={pr.error!r}",
+            )
+            stderr_tail = (pr.raw_stderr or "")[-2000:]
+            if stderr_tail:
+                print(f"  pipeline_stderr_tail={stderr_tail!r}")
         return 0
     finally:
         await conn.close()
+        # Cycle-cleanup hook: e.g. unload task-agent + load proposer for next cycle.
+        _run_shell_hook("after_eval", ENV_HOOK_AFTER_EVAL)
 
 
 def main() -> int:

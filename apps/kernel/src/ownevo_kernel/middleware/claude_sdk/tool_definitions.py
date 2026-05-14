@@ -36,6 +36,7 @@ agent loop.
 
 from __future__ import annotations
 
+import ast
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -62,6 +63,58 @@ _ERROR_MESSAGE_MAX_CHARS = 4096
 traceback can run thousands of lines — letting it through unbounded
 would burn context with no upside since the model only needs the
 exception class + first frame to act."""
+
+def _validate_skill_python_loads(content: str) -> tuple[bool, str]:
+    """Validate a Python skill using AST analysis — no code is executed.
+
+    Checks:
+      - Tier-1 #1: syntax is valid Python (ast.parse)
+      - Tier-1 #2: a top-level HarnessAgent class exists
+      - Tier-1 #3: HarnessAgent defines generate_next_message directly
+        (note: inherited methods satisfy tau2 at runtime but are
+        undetectable without execution; the gate eval catches those)
+
+    Safe by construction: no subprocess is spawned and no LLM-generated
+    code runs on the host. The previous exec()-based approach was replaced
+    here because it gave LLM-generated code unrestricted OS access
+    (filesystem, process spawn) — see [forbidden-builtin-name-reference-bypass]
+    learning.
+
+    Returns (ok, error_description_or_empty).
+    """
+    try:
+        tree = ast.parse(content, filename="<skill_validation>")
+    except SyntaxError as exc:
+        return False, f"SyntaxError at line {exc.lineno}: {exc.msg}"
+
+    # Tier-1 #1: HarnessAgent class must exist at module level
+    harness_node: ast.ClassDef | None = None
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "HarnessAgent":
+            harness_node = node
+            break
+
+    if harness_node is None:
+        return False, (
+            "ValidationError: skill must define a top-level `HarnessAgent` class. "
+            "tau3 imports it via `from agent import HarnessAgent`."
+        )
+
+    # Tier-1 #2: HarnessAgent must define generate_next_message directly.
+    has_method = any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "generate_next_message"
+        for n in ast.iter_child_nodes(harness_node)
+    )
+    if not has_method:
+        return False, (
+            "ValidationError: `HarnessAgent.generate_next_message` is missing. "
+            "tau3's orchestrator calls it on every turn; without it the agent "
+            "cannot run. (Inherited definitions are accepted at eval time but "
+            "cannot be verified statically.)"
+        )
+
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +533,29 @@ async def _dispatch_write_skill(
         created_by=ctx.actor,
         diff_summary=diff_summary,
     )
+
+    # Post-write Python load validation (only for kind="python" skills,
+    # which is the M5 / tau3 contract — yaml-only kinds skip this). The
+    # skill is already persisted; on failure we surface the traceback to
+    # the model as a tool error so it can call `write_skill` again with
+    # a fix instead of letting the gate eval discover the bug minutes
+    # later across all 40 tasks. See _validate_skill_python_loads().
+    if kind == "python":
+        import asyncio as _asyncio
+        valid, tb = await _asyncio.to_thread(_validate_skill_python_loads, content)
+        if not valid:
+            return ToolDispatchResult(
+                output={
+                    "skill_id": register_result.skill_id,
+                    "version_id": str(register_result.version_id),
+                    "version_seq": register_result.version_seq,
+                    "validation_error": tb,
+                },
+                is_error=True,
+                error_class="SkillValidationError",
+                duration_ms=None,
+            )
+
     return ToolDispatchResult(
         output={
             "skill_id": register_result.skill_id,

@@ -289,6 +289,18 @@ backup tracking in case PLAN.md edits drift.
 
 ---
 
+### TODO-35: Extract shared OpenAI-compat loop scaffold from `run_agent_turn_openai` / `run_agent_turn_ollama`
+
+- **What:** `run_agent_turn_openai` and `run_agent_turn_ollama` in `apps/kernel/src/ownevo_kernel/middleware/claude_sdk/runner.py` share ~80 lines of identical post-parse logic: tool dispatch, sandbox-error short-circuit, tool-result message building, and `AgentTurnResult` construction. The only divergence is how the model is called (streaming vs non-streaming) and how tool-call IDs are derived (from stream accumulator vs synthetic `uuid4`). Extract the shared tail into `_run_openai_tool_dispatch_round(...)` so future runners (e.g. a vLLM path) don't triple the duplication.
+- **Why:** Identified in the `feat/ollama-loop-runner` pre-landing review (2026-05-12). Deferred: both runners are working correctly; the refactor adds a shared helper with ~8 parameters and risks breaking both paths for maintenance gain only. Worth doing before a third OpenAI-compat runner is added.
+- **Pros / Cons:** Eliminates ~80 lines of duplication. Risk: shared helper has 8+ parameters (messages, finished_tools, tool_calls_oai, kernel_context, acc, short_circuit_on_sandbox_error, running counters) — moderately complex. Only safe to land when covered by integration tests for both runners.
+- **Context:** `runner.py:run_agent_turn_openai` lines 806-858, `runner.py:run_agent_turn_ollama` lines 1006-1053. Identified because ollama runner was added without refactoring.
+- **Effort:** S (CC ~1 hr — extract + tests).
+- **Priority:** P3 — nice-to-have before a third OpenAI-compat runner is added.
+- **Depends on:** none.
+
+---
+
 ### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction` — ✅ DONE 2026-05-09
 
 - **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.

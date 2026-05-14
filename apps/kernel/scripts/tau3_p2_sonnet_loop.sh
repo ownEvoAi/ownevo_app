@@ -34,7 +34,8 @@ export OWNEVO_DATABASE_URL="postgresql://ownevo:${PASS}@localhost:5432/ownevo"
 # AND the task agent / user simulator (defaulted inside run_tau3_loop.py).
 DOTENV="$KERNEL_DIR/../../.env"
 if [[ -f "$DOTENV" ]]; then
-    AKEY=$(grep '^ANTHROPIC_API_KEY=' "$DOTENV" | head -1 | cut -d= -f2- | tr -d '"'"'")
+    AKEY=$(grep -E '^(export )?ANTHROPIC_API_KEY=' "$DOTENV" | head -1 | sed 's/^export //' | cut -d= -f2- | tr -d '"'"'")
+    [[ -z "$AKEY" ]] && AKEY=$(grep -E '^(export )?OWNEVO_LLM_API_KEY=' "$DOTENV" | head -1 | sed 's/^export //' | cut -d= -f2- | tr -d '"'"'")
     [[ -n "$AKEY" ]] && export ANTHROPIC_API_KEY="$AKEY"
 fi
 

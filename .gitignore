@@ -46,6 +46,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+# Project-root persistent log dir (survives reboot, unlike /tmp).
+# Used by apps/kernel/scripts/tau3_p2_local_*.sh.
+/log/
 
 # Local data (never commit traces or eval runs)
 workspace/
