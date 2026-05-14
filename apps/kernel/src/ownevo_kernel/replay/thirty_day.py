@@ -1,7 +1,6 @@
 """W6 — 30-day M5 replay across parallel conditions (TODO-8).
 
-Orchestrates the four M5 conditions per
-[`ownevo_docs/benchmarks/m5-code-gen-loop.md`](../../../../../ownevo_docs/benchmarks/m5-code-gen-loop.md):
+Orchestrates the four M5 conditions:
 
   * **A — Frozen baseline.** Skill files baked into the sandbox image, no
     agent. Lift curve is flat at the baseline `val_score`.

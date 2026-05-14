@@ -1,8 +1,7 @@
 """UI primitives — typed discriminated union for the workflow render layer.
 
 Implements the 8-variant primitive set defined in `packages/trace-format/SPEC.md`
-§ "Workflow render primitives" and `ownevo_docs/ownEvo_MVP.md` § "Two-layer
-primitive architecture".
+§ "Workflow render primitives".
 
 The NL-gen pipeline (W3 Track A) emits a `WorkflowSpec.ui` block declaring
 which primitives to render and how they're configured; the web app's render

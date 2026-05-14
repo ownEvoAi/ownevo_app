@@ -1,6 +1,6 @@
 # ownEvo Harness Design Guide
 
-Design rules for the improvement loop harness: proposer context, agent prompts, eval skill shape, and gate contract. Grounded in the a reference auto-harness pattern (`ownevo_docs/ownEvo_MVP.md` § Validated Reference Patterns) and the Meta-Harness findings (arXiv 2603.28052).
+Design rules for the improvement loop harness: proposer context, agent prompts, eval skill shape, and gate contract. Grounded in the a reference auto-harness pattern and the Meta-Harness findings (arXiv 2603.28052).
 
 ---
 
@@ -163,7 +163,7 @@ Gate does NOT advance `best_ever` on a sandbox error. It DOES log to `learnings.
 
 ## 5. What not to build (MVP scope)
 
-Per `ownevo_docs/ownEvo_MVP.md` § Out of Scope:
+Out of scope for this harness:
 
 - **Multi-model ensemble proposals** — proposer generates one candidate per iteration. Multi-candidate search cost −2.4% in the NLAH ablation.
 - **Automated harness search** (Meta-Harness style) — ownEvo's proposer operates at the skill/workflow layer, not the context-pipeline layer. Don't conflate the two.

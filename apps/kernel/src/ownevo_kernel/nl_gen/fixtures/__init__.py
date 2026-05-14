@@ -11,8 +11,8 @@ Demand-prediction `description` is verbatim from
 `www/preview/s26-rk7p3/03-new-workflow-step1.html` — the textarea content the
 mock ships with. The other two are fresh prose written in the same voice.
 
-The taxonomy in `ownevo_docs/ownEvo_MVP_mocks.md` § "Failure-mode taxonomy"
-informs `known_past_misses` ground-truth.
+The failure-mode taxonomy for `known_past_misses` ground-truth is
+documented in the companion design mocks.
 """
 
 from .contract_review import CONTRACT_REVIEW_DESCRIPTION, CONTRACT_REVIEW_SPEC

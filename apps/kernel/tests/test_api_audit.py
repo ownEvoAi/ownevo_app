@@ -186,11 +186,15 @@ async def test_verify_detects_seq_gap(
     related = uuid4()
     await _seed_entry(db, related_id=related, payload={"i": 0})
     # Skip the next 3 seq values to manufacture a gap.
-    seq_name = await db.fetchval(
-        "SELECT pg_get_serial_sequence('audit_entries', 'seq')"
+    current = await db.fetchval(
+        "SELECT last_value FROM pg_sequences "
+        "WHERE schemaname || '.' || sequencename "
+        "    = pg_get_serial_sequence('audit_entries', 'seq')"
     )
-    current = await db.fetchval(f"SELECT last_value FROM {seq_name}")
-    await db.execute(f"SELECT setval('{seq_name}', $1)", current + 3)
+    await db.execute(
+        "SELECT setval(pg_get_serial_sequence('audit_entries', 'seq'), $1)",
+        current + 3,
+    )
     await _seed_entry(db, related_id=related, payload={"i": 1})
 
     res = await api_client.post("/api/audit/verify")

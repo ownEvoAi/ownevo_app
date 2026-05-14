@@ -1,7 +1,8 @@
 """Evolution loop — 4-stage pipeline (greenfield per W1 spike).
 
-Reference architecture borrowed from
-`startup2026/core/src/agentos_harness/evolution/`:
+Reference architecture: 4-stage evolution pipeline
+(Tracker → Reflector → Curator → Proposer). See `docs/SPIKE-RESULT.md`
+for the go/no-go decision on wholesale lift (result: greenfield).
 
     Tracker  (record agent hypothesis + outcome from a trace/iteration)
        ↓
@@ -11,17 +12,13 @@ Reference architecture borrowed from
        ↓
     Proposer  (turn patterns into structured proposals)
 
-The shape transfers; the implementation is greenfield because core/'s
-implementation is tightly coupled to its own `memory` module + SRE/incident
-semantics. ownEvo's substrate (failure_clusters, eval_cases, traces,
-proposals) replaces core/'s memory store.
+The 4-stage shape is implemented greenfield: ownEvo's substrate
+(failure_clusters, eval_cases, traces, proposals) replaces the
+incident-management memory store the reference used.
 
 This module declares the Protocol interfaces for the 4 stages. Concrete
 implementations land in W2 (`tracker.py`, `reflector.py`, `curator.py`,
 `proposer.py`) once the gate + clustering pipelines exist to feed them.
-
-See `docs/SPIKE-RESULT.md` for the W1-day-2 go/no-go decision and the
-detailed reuse audit.
 """
 
 from __future__ import annotations

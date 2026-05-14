@@ -351,4 +351,4 @@ The cross-walk doc is **not** in MVP scope. When OTel Gen AI conventions stabili
 - [`../../docs/SKILL_FORMAT.md`](../../docs/SKILL_FORMAT.md) — skill format; `skill_loaded.skill_id` references `skills.id`
 - [`../../docs/api/openapi.yaml`](../../docs/api/openapi.yaml) — REST + SSE; the SSE event types are a separate concern from AgentEvent (different schema)
 - [`../../docs/PLAN.md`](../../docs/PLAN.md) § W3 — schema-freeze ritual that bumps this spec to 1.0
-- [MVP doc § Trace Format — Hard Requirement](../../../ownevo_docs/ownEvo_MVP.md) — strategic rationale for the format
+- MVP doc § Trace Format — Hard Requirement: the typed AgentEvent schema is the contract between any customer agent and the improvement loop

@@ -1,6 +1,5 @@
 """Contract-review fixture — aligned with the Priya Anand persona +
-union-contract-review failure-mode taxonomy in
-ownevo_docs/ownEvo_MVP_mocks.md."""
+union-contract-review failure-mode taxonomy."""
 
 from __future__ import annotations
 
