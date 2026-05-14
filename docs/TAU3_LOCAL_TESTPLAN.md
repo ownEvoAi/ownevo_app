@@ -1,7 +1,7 @@
 # τ³-bench Local Model Test Plan
 
 **Branch:** `feat/ollama-loop-runner` — local-only end-to-end τ³ retail (loop + task agent + user sim).
-**Reference doc target:** `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` (TBD).
+**Reference doc target:** `benchmarks/tau3-results-2026-Q3.md` (TBD).
 
 ## Current winners (production config, as of 2026-05-12)
 
@@ -318,7 +318,7 @@ Re-run the improvement loop with ownEvo's LLM-judge approval engaged at `apps/ke
 
 **Status:** ☐ deferred post-merge.
 
-Write `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` with three-condition table (val_score A/B/C + lift A→C), honest disclosure (all-local task agent = qwen3.6-35b-a3b LMS, not cloud GPT-5.4), NeoSigma comparison, top 3 improvements (from skill audit chain). Reproducibility: `make tau3-replay` target. **Pass³ stretch:** re-run condition C top-N tasks 3× per Claw-Eval.
+Write `benchmarks/tau3-results-2026-Q3.md` with three-condition table (val_score A/B/C + lift A→C), honest disclosure (all-local task agent = qwen3.6-35b-a3b LMS, not cloud GPT-5.4), NeoSigma comparison, top 3 improvements (from skill audit chain). Reproducibility: `make tau3-replay` target. **Pass³ stretch:** re-run condition C top-N tasks 3× per Claw-Eval.
 
 ---
 

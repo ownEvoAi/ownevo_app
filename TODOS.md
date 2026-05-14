@@ -260,7 +260,7 @@ backup tracking in case PLAN.md edits drift.
 
 ### TODO-32: τ³ Pass³ stretch — re-run skill v38 three times for reliability number
 
-- **What:** Re-run the τ³ retail gate against the v38 winning skill (val_score=0.95) **three times** under fresh task-level seeds and report the Pass³ score (fraction of tasks that pass all 3 trials). Update `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` (when written, see P4 in `docs/TAU3_LOCAL_TESTPLAN.md`) with both peak val_score and Pass³.
+- **What:** Re-run the τ³ retail gate against the v38 winning skill (val_score=0.95) **three times** under fresh task-level seeds and report the Pass³ score (fraction of tasks that pass all 3 trials). Update `benchmarks/tau3-results-2026-Q3.md` (when written, see P4 in `docs/TAU3_LOCAL_TESTPLAN.md`) with both peak val_score and Pass³.
 - **Why:** Claw-Eval (PKU/HKU 2026-04) found Pass³ vs Pass@3 gap = 24pp under perturbation — single-trial mean reward overstates reliability for any LLM-driven task agent. The 0.95 peak from iter 11 is one trial; we don't know if it's a brittle one-shot or a stable substrate. The τ³ test plan calls for this as a P4 stretch metric.
 - **Pros / Cons:** ~3× cost of one cycle (~$30-50, ~30 min wall) and produces the number that survives adversarial review. Requires the trace-persistence fix shipped in commit `daef4c2` to be in effect — without it, post-hoc per-task pass/fail comparison across the 3 runs is impossible.
 - **Context:** `docs/TAU3_LOCAL_TESTPLAN.md` § Recent learnings from papers (Claw-Eval row); skill v38 in `/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/winning_skill_v38_iter11_val095.py`.

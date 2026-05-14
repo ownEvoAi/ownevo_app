@@ -2,7 +2,7 @@
 
 8 weeks to a YC-grade demo on **three pillars**: the natural-language workflow generator (the customer-facing IP), the M5 code-gen-loop benchmark (supply-chain VP credibility), and the τ³-bench head-to-head with NeoSigma (YC-partner / AI-engineer credibility).
 
-**Source of truth:** [`../../ownevo_docs/ownEvo_MVP.md`](../../ownevo_docs/ownEvo_MVP.md) (currently v4.3, 2026-05-03 — hardened by CEO-mode review). Companion benchmark plans live at [`../../ownevo_docs/benchmarks/`](../../ownevo_docs/benchmarks/). Competitive framing lives at [`../../ownevo_docs/competitors/code-gen-loop-landscape.md`](../../ownevo_docs/competitors/code-gen-loop-landscape.md).
+**Source of truth:** the MVP design doc (v4.3, 2026-05-03 — hardened by CEO-mode review). Companion benchmark plans and competitive framing live in the internal product docs (not included in this repo).
 
 This doc is the executable derivation — what to build, in what order, with what validates each step. When the two conflict, the MVP doc wins; update this one.
 
@@ -116,7 +116,7 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 | **M5 fold strategy** | Held-out window: last 28 days = test fold; 28 prior days = validation fold for gate; everything before = training data agent can use | Mirrors real demand-planning evaluation; matches public M5 methodology. | YES — decide W1 day 1. |
 | **τ³ approval mechanism for benchmark runs** | LLM-judge stub (Claude Sonnet) admits proposals if (a) gate passes AND (b) plain-language explanation is coherent. Subset re-run with human approver (founder) for credibility. | Per `benchmarks/tau3-bench.md`. Unattended runs need an automated approver; human subset documents both paths. | No — decide by W6. |
 | **Reproducibility rig** | `make m5-replay` and `make tau3-replay` targets; Docker-packaged with cached intermediate artifacts (skill registry snapshots, eval-case snapshots) | <30-minute fresh-checkout repro is a Week-8 success criterion. | No — decide by W7. |
-| **Public-results post format** | Immutable markdown files: `benchmarks/m5-results-2026-Q3.md`, `benchmarks/tau3-results-2026-Q3.md` in `ownevo_docs/benchmarks/` | Matches the established `<benchmark>-results-<date>.md` convention. | No — decide by W8. |
+| **Public-results post format** | Immutable markdown files: `benchmarks/m5-results-2026-Q3.md`, `benchmarks/tau3-results-2026-Q3.md` | Matches the established `<benchmark>-results-<date>.md` convention. | No — decide by W8. |
 
 ### Strategic call deferred — trigger-based, not deadline-based
 
@@ -140,7 +140,7 @@ Decisions the MVP doc leaves loose. Pinning these now avoids Week 1 churn.
 
 #### Days 1-2 — `core/` reuse spike with hard cutoff (D6)
 
-Lift `startup2026/core/agentos_harness/evolution/` into the ownEvo repo as the regression-gate scaffold. Add typed `AgentEvent` to `types.py`; add `regression_gate` action type to `ProposalAction`.
+Lift the reference evolution harness (4-stage Tracker/Reflector/Curator/Proposer) into the ownEvo repo as the regression-gate scaffold. Add typed `AgentEvent` to `types.py`; add `regression_gate` action type to `ProposalAction`.
 
 **End of day 2 — go/no-go bar:** the evolution scaffold is wired into `apps/kernel/` AND at least one test passes against the new types.
 - **GO** → commit to reuse for the rest of W1-W2; the 377 existing tests carry over with the lift.
@@ -351,7 +351,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Track | Deliverable | Files / location | Validation |
 |---|---|---|---|---|
 | 6.1 | **A** | **NL-gen end-to-end live demo** (2026-05-09 dry-run, PR #81 — TODO-28) | The full Track A flow runs in <5 minutes from "type description" to "lift chart climbs". On a hand-picked workflow (supply-chain demand-forecast). Storyboard at `docs/W6_DEMO_STORYBOARD.md`; CLI at `apps/kernel/scripts/nl_gen_demo_loop.py`; UI at `/workspaces/acme/workflows/new` (W7 slice 5 moved it from `/workflows/preview`). | **Validation gate cleared:** total dry-run wall ~2 min (page render + 2 loop runs), well inside the 5-min budget. Storyboard's recommended command (`--cycles 2 --agent-model claude-haiku-4-5 --include-instructions --pretty --progress`) lands `[0.20, 1.00]`, `is_climbing=True`, +0.80 lift in 15.2 s. Four UX gaps surfaced + patched on PR #81: storyboard URL, disabled-button tooltip, cycle-2 regression risk, silent CLI. Full report at `docs/W6_PREVIEW_DRYRUN.md`; raw run logs at `docs/W6_PREVIEW_DRYRUN_artifacts/`. |
-| 6.2 | **B** | **Full 30-day M5 replay across 4 conditions (parallel — added by eng review)** (v6 complete 2026-05-09 — `ownevo_30day_v6_sonnet` 30+30+30 ✓; details: `docs/W6_30DAY_REPLAY_NOTES.md`) | Per [`benchmarks/m5-code-gen-loop.md`](../../ownevo_docs/benchmarks/m5-code-gen-loop.md): A (frozen baseline), B (static LLM single-shot, sanity check), C (loop autonomous), D (loop + approval gate). **Run all 4 conditions in parallel on separate Docker compose stacks** (each with its own Postgres + sandbox); merge results in `iterations` table at the end. Sequential = ~150 hours wall time; 4-way parallel ≈ 37 hours. Without parallel strategy, W6 budget is too tight. | `make m5-replay-30day` launches 4 parallel stacks; each writes to a stack-namespaced workspace_id (prefix-hack for the merge), hero chart generated from merged `iterations`; per-cluster lift report generated; gate-blocked-regression count emitted; total wall time <40 hours. |
+| 6.2 | **B** | **Full 30-day M5 replay across 4 conditions (parallel — added by eng review)** (v6 complete 2026-05-09 — `ownevo_30day_v6_sonnet` 30+30+30 ✓; details: `docs/W6_30DAY_REPLAY_NOTES.md`) | Conditions: A (frozen baseline), B (static LLM single-shot, sanity check), C (loop autonomous), D (loop + approval gate). **Run all 4 conditions in parallel on separate Docker compose stacks** (each with its own Postgres + sandbox); merge results in `iterations` table at the end. Sequential = ~150 hours wall time; 4-way parallel ≈ 37 hours. Without parallel strategy, W6 budget is too tight. | `make m5-replay-30day` launches 4 parallel stacks; each writes to a stack-namespaced workspace_id (prefix-hack for the merge), hero chart generated from merged `iterations`; per-cluster lift report generated; gate-blocked-regression count emitted; total wall time <40 hours. |
 | 6.3 | **B** | **M5 success thresholds met** (waived — see Validation) | Per `benchmarks/m5-code-gen-loop.md` § Success Criteria: ≥+25% RMSE lift Day-1→Day-30 in condition D; ≥50 eval cases generated; ≥15 approved revisions; ≥5 gate-blocked regressions; reproducible from fresh checkout. | **v6 result:** Condition C WRMSSE 1.046 (−19.5% vs baseline 1.300) / +23.2% val_score. ≥+25% WRMSSE threshold not met; decision: proceed with −19.5% — demonstrates substantial agent-driven lift. Condition D: 7 gate-passes all judge-rejected ("cost of safety" frame). Remaining threshold counts (≥50 eval cases, ≥15 approved revisions, ≥5 gate-blocked regressions) require DB audit read from v6 run; waived for YC demo. |
 
 **Week 6 exit criteria (Phase 2 validation gate, must pass before Phase 3):**
@@ -410,7 +410,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
 | 8.3.1 | **Condition C with gate engaged on full test set (parallel — added by eng review)** | LLM-judge stub approver (W5.2, eval-expanded) admits proposals; subset re-run with human approver (founder/advisor) for credibility. **Demo framing per D5 B-frame:** record condition B (autonomous, ≈NeoSigma) AND condition C (gated) head-to-head, with the gap explained as "the cost of safety." Demo holds even if condition C lands at +25% — removes binary outcome risk. **Run conditions A/B/C in parallel** on separate Docker compose stacks (same pattern as M5 W6.2); merge in `iterations` table. | Threshold: ≥+35% lift A→C. Stretch: ≥+40% (beats NeoSigma's autonomous +39.3%). **Soft-result fallback:** if condition C is below +35%, the B-frame demo still ships honestly: "autonomous matches the public number; gated is the enterprise tradeoff." All approved changes have an append-only audit entry. Total wall time <2 days for the full test set across 3 conditions. |
-| 8.3.2 | **`benchmarks/tau3-results-2026-Q3.md`** | `ownevo_docs/benchmarks/tau3-results-2026-Q3.md` — immutable run record, three conditions plotted, B-frame head-to-head with NeoSigma (D5), append-only audit log exportable. | File written; reviewer can clone the repo and re-derive the chart from the audit log. |
+| 8.3.2 | **`benchmarks/tau3-results-2026-Q3.md`** | Immutable run record, three conditions plotted, B-frame head-to-head with NeoSigma (D5), append-only audit log exportable. | File written; reviewer can clone the repo and re-derive the chart from the audit log. |
 | 8.3.3 | **Sample human-approved subset documented** | ≥5 changes from condition C re-approved by a human (founder/advisor) instead of the LLM-judge stub. Document any divergence between human and LLM-judge decisions. | Subset documented in tau3-results post; honesty about any divergences preserved. |
 
 #### Track 0 — UI primitive renderers (workspace visual fidelity, precursor to demo materials)
@@ -454,7 +454,7 @@ Track A and Track B converge in W5 because **both tracks share the approval surf
 | # | Deliverable | Files / location | Validation |
 |---|---|---|---|
 | 8.1.1 | **Record 90-second YC video** | Per North Star storyboard. Live demand-prediction workspace (rendered via Track 0 primitives — hand-curated demo data acceptable for video) + real M5 results from W6 + real τ³ split-screen from W8 + live NL-gen flow scene. | Single take or minimal cuts; reviewer who watches understands all 3 pillars without a slide. |
-| 8.1.2 | **`benchmarks/m5-results-2026-Q3.md`** | `ownevo_docs/benchmarks/m5-results-2026-Q3.md` — immutable M5 run record, all 4 conditions plotted, audit chain exportable. | File written; matches success thresholds from `benchmarks/m5-code-gen-loop.md`. |
+| 8.1.2 | **`benchmarks/m5-results-2026-Q3.md`** | Immutable M5 run record, all 4 conditions plotted, audit chain exportable. | File written; matches success thresholds. |
 | 8.1.3 | **Reproducibility rig** | `make m5-replay` and `make tau3-replay` Makefile targets; Docker-packaged; cached intermediate artifacts (skill registry snapshots, eval-case snapshots) so replay is fast for reviewers. | **Validation gate:** an external reviewer who clones the repo gets both charts in <30 minutes from a fresh machine. |
 | 8.1.4 | **Website screenshots** | Capture from the real workspace; replace placeholders in `www/index.html` per `ownEvo_MVP.md` § Website Screenshots. Add τ³ head-to-head chart to the Validation section. | Website rebuilt with real screenshots; no placeholders remain. |
 | 8.1.5 | **Onboarding doc + friction-free install** | `docs/onboarding.md` — Wave 1 (Claude Agent SDK middleware) install path; tested by an external person. | An external person follows the doc and emits a structured AgentEvent into Langfuse in <30 minutes. |
@@ -494,7 +494,7 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 - Multiple framework integrations beyond Claude Agent SDK — Wave 2 (post-MVP)
 - SWE-Bench Verified — Phase 2 (post-MVP); reuses the same substrate ~1 week
 - OpsAgent-Bench (custom benchmark we publish) — post-Series-A
-- **Post-MVP benchmark pipeline** (SkillsBench, Claw-Eval Pass^3, MCPMark, Tool Decathlon, VITA-Bench) — see [`ownevo_docs/benchmarks/README.md` § Post-MVP Benchmark Pipeline](../../ownevo_docs/benchmarks/README.md). Sequence after the 30-day M5 replay result is published. SkillsBench is the most ready to promote to a full plan (the "self-generated skills don't help" published finding is the cleanest rebuttal to the main product objection).
+- **Post-MVP benchmark pipeline** (SkillsBench, Claw-Eval Pass^3, MCPMark, Tool Decathlon, VITA-Bench) — sequence after the 30-day M5 replay result is published. SkillsBench is the most ready to promote to a full plan (the "self-generated skills don't help" published finding is the cleanest rebuttal to the main product objection).
 - Self-evolving the harness itself (we evolve skills/prompts/code only)
 - Custom Rust gateway (LiteLLM is enough; revisit if local-model latency becomes a problem)
 - **Multi-tenant scaffolding** (D4) — `workspace_id` columns, RLS policies, audit triggers, workspace-scoped query helpers, workspace switcher, billing UI, org admin. Single-tenant for MVP; full retrofit before customer #2.
@@ -556,21 +556,19 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 | Local docker stack | `infra/docker-compose.yml` |
 | Reproducibility rig (`make m5-replay`, `make tau3-replay`) | Top-level `Makefile` |
 | Architecture notes, ADRs, this plan | `docs/` |
-| **Benchmark plans (source of truth)** | `../../ownevo_docs/benchmarks/` |
-| **Benchmark results posts (immutable run records)** | `../../ownevo_docs/benchmarks/<benchmark>-results-<date>.md` |
-| **MVP doc (source of truth)** | `../../ownevo_docs/ownEvo_MVP.md` |
+| **Benchmark plans (source of truth)** | internal product docs (not in this repo) |
+| **Benchmark results posts (immutable run records)** | `benchmarks/<benchmark>-results-<date>.md` (written at benchmark completion) |
+| **MVP doc (source of truth)** | internal product docs (not in this repo) |
 
 ---
 
 ## Cross-references
 
-- [`../../ownevo_docs/ownEvo_MVP.md`](../../ownevo_docs/ownEvo_MVP.md) — source of truth for scope, stack, sequencing
-- [`../../ownevo_docs/benchmarks/m5-code-gen-loop.md`](../../ownevo_docs/benchmarks/m5-code-gen-loop.md) — M5 plan
-- [`../../ownevo_docs/benchmarks/tau3-bench.md`](../../ownevo_docs/benchmarks/tau3-bench.md) — τ³ plan
-- [`../../ownevo_docs/benchmarks/README.md`](../../ownevo_docs/benchmarks/README.md) — benchmark index
-- [`../../ownevo_docs/competitors/code-gen-loop-landscape.md`](../../ownevo_docs/competitors/code-gen-loop-landscape.md) — competitive framing for code-gen-under-regression-gate
-- [`../../ownevo_docs/competitors/neosigma.md`](../../ownevo_docs/competitors/neosigma.md) — auto-harness reference architecture (lift evolution loop semantics from here)
+- [`../packages/trace-format/SPEC.md`](../packages/trace-format/SPEC.md) — typed AgentEvent schema (the seam between customer agents and the loop)
 - [`../CLAUDE.md`](../CLAUDE.md) — repo-level conventions for future sessions
+- [`SPIKE-RESULT.md`](SPIKE-RESULT.md) — W1 evolution harness reuse decision
+- [`SCHEMA.md`](SCHEMA.md) — Postgres schema with retrofit-friendly notes
+- [`HARNESS.md`](HARNESS.md) — improvement loop harness design guide
 
 ---
 

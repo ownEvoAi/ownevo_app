@@ -1,7 +1,7 @@
 """W6 — 30-day M5 replay across parallel conditions (TODO-8).
 
-Drives the four-condition M5 comparison defined in
-[`ownevo_docs/benchmarks/m5-code-gen-loop.md`](../../../ownevo_docs/benchmarks/m5-code-gen-loop.md).
+Drives the four-condition M5 comparison (A: frozen baseline, C: loop
+autonomous, D: loop + approval gate).
 Conditions A (frozen baseline), C (loop autonomous), D (loop gated)
 are wired in W6; condition B (static frontier LLM) is deferred.
 

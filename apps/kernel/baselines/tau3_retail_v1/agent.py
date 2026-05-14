@@ -59,8 +59,7 @@ class HarnessState:
 
     The proposer is expected to add fields here as it learns about
     domain-specific structure (e.g., NeoSigma's `_product_data_fetched`
-    flag — see `ownevo_docs/competitors/neosigma.md` notes for prior-art
-    patterns). v1 is the minimum needed to satisfy tau2's strict
+    flag). v1 is the minimum needed to satisfy tau2's strict
     message-history invariants.
     """
 

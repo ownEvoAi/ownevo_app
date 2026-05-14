@@ -9,9 +9,9 @@ The 4-stage pattern (Tracker → Reflector → Curator → Proposer) and `Propos
 
 ## Inspection notes
 
-Inspected:
-- [`core/agentos_harness/types.py`](../../../startup2026/core/src/agentos_harness/types.py) — 197 lines
-- [`core/agentos_harness/evolution/{tracker,reflector,curator,proposer,utils}.py`](../../../startup2026/core/src/agentos_harness/evolution/) — 705 lines total
+Inspected (from the reference harness, not included in this repo):
+- `core/agentos_harness/types.py` — 197 lines
+- `core/agentos_harness/evolution/{tracker,reflector,curator,proposer,utils}.py` — 705 lines total
 
 ### Why wholesale lift fails
 
@@ -23,7 +23,7 @@ Inspected:
    - `proposer.py` (366 lines, similar coupling expected)
    - `reflector.py` (171 lines, similar)
 
-   Lifting any of these requires lifting `memory.py` + `store/` (its SQLite/sqlite-vec layer). `memory.py` was deferred per the MVP doc § "Reuse from `startup2026/core` (Tentative)" — "Defer the lift until trace + clustering pipelines are in place." That defer is correct: importing core/'s storage layer would lock ownEvo into SQLite-with-FTS5 instead of Postgres-with-pgvector.
+   Lifting any of these requires lifting `memory.py` + `store/` (its SQLite/sqlite-vec layer). That defer is correct: importing the reference storage layer would lock ownEvo into SQLite-with-FTS5 instead of Postgres-with-pgvector.
 
 3. **SRE/incident semantics don't map to skill mutations.** `tracker.record_hypothesis(event_id, hypothesis, confidence, evidence)` records *the agent's prediction about a real-world incident*. ownEvo's tracker needs to record *the agent's hypothesis about why a skill failed an eval*. Different concept; same word "hypothesis."
 

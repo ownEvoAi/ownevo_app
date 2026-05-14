@@ -113,8 +113,8 @@ pytestmark = [
 ]
 
 
-# Three cases mapped to the documented Labour management failure modes
-# (`ownevo_docs/ownEvo_MVP_mocks.md` § Failure-mode taxonomy). Order
+# Three cases mapped to the documented Labour management failure modes.
+# Order
 # matters for the eval_cases.created_at fail-fast contract; cleanest
 # (most likely to be load-bearing) goes first.
 _CASES: tuple[LabourCase, ...] = (

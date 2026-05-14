@@ -285,8 +285,7 @@ The auto-harness is already running τ³ on this branch. Migration is incrementa
 | `program_templates/tau_bench.md` | Loop kickoff prompt under `apps/kernel/scripts/m5_agent_prompt.md` style | M9 |
 
 **What we keep:** the `notes_jit.txt` insights (NeoSigma's 14 accepted commits, the
-pattern they discovered) as a reference document. Their open-source contribution stays
-visible in `ownevo_docs/competitors/neosigma.md`.
+pattern they discovered) as a reference document.
 
 **What we don't:** the auto-harness's "edit one file" workflow model. ownEvo's skill
 registry with versioning + audit chain is strictly better for the enterprise story —
