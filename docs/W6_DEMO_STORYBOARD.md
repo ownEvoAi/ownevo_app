@@ -1,4 +1,4 @@
-# W6 NL-gen demo storyboard — 5-minute live YC pitch
+# W6 NL-gen demo storyboard — 5-minute live live pitch
 
 Walk-through script for the W6 NL-gen end-to-end demo loop (PLAN.md row 6.1).
 Pairs `make nl-gen-demo-loop` (CLI lift chart) with the existing

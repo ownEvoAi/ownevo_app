@@ -69,7 +69,7 @@ Holding the judge (Opus 4.7), iter budget (30), and harness fixed and varying bo
 
 The original v6→v7 collapse story (~37×) was a Sonnet-on-v2 finding, not a substrate-level finding. v8 (in flight) shows Opus on v2 already at +2.79% by iter 2, ~4.5× larger than Sonnet's best across all 30 iters. Opus's winning diff so far is interaction-aware: *"Relax outlier_handler clip from p99 to p99.5 to preserve holiday/promo demand spikes that v2's calendar features can now explain"* — reasoning across two skill files, not just tuning one. Sonnet's v7 winner was a lone `num_leaves 128→255` tweak in model_trainer.
 
-**What this implies for the YC pitch (updated three-tier framing):**
+**What this implies for the live pitch (updated three-tier framing):**
 
 - *Strong claim:* "On a weak baseline, Sonnet 4.6 autonomously recovers textbook ML." v6 +23% in 30 iters at ~$15-20.
 - *Stronger-than-expected claim (pending v8 completion):* "On a strong baseline, model intelligence still finds non-obvious lift through cross-skill reasoning." v8 +2.79% by iter 2 already exceeds anything Sonnet found across all 30 iters of v7.

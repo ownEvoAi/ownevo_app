@@ -208,7 +208,7 @@ Commits on this round: `da35e3c`, `ea27e20`, `46fd49f`, `2b71792`,
 ### Added (PR #85 follow-up — seven activity-surface improvements, 2026-05-12)
 
 Seven UI gaps surfaced during the post-Tier-1 audit on `feat/real-ui-loop`.
-None blocked the YC demo path on their own, but together they shifted the
+None blocked the live demo path on their own, but together they shifted the
 web surface from "runs the loop" to "explains the loop" — each change
 links one entity (cluster, iteration, proposal, audit row) to the next
 one a reviewer needs to see.
@@ -281,7 +281,7 @@ including a separate `chore(css)` for ~410 lines of additions to
 PLAN.md row 6.1's validation gate is "an external reviewer can sit
 through the live demo without intervention; lift chart visibly moves" —
 a human-in-the-loop check, not a pytest pass. Without this dry-run, demo
-budget overruns and UX gaps would surface during the W8.1.1 YC video
+budget overruns and UX gaps would surface during the W8.1.1 demo video
 shoot. Three live runs of `make nl-gen-demo-loop` against
 `demand-prediction` (haiku 4.5 agent, Sonnet 4.6 proposer): 34.2 s
 `[0.20, 0.80, 0.60]`, 17.2 s `[0.20, 1.00, 1.00]`, 15.2 s `[0.20, 1.00]`
@@ -641,7 +641,7 @@ W7 thread.
 - **Slice 12 (7.1.13 — demo rollback runbook):** new
   `docs/runbooks/demo-rollback.md` covering the
   identify-regression → dry-run → revert → recompute → audit-verify
-  loop, scoped to a 5-minute time budget for the day-before-YC case
+  loop, scoped to a 5-minute time budget for the last-minute case
   where the lift chart goes negative. Backed by a new
   `apps/kernel/scripts/revert_skill.py` script that re-points
   `skills.head_version_id` at a prior `version_seq` inside one
@@ -892,14 +892,14 @@ to **30+30+30 iterations ✓** across conditions A/C/D — the first full
   baseline. Cost ~$15–20; zero context errors over 90 paid iterations
   (compaction substrate validated end-to-end).
 - **Condition D (loop + approval gate):** 7 gate-passes, all
-  judge-rejected by Opus 4.7 — the "cost of safety" data for the YC
+  judge-rejected by Opus 4.7 — the "cost of safety" data for the live
   demo. `best_ever val_score = 0.4075`.
 - **Threshold assessment:** ≥+25% WRMSSE lift target not met (actual
   −19.5%); decision is to proceed with this number — it demonstrates
   substantial agent-driven lift and the D5 "cost of safety" frame holds.
   Remaining threshold counts (≥50 eval cases, ≥15 approved revisions,
   ≥5 gate-blocked regressions) require a DB audit read from the v6 run
-  and are waived for the YC demo scope.
+  and are waived for the live demo scope.
 - **Follow-on runs:** `v7` (Sonnet on skill_v2 baseline, 30+30+30 ✓)
   produced +0.62% val_score lift — confirms v6's +23.2% was recovering
   textbook ML from a weak baseline, not an always-on capability.
@@ -1942,9 +1942,8 @@ PRs: #37, #38, #39, #40.
 ### Changed
 - Phase 3 status updated across `BL3_MODEL_SMOKE_TODO.md` (untracked
   session log), `TODOS.md`, `docs/PLAN.md`, `docs/local-model-testing.md`,
-  and the YC docs (`yc/yc-application-draft.md`,
-  `yc/m5-lift-proof-details.md`) to reflect compound-lift evidence and
-  honest framing against the M5 leaderboard reference points.
+  to reflect compound-lift evidence and honest framing against the M5
+  leaderboard reference points.
 
 ## [0.1.1] — 2026-05-04
 

@@ -581,7 +581,7 @@ shared the workflow_id so `best_ever_score` accumulated.
    them as `error_class=OOM` → no advance), so the lift signal is
    preserved — but they are wasted iterations.
 
-**Implication for the YC narrative:** B4.2 (first lift) and B4.3
+**Implication for the product narrative:** B4.2 (first lift) and B4.3
 (gate-blocked regression) were both already established before Stage C.
 Stage C adds **the lift curve** — proof that the loop can produce more
 than one improvement on the same problem. The single 2-step compound

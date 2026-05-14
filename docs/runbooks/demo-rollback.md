@@ -2,7 +2,7 @@
 
 *W7 slice 12 (PLAN row 7.1.13). For when a bad skill version goes
 live in the demo workspace and the lift chart goes negative the day
-before the YC video record.*
+before the demo video record.*
 
 This runbook re-points a skill's HEAD at an earlier `version_seq`. It
 **does not** delete the bad version — `skill_versions` is append-only
@@ -61,7 +61,7 @@ lift chart whose `version_seq` matches an entry in that history.
 make revert-skill \
     SKILL=m5.baseline.v1.feature_engineer \
     TO_VERSION=8 \
-    REASON="Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of YC record." \
+    REASON="Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of demo recording." \
     DRY_RUN=1
 ```
 
@@ -69,7 +69,7 @@ Expected output:
 
 ```
 DRY RUN: would revert m5.baseline.v1.feature_engineer from v9 → v8
-  reason: Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of YC record.
+  reason: Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of demo recording.
   no DB writes performed.
 ```
 
@@ -97,7 +97,7 @@ Drop the `DRY_RUN=1` flag and re-run:
 make revert-skill \
     SKILL=m5.baseline.v1.feature_engineer \
     TO_VERSION=8 \
-    REASON="Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of YC record."
+    REASON="Lift dropped 14pp after iter 47 deployed; reverting to known-good v8 ahead of demo recording."
 ```
 
 Expected output:

@@ -81,7 +81,7 @@ files. Tradeoffs by tier:
 
 - Do we want to cite a specific Kaggle notebook or github repo as the
   port reference, or implement from M5-public-knowledge? Citing makes
-  the result more defensible for the YC pitch.
+  the result more defensible for the live pitch.
 - Per-store training breaks the current "single global model" contract.
   Does the gate's reproducibility guarantee still hold across 10
   independently-trained LightGBM models? (Probably yes if seeds are

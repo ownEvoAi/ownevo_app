@@ -5,7 +5,7 @@ PLAN.md row 6.1 exit criterion is "an external reviewer can sit through
 the live demo without intervention; lift chart visibly moves." This run
 exercises both halves of the storyboard (UI surface + CLI loop) against
 the live stack, records the wall-time number, and lists the UX gaps to
-patch before the W8.1.1 YC video record.
+patch before the W8.1.1 demo video record.
 
 Run on **2026-05-09**. Branch: `dryrun/w6-preview-nlgen-demo`.
 
@@ -132,7 +132,7 @@ Recommendation: ship (a) on this branch.
 ### §3 — cycle-2 regression risk on a live demo — patched
 
 Run 1 above showed `[0.20, 0.80, 0.60]` — the lift curve climbs on
-cycle 1 then regresses on cycle 2. On the YC video this is a 50/50
+cycle 1 then regresses on cycle 2. On the demo video this is a 50/50
 risk: the storyboard's "lift chart climbs" framing breaks if cycle 2
 goes the wrong way. Three options were considered:
 
