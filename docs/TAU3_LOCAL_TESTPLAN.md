@@ -472,6 +472,8 @@ Models with confirmed baselines that are good candidates for running a full prop
 
 **When to run lift cycles:** After all baselines complete. Primary proposer: `qwen3.6-35b-a3b` (confirmed). For proposer ablation (which proposer gives best lift): try `qwen/qwen3-30b-a3b` LMS (MoE, same arch — highest probability), then `qwen/qwen3.6-27b` LMS, then `google/gemma-4-31b` LMS. Focus task-agent lift on I-base first (nemotron-omni, 0.6250) — best risk/reward ratio.
 
+**Fixed user model for lift cycles:** When running proposer lift cycles (same proposer, different task models), pin `--user-model` to a small fixed model so results are comparable across task models. Good options (pick one and use it for the whole lift campaign): `openai/gemma3:4b`, `openai/qwen3.5:4b`, `openai/llama3.2:3b` — all ~2–3 GB VRAM. **Prefer LMS (lms-openai) over Ollama** for the user model: LMS handles c=4 concurrent requests better and avoids spinning up a second VRAM allocation. Load the small model in LMS alongside (or in place of) the task model during user-sim turns. Baseline runs continue to use same model for both agent and user — the fixed user model only applies to lift cycles where task-model comparisons matter.
+
 ---
 
 ## Open questions / blockers

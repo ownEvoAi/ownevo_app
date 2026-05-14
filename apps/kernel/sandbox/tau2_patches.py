@@ -164,6 +164,75 @@ def _patch_tool_call_args_resilience() -> None:
     _llm._ownevo_args_patch_applied = True  # type: ignore[attr-defined]
 
 
+def _patch_litellm_lms_think_off() -> None:
+    """Inject ``chat_template_kwargs.enable_thinking=False`` for qwen3-family
+    models on the LM Studio Anthropic-format provider.
+
+    LM Studio serves qwen3 base models (e.g. ``qwen/qwen3-32b``,
+    ``qwen/qwen3-14b``) with thinking mode ON by default when loaded without a
+    custom Jinja template.  The thinking suppression that qwen3.5/qwen3.6
+    models get via LMS's "v13 froggeric" template is NOT auto-applied to
+    qwen3 base.  Without suppression the model emits extended ``<think>``
+    chains, producing poor retail answers (avg ≈ 0.24 observed 2026-05-13).
+
+    LM Studio accepts ``chat_template_kwargs`` as an extension field in the
+    Anthropic-format request body.  LiteLLM forwards ``extra_body`` contents
+    verbatim to the underlying HTTP request for the ``anthropic/`` provider,
+    so injecting it here is equivalent to toggling the LMS UI control.
+
+    Approach: monkey-patch ``litellm.completion``/``acompletion`` to inject
+    ``extra_body={"chat_template_kwargs": {"enable_thinking": False}}`` when:
+      - the model name starts with ``anthropic/``, AND
+      - the model name contains ``qwen3`` (case-insensitive), AND
+      - the model name does NOT start with ``anthropic/claude`` (real Anthropic
+        cloud models don't support this field; leave them untouched).
+
+    Existing ``extra_body`` keys are preserved; only
+    ``chat_template_kwargs.enable_thinking`` is forced to False.
+
+    Idempotent (re-applying is a no-op).
+    """
+    try:
+        import litellm  # type: ignore[import-not-found]
+    except ImportError:
+        return
+    if getattr(litellm, "_ownevo_lms_think_off_applied", False):
+        return
+
+    def _maybe_inject_lms_think(call_kwargs: dict) -> None:
+        model = call_kwargs.get("model", "") or ""
+        if not isinstance(model, str):
+            return
+        if not model.startswith("anthropic/"):
+            return
+        if model.startswith("anthropic/claude"):
+            return
+        if "qwen3" not in model.lower():
+            return
+        existing_extra = call_kwargs.get("extra_body")
+        if isinstance(existing_extra, dict):
+            ctk = dict(existing_extra.get("chat_template_kwargs") or {})
+            ctk["enable_thinking"] = False
+            call_kwargs["extra_body"] = {**existing_extra, "chat_template_kwargs": ctk}
+        else:
+            call_kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+
+    _orig_completion = litellm.completion
+    _orig_acompletion = litellm.acompletion
+
+    def _patched_completion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _maybe_inject_lms_think(kwargs)
+        return _orig_completion(*args, **kwargs)
+
+    async def _patched_acompletion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _maybe_inject_lms_think(kwargs)
+        return await _orig_acompletion(*args, **kwargs)
+
+    litellm.completion = _patched_completion  # type: ignore[assignment]
+    litellm.acompletion = _patched_acompletion  # type: ignore[assignment]
+    litellm._ownevo_lms_think_off_applied = True  # type: ignore[attr-defined]
+
+
 def _patch_litellm_ollama_think_off() -> None:
     """Inject ``options.think=False`` for qwen3-family models on ollama_chat.
 
@@ -270,6 +339,10 @@ try:
     _patch_nl_evaluator_resilience()
 except Exception as _exc:  # noqa: BLE001
     _sys.stderr.write(f"[sitecustomize] _patch_nl_evaluator_resilience failed: {_exc}\n")
+try:
+    _patch_litellm_lms_think_off()
+except Exception as _exc:  # noqa: BLE001
+    _sys.stderr.write(f"[sitecustomize] _patch_litellm_lms_think_off failed: {_exc}\n")
 try:
     _patch_litellm_ollama_think_off()
 except Exception as _exc:  # noqa: BLE001
