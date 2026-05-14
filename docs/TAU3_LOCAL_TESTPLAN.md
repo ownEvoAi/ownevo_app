@@ -306,6 +306,49 @@ Other attempts — abbreviated, model-selection signal only (infra details in `S
 
 ---
 
+## P2-LOCAL Lift Campaign — proposer × task model sweep (2026-05-14)
+
+**Goal:** Fix proposer at `qwen/qwen3.6-35b-a3b` (LMS lms-anthropic, SWAP mode). Vary task agent across top baselines. Fixed user model: `openai/nvidia/nemotron-3-nano-4b` (LMS, 2.84 GB) for all runs. Measure whether the proposer adds lift above each task agent's no-proposer baseline.
+
+**Infrastructure fixes landed before this campaign:**
+- `OPENAI_API_BASE` must be hardcoded to `http://${LLM_HOST}:1234/v1` for `openai/` task/user models even when proposer uses lms-anthropic preset (lms-anthropic BASE_URL lacks `/v1`; deriving OPENAI_API_BASE from it stripped the suffix → LMS returned HTTP 200 `{"error":"Unexpected endpoint"}` → LiteLLM empty `BadRequestError`). Fixed in `tau3_p2_local_loop.sh`.
+- SWAP mode: `OWNEVO_TAU3_SWAP_PROPOSER`/`_TASK` env vars manage LMS model load/unload at proposer↔eval phase boundaries. VRAM budget (48 GB): qwen3.6-35b-a3b (20.55 GiB) + task-agent + nemotron-4b (2.84 GiB) — verified fits for all planned task agents.
+
+**Baseline val_scores (no-proposer, LMS anthropic format, ctx=65536, c=4):**
+
+| Task model | val_score |
+|---|---|
+| `qwen/qwen3.6-27b` | 0.8750 |
+| `nvidia/nemotron-3-nano-omni` | 0.6250 |
+| `qwen/qwen3.5-9b` | 0.5250 |
+| `qwen/qwen3-30b-a3b-2507` | 0.4250 |
+| `qwen3.5-4b` (no ns) | 0.3750 |
+| `nvidia/nemotron-3-nano-4b` | 0.3250 |
+
+**T1 — qwen3.5-9b task agent (baseline 0.5250):**
+- Smoke v1/v2/v3: failed (VRAM double-load; OPENAI_API_BASE missing /v1; proposer NameError rc=8).
+- **Smoke v4 (2026-05-14T11:29Z → 12:27Z): COMPLETE ✅**
+  - Cycle 1: val_score=0.2750, PASS, N=40/40, infra_errors=0. Proposer v_seq=276.
+  - Cycle 2: val_score=0.4250, PASS, N=40/40, infra_errors=0. Proposer v_seq=280. **+0.15 gain in one iteration.**
+  - Pipeline fully verified: lms-anthropic proposer + anthropic/qwen3.5-9b task + openai/nemotron-4b user + SWAP mode.
+- **Full 10-cycle run:** started 2026-05-14T12:28:36Z, workflow=`tau3-retail-v1__qwen36prop_qwen35_9b`, PID=3307337.
+  - **Cycle 1:** PASS — val_score=0.4250, N=40/40, infra_errors=0. Proposer v_seq=282, 4 iters. best_ever_after=0.4250. (12:28Z→12:55Z, ~27 min)
+  - **Cycle 2:** FAIL_NO_IMPROVEMENT — val_score=0.4250, N=40/40, infra_errors=0. best_ever_after=0.4250. (12:55Z→13:33Z, ~38 min)
+  - **Cycle 3:** FAIL_NO_IMPROVEMENT — val_score=0.4000, N=40/40, infra_errors=0. Proposer v_seq=287. (13:33Z→14:04Z, ~31 min)
+  - **Cycle 4:** IN PROGRESS (started 14:04:58Z) — proposer generating.
+
+**T1 VERDICT:** best_ever=0.4250 (no lift vs baseline 0.5250). Series stopped at cycle 4 (NameError smoke crash). Proposer did not beat the registered skill baseline for qwen3.5-9b.
+
+**T2 — qwen3.5-4b task agent (baseline 0.3750):** started 2026-05-14T14:21:55Z, workflow=`tau3-retail-v1__qwen36prop_qwen35_4b`, PID=3438182.
+- SWAP: PROPOSER=`qwen/qwen3.6-35b-a3b` ctx=65536, TASK=`qwen3.5-4b` ctx=65536
+- **Cycle 1:** PASS — val_score=0.4500, N=40/40, infra_errors=0. Proposer v_seq=291, 6 iters. best_ever_after=0.4500. **+0.075 lift vs baseline 0.3750.** (14:21Z→14:56Z, ~35 min)
+- **Cycle 2:** IN PROGRESS (started 14:56:51Z) — proposer generating.
+
+**T3 — nemotron-3-nano-4b task agent (baseline 0.3250):** queued after T2.
+**T4 — nemotron-3-nano-omni task agent (baseline 0.6250):** queued after T3.
+
+---
+
 ## Phase 3 — Condition C: Gated loop (LLM-judge approval)
 
 **Status:** ☐ deferred post-merge.
@@ -430,29 +473,41 @@ OLLAMA_API_BASE=http://192.168.1.50:11434 \
 
 **Plan (2026-05-13): skip proposer for all remaining runs — baseline only. B/E/F/G/H/J baselines dropped.**
 
+### No-proposer baseline results
+
 Topology labels: `lms-anthropic` | `lms-openai` | `ollama-openai` (OAI shim `/v1`) | `ollama` (native `/api/chat`)
 
-| Run | Model / LMS-or-Ollama ID | topo | liteLLM model arg | timeout | baseline_val_score | Status |
+> **LMS load protocol (all runs):** always load with `--context-length 65536` (e.g. `lms load "<model-id>" --gpu max --context-length 65536`). Default LMS context (often 4096) causes immediate 400-errors — retail system prompt alone is ~5228 tokens. Exception: models with a known lower max (e.g. gemma-4-26b-a4b uses 32768).
+> **qwen3.5/qwen3.6 lineage must use lms-anthropic** (`anthropic/<model-id>` + `ANTHROPIC_API_BASE`). lms-openai (`openai/` prefix) does NOT trigger the `_patch_litellm_lms_think_off` API patch, so thinking runs unchecked (observed: 1230s/task on `qwen3.5-4b`). The froggeric v13 template in LMS UI is not a reliable substitute — use lms-anthropic so the sitecustomize patch fires.
+
+#### Complete baselines (N=40/40, sorted by val_score ↓)
+
+| Model / LMS-or-Ollama ID | topo | liteLLM model arg | Size | timeout | val_score | Wall time |
 |---|---|---|---|---|---|---|
-| ref | `qwen/qwen3.6-35b-a3b` (LMS) | lms-anthropic | `anthropic/qwen/qwen3.6-35b-a3b` | 2400s | **0.75** | known |
-| I-base | `nvidia/nemotron-3-nano-omni` (LMS, 26 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-omni` | **7200s** | **0.6250** | PASS (N=40/40, ~45 min) |
-| F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | lms-openai | `openai/nvidia_nemotron-cascade-2-30b-a3b` | **7200s** | **~0.43 est** | ⚠ PARTIAL (37/40, per-task timeout on last task) |
-| A-base | `qwen/qwen3-30b-a3b-2507` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3-30b-a3b-2507` | 2400s | **0.4250** | ✅ PASS (N=40/40, infra_errors=0, ~34 min) |
-| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | lms-anthropic | `anthropic/qwen/qwen3-32b` | **7200s** | **~0.25** | ❌ KILLED — avg=0.25 at 4/40; qwen3 base weaker than qwen3.6 series; API think-off patch confirmed working |
-| D-base | `qwen/qwen3-14b` (LMS, 9 GB) | lms-anthropic | `anthropic/qwen/qwen3-14b` | 2400s | ☐ | ⏳ queued — `-c 65536`, v13 template |
-| qwen36-27b-base | `qwen/qwen3.6-27b` (LMS, 17 GB) | lms-anthropic | `anthropic/qwen/qwen3.6-27b` | **7200s** | **0.8750** | PASS (N=40/40, infra_errors=0, ~90 min) — new record |
-| qwen35-9b-base | `qwen/qwen3.5-9b` (LMS, 6.5 GB) | lms-anthropic | `anthropic/qwen/qwen3.5-9b` | 2400s | ☐ | ⏳ queued — Run 28 scored **0.575** with proposer |
-| gpt-oss-base v1 | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | 2400s | ☐ | ⚠ **TIMEOUT** — 30/40 partial avg=0.47 (N=30); 2400s wall-clock too short |
-| gpt-oss-base v2 | `gpt-oss:20b` (Ollama, 12 GB) | **ollama-openai** | `openai/gpt-oss:20b` | **7200s** | **0.4000** | ✅ PASS (N=40/40, infra_errors=0) |
-| gpt-oss-native-base | `gpt-oss:20b` (Ollama, 12 GB) | **ollama** | `ollama_chat/gpt-oss:20b` | 2400s | — | ❌ SKIPPED (user) |
-| qwen3-14b-oai-base | `qwen3:14b` (Ollama, 8 GB) | **ollama-openai** | `openai/qwen3:14b` | **7200s** | — | ❌ SKIPPED — thinking model, think:false not injected on openai path; 0/40 at 240s |
-| qwen3-14b-native-base | `qwen3:14b` (Ollama, 8 GB) | **ollama** | `ollama_chat/qwen3:14b` | **7200s** | ~0.35 partial | ⚠ PARTIAL (17/40, container 7200s wall-clock, qwen3:14b too slow even with think:false) |
-| qwen3-32b-oai-base | `qwen3:32b` (Ollama, 18 GB) | **ollama-openai** | `openai/qwen3:32b` | **7200s** | — | ❌ SKIPPED — qwen3 thinking model too slow on Ollama; 14B took 7200s for 17/40, 32B worse |
-| qwen35-9b-oai-base | `qwen3.5:9B` (Ollama, 6 GB) | **ollama-openai** | `openai/qwen3.5:9B` | **7200s** | — | ❌ SKIPPED — ~1400s/task on Ollama, same pattern as qwen3:14b; 3/40 at 29 min, killed |
-| qwen35-4b-oai-base | `qwen3.5:4B` (Ollama, 3 GB) | **ollama-openai** | `openai/qwen3.5:4B` | **7200s** | — | ❌ SKIPPED — 0/40 at 14 min, all tasks >840s, same pattern as 9B; qwen3.5:xB uniformly too slow on Ollama |
-| J-base | `nvidia/nemotron-3-nano-4b` (LMS, 2.8 GB) | lms-openai | `openai/nvidia/nemotron-3-nano-4b` | 2400s | ☐ | ⏳ queued — J scored **0.30** with proposer |
-| qwen35-4b-lms-base | `qwen3.5-4b` (LMS, 3.4 GB, no `qwen/` prefix) | lms-openai | `openai/qwen3.5-4b` | 2400s | ☐ | ⏳ queued — true 4B LMS floor |
-| K-base | `ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` (Ollama) | ollama-openai | `openai/ServiceNow-AI/Apriel-1.6-15b-Thinker:Q4_K_M` | **7200s** | ☐ | ❌ **DROPPED** — too slow (thinker + Ollama serial = infeasible) |
+| `qwen/qwen3.6-27b` (LMS) | lms-anthropic | `anthropic/qwen/qwen3.6-27b` | 17 GB | 7200s | **0.8750** | ~90 min |
+| `qwen/qwen3.6-35b-a3b` (LMS) — ref | lms-anthropic | `anthropic/qwen/qwen3.6-35b-a3b` | 21 GB | 2400s | **0.7500** | ~27 min |
+| `qwen/qwen3.5-9b` (LMS) | lms-anthropic | `anthropic/qwen/qwen3.5-9b` | 6.5 GB | 2400s | **0.5250** | — |
+| `nvidia/nemotron-3-nano-omni` (LMS) | lms-openai | `openai/nvidia/nemotron-3-nano-omni` | 26 GB | 7200s | **0.6250** | ~45 min |
+| `qwen/qwen3-30b-a3b-2507` (LMS) | lms-anthropic | `anthropic/qwen/qwen3-30b-a3b-2507` | 17 GB | 2400s | **0.4250** | ~34 min |
+| `gpt-oss:20b` (Ollama) | ollama-openai | `openai/gpt-oss:20b` | 12 GB | 7200s | **0.4000** | — |
+| `qwen3.5-4b` (LMS, no `qwen/` prefix) | lms-anthropic | `anthropic/qwen3.5-4b` | 3.4 GB | 7200s | **0.3750** | — |
+| `nvidia/nemotron-3-nano-4b` (LMS) | lms-openai | `openai/nvidia/nemotron-3-nano-4b` | 2.8 GB | 2400s | **0.3250** | — |
+
+#### Partial / killed / skipped
+
+| Run | Model | topo | val_score | Reason |
+|---|---|---|---|---|
+| F-base | `nvidia_nemotron-cascade-2-30b-a3b` (LMS, 22 GB) | lms-openai | **~0.43 est** | ⚠ PARTIAL 37/40 — per-task timeout on last 3 tasks |
+| C-base | `qwen/qwen3-32b` (LMS, 20 GB) | lms-anthropic | **~0.25** | ❌ KILLED at 4/40 — qwen3 base weaker than qwen3.6; think-off patch confirmed |
+| D-base | `qwen/qwen3-14b` (LMS, 9 GB) | lms-anthropic | **~0.22** | ❌ KILLED at 18/40 — qwen3 base family weak; 0.44@9 was lucky draw |
+| qwen3-14b-native | `qwen3:14b` (Ollama, 8 GB) | ollama | **~0.35 partial** | ⚠ PARTIAL 17/40 — too slow even with think:false; 7200s wall-clock |
+| gpt-oss-base v1 | `gpt-oss:20b` (Ollama, 12 GB) | ollama-openai | **0.47 partial** | ⚠ TIMEOUT 30/40 — 2400s too short; v2 at 7200s completed |
+| qwen3-14b-oai | `qwen3:14b` (Ollama, 8 GB) | ollama-openai | — | ❌ SKIPPED — think:false not injected on openai path; 0/40 |
+| qwen3-32b-oai | `qwen3:32b` (Ollama, 18 GB) | ollama-openai | — | ❌ SKIPPED — 14B took full 7200s for 17/40; 32B infeasible |
+| qwen35-9b-oai | `qwen3.5:9B` (Ollama, 6 GB) | ollama-openai | — | ❌ SKIPPED — ~1400s/task; 3/40 at 29 min |
+| qwen35-4b-oai | `qwen3.5:4B` (Ollama, 3 GB) | ollama-openai | — | ❌ SKIPPED — 0/40 at 14 min; qwen3.5:xB uniformly too slow on Ollama |
+| K-base | `Apriel-1.6-15b-Thinker` (Ollama) | ollama-openai | — | ❌ DROPPED — thinker + Ollama serial = infeasible |
+| gpt-oss-native | `gpt-oss:20b` (Ollama) | ollama | — | ❌ SKIPPED (user decision) |
 
 ⚠️ **qwen3.5-9b ref note:** Run 28's 0.575 was 1-cycle through the full loop (proposer ran). True no-proposer baseline for qwen3.5-9b is unknown. Add to this table when running D-base (same family).
 
@@ -473,6 +528,15 @@ Models with confirmed baselines that are good candidates for running a full prop
 **When to run lift cycles:** After all baselines complete. Primary proposer: `qwen3.6-35b-a3b` (confirmed). For proposer ablation (which proposer gives best lift): try `qwen/qwen3-30b-a3b` LMS (MoE, same arch — highest probability), then `qwen/qwen3.6-27b` LMS, then `google/gemma-4-31b` LMS. Focus task-agent lift on I-base first (nemotron-omni, 0.6250) — best risk/reward ratio.
 
 **Fixed user model for lift cycles:** When running proposer lift cycles (same proposer, different task models), pin `--user-model` to a small fixed model so results are comparable across task models. Good options (pick one and use it for the whole lift campaign): `openai/gemma3:4b`, `openai/qwen3.5:4b`, `openai/llama3.2:3b` — all ~2–3 GB VRAM. **Prefer LMS (lms-openai) over Ollama** for the user model: LMS handles c=4 concurrent requests better and avoids spinning up a second VRAM allocation. Load the small model in LMS alongside (or in place of) the task model during user-sim turns. Baseline runs continue to use same model for both agent and user — the fixed user model only applies to lift cycles where task-model comparisons matter.
+
+**Active lift campaign (started 2026-05-14):** Proposer = `qwen/qwen3.6-35b-a3b` (lms-anthropic, swap mode). Fixed user model = `openai/nvidia/nemotron-3-nano-4b` (lms-openai, 2.8 GB, stays loaded). Script: `tau3_p2_local_loop.sh` with `OWNEVO_TAU3_SWAP_PROPOSER` + `OWNEVO_TAU3_SWAP_TASK`. Task model queue (smoke 2 cycles → full 10 cycles each):
+
+| # | Task model | LMS ID | Format | Baseline | Status |
+|---|---|---|---|---|---|
+| T1 | `qwen/qwen3.5-9b` | qwen/qwen3.5-9b (6.5 GB) | lms-anthropic | 0.5250 | 🔄 **SMOKE IN PROGRESS** (2026-05-14T~03:45Z) — 2 cycles, PID=3175946 |
+| T2 | `qwen3.5-4b` | qwen3.5-4b (3.4 GB) | lms-anthropic | **0.3750** | ⏳ queued |
+| T3 | `nvidia/nemotron-3-nano-4b` | nvidia/nemotron-3-nano-4b (2.8 GB) | lms-openai | 0.3250 | ⏳ queued |
+| T4 | `nvidia/nemotron-3-nano-omni` | nvidia/nemotron-3-nano-omni (26 GB) | lms-openai | **0.6250** | ⏳ queued |
 
 ---
 

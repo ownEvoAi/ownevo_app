@@ -121,7 +121,10 @@ fi
 # api.openai.com. Auto-export based on task-model prefixes; caller env
 # always wins.
 if [[ "$TASK_AGENT_MODEL" == openai/* || "$TASK_USER_MODEL" == openai/* ]]; then
-    export OPENAI_API_BASE="${OPENAI_API_BASE:-$BASE_URL}"
+    # LMS OpenAI-compat endpoint always needs /v1 suffix. BASE_URL for
+    # lms-anthropic preset lacks /v1 (it's the Anthropic root), so we
+    # pin to LMS port 1234/v1 directly rather than deriving from BASE_URL.
+    export OPENAI_API_BASE="${OPENAI_API_BASE:-http://${LLM_HOST}:1234/v1}"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-lm-studio}"
 fi
 if [[ "$TASK_AGENT_MODEL" == ollama_chat/* || "$TASK_AGENT_MODEL" == ollama/* \
