@@ -10,7 +10,8 @@
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
         m5-replay-7day m5-replay-30day m5-replay-bootstrap nl-gen-demo-loop revert-skill \
-        dev-up dev-down dev-logs dev-ps
+        dev-up dev-down dev-logs dev-ps \
+        fly-migrate fly-deploy-kernel fly-deploy-web fly-seed fly-logs fly-ssh
 
 help:
 	@printf 'targets:\n'
@@ -405,3 +406,34 @@ dev-logs:
 
 dev-ps:
 	docker compose ps
+
+# ----------------------------------------------------------------------------
+# Fly.io deployment (TODO-42 — docs/runbooks/fly-deploy.md)
+# ----------------------------------------------------------------------------
+
+# Run pending SQL migrations against the live Fly Postgres instance.
+fly-migrate:
+	flyctl ssh console -a ownevo-kernel -C \
+	    "uv run --package ownevo-kernel --extra api python apps/kernel/scripts/migrate.py"
+
+# Deploy kernel API to Fly.io (runs migrations automatically via release_command).
+fly-deploy-kernel:
+	flyctl deploy --config fly.toml --remote-only
+
+# Deploy Next.js web app to Fly.io.
+fly-deploy-web:
+	flyctl deploy --config apps/web/fly.toml --remote-only
+
+# Seed the live demo DB (requires ANTHROPIC_API_KEY set as a Fly secret).
+fly-seed:
+	flyctl ssh console -a ownevo-kernel -C \
+	    "uv run --package ownevo-kernel --extra api --extra agent python apps/kernel/scripts/seed_demo.py --with-iterations"
+
+# Tail logs from both apps.
+fly-logs:
+	flyctl logs -a ownevo-kernel &
+	flyctl logs -a ownevo-web
+
+# Open a shell on the kernel machine.
+fly-ssh:
+	flyctl ssh console -a ownevo-kernel

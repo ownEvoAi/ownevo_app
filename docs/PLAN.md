@@ -6,7 +6,7 @@
 
 This doc is the executable derivation — what to build, in what order, with what validates each step. When the two conflict, the MVP doc wins; update this one.
 
-*Last updated: 2026-05-12 (v3.27 — W8 Track 4 rows 8.4.7 + 8.4.8 shipped on `feat/real-ui-loop` (PR #85, 10 commits). All v3.26 lifecycle + polish TODOs (the eight items spun out into TODOS.md) closed in the same branch; their numbers freed and reused for new gaps surfaced during the build. Beyond plan: operator shell, workspace traces, Connect on-ramp, agent-rationale plumbing. See [Version log](#version-log) for the v3.27 summary.)*
+*Last updated: 2026-05-13 (v3.28 — `feat/real-ui-loop` merged to main; released as v0.7.0. Seven follow-up improvements shipped on the same branch (stale-iteration Health banner, skills-library workflow filter, cluster↔iteration signposting, inline SkillDiff on iteration detail, review-before-commit step, baseline-complete landing, cross-workflow activity feed). TODOs 38–41 closed; TODO-36 (per-cluster reasoning) and TODO-37 (kernel-side stale-running sweep) remain open. See [Version log](#version-log) for the v3.28 summary.)*
 
 ---
 
@@ -579,6 +579,13 @@ Per `ownEvo_MVP.md` § Out of Scope. Repeated because they will tempt us mid-bui
 Reverse-chronological. Each entry is a one-line headline + bullets of what
 shipped that revision. Deeper detail lives in the corresponding PR and
 `CHANGELOG.md` entry.
+
+### v3.28 — 2026-05-13 — `feat/real-ui-loop` merged; released as v0.7.0
+
+- **v0.7.0 tagged** on `main` (2026-05-13). Bundles W8 Track 4 (8.4.7–8.4.10), operator-shell layer-D parity, workflow taxonomy (kind + mode enum), and seven activity-surface follow-ups: stale-iteration cue on Health, skills-library workflow filter, cluster↔iteration signposting, inline SkillDiff on iteration detail, review-before-commit step on new workflow, baseline-complete landing page, cross-workflow activity feed.
+- **TODOs 38–41 closed** (review-before-commit, baseline-complete, workflow filter, activity feed). TODO-36 (per-cluster reasoning summary) and TODO-37 (kernel-side stale-running sweep) remain open.
+- **CHANGELOG** `[Unreleased]` renamed to `[0.7.0] — 2026-05-13`; fresh `[Unreleased]` block opened above.
+- **Next cycle priorities:** TODO-42 (Fly.io live demo, unblocks YC partner-call signal), TODO-43 (demo video record), TODO-44 (README opener polish).
 
 ### v3.27 — 2026-05-12 — PR #85 (`feat/real-ui-loop`) shipped: 8.4.7 + 8.4.8 + v3.26 TODO pool + beyond-plan UI surfaces
 

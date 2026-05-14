@@ -17,6 +17,8 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-13
+
 ### Added (post-PR #85 — operator-shell layer-D parity, 2026-05-12)
 
 The operator shell + workspace Operate/Overview tabs now render real

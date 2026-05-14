@@ -1,0 +1,30 @@
+# Fly.io config for the ownEvo web app (Next.js).
+#
+# Build context is apps/web/ (same as docker-compose.yml).
+# The kernel has its own fly.toml at the repo root.
+#
+# First-time setup: see docs/runbooks/fly-deploy.md
+
+app = "ownevo-web"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  # Kernel is reachable over Fly's private network — no public hop.
+  OWNEVO_KERNEL_API_URL = "http://ownevo-kernel.internal:8000"
+  # NEXTAUTH_URL / other secrets → flyctl secrets set -a ownevo-web ...
+
+[http_service]
+  internal_port        = 3000
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind  = "shared"
+  cpus      = 1
+  memory_mb = 256

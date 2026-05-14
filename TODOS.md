@@ -455,7 +455,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-38: New-workflow review-before-commit step
+### TODO-38: New-workflow review-before-commit step — ✅ DONE 2026-05-13
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/04-new-workflow-step2.html`. After `POST /api/nl-gen/generate` returns the spec + simulation plan + eval cases + metric, route the operator to a review page that shows what NL-gen produced before the workflow row is committed. Operator clicks Commit to persist, Discard to throw away. Today the endpoint persists immediately and there's no preview.
 - **Why:** When NL-gen produces a poor spec (wrong domain, missing reviewer, hallucinated tool) the only path today is `delete workflow` (now wired, PR #85) and start over — wasting the ~30s LLM round-trip. Preview catches it before the wasted commit.
@@ -465,8 +465,9 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (human ~1 day / CC ~half day).
 - **Priority:** P3 — pairs with TODO-39 as the new-workflow polish pass.
 - **Depends on:** —
+- **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). Generate now redirects to `/workflows/new/review/[wfId]`; page shows description + `AgentAnatomy` + eval-case count with Confirm and Revise actions.
 
-### TODO-39: Baseline-complete landing page
+### TODO-39: Baseline-complete landing page — ✅ DONE 2026-05-13
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/19-run-baseline.html`. After an operator clicks Run iteration on a workflow with zero iterations, instead of dropping them on the Overview tab with a green "iteration complete" toast, show a dedicated landing page summarizing the baseline run: val_score, n_failed/n_cases, dominant failure cluster, suggested next step (review proposal, regenerate evals, etc.).
 - **Why:** First-iteration outcome is the highest-information event in the loop. Operator currently navigates back to Overview which shows the same lift chart (now with one point) — the framing of "this is your baseline; here's where to go next" is missing.
@@ -476,8 +477,9 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (human ~half day / CC ~2 hours).
 - **Priority:** P3.
 - **Depends on:** —
+- **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). Iteration #0 completion redirects to `/workflows/baseline/[wfId]`; page carries a "Baseline complete" hero, 4-cell metric strip (val_score, cases passed, run time, next step), per-case roster preview, mini lift chart anchored on iter 0, and Continue/See-the-run actions.
 
-### TODO-40: Skills library workflow filter
+### TODO-40: Skills library workflow filter — ✅ DONE 2026-05-13
 
 - **What:** `/workspaces/[wsId]/skills` shows every skill across every workflow. Add a `?workflow=credit-risk` query param + a chip strip across the top so an operator can scope to one workflow. Skills already carry `workflow_id`; the kernel endpoint just needs an optional query param.
 - **Why:** With ≥3 workflows the skills list gets noisy. The mock `s26-rk7p3/11-skills-registry.html` already references `?workflow=…`.
@@ -487,8 +489,9 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** XS.
 - **Priority:** P3.
 - **Depends on:** —
+- **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). `?workflow=<wfId>` query param + chip strip listing every workflow that owns at least one skill; `(unscoped)` chip for workflowless skills; empty state branches on filter active vs not.
 
-### TODO-41: Recent activity feed across workflows
+### TODO-41: Recent activity feed across workflows — ✅ DONE 2026-05-13
 
 - **What:** A workspace-scoped "what just happened" feed showing the last N audit-entries-of-interest across every workflow (proposal-approved, gate-run-completed, cluster-created, skill-version-created). Roughly the workspace inbox but for all state changes, not just gate-passed proposals. Sits at `/workspaces/[wsId]/activity` or as a "Recent activity" card on Health.
 - **Why:** Operators monitoring multiple workflows want a "did anything important happen" surface that doesn't require clicking into each workflow's audit tab.
@@ -498,3 +501,54 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** S (human ~half day / CC ~1-2 hours).
 - **Priority:** P3.
 - **Depends on:** —
+- **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). New `/workspaces/[wsId]/activity` page + sidebar entry between Inbox and Workflows. Reads `/api/audit`, renders human-readable rows with icon + sentence summary + workflow chip + relative time + click-through. Filterable by workflow + audit kind. Covers every audit-kind enum; unmapped kinds fall back to a neutral row pointing at the raw audit log.
+
+---
+
+## YC + customer prep (P1 burst — current cycle)
+
+Captured 2026-05-13 alongside the YC application update window. These four TODOs are time-boxed for this week and should be cleared before any non-P1 engineering work resumes. Strategic context lives in `~/code/jobs/startup_decision.md` § "YC + customer prep plan."
+
+### TODO-42: Hosted live demo URL on Fly.io
+
+- **What:** Deploy `ownevo_app` (Postgres + kernel + web) to Fly.io (or Railway) with `make seed-demo-with-iter` data loaded. Point `demo.ownevo.ai` (or `app.ownevo.ai`) at it. Smoke-test the click-through path: visitor lands → sees lift chart climbing → clicks into Failures → sees a real cluster + proposal. Validate in an incognito window from a different network than the dev machine.
+- **Why:** Currently the only public artifact for ownEvo is the static preview at `ownevo.ai/preview/s26-rk7p3/`. YC partners and inbound recruiters need a clickable working system in <30s. `make dev-up` is not clickable; only a hosted URL converts. This is the single highest-leverage engineering task for the next 2 weeks — it unlocks the demo video CTA, the README opener, the cold outreach signature link, and the YC application's "Please provide a link to the product" field.
+- **Pros:** ~3 hours of work; biggest single uplift to YC partner-call signal AND to job-search portfolio signal AND to cold-outreach conversion; the existing `docker-compose.yml` is already production-shape.
+- **Cons:** Costs $5–20/mo on Fly hobby plan; needs auth gating OR scoped read-only demo data so it's safe to share publicly; minor DNS + TLS setup for `demo.ownevo.ai` subdomain.
+- **Context:** `docker-compose.yml` at repo root is the deployment target. Use the seeded `acme` workspace as the default landing page. Consider a "demo mode" env flag that disables destructive actions (delete skill, rollback) for public visitors. The lift chart screenshot for TODO-44 can be captured from this hosted instance once it's live.
+- **Effort:** S (human ~3-4 hours / CC ~1 hour).
+- **Priority:** P1 — blocks the entire YC partner-call + customer outreach signal.
+- **Depends on:** —
+
+### TODO-43: Demo video — record, upload to YC, validate playback
+
+- **What:** Record the 2:15 demo video per the script at `~/code/jobs/demo_video_script.md`. Upload to YC application Demo Video Update slot. Validate by sending the link to a non-technical friend and asking what they understood in 90 seconds.
+- **Why:** The original YC application had an empty Demo Video field — the single biggest miss given that a working prototype exists. Partners often watch video before reading text. A working demo video also doubles as cold-outreach asset (linked from LinkedIn DMs, email, GitHub README, ownevo.ai).
+- **Pros:** 1–2 hours of work; biggest signal jump in the YC application; script + recording tips already drafted.
+- **Cons:** Requires polish — first take rarely good; needs TODO-42 to be done first so the video's CTA can point to a working hosted demo URL rather than a static preview.
+- **Context:** Full script (six scenes, voice direction, what to emphasize, what to avoid saying) at `~/code/jobs/demo_video_script.md`. Pre-flight checklist included. Use `make seed-demo-with-iter` for the recording setup. Loom or QuickTime. Aim for 1080p / 30fps / MP4 output. Upload directly to the YC form (do not host on YouTube).
+- **Effort:** S (human ~2 hours / CC ~0.5 hour for any cuts).
+- **Priority:** P1 — blocks the YC application improvement window.
+- **Depends on:** TODO-42 (so the demo URL can be the video's call-to-action).
+
+### TODO-44: README opener polish
+
+- **What:** Replace the top of `README.md` with the polished draft at `~/code/jobs/github_readme_draft.md`. The new opener has: visual header, value-prop tagline, nav links (Website / Live demo / YC preview / Walkthrough), lift-chart screenshot, "What works today" bullets, 3-line quickstart, "How it works" flow diagram. Keep all existing sections (Layout, Stack split, Status, A4.4 model comparison) intact below the new opener. Capture `docs/img/lift-chart.png` from a real running instance (TODO-42).
+- **Why:** Current README opens with paragraph text — fine for a returning visitor, weak for the first-impression YC partner / recruiter / cold-outreach replier who skims for 0.5 seconds. The lift chart screenshot in particular is doing nothing today (not visible until you scroll). First impressions on GitHub matter for: YC partners clicking from the application, recruiters from `resume.md`, inbound from LinkedIn / cold outreach.
+- **Pros:** 1–2 hours of work; first-impression upgrade for every partner / recruiter / cold-outreach reader who clicks the GitHub link.
+- **Cons:** Need to capture a clean screenshot of the lift chart (requires TODO-42 deployed instance to look impressive enough). May want a logo lockup SVG eventually — for now the existing `logo-shield.svg` is fine.
+- **Context:** Draft at `~/code/jobs/github_readme_draft.md`. Existing sections to preserve are listed in that draft's "Notes for execution." Lift chart capture: `make seed-demo-with-iter`, open `/workspaces/acme`, Cmd-Shift-4 to crop, save to `docs/img/lift-chart.png` at ~720px wide, no browser chrome.
+- **Effort:** S (human ~2 hours / CC ~0.5 hour).
+- **Priority:** P1 — blocks recruiter / partner first impressions.
+- **Depends on:** TODO-42 (so demo CTAs link to a live URL, and so the screenshot can be captured from real data).
+
+### TODO-45: Slack OAuth — failure ingestion → cluster pipeline
+
+- **What:** Ship one real Slack integration: OAuth install flow → subscribe to a designated channel → ingest messages tagged as production failures (or matching a configurable pattern) → convert into the `AgentEvent` format defined in `packages/trace-format/SPEC.md` → pipe into the existing failure-clustering pipeline → surface in workspace Failures tab. Single-workspace install for the MVP (skip Slack app review for now).
+- **Why:** All OAuth integrations are currently stubs. The "zero real integrations" gap is the biggest credibility hit in the YC application AND the biggest objection a design partner will raise. Slack is the highest-leverage starting point: most enterprise teams already use Slack for incident channels; ingestion volume can be real from day one; reuses the existing clustering pipeline (no new ML work needed).
+- **Pros:** Closes the "zero real integrations" objection; gives design partners a clear "here's how you'd actually hook this up" story; reuses existing clustering pipeline; one OAuth, not five (per the "don't build in a vacuum" principle).
+- **Cons:** 1–2 days of OAuth scaffolding + Slack Events API plumbing; if a customer call lands and they use a different signal source (PagerDuty, Sentry, etc.), this work may need to pivot — that's *good* (real signal-driven), but it's a real cost to acknowledge upfront.
+- **Context:** Existing failure clustering pipeline in `apps/kernel/src/ownevo_kernel/clustering/` accepts structured failures. The new surface is the Slack ingestion layer that converts a Slack message into the `AgentEvent` format. Slack scopes: `chat:read`, `channels:history`, Events API. Single-workspace install means you can hardcode tokens for the MVP and worry about the OAuth distribution model post-pilot.
+- **Effort:** M (human ~1–2 days / CC ~half day).
+- **Priority:** P2 — start **only after** TODO-42, TODO-43, TODO-44 are landed and outreach is running. If a customer call lands first and they use a different signal source, pivot to that one instead — don't sunk-cost into Slack.
+- **Depends on:** TODO-42, TODO-43, TODO-44 (these unblock the YC + outreach flow that generates customer signal; customer signal should guide which OAuth to actually build first).

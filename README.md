@@ -74,16 +74,18 @@ Python owns the IP (improvement loop, eval, clustering, regression gate). TS own
 
 ## Status
 
-**Unreleased (post-v0.6.0, on `feat/real-ui-loop`)** — W8 Track 4 closes the
-loop end-to-end in the UI. Rows 8.4.7-8.4.10 plus the operator-shell
-parity work shipped: the iteration runner now persists per-case
-`iteration_case_outputs` (PLAN 8.4.9, migration 0008), the layer-D
-resolver maps those rows onto `TableView` + `AlertList` + `KanbanBoard`
-primitives on the operator shell and the workspace Overview/Operate
-tabs (8.4.10 + follow-ups), and the iteration drill-down explains
-gate decisions in plain English. `make seed-demo-with-iter` seeds two
-workflows + runs one iteration each so a reviewer's first visit shows
-real per-case data, not empty placeholder banners.
+**v0.7.0 (2026-05-13)** — W8 Track 4 closes the loop end-to-end in the UI.
+Rows 8.4.7-8.4.10 plus the operator-shell parity work shipped: the
+iteration runner now persists per-case `iteration_case_outputs` (PLAN 8.4.9,
+migration 0008), the layer-D resolver maps those rows onto `TableView` +
+`AlertList` + `KanbanBoard` primitives on the operator shell and the workspace
+Overview/Operate tabs (8.4.10 + follow-ups), and the iteration drill-down
+explains gate decisions in plain English. Seven activity-surface follow-ups
+also shipped: stale-iteration Health banner, skills-library workflow filter,
+cluster↔iteration signposting, inline SkillDiff on iteration detail,
+review-before-commit step on new workflow, baseline-complete landing page, and
+cross-workflow activity feed. `make seed-demo-with-iter` seeds two workflows +
+runs one iteration each so a reviewer's first visit shows real per-case data.
 
 **v0.6.0 (2026-05-09)** — W7 Track 1 merged, τ³ first autonomous lift merged, Deploy/Rollback wired, W6 row 6.1 demo dry-run cleared. The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, deploy, watch the audit chain extend.
 
@@ -99,7 +101,7 @@ real per-case data, not empty placeholder banners.
 
 - **W8 Track 4 + operator-shell parity** (unreleased, `feat/real-ui-loop`): per-iteration drill-down with case-level rationale (8.4.7-8.4.8), `iteration_case_outputs` table + `GET /api/workflows/{id}/case-outputs` (8.4.9, migration 0008), layer-D resolver wires `TableView` / `AlertList` / `KanbanBoard` to that data on `/operator/[wfId]` + workspace Overview/Operate tabs (8.4.10), workflow taxonomy split (production vs `kind='benchmark'`, 4-value `workflow_mode` enum), `make seed-demo-with-iter`, plain-English gate-state banner on iteration drill-down, and the operator/operate de-dupe pass.
 
-Next: τ³ NeoSigma reproduction + Pass³ stretch (W7 Track 3), W8 polish + YC video record.
+Next: hosted live demo on Fly.io (TODO-42), demo video record (TODO-43), README opener polish (TODO-44).
 
 ## A4.4 NL-gen smoketest — model comparison (2026-05-05)
 
