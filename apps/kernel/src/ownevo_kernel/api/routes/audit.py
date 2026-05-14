@@ -2,9 +2,8 @@
 
 D2-aligned: the audit log is append-only WORM in the DB and the API is
 read-only. The "verify chain" endpoint runs a structural integrity
-check (seq contiguity + canonical-JSON byte count); the future crypto
-chain (TODO-3) extends this with parent_hash / entry_hash verification
-without changing the response shape.
+check (seq contiguity + canonical-JSON byte count); the SHA-256 hash chain (TODO-3, now landed) extends this with
+parent_hash / entry_hash verification.
 
 Pagination: the list endpoint enforces a hard `limit <= 500`. With
 real customer log volume the endpoint switches to keyset pagination
@@ -14,14 +13,16 @@ underlying `export_audit_log` call.
 
 from __future__ import annotations
 
+import hmac
 from collections import Counter
 from datetime import UTC, datetime
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
 
-from ...audit.writer import export_audit_log, to_canonical_json
-from ..deps import ConnDep
+from ...audit.writer import _GENESIS_HASH, compute_entry_hash, export_audit_log, to_canonical_json
+from ...types import AuditKind
+from ..deps import ConnDep, DemoModeCheck
 from ..models import AuditEntryRow, AuditList, AuditVerifyResponse
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
@@ -126,14 +127,13 @@ async def list_audit(
 
 
 @router.post("/verify", response_model=AuditVerifyResponse)
-async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
-    """Verify the audit chain's structural integrity.
+async def verify_chain(conn: ConnDep, _: DemoModeCheck) -> AuditVerifyResponse:
+    """Verify audit chain structural integrity + SHA-256 hash chain.
 
-    For D2 (append-only, no crypto) "valid" means: every `seq` from 1
-    to max(seq) is present, no duplicates, and the canonical-JSON
-    export round-trips. The response carries the gap + duplicate lists
-    (capped at 100 each) so the UI can surface the diagnostic without
-    blowing the payload.
+    `valid` = seq contiguity, no duplicates.
+    `hash_chain_valid` = every hashed entry's entry_hash recomputes correctly
+    and each entry's parent_hash equals the previous hashed entry's entry_hash.
+    Pre-epoch entries (NULL entry_hash) are skipped by hash verification.
     """
     entries = await export_audit_log(conn)
     canonical = to_canonical_json(entries)
@@ -142,6 +142,40 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
 
     counts = Counter(seqs)
     duplicates = sorted(s for s, n in counts.items() if n > 1)[:_MAX_REPORTED_GAPS]
+
+    # Hash-chain verification over entries that carry hash data.
+    hashed = [e for e in entries if e.entry_hash is not None]
+    hash_chain_valid = True
+    first_broken_seq: int | None = None
+
+    # Verify genesis anchor: the first hashed entry must point to the
+    # all-zeros sentinel, not an arbitrary value planted by a raw INSERT.
+    if hashed and not hmac.compare_digest(hashed[0].parent_hash or "", _GENESIS_HASH):
+        hash_chain_valid = False
+        first_broken_seq = hashed[0].seq
+
+    if hash_chain_valid:
+        for i, entry in enumerate(hashed):
+            kind_str = entry.kind.value if isinstance(entry.kind, AuditKind) else entry.kind
+            expected_hash = compute_entry_hash(
+                seq=entry.seq,
+                kind=kind_str,
+                payload=entry.payload,
+                related_id=entry.related_id,
+                actor=entry.actor,
+                created_at=entry.created_at,
+                parent_hash=entry.parent_hash if entry.parent_hash is not None else _GENESIS_HASH,
+            )
+            if not hmac.compare_digest(entry.entry_hash or "", expected_hash):
+                hash_chain_valid = False
+                first_broken_seq = entry.seq
+                break
+            if i > 0 and not hmac.compare_digest(
+                entry.parent_hash or "", hashed[i - 1].entry_hash or ""
+            ):
+                hash_chain_valid = False
+                first_broken_seq = entry.seq
+                break
 
     if not seqs:
         return AuditVerifyResponse(
@@ -153,6 +187,9 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
             duplicate_seqs=[],
             canonical_export_bytes=len(canonical),
             checked_at=datetime.now(tz=UTC),
+            hash_chain_valid=True,
+            hash_chain_entries=0,
+            first_broken_seq=None,
         )
 
     min_seq = min(seqs)
@@ -171,4 +208,7 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
         duplicate_seqs=duplicates,
         canonical_export_bytes=len(canonical),
         checked_at=datetime.now(tz=UTC),
+        hash_chain_valid=hash_chain_valid,
+        hash_chain_entries=len(hashed),
+        first_broken_seq=first_broken_seq,
     )

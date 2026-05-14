@@ -17,6 +17,30 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+
+- **Audit hash chain — migration `0009_audit_hash_chain.sql` (TODO-3).**
+  `audit_entries` gains `parent_hash` and `entry_hash` (SHA-256 hex, 64
+  chars). `append_audit_entry` pre-claims `seq` via `nextval` and supplies
+  `created_at` from Python so both are known before hashing — avoids a
+  two-phase INSERT+UPDATE that the WORM trigger blocks. Hash input is
+  canonical JSON of `{seq, kind, payload, related_id, actor, created_at,
+  parent_hash}`; genesis `parent_hash` is 64 zeros. Entries written before
+  this migration keep NULL hashes (pre-epoch) and are skipped, not failed,
+  by the verify endpoint. PR #88.
+- **`POST /api/audit/verify` extended with hash-chain fields.** Response
+  now includes `hash_chain_valid` (bool), `hash_chain_entries` (count of
+  hashed entries), and `first_broken_seq` (first seq where the chain
+  breaks, or null). PR #88.
+- **`GET /api/skills?workflow_id=` filter.** Skills library endpoint now
+  accepts an optional `workflow_id` query param. Pass a workflow ID to
+  return only that workflow's skills, or `_unscoped` for skills with no
+  workflow. Omit for the workspace-wide index (existing behaviour). PR #88.
+- **`docs/DEPLOYMENT.md`.** Single reference for all three deployment paths
+  (bare-metal, Docker compose, Fly.io), env-var table, full migration table
+  (0001–0009), health checks, DEMO_MODE blocked-routes list, and cost
+  breakdown. PR #88.
+
 ## [0.7.0] — 2026-05-13
 
 ### Added (post-PR #85 — operator-shell layer-D parity, 2026-05-12)
