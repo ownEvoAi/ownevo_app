@@ -172,6 +172,7 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0007_workflow_mode_eval_modes.sql` | `mode` enum + `eval_modes` on `workflows` |
 | `0008_iteration_case_outputs.sql` | `iteration_case_outputs` table for operator shell primitives |
 | `0009_audit_hash_chain.sql` | `parent_hash` + `entry_hash` on `audit_entries` (TODO-3 crypto chain) |
+| `0010_grants_and_constraints.sql` | `workflows.id <> '_unscoped'` constraint; REVOKE template for role-level WORM (edit before running) |
 
 **Local:** `make api` and `make dev-up` both run migrations automatically on start.
 
@@ -192,7 +193,7 @@ make fly-migrate
 curl https://ownevo-kernel.fly.dev/api/health
 # {"status":"ok","db":"ok"}
 
-# Audit chain integrity (includes hash-chain verification since 0009)
+# Audit chain integrity (operator-only; returns 503 in DEMO_MODE)
 curl -X POST https://ownevo-kernel.fly.dev/api/audit/verify
 # {"valid":true,"hash_chain_valid":true,"hash_chain_entries":N,...}
 
@@ -212,6 +213,7 @@ curl -X POST localhost:8000/api/audit/verify
 - `POST /api/proposals/{id}/deploy`
 - `POST /api/proposals/{id}/rollback`
 - `DELETE` on workflows and eval cases
+- `POST /api/audit/verify` (operator diagnostic — too memory-intensive for demo traffic)
 
 All blocked routes return `503` with a message pointing to the GitHub repo. Read-only operations (browse workspace, view audit trail, approve or reject proposals) are unaffected.
 

@@ -586,6 +586,10 @@ class AuditEntryRow(_Strict):
 
     Same shape as `AuditEntry` (proposal-detail), repeated here so the
     list endpoint contract is independent of proposal-side changes.
+
+    Intentionally excludes parent_hash/entry_hash — hash chain fields are
+    internal to chain verification (POST /api/audit/verify) and not exposed
+    on the list endpoint.
     """
 
     id: UUID
@@ -604,7 +608,7 @@ class AuditList(_Strict):
 
 
 class AuditVerifyResponse(_Strict):
-    """Result of running the chain-integrity check (TODO-3).
+    """Result of running the chain-integrity check.
 
     `valid` covers seq contiguity + no duplicates (structural integrity).
     `hash_chain_valid` covers SHA-256 content hashes + parent-linkage
@@ -622,7 +626,7 @@ class AuditVerifyResponse(_Strict):
     duplicate_seqs: list[int]  # likewise
     canonical_export_bytes: int  # size of `to_canonical_json(...)` output
     checked_at: datetime
-    # Hash chain (TODO-3)
+    # Hash chain fields (0009_audit_hash_chain.sql)
     hash_chain_valid: bool  # True if every hashed entry's hash recomputes correctly
     hash_chain_entries: int  # Count of entries that carry hash data
     first_broken_seq: int | None  # First seq where the chain breaks; None if valid

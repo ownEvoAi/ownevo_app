@@ -4,9 +4,9 @@ The `audit_entries` table is the spine of the kernel. Every state-machine
 transition (proposal-created, gate-run-completed, proposal-approved, ...)
 writes a row through `append_audit_entry`. The table is append-only at
 the DB level: row-level WORM triggers on UPDATE/DELETE plus a statement-
-level trigger on TRUNCATE (locked in 0001_substrate.sql). Production also
-revokes UPDATE/DELETE/TRUNCATE from the app role — that grant migration
-lands when the writer-side role is wired (out of scope here).
+level trigger on TRUNCATE (locked in 0001_substrate.sql). For full WORM
+enforcement, `0010_grants_and_constraints.sql` also REVOKEs UPDATE/DELETE
+from the application role — run it after substituting the actual DB user.
 
 `export_audit_log` returns entries in `seq` order; `to_canonical_json`
 serializes them sorted-keys + no-whitespace, the marketing-claim form of
@@ -95,47 +95,56 @@ async def append_audit_entry(
             f"append_audit_entry: payload is not JSON-serializable: {exc}"
         ) from exc
 
-    # Resolve parent_hash from the most-recent hashed entry. Entries
-    # written before 0009_audit_hash_chain.sql have NULL entry_hash and
-    # are skipped. If no hashed entry exists yet, start the chain from
-    # the genesis sentinel.
-    prev_hash: str | None = await conn.fetchval(
-        "SELECT entry_hash FROM audit_entries "
-        "WHERE entry_hash IS NOT NULL "
-        "ORDER BY seq DESC LIMIT 1",
-    )
-    parent_hash = prev_hash if prev_hash is not None else _GENESIS_HASH
+    # Advisory lock serializes concurrent hash-chain writes. Without this,
+    # two simultaneous callers could read the same prev_hash and insert two
+    # entries with identical parent_hash, silently forking the chain.
+    # pg_advisory_xact_lock is released automatically when the transaction ends.
+    async with conn.transaction():
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext('ownevo.audit_chain'))"
+        )
 
-    seq: int = await conn.fetchval(f"SELECT nextval('{_SEQ_NAME}')")
-    created_at = datetime.now(tz=UTC)
+        # Resolve parent_hash from the most-recent hashed entry. Entries
+        # written before 0009_audit_hash_chain.sql have NULL entry_hash and
+        # are skipped. If no hashed entry exists yet, start the chain from
+        # the genesis sentinel.
+        prev_hash: str | None = await conn.fetchval(
+            "SELECT entry_hash FROM audit_entries "
+            "WHERE entry_hash IS NOT NULL "
+            "ORDER BY seq DESC LIMIT 1",
+        )
+        parent_hash = prev_hash if prev_hash is not None else _GENESIS_HASH
 
-    entry_hash = compute_entry_hash(
-        seq=seq,
-        kind=kind_value,
-        payload=payload,
-        related_id=related_id,
-        actor=actor,
-        created_at=created_at,
-        parent_hash=parent_hash,
-    )
+        seq: int = await conn.fetchval(f"SELECT nextval('{_SEQ_NAME}')")
+        created_at = datetime.now(tz=UTC)
 
-    row = await conn.fetchrow(
-        """
-        INSERT INTO audit_entries
-            (seq, kind, payload, related_id, actor, created_at, parent_hash, entry_hash)
-        VALUES ($1, $2::audit_kind, $3::jsonb, $4, $5, $6, $7, $8)
-        RETURNING id, seq, kind::text AS kind, payload, related_id, actor,
-                  created_at, parent_hash, entry_hash
-        """,
-        seq,
-        kind_value,
-        payload_json,
-        related_id,
-        actor,
-        created_at,
-        parent_hash,
-        entry_hash,
-    )
+        entry_hash = compute_entry_hash(
+            seq=seq,
+            kind=kind_value,
+            payload=payload,
+            related_id=related_id,
+            actor=actor,
+            created_at=created_at,
+            parent_hash=parent_hash,
+        )
+
+        row = await conn.fetchrow(
+            """
+            INSERT INTO audit_entries
+                (seq, kind, payload, related_id, actor, created_at, parent_hash, entry_hash)
+            VALUES ($1, $2::audit_kind, $3::jsonb, $4, $5, $6, $7, $8)
+            RETURNING id, seq, kind::text AS kind, payload, related_id, actor,
+                      created_at, parent_hash, entry_hash
+            """,
+            seq,
+            kind_value,
+            payload_json,
+            related_id,
+            actor,
+            created_at,
+            parent_hash,
+            entry_hash,
+        )
     return _row_to_entry(row)
 
 

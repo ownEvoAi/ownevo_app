@@ -14,13 +14,19 @@ Coverage:
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime
 
 import asyncpg
 import httpx
 import pytest
-from ownevo_kernel.audit.writer import _GENESIS_HASH, append_audit_entry, compute_entry_hash
+from ownevo_kernel.audit.writer import (
+    _GENESIS_HASH,
+    _SEQ_NAME,
+    append_audit_entry,
+    compute_entry_hash,
+)
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.types import AuditKind
 
@@ -160,11 +166,10 @@ async def test_verify_chain_broken_by_wrong_parent_hash(
 
     # Insert a second entry with an intentionally wrong parent_hash.
     bad_parent = "a" * 64
-    seq: int = await db.fetchval("SELECT nextval('audit_entries_seq_seq')")
+    seq: int = await db.fetchval(f"SELECT nextval('{_SEQ_NAME}')")
     created_at = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     kind_str = "gate-run-completed"
     payload = {"tampered": True}
-    import json
     # Compute entry_hash using the wrong parent_hash so the stored hash
     # is self-consistent for the wrong parent — the verify endpoint
     # recomputes from the canonical source and sees parent_hash mismatch.

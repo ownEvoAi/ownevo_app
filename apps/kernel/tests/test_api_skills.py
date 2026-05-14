@@ -252,7 +252,7 @@ async def test_list_skills_returns_workspace_wide_index(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/skills?workflow_id= — library filter (TODO-40)
+# GET /api/skills?workflow_id= — library filter
 # ---------------------------------------------------------------------------
 
 
