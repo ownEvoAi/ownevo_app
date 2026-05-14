@@ -164,6 +164,71 @@ def _patch_tool_call_args_resilience() -> None:
     _llm._ownevo_args_patch_applied = True  # type: ignore[attr-defined]
 
 
+def _patch_litellm_ollama_think_off() -> None:
+    """Inject ``options.think=False`` for qwen3-family models on ollama_chat.
+
+    LiteLLM's ``ollama_chat`` provider does NOT auto-strip thinking like
+    our ``OllamaChatClient`` does — only the kernel-side runner has that
+    plumbing. So when the τ³ task agent (running inside the sandbox via
+    LiteLLM, not OllamaChatClient) is configured as
+    ``ollama_chat/qwen3.6:35b-a3b``, the model generates indefinite
+    thinking traces and hangs at Ollama's ~10-min ``/api/chat`` internal
+    inference timeout. tau2 then retries the same prompt, hangs again,
+    surfaces ``TerminationReason.INFRASTRUCTURE_ERROR`` after exhausting
+    its retry budget. End result: 0/40 retail tasks evaluate.
+
+    Observed 2026-05-10 in ``qwen36ollama_native_smoke3``: every single
+    ``POST /api/chat`` returned ``500 | 10m0s`` for 2+ hours straight,
+    seen via ``docker logs ollama``. ``/no_think`` system-prompt
+    directive does NOT work on qwen3.5/qwen3.6 lineage (per F14g) — the
+    only reliable suppression path is ``options.think=false`` in the
+    Ollama request payload.
+
+    Approach: monkey-patch ``litellm.completion``/``acompletion`` at the
+    entry point to inject ``options={"think": False}`` (preserving any
+    existing options dict) when:
+      - the model name starts with ``ollama_chat/`` or ``ollama/``, AND
+      - the model name contains ``qwen3`` (case-insensitive).
+
+    Idempotent (re-applying is a no-op).
+    """
+    try:
+        import litellm  # type: ignore[import-not-found]
+    except ImportError:
+        return
+    if getattr(litellm, "_ownevo_ollama_think_off_applied", False):
+        return
+
+    def _maybe_inject_think(call_kwargs: dict) -> None:
+        model = call_kwargs.get("model", "") or ""
+        if not isinstance(model, str):
+            return
+        if not (model.startswith("ollama_chat/") or model.startswith("ollama/")):
+            return
+        if "qwen3" not in model.lower():
+            return
+        existing = call_kwargs.get("options")
+        merged: dict = {"think": False}
+        if isinstance(existing, dict):
+            merged = {**existing, "think": False}
+        call_kwargs["options"] = merged
+
+    _orig_completion = litellm.completion
+    _orig_acompletion = litellm.acompletion
+
+    def _patched_completion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _maybe_inject_think(kwargs)
+        return _orig_completion(*args, **kwargs)
+
+    async def _patched_acompletion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _maybe_inject_think(kwargs)
+        return await _orig_acompletion(*args, **kwargs)
+
+    litellm.completion = _patched_completion  # type: ignore[assignment]
+    litellm.acompletion = _patched_acompletion  # type: ignore[assignment]
+    litellm._ownevo_ollama_think_off_applied = True  # type: ignore[attr-defined]
+
+
 def _patch_tau2_defaults() -> None:
     target = os.environ.get("AGENT_MODEL")
     if not target:
@@ -205,3 +270,7 @@ try:
     _patch_nl_evaluator_resilience()
 except Exception as _exc:  # noqa: BLE001
     _sys.stderr.write(f"[sitecustomize] _patch_nl_evaluator_resilience failed: {_exc}\n")
+try:
+    _patch_litellm_ollama_think_off()
+except Exception as _exc:  # noqa: BLE001
+    _sys.stderr.write(f"[sitecustomize] _patch_litellm_ollama_think_off failed: {_exc}\n")

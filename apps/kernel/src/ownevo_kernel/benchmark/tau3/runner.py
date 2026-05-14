@@ -314,7 +314,14 @@ class SandboxedTauBenchRunner:
         anthropic_api_key: Forwarded to the sandbox env so LiteLLM's
             anthropic provider can authenticate. Required when
             ``agent_model`` or ``user_model`` starts with ``anthropic/``.
+        anthropic_api_base: Forwarded as ``ANTHROPIC_API_BASE``. Required
+            when ``agent_model`` or ``user_model`` uses an ``anthropic/``
+            -prefixed model and the target server is local (e.g. LM Studio
+            Anthropic-compat endpoint at ``http://host:1234``).
         openai_api_key: Same for OpenAI provider.
+        openai_api_base: Forwarded as ``OPENAI_API_BASE``. Required when
+            ``agent_model`` or ``user_model`` uses an ``openai/``-prefixed
+            model and the target server is local (e.g. LM Studio).
         ollama_api_base: Forwarded as ``OLLAMA_API_BASE``. Required when
             ``agent_model`` starts with ``ollama_chat/`` or ``ollama/``.
     """
@@ -329,7 +336,9 @@ class SandboxedTauBenchRunner:
     memory_mb: int = 1024
     skill_override_dir: Path | None = None
     anthropic_api_key: str | None = None
+    anthropic_api_base: str | None = None
     openai_api_key: str | None = None
+    openai_api_base: str | None = None
     ollama_api_base: str | None = None
     last_pipeline_result: PipelineResult | None = field(
         default=None, init=False, repr=False,
@@ -394,8 +403,12 @@ class SandboxedTauBenchRunner:
         }
         if self.anthropic_api_key:
             extra_env["ANTHROPIC_API_KEY"] = self.anthropic_api_key
+        if self.anthropic_api_base:
+            extra_env["ANTHROPIC_API_BASE"] = self.anthropic_api_base
         if self.openai_api_key:
             extra_env["OPENAI_API_KEY"] = self.openai_api_key
+        if self.openai_api_base:
+            extra_env["OPENAI_API_BASE"] = self.openai_api_base
         if self.ollama_api_base:
             extra_env["OLLAMA_API_BASE"] = self.ollama_api_base
 
