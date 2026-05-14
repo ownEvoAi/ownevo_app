@@ -351,7 +351,7 @@ OWNEVO_TAU3_CYCLES=1 OWNEVO_TAU3_CONCURRENCY=4 \
 | ID | Task agent | Baseline | Status |
 |---|---|---|---|
 | **T1** | `anthropic/qwen/qwen3.5-9b` | 0.5250 | ✅ **DONE** — c4 smoke crash (AGENT_INSTRUCTION NameError). best_ever=0.4250 (no lift vs baseline 0.5250) |
-| **T2** | `anthropic/qwen3.5-4b` | 0.3750 | 🔄 **10-cycle run IN PROGRESS** — cycle 2/10 proposer running (c1: 0.4500 PASS ✅ **+0.075 lift**) |
+| **T2** | `anthropic/qwen3.5-4b` | 0.3750 | 🔄 **resume run IN PROGRESS** — c4 killed by crash; 6-cycle resume started ~18:24Z (best_ever=0.4750 in DB) |
 | **T3** | `openai/nvidia/nemotron-3-nano-4b` | 0.3250 | ⏳ queued after T2 |
 | **T4** | `openai/nvidia/nemotron-3-nano-omni` | 0.6250 | ⏳ queued after T3 |
 
@@ -388,7 +388,10 @@ OWNEVO_TAU3_CYCLES=1 OWNEVO_TAU3_CONCURRENCY=4 \
 - **Workflow:** `tau3-retail-v1__qwen36prop_qwen35_4b`, PID=3438182
 - **Launch note:** lms load reported "exit code null" on SWAP init (model already loaded from T1). Proposer confirmed loaded; cycle 1 started cleanly at 14:21:55Z.
   - **Cycle 1:** PASS — val_score=0.4500, N=40/40, infra_errors=0. Proposer v_seq=291, 6 iters. best_ever_after=0.4500. **+0.075 lift vs baseline 0.3750.** (14:21Z→14:56Z, ~35 min)
-  - **Cycle 2:** IN PROGRESS (started 2026-05-14T14:56:51Z) — proposer DONE (v_seq=293), eval **12/40** avg=0.42 (gate needs >0.4500).
+  - **Cycle 2:** PASS — val_score=0.4750, N=40/40. Proposer v_seq=293, 6 iters. best_ever_after=0.4750. **+0.025 gain.** (14:56Z→15:27Z, ~31 min)
+  - **Cycle 3:** SANDBOX_ERROR — val_score=None, 1 infra_error (task_74: empty UserMessage from user-sim). best_ever_after=0.4750 (unchanged). (15:27Z→16:00Z, ~33 min)
+  - **Cycle 4:** KILLED — host machine crash mid-eval (smoke had passed, eval was ~21/40). No DB entry written. best_ever remains 0.4750.
+  - **Cycles 5-10 (resume run):** started ~2026-05-14T18:24Z, PID=17325, log=`qwen36prop_qwen35_4b_resume_nohup.log`. 6-cycle run with same workflow_id; gate will use best_ever=0.4750 from DB.
 
 ---
 

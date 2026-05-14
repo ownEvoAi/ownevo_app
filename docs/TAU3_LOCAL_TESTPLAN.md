@@ -342,7 +342,10 @@ Other attempts — abbreviated, model-selection signal only (infra details in `S
 **T2 — qwen3.5-4b task agent (baseline 0.3750):** started 2026-05-14T14:21:55Z, workflow=`tau3-retail-v1__qwen36prop_qwen35_4b`, PID=3438182.
 - SWAP: PROPOSER=`qwen/qwen3.6-35b-a3b` ctx=65536, TASK=`qwen3.5-4b` ctx=65536
 - **Cycle 1:** PASS — val_score=0.4500, N=40/40, infra_errors=0. Proposer v_seq=291, 6 iters. best_ever_after=0.4500. **+0.075 lift vs baseline 0.3750.** (14:21Z→14:56Z, ~35 min)
-- **Cycle 2:** IN PROGRESS (started 14:56:51Z) — proposer generating.
+- **Cycle 2:** PASS — val_score=0.4750, N=40/40. Proposer v_seq=293, 6 iters. best_ever_after=0.4750. **+0.025 gain.** (14:56Z→15:27Z, ~31 min)
+- **Cycle 3:** SANDBOX_ERROR — 1 infra_error (task_74: empty UserMessage from nemotron user-sim). best_ever_after=0.4750. (15:27Z→16:00Z, ~33 min)
+- **Cycle 4:** KILLED — host machine crash mid-eval (smoke passed, eval ~21/40 when killed). No DB entry. best_ever=0.4750.
+- **Resume (cycles 5-10):** 6-cycle restart launched ~18:24Z, same workflow_id, gate uses best_ever=0.4750 from DB.
 
 **T3 — nemotron-3-nano-4b task agent (baseline 0.3250):** queued after T2.
 **T4 — nemotron-3-nano-omni task agent (baseline 0.6250):** queued after T3.
