@@ -1,4 +1,10 @@
 import type { WorkflowSummary } from '../../../lib/api'
+import {
+  isStaleRunningIteration,
+  modeLabel,
+  relativeTime,
+  workflowDisplayTitle,
+} from '../../../lib/format'
 
 interface WorkflowsTableProps {
   workflows: WorkflowSummary[]
@@ -13,10 +19,9 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
   if (workflows.length === 0) {
     return (
       <div className="wf-table-empty">
-        No workflows in this workspace yet. Run{' '}
-        <code>scripts/seed_m5_baseline.py</code> to register the demand-prediction
-        baseline, or click <strong>New workflow</strong> to describe one in plain
-        English.
+        No workflows in this workspace yet. Run <code>make seed-demo</code> to
+        register sample workflows, or click <strong>New workflow</strong> to
+        describe one in plain English.
       </div>
     )
   }
@@ -39,11 +44,13 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
           style={{ textDecoration: 'none' }}
         >
           <div className="wf-name">
-            {w.description || w.id}
+            {workflowDisplayTitle(w.id, w.description)}
             <span className="wf-name-buyer">{w.id}</span>
           </div>
           <div className="wf-metric">
-            <span className="wf-metric-value">{w.mode}</span>
+            <span className="wf-metric-value" title={modeLabel(w.mode).hint}>
+              {modeLabel(w.mode).label}
+            </span>
           </div>
           <div className="wf-metric">
             <span className="wf-metric-value">
@@ -52,6 +59,26 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
           </div>
           <div className="wf-metric">
             <span className="wf-metric-value">{w.iteration_count}</span>
+            {w.running_iteration_count && w.running_iteration_count > 0 ? (
+              isStaleRunningIteration(w.oldest_running_started_at) ? (
+                <span
+                  className="wf-inflight stale"
+                  title={`Running iteration started ${w.oldest_running_started_at} — may be abandoned`}
+                >
+                  <span className="inflight-dot stale" />
+                  {w.running_iteration_count} stale ·{' '}
+                  {relativeTime(w.oldest_running_started_at!)}
+                </span>
+              ) : (
+                <span
+                  className="wf-inflight"
+                  title={`${w.running_iteration_count} running`}
+                >
+                  <span className="inflight-dot" />
+                  {w.running_iteration_count} running
+                </span>
+              )
+            ) : null}
           </div>
           <div className="wf-pending">
             {w.pending_proposals_count > 0 ? (

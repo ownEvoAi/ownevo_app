@@ -52,6 +52,15 @@ export interface TableColumn {
   type?: 'string' | 'number' | 'pill'
   format?: 'currency' | 'percent' | 'integer'
   align?: 'left' | 'right'
+  // When set, the cell's `title` attribute (hover tooltip) reads from
+  // `row[title_key]` — used to show truncated text in the cell while
+  // keeping the full value one hover away. Truncation happens in the
+  // resolver; the component only wires the tooltip.
+  title_key?: string
+  // When set, the cell renders as a link with `href = row[link_key]`.
+  // Falsy values (null / empty string / missing key) fall back to a
+  // plain text cell — no broken/dead links rendered.
+  link_key?: string
 }
 
 export type TableRow = Record<string, unknown>

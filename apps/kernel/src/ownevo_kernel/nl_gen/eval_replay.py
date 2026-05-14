@@ -60,12 +60,17 @@ class ReplayResult:
     `passed` is the gate-signal bit. `actual_value` is the value the sim
     actually produced at the targeted event — useful for the audit trail
     so a reviewer can see exactly what disagreed.
+
+    `rationale` is the agent's per-case explanation (populated by
+    `run_with_agent`; None when the replay was deterministic via the
+    sim path because there's no agent to explain a sim's output).
     """
 
     case_id: str
     passed: bool
     actual_value: Any
     expected_value: Any
+    rationale: str | None = None
 
 
 def _bool_label_fields(plan: SimulationPlan) -> dict[str, EventField]:

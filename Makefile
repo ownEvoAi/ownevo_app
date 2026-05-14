@@ -5,7 +5,7 @@
 # of the logic stays Python-side and testable.
 
 .PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop \
-        api web-dev web-build seed-approval-demo \
+        api web-dev web-build seed-approval-demo seed-demo seed-demo-with-iter \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
@@ -25,6 +25,8 @@ help:
 	@printf '  web-dev             run the Next.js dev server on :3000 (W2.5)\n'
 	@printf '  web-build           production build of the Next.js app (W2.5)\n'
 	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
+	@printf '  seed-demo           seed credit-risk + contract-review workflows (8.4.2)\n'
+	@printf '  seed-demo-with-iter same, plus run one iteration each so operator pages populate\n'
 	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
 	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
 	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
@@ -186,6 +188,19 @@ LOOP_ARGS ?=
 
 seed-m5-baseline:
 	cd apps/kernel && uv run python scripts/seed_m5_baseline.py
+
+# Demo seed — sample workflows so the UI has something to show without
+# running NL-gen first. Idempotent. PLAN row 8.4.2.
+#
+# `make seed-demo`               seeds workflows + eval cases only.
+# `make seed-demo-with-iter`     also runs one iteration per workflow so
+#                                the operator pages light up immediately
+#                                (requires ANTHROPIC_API_KEY; ~1 min/workflow).
+seed-demo:
+	cd apps/kernel && uv run python scripts/seed_demo.py
+
+seed-demo-with-iter:
+	cd apps/kernel && uv run python scripts/seed_demo.py --with-iterations
 
 # τ³-retail bootstrap seed (P1.5 / M5). Idempotent — safe to re-run.
 # Registers the tau3-retail-v1 workflow + tau3.retail.baseline.v1.agent

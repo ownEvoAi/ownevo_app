@@ -37,25 +37,25 @@ import hashlib
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ..clustering import (
+    EMBEDDING_DIM,
     Clusterer,
     ClusteringResult,
     ClusteringSignal,
     ClusterSummary,
-    EMBEDDING_DIM,
     Embedder,
     Labeler,
     Reducer,
     cluster_failures,
 )
 from ..clustering.types import RawClusterAssignment
-from ..eval_runner.runner import run_with_agent
+from ..eval_runner.runner import EvalCaseOutcome, run_with_agent
 from .eval_case_set import EvalCaseSet
 from .failure_clustering import (
     NLGenFailureSnapshot,
@@ -63,7 +63,11 @@ from .failure_clustering import (
 )
 from .instruction_proposer import (
     DEFAULT_MAX_TOKENS as DEFAULT_PROPOSER_MAX_TOKENS,
+)
+from .instruction_proposer import (
     DEFAULT_MODEL as DEFAULT_PROPOSER_MODEL,
+)
+from .instruction_proposer import (
     FailureExample,
     InstructionEdit,
     propose_instruction_edit,
@@ -228,6 +232,16 @@ class CycleOutcome:
     instruction_after: str | None
     instruction_edit: InstructionEdit | None
     wall_seconds: float
+
+    # Persistence-facing payload. The original CycleOutcome was JSON-only
+    # (CLI report). These fields carry the structured artifacts so the
+    # iteration runner can persist traces / failure_clusters / audit rows
+    # without re-running the agent. Default-empty so existing test
+    # construction (kwargs only) keeps working.
+    outcomes: tuple[EvalCaseOutcome, ...] = field(default_factory=tuple)
+    snapshots: tuple[NLGenFailureSnapshot, ...] = field(default_factory=tuple)
+    clusters: tuple[ClusterSummary, ...] = field(default_factory=tuple)
+    clustering_result: ClusteringResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -405,7 +419,7 @@ async def run_nl_gen_demo_loop(
     plan: SimulationPlan,
     case_set: EvalCaseSet,
     metric: MetricDefinition,
-    client: "AsyncAnthropic",
+    client: AsyncAnthropic,
     n_cycles: int = DEFAULT_N_CYCLES,
     agent_model: str | None = None,
     proposer_model: str = DEFAULT_PROPOSER_MODEL,
@@ -480,12 +494,12 @@ async def run_nl_gen_demo_loop(
         else _build_default_clusterer
     )
 
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     cycles: list[CycleOutcome] = []
     cumulative_instruction: str | None = None
 
     for cycle_idx in range(n_cycles):
-        cycle_started = datetime.now(timezone.utc)
+        cycle_started = datetime.now(UTC)
         is_last = cycle_idx == n_cycles - 1
 
         instruction_before = cumulative_instruction
@@ -586,7 +600,7 @@ async def run_nl_gen_demo_loop(
                     instruction_after = instruction_after[-_MAX_CUMULATIVE_INSTRUCTION_CHARS:]
                 cumulative_instruction = instruction_after
 
-        cycle_ended = datetime.now(timezone.utc)
+        cycle_ended = datetime.now(UTC)
         cycles.append(
             CycleOutcome(
                 cycle_index=cycle_idx,
@@ -602,6 +616,10 @@ async def run_nl_gen_demo_loop(
                 instruction_after=instruction_after,
                 instruction_edit=edit,
                 wall_seconds=(cycle_ended - cycle_started).total_seconds(),
+                outcomes=tuple(report.outcomes),
+                snapshots=tuple(snapshots),
+                clusters=tuple(clustering_result.clusters),
+                clustering_result=clustering_result,
             )
         )
         logger.info(
@@ -614,7 +632,7 @@ async def run_nl_gen_demo_loop(
             f"top={top_cluster_label!r}" if top_cluster_label else "no-edit",
         )
 
-    ended_at = datetime.now(timezone.utc)
+    ended_at = datetime.now(UTC)
     return DemoLoopReport(
         workflow_spec_id=spec.id,
         cycles=tuple(cycles),

@@ -57,6 +57,13 @@ data/
 *.sqlite
 *.sqlite3
 .temp
+.tmp/
 data/m5/
 temp/
 .gstack/
+.claude/
+
+# Demo-video screenshots / storyboard scratch — kept out of git to avoid
+# bloating history with regenerable .png artifacts. Live copy is at
+# ../_demo-video-temp/ (sibling of ownevo_app).
+docs/demo-video/

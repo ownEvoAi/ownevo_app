@@ -1,145 +1,59 @@
+import Link from 'next/link'
 import {
   getWorkflowAnatomy,
+  getWorkflowCaseOutputs,
+  getWorkflowIterations,
   getWorkflowSkills,
   kernelError,
   KernelApiError,
+  listProposals,
+  listWorkflowEvalCases,
+  type CaseOutputList,
+  type EvalCaseSummary,
+  type IterationPoint,
+  type ProposalSummary,
   type SkillSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
-import {
-  AlertList,
-  ConversationView,
-  DocumentReader,
-  KanbanBoard,
-  MetricCards,
-  ScheduleGrid,
-  SideBySideView,
-  TableView,
-  TimeSeriesChart,
-} from '@/app/components/primitives'
-import { getWorkflowOverviewPrimitives } from '@/lib/primitives-mock-data'
-import { getMock } from './mocks'
+import { AlertList } from '@/app/components/primitives/alert-list'
+import { KanbanBoard } from '@/app/components/primitives/kanban-board'
+import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { TableView } from '@/app/components/primitives/table-view'
+import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
+import { resolvePrimitives } from '@/lib/primitive-data-resolver'
+import { GenerateEvalCasesButton } from './eval-cases/generate-button'
+import { RunIterationButton } from './run-iteration-button'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
 }
 
-const ACTIVITY_TONE: Record<string, string> = {
-  approval: 'var(--green)',
-  cluster: 'var(--amber)',
-  regression: 'var(--red)',
-  escalation: 'var(--accent)',
-}
-
-// Map the semantic delta tone (positive/negative/neutral business
-// outcome) onto the existing primitives.css colour classes.
-const TONE_CLASS: Record<'positive' | 'negative' | 'neutral', string> = {
-  positive: 'up',
-  negative: 'down',
-  neutral: 'flat',
-}
-
-// Workflow Overview tab.
-//
-// For wfId in {labour, contract, support}: renders mock metrics +
-// recent-activity feed from mocks.ts. For demand-prediction (live):
-// surfaces a placeholder pointing at Failures + Audit until the
-// W8.1.1 wiring lands.
-//
-// W7 slice 11 (7.1.12) — both branches mount the AgentAnatomy pane
-// above the fold so reviewers see "what the agent CAN do" before
-// scrolling to metrics. Mock surfaces feed hand-authored
-// skills+spec from mocks.ts; live surfaces fetch from the kernel.
 export default async function WorkflowOverviewPage({ params }: PageProps) {
   const { wsId, wfId } = await params
-  const mock = getMock(wfId)
 
-  if (mock) {
-    return (
-      <>
-        <AgentAnatomy
-          wsId={wsId}
-          workflowId={null}
-          skills={mock.anatomy.skills}
-          spec={mock.anatomy.spec}
-        />
-
-        <div className="metrics glance" style={{ marginBottom: 24, marginTop: 24 }}>
-          {mock.metrics.map((m) => (
-            <div key={m.label} className="metric">
-              <div className="metric-label">{m.label}</div>
-              <div className="metric-value">{m.value}</div>
-              {m.delta && (
-                <div className={`metric-delta ${TONE_CLASS[m.delta.tone]}`}>{m.delta.text}</div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <section style={{ marginBottom: 24 }}>
-          <h2
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: 'var(--text-2)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              marginBottom: 10,
-            }}
-          >
-            Recent activity
-          </h2>
-          <div className="activity">
-            {mock.recentActivity.map((a, i) => (
-              <div key={i} className="activity-item">
-                <div
-                  className="activity-dot"
-                  style={{ background: ACTIVITY_TONE[a.kind] ?? 'var(--text-faint)' }}
-                />
-                <div className="activity-body">
-                  {a.body}
-                  <div className="activity-meta">{a.when}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <WorkflowPrimitives wfId={wfId} />
-
-        <section
-          style={{
-            marginTop: 24,
-            background: 'var(--bg)',
-            border: '1px dashed var(--border)',
-            borderRadius: 8,
-            padding: 20,
-            color: 'var(--text-muted)',
-            fontSize: 13,
-            lineHeight: 1.55,
-          }}
-        >
-          This workflow is positioning copy. The four glance metrics, the activity feed,
-          and the failure clusters under the Failures tab are hand-authored. The
-          improvement loop, eval-case promotion, gate, and audit chain are the same as
-          for any live workflow — they just don&rsquo;t run on this dataset yet.
-        </section>
-      </>
-    )
-  }
-
-  // Live workflow (demand-prediction or any other backend-registered id).
   let skills: SkillSummary[] = []
   let spec: WorkflowSpecShape | null = null
+  let evalCases: EvalCaseSummary[] = []
+  let iterations: IterationPoint[] = []
+  let proposals: ProposalSummary[] = []
+  let caseOutputs: CaseOutputList | null = null
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList] = await Promise.all([
+    const [anatomy, skillList, evalList, iterList, propList, coList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
+      listWorkflowEvalCases(wfId),
+      getWorkflowIterations(wfId),
+      listProposals({ workflow_id: wfId, limit: 100 }),
+      getWorkflowCaseOutputs(wfId).catch(() => null),
     ])
     spec = anatomy.spec
     skills = skillList.items
+    evalCases = evalList.items
+    iterations = iterList.items
+    proposals = propList.items
+    caseOutputs = coList
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -147,6 +61,31 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       apiError = kernelError(err)
     }
   }
+
+  const resolvedPrimitives = !apiError
+    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
+    : []
+
+  const hasEvalCases = evalCases.length > 0
+  const iterationCount = iterations.length
+  const trainCount = evalCases.filter((c) => !c.is_test_fold).length
+  const testCount = evalCases.length - trainCount
+  const latestVal = iterationCount > 0 ? iterations[iterationCount - 1].val_score : null
+
+  // Pick the next-step card content based on where the workflow is in the
+  // gen → eval → iterate flow. Three stages, one card each.
+  let stage: 'no-evals' | 'has-evals-no-iter' | 'iterating' = 'no-evals'
+  if (hasEvalCases) {
+    stage = iterationCount > 0 ? 'iterating' : 'has-evals-no-iter'
+  }
+
+  // Resolved primitives the layer-D resolver actually has data for vs. the
+  // ones it can't bind. Split here so we can render the resolved bundle
+  // separately from a single collapsed "unresolved primitives" note.
+  const resolved = resolvedPrimitives.filter((p) => p.kind !== 'empty')
+  const unresolvedTypes = resolvedPrimitives
+    .filter((p): p is Extract<typeof resolvedPrimitives[number], { kind: 'empty' }> => p.kind === 'empty')
+    .map((p) => p.primitiveType)
 
   return (
     <>
@@ -156,62 +95,171 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
         </div>
       )}
 
+      {!apiError ? (
+        <section className="overview-next-step">
+          <div className="overview-next-step-text">
+            <h3 className="overview-next-step-title">
+              {stage === 'no-evals' && 'Next: generate eval cases'}
+              {stage === 'has-evals-no-iter' && 'Next: run the first iteration'}
+              {stage === 'iterating' && 'Improvement loop active'}
+            </h3>
+            <p className="overview-next-step-body">
+              {stage === 'no-evals' && (
+                <>
+                  The improvement loop needs a test suite to score against.
+                  Generate eval cases from the workflow&rsquo;s spec
+                  (~30&ndash;60s, 2 LLM calls), then run an iteration.
+                </>
+              )}
+              {stage === 'has-evals-no-iter' && (
+                <>
+                  This workflow has <strong>{evalCases.length}</strong> eval case
+                  {evalCases.length === 1 ? '' : 's'} ({trainCount} train ·{' '}
+                  {testCount} test). One iteration runs the agent against every
+                  case, clusters its failures, and proposes an instruction edit
+                  for the next round. ~30&ndash;90 seconds.
+                </>
+              )}
+              {stage === 'iterating' && (
+                <>
+                  <strong>{iterationCount}</strong> iteration
+                  {iterationCount === 1 ? '' : 's'} recorded
+                  {latestVal !== null ? (
+                    <>
+                      {' '}· latest val_score{' '}
+                      <code>{latestVal.toFixed(3)}</code>
+                    </>
+                  ) : null}{' '}
+                  · {evalCases.length} eval cases in the suite. Each new
+                  iteration re-runs the agent with the latest instruction and
+                  proposes the next edit.
+                </>
+              )}
+            </p>
+          </div>
+          <div className="overview-next-step-action">
+            {stage === 'no-evals' && (
+              <GenerateEvalCasesButton wsId={wsId} wfId={wfId} hasExisting={false} />
+            )}
+            {(stage === 'has-evals-no-iter' || stage === 'iterating') && (
+              <RunIterationButton
+                wsId={wsId}
+                wfId={wfId}
+                iterationCount={iterationCount}
+              />
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {!apiError && iterations.length > 0 && resolved.length > 0 ? (
+        <section className="overview-primitives">
+          {resolved.map((p, i) => {
+            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
+            if (p.kind === 'TimeSeriesChart')
+              return <TimeSeriesChart key={i} data={p.data} />
+            if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
+            if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
+            if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
+            return null
+          })}
+          {unresolvedTypes.length > 0 ? (
+            <p className="overview-primitives-unresolved">
+              Spec also declares{' '}
+              <strong>{unresolvedTypes.join(', ')}</strong> — those primitives
+              need richer per-case agent output than the current loop emits.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {!apiError && iterations.length > 0 ? (
+        <IterationList wsId={wsId} wfId={wfId} iterations={iterations} />
+      ) : null}
+
       <AgentAnatomy wsId={wsId} workflowId={wfId} skills={skills} spec={spec} />
 
-      <WorkflowPrimitives wfId={wfId} />
+      {!apiError && hasEvalCases ? (
+        <p
+          style={{
+            marginTop: 12,
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            textAlign: 'right',
+          }}
+        >
+          <Link
+            href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}
+            style={{ color: 'var(--accent)' }}
+          >
+            View eval cases →
+          </Link>
+        </p>
+      ) : null}
     </>
   )
 }
 
-// Render the per-workflow primitive bundle from the mock resolver
-// (Track 0 layer C). Phase-2 resolver (TODO-35) replaces this with
-// live agent-output data; until then, the curated payloads keep the
-// Overview page looking live. Returns null if the workflow has no
-// curated primitives (e.g. an NL-gen'd workflow that hasn't been
-// hand-mocked yet) — caller decides what to render in its absence.
-function WorkflowPrimitives({ wfId }: { wfId: string }) {
-  const p = getWorkflowOverviewPrimitives(wfId)
-  if (!p) {
-    return (
-      <section
-        style={{
-          marginTop: 24,
-          background: 'var(--bg)',
-          border: '1px dashed var(--border)',
-          borderRadius: 8,
-          padding: 20,
-          color: 'var(--text-muted)',
-          fontSize: 13,
-          lineHeight: 1.55,
-        }}
-      >
-        No render primitives configured for this workflow yet. The Phase-2
-        resolver (TODO-35) will compose them from agent output.
-      </section>
-    )
-  }
+function IterationList({
+  wsId,
+  wfId,
+  iterations,
+}: {
+  wsId: string
+  wfId: string
+  iterations: IterationPoint[]
+}) {
+  // Newest first — easier to scan the most recent runs.
+  const rows = [...iterations].reverse()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 24 }}>
-      <div
-        style={{
-          fontSize: 11,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          fontWeight: 500,
-        }}
-      >
-        Operator view · preview data
+    <section style={{ marginTop: 24 }}>
+      <h2 className="section-title" style={{ marginBottom: 8 }}>
+        Iterations · {iterations.length}
+      </h2>
+      <div className="iter-overview-list">
+        <div className="iter-overview-row iter-overview-head">
+          <span>Iter</span>
+          <span>val_score</span>
+          <span>Best ever</span>
+          <span>State</span>
+          <span>Approved?</span>
+          <span>Ended</span>
+        </div>
+        {rows.map((it) => (
+          <Link
+            key={it.iteration_index}
+            href={`/workspaces/${wsId}/workflows/${wfId}/iterations/${it.iteration_index}`}
+            className="iter-overview-row"
+          >
+            <span className="iter-overview-idx">#{it.iteration_index}</span>
+            <span className="iter-overview-num">
+              {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
+            </span>
+            <span className="iter-overview-num">
+              {it.best_ever_score_after !== null
+                ? it.best_ever_score_after.toFixed(3)
+                : '—'}
+            </span>
+            <span className={`iter-overview-state state-${stateClass(it.state)}`}>
+              {it.state}
+            </span>
+            <span className="iter-overview-approved">
+              {it.has_approved_proposal ? '✓' : ''}
+            </span>
+            <span className="iter-overview-when">
+              {it.ended_at ? new Date(it.ended_at).toISOString().slice(0, 16).replace('T', ' ') : '—'}
+            </span>
+          </Link>
+        ))}
       </div>
-      {p.metricCards ? <MetricCards data={p.metricCards} /> : null}
-      {p.timeSeriesChart ? <TimeSeriesChart data={p.timeSeriesChart} /> : null}
-      {p.tableView ? <TableView data={p.tableView} /> : null}
-      {p.scheduleGrid ? <ScheduleGrid data={p.scheduleGrid} /> : null}
-      {p.alertList ? <AlertList data={p.alertList} /> : null}
-      {p.kanbanBoard ? <KanbanBoard data={p.kanbanBoard} /> : null}
-      {p.conversationView ? <ConversationView data={p.conversationView} /> : null}
-      {p.sideBySideView ? <SideBySideView data={p.sideBySideView} /> : null}
-      {p.documentReader ? <DocumentReader data={p.documentReader} /> : null}
-    </div>
+    </section>
   )
+}
+
+function stateClass(state: string): string {
+  if (state === 'gate-pass') return 'pass'
+  if (state === 'gate-blocked-no-improvement') return 'blocked'
+  if (state === 'gate-blocked-regression') return 'regression'
+  if (state === 'sandbox-error') return 'error'
+  return 'other'
 }

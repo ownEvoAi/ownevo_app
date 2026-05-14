@@ -10,6 +10,8 @@ const PILL_TONES: Record<string, string> = {
   medium: 'pill amber',
   low: 'pill outline',
   ok: 'pill green',
+  pass: 'pill green',
+  fail: 'pill red',
 }
 
 function formatCell(value: unknown, col: TableColumn): React.ReactNode {
@@ -56,6 +58,9 @@ export function TableView({ data }: Props) {
                 const v = row[c.key]
                 const numeric =
                   c.type === 'number' || c.align === 'right' || typeof v === 'number'
+                const tooltip = c.title_key ? String(row[c.title_key] ?? '') : undefined
+                const linkHref = c.link_key ? row[c.link_key] : null
+                const content = formatCell(v, c)
                 return (
                   <td
                     key={c.key}
@@ -65,8 +70,22 @@ export function TableView({ data }: Props) {
                     ]
                       .filter(Boolean)
                       .join(' ')}
+                    title={tooltip || undefined}
                   >
-                    {formatCell(v, c)}
+                    {typeof linkHref === 'string' && linkHref.length > 0 ? (
+                      <a
+                        href={linkHref}
+                        style={{
+                          color: 'var(--accent)',
+                          textDecoration: 'none',
+                          fontFamily: 'var(--mono)',
+                        }}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      content
+                    )}
                   </td>
                 )
               })}

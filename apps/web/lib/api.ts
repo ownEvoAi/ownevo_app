@@ -266,13 +266,212 @@ export async function getPreview(workflowId: string): Promise<PreviewResponse> {
   )
 }
 
+export interface GenerateWorkflowResponse {
+  workflow_id: string
+  description: string
+  spec: WorkflowSpecShape
+}
+
+export async function generateWorkflow(
+  description: string,
+  workflowId?: string,
+): Promise<GenerateWorkflowResponse> {
+  const body: Record<string, unknown> = { description }
+  if (workflowId) body.workflow_id = workflowId
+  return jsonFetch<GenerateWorkflowResponse>('/api/nl-gen/generate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export interface EvalCaseSummary {
+  id: string
+  case_id: string
+  provenance: string
+  rationale: string | null
+  target_label_field: string | null
+  expected_value: unknown
+  sim_seed: number | null
+  n_steps: number | null
+  target_step_index: number | null
+  is_test_fold: boolean
+  cluster_id: string | null
+  created_at: string
+}
+
+export interface EvalCaseList {
+  workflow_id: string
+  items: EvalCaseSummary[]
+  total: number
+}
+
+export async function listWorkflowEvalCases(
+  workflowId: string,
+): Promise<EvalCaseList> {
+  return jsonFetch<EvalCaseList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases`,
+  )
+}
+
+// PLAN 8.4.9 (Phase A) — per-case agent output. PLAN 8.4.10 (Phase B)
+// wires this to the operator-shell TableView primitive.
+export interface CaseOutputRow {
+  eval_case_id: string
+  case_id: string | null
+  output_json: Record<string, unknown>
+  input: Record<string, unknown>
+  expected_behavior: Record<string, unknown>
+  passed: boolean
+  is_test_fold: boolean
+  created_at: string
+  trace_id: string | null
+}
+
+export interface CaseOutputList {
+  workflow_id: string
+  iteration_index: number | null
+  iteration_id: string | null
+  items: CaseOutputRow[]
+}
+
+export async function getWorkflowCaseOutputs(
+  workflowId: string,
+  options: { iteration?: number | 'latest' } = {},
+): Promise<CaseOutputList> {
+  const iter = options.iteration ?? 'latest'
+  return jsonFetch<CaseOutputList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/case-outputs?iteration=${encodeURIComponent(String(iter))}`,
+  )
+}
+
+export interface GenerateEvalCasesResponse {
+  workflow_id: string
+  generated: number
+  train_count: number
+  test_count: number
+}
+
+export async function generateEvalCases(
+  workflowId: string,
+): Promise<GenerateEvalCasesResponse> {
+  return jsonFetch<GenerateEvalCasesResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases/generate`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
+export interface RunIterationResponse {
+  iteration_id: string
+  iteration_index: number
+  state: string
+  val_score: number
+  n_cases: number
+  n_failed: number
+  proposed_skill_id: string | null
+  proposed_skill_version_id: string | null
+  proposed_instruction: string | null
+  proposal_id: string | null
+}
+
+export async function runWorkflowIteration(
+  workflowId: string,
+): Promise<RunIterationResponse> {
+  return jsonFetch<RunIterationResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations/run`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
+export interface IterationCaseRow {
+  case_id: string
+  predicted: boolean | null
+  expected: boolean | null
+  passed: boolean | null
+  is_test_fold: boolean
+  rationale: string | null
+  trace_id: string
+  started_at: string
+  ended_at: string | null
+}
+
+export interface IterationDetail {
+  workflow_id: string
+  iteration_id: string
+  iteration_index: number
+  state: string
+  val_score: number | null
+  best_ever_score_before: number | null
+  best_ever_score_after: number | null
+  n_cases: number
+  n_passed: number
+  n_failed: number
+  cluster_id: string | null
+  cluster_label: string | null
+  parent_skill_version_id: string | null
+  proposed_skill_version_id: string | null
+  proposal_id: string | null
+  started_at: string
+  ended_at: string | null
+  cases: IterationCaseRow[]
+}
+
+export async function getIterationDetail(
+  workflowId: string,
+  iterationIndex: number,
+): Promise<IterationDetail> {
+  return jsonFetch<IterationDetail>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/iterations/${iterationIndex}`,
+  )
+}
+
+export interface WorkflowDeleteResponse {
+  id: string
+  iterations: number
+  proposals: number
+  approvals: number
+  traces: number
+  eval_cases: number
+  failure_clusters: number
+  learnings: number
+  skill_versions: number
+  skills: number
+  meta_evals: number
+}
+
+export async function updateWorkflowDescription(
+  workflowId: string,
+  description: string,
+): Promise<WorkflowAnatomy> {
+  return jsonFetch<WorkflowAnatomy>(
+    `/api/workflows/${encodeURIComponent(workflowId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ description }),
+    },
+  )
+}
+
+export async function deleteWorkflow(
+  workflowId: string,
+): Promise<WorkflowDeleteResponse> {
+  return jsonFetch<WorkflowDeleteResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}`,
+    { method: 'DELETE' },
+  )
+}
+
 // W7 slice 2 — workspace Health page + LiftChart
 
 export interface WorkflowSummary {
   id: string
   description: string
   mode: string
+  /** 'benchmark' tags M5/tau-bench rows; null/absent = production. */
+  kind?: string | null
   iteration_count: number
+  running_iteration_count?: number
+  oldest_running_started_at?: string | null
   best_ever_score: number | null
   last_improved_at: string | null
   pending_proposals_count: number
@@ -332,6 +531,16 @@ export interface WorkflowEnvironmentSpec {
   seasonality?: string[]
 }
 
+export interface WorkflowUITab {
+  name?: string
+  primitives?: Array<{ type: string; [key: string]: unknown }>
+}
+
+export interface WorkflowUILayout {
+  layout?: string
+  tabs?: WorkflowUITab[]
+}
+
 export interface WorkflowSpecShape {
   domain?: string
   environment?: WorkflowEnvironmentSpec
@@ -342,6 +551,7 @@ export interface WorkflowSpecShape {
     target_metric_name?: string
     description?: string
   }
+  ui?: WorkflowUILayout
   [key: string]: unknown
 }
 
@@ -349,6 +559,8 @@ export interface WorkflowAnatomy {
   id: string
   description: string
   mode: string
+  /** 'benchmark' tags M5/tau-bench rows; null/absent = production. */
+  kind?: string | null
   spec: WorkflowSpecShape
 }
 
@@ -383,6 +595,8 @@ export interface FailureClusterSummary {
   sample_trace_ids: string[]
   created_at: string
   latest_proposal_id: string | null
+  spawning_iteration_index?: number | null
+  spawning_iteration_id?: string | null
 }
 
 export interface FailureClusterList {
@@ -428,12 +642,18 @@ export interface AuditVerifyResponse {
 }
 
 export async function listAudit(
-  params: { kind?: string; sinceSeq?: number; limit?: number } = {},
+  params: {
+    kind?: string
+    sinceSeq?: number
+    limit?: number
+    workflowId?: string
+  } = {},
 ): Promise<AuditList> {
   const qs = new URLSearchParams()
   if (params.kind) qs.set('kind', params.kind)
   if (params.sinceSeq !== undefined) qs.set('since_seq', String(params.sinceSeq))
   if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params.workflowId) qs.set('workflow_id', params.workflowId)
   const path = qs.toString() ? `/api/audit?${qs}` : '/api/audit'
   return jsonFetch<AuditList>(path)
 }
@@ -545,6 +765,55 @@ export interface TraceDetail {
   metric_outputs: Record<string, unknown> | null
   token_usage: Record<string, unknown> | null
   events: AgentEvent[]
+}
+
+export interface EvalCaseCreatePayload {
+  case_id: string
+  expected_value: boolean
+  target_label_field: string
+  rationale?: string
+  is_test_fold?: boolean
+  sim_seed?: number
+  n_steps?: number
+  target_step_index?: number
+}
+
+export async function createEvalCase(
+  workflowId: string,
+  payload: EvalCaseCreatePayload,
+): Promise<EvalCaseSummary> {
+  return jsonFetch<EvalCaseSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/eval-cases`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export async function deleteEvalCase(
+  workflowId: string,
+  caseId: string,
+): Promise<void> {
+  // Custom fetch — the endpoint returns 204 No Content; jsonFetch would
+  // choke trying to parse an empty body.
+  const url = `${API_URL}/api/workflows/${encodeURIComponent(workflowId)}/eval-cases/${encodeURIComponent(caseId)}`
+  const res = await fetch(url, { method: 'DELETE', cache: 'no-store' })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { detail?: string }
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // body wasn't JSON
+    }
+    throw new KernelApiError(res.status, detail)
+  }
+}
+
+export async function listAllTraces(): Promise<TraceList> {
+  return jsonFetch<TraceList>(`/api/traces`)
 }
 
 export async function getWorkflowTraces(

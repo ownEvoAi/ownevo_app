@@ -47,12 +47,24 @@ docker-compose.yml  Full-stack dev: postgres + kernel API + web in one `make dev
 ## Quick start (Docker)
 
 ```bash
-ANTHROPIC_API_KEY=sk-... make dev-up   # build + start all three services
+ANTHROPIC_API_KEY=sk-... make dev-up        # build + start postgres + kernel + web
+make seed-demo-with-iter                    # seed credit-risk + contract-review +
+                                            # run one iteration each — operator pages
+                                            # populate with real data on first load
 # kernel: http://localhost:8000/api/health → {"status":"ok","db":"ok"}
-# web:    http://localhost:3000
+# web:    http://localhost:3000/workspaces/acme
+# operator-only view: http://localhost:3000/operator/credit-risk?ws=acme
 make dev-logs   # tail logs
 make dev-down   # stop
 ```
+
+`make seed-demo` (without `-with-iter`) is faster but leaves operator pages
+in their "coming soon" state until you click **Run iteration** on a workflow's
+Overview tab. With iterations, the layer-D resolver fills MetricCards +
+TimeSeriesChart + TableView + AlertList + KanbanBoard from real
+`iteration_case_outputs` rows; remaining primitives (DocumentReader /
+SideBySideView / ScheduleGrid / ConversationView) stay declared but
+unresolved until per-workflow `submit_case_output` shapes ship.
 
 Local dev without Docker: `OWNEVO_DATABASE_URL=postgresql://ownevo:ownevo@localhost:5432/ownevo make api` + `make web-dev`. Postgres must be running separately (e.g. `infra/`).
 
@@ -61,6 +73,17 @@ Local dev without Docker: `OWNEVO_DATABASE_URL=postgresql://ownevo:ownevo@localh
 Python owns the core algorithms (improvement loop, eval, clustering, regression gate). TS owns the product surface (approval UX, real-time UI, customer-facing dashboards). Joined by a REST + SSE seam.
 
 ## Status
+
+**Unreleased (post-v0.6.0, on `feat/real-ui-loop`)** — W8 Track 4 closes the
+loop end-to-end in the UI. Rows 8.4.7-8.4.10 plus the operator-shell
+parity work shipped: the iteration runner now persists per-case
+`iteration_case_outputs` (PLAN 8.4.9, migration 0008), the layer-D
+resolver maps those rows onto `TableView` + `AlertList` + `KanbanBoard`
+primitives on the operator shell and the workspace Overview/Operate
+tabs (8.4.10 + follow-ups), and the iteration drill-down explains
+gate decisions in plain English. `make seed-demo-with-iter` seeds two
+workflows + runs one iteration each so a reviewer's first visit shows
+real per-case data, not empty placeholder banners.
 
 **v0.6.0 (2026-05-09)** — W7 Track 1 merged, τ³ first autonomous lift merged, Deploy/Rollback wired, W6 row 6.1 demo dry-run cleared. The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, deploy, watch the audit chain extend.
 
@@ -73,6 +96,8 @@ Python owns the core algorithms (improvement loop, eval, clustering, regression 
 - **W6 + W7 customer-facing workspace + benchmarks** (v0.6.0): W6 row 6.1 NL-gen demo loop dry-run cleared (5-min reviewer budget holds, `[0.20, 1.00]` in 15 s); BL.3 conversation compaction + `/no_think` injection; W7 Track 1 complete — full workspace shell under `/workspaces/[wsId]/` with Health/LiftChart, Failures, per-trace inspection, per-skill detail, Agent-anatomy pane, Audit trail, and `make revert-skill` rollback runbook; Deploy/Rollback wired end-to-end (`skills.deployed_version_id`, `POST /api/proposals/{id}/deploy|rollback`); `skills.head_version_id` now tracks best gate-pass (not latest write); τ³ first autonomous lift on 40-task retail fold — **val_score 0.85 → 0.95 (+11.8%)** at iter 11 on skill v38 (prompt-only change); Ollama `/api/chat` native client for A4.4 gate (TODO-25).
 
 - **Full-stack Docker** (PR #83): root-level `docker-compose.yml` — `make dev-up` starts postgres + kernel + web; accurate kernel API error banners (404 → "Workflow not registered", network → "Kernel API not reachable").
+
+- **W8 Track 4 + operator-shell parity** (unreleased, `feat/real-ui-loop`): per-iteration drill-down with case-level rationale (8.4.7-8.4.8), `iteration_case_outputs` table + `GET /api/workflows/{id}/case-outputs` (8.4.9, migration 0008), layer-D resolver wires `TableView` / `AlertList` / `KanbanBoard` to that data on `/operator/[wfId]` + workspace Overview/Operate tabs (8.4.10), workflow taxonomy split (production vs `kind='benchmark'`, 4-value `workflow_mode` enum), `make seed-demo-with-iter`, plain-English gate-state banner on iteration drill-down, and the operator/operate de-dupe pass.
 
 Next: τ³ prior-art reproduction + Pass³ stretch (W7 Track 3), W8 polish + investor programvideo record.
 

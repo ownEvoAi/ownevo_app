@@ -47,7 +47,7 @@ async def persist_clustering_result(
     async with conn.transaction():
         for summary in result.clusters:
             persisted.append(
-                await _insert_cluster(
+                await insert_cluster(
                     conn,
                     workflow_id=workflow_id,
                     summary=summary,
@@ -93,18 +93,27 @@ async def fetch_failure_cluster(
 # ---------------------------------------------------------------------------
 
 
-async def _insert_cluster(
+async def insert_cluster(
     conn: asyncpg.Connection,
     *,
     workflow_id: str,
     summary: ClusterSummary,
     sample_trace_ids: list[UUID],
 ) -> PersistedCluster:
+    """Insert one failure_clusters row. Exposed (vs `_insert_cluster`) so
+    the iteration runner can drive per-cluster `sample_trace_ids` without
+    rewriting the pgvector + fingerprint plumbing."""
     centroid_literal = _to_pgvector_literal(summary.centroid.tolist())
     quality = (
         round(float(summary.quality_score), 2) if summary.quality_score is not None else None
     )
     fingerprint = _fingerprint(workflow_id, summary.label, len(summary.member_indices))
+    # The unique index on `fingerprint` is partial
+    # (`WHERE fingerprint IS NOT NULL`, per 0002_failure_cluster_fingerprint.sql).
+    # ON CONFLICT must repeat the index predicate verbatim — bare
+    # `ON CONFLICT (fingerprint)` doesn't match a partial index and PG
+    # raises "no unique or exclusion constraint matching the ON CONFLICT
+    # specification".
     row = await conn.fetchrow(
         """
         INSERT INTO failure_clusters (
@@ -112,7 +121,8 @@ async def _insert_cluster(
             sample_trace_ids, cluster_size, quality_score, fingerprint
         )
         VALUES ($1, $2, $3, $4::vector, $5::uuid[], $6, $7, $8)
-        ON CONFLICT (fingerprint) DO NOTHING
+        ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL
+            DO NOTHING
         RETURNING id
         """,
         workflow_id,

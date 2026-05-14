@@ -26,8 +26,8 @@ export function LiftChart({ points, workflowId, height = 220 }: LiftChartProps) 
     return (
       <div className="lift-chart lift-chart-empty" aria-label={`No iterations yet for ${workflowId}`}>
         <p className="lift-chart-empty-msg">
-          No iterations yet. Run <code>scripts/run_improvement_loop.py</code> against
-          this workflow to start the lift curve.
+          No iterations yet. Open the workflow and click <strong>Run
+          iteration</strong> from its Overview tab to start the lift curve.
         </p>
       </div>
     )

@@ -1,9 +1,7 @@
 // Demo payloads for the primitive showcase page. Lifted from
 // www/preview/s26-rk7p3/27-primitives.html so the live renderer
 // matches the marketing reference. These are NOT used by any live
-// workflow page — see apps/web/lib/primitives-mock-data.ts for the
-// per-workflow mock resolver Track 0 layer C wires into the Overview
-// page.
+// workflow page — live data comes from apps/web/lib/primitive-data-resolver.ts.
 
 import type {
   AlertItem,
