@@ -51,14 +51,11 @@ def require_not_demo_mode() -> None:
     if os.environ.get("DEMO_MODE", "").lower() == "true":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "demo_mode",
-                "message": (
-                    "Iteration runs are disabled in the live demo. "
-                    "Clone the repo and run locally: "
-                    "https://github.com/ownEvoAi/ownevo_app"
-                ),
-            },
+            detail=(
+                "This action is disabled in the live demo. "
+                "Clone the repo and run locally: "
+                "https://github.com/ownEvoAi/ownevo_app"
+            ),
         )
 
 

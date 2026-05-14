@@ -54,12 +54,25 @@ async def run() -> None:
 
         for path in pending:
             print(f"  applying {path.name} ...", end=" ", flush=True)
-            async with conn.transaction():
-                await conn.execute(path.read_text())
-                await conn.execute(
-                    "INSERT INTO schema_migrations (filename) VALUES ($1)",
-                    path.name,
-                )
+            sql = path.read_text()
+            # ALTER TYPE ... ADD VALUE cannot run inside a transaction on
+            # Postgres < 16. Detect these files and run them outside a
+            # transaction, then record the migration in a short transaction.
+            needs_no_txn = "ADD VALUE" in sql.upper()
+            if needs_no_txn:
+                await conn.execute(sql)
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO schema_migrations (filename) VALUES ($1)",
+                        path.name,
+                    )
+            else:
+                async with conn.transaction():
+                    await conn.execute(sql)
+                    await conn.execute(
+                        "INSERT INTO schema_migrations (filename) VALUES ($1)",
+                        path.name,
+                    )
             print("done")
 
         print(f"Applied {len(pending)} migration(s).")

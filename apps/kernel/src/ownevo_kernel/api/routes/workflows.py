@@ -736,6 +736,7 @@ async def delete_eval_case(
     workflow_id: str,
     case_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> None:
     """Remove one eval case from the suite.
 
@@ -775,6 +776,7 @@ async def delete_eval_case(
 async def generate_workflow_eval_cases(
     workflow_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> GenerateEvalCasesResponse:
     """Generate + persist eval cases for an existing workflow.
 
@@ -1055,6 +1057,7 @@ async def update_workflow(
 async def delete_workflow(
     workflow_id: str,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> WorkflowDeleteResponse:
     """Hard-delete a workflow and every domain row tied to it.
 

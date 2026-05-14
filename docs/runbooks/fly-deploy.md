@@ -181,7 +181,7 @@ All three services fit within Fly.io's free machine allowance
 |---|---|---|
 | ownevo-pg | shared-cpu-1x, 256 MB, 1 GB vol | ~$0 |
 | ownevo-kernel | shared-cpu-1x, 512 MB | ~$0 |
-| ownevo-web | shared-cpu-1x, 256 MB | ~$0 |
+| ownevo-web | shared-cpu-1x, 512 MB | ~$0 |
 
 Total: **$0–5/month** depending on outbound traffic volume.
 
@@ -189,12 +189,19 @@ Total: **$0–5/month** depending on outbound traffic volume.
 
 ## What doesn't work in DEMO_MODE
 
-`DEMO_MODE=true` is set in `fly.toml`. It blocks:
+`DEMO_MODE=true` is set in `fly.toml`. It blocks write operations that
+would consume API credits or mutate the seeded demo data:
 
-- `POST /api/workflows/{id}/iterations/run` → 503 with a message pointing
-  at the GitHub repo
+- `POST /api/workflows/{id}/iterations/run` → 503
+- `POST /api/workflows/{id}/eval-cases/generate` → 503
+- `DELETE /api/workflows/{id}` → 503
+- `DELETE /api/workflows/{id}/eval-cases/{case_id}` → 503
+- `POST /api/proposals/{id}/deploy` → 503
+- `POST /api/proposals/{id}/rollback` → 503
 
-Everything else (browse workspace, view traces, approve proposals, view
-audit trail) works normally on the seeded data.
+All 503 responses include a message pointing at the GitHub repo.
+
+Everything else (browse workspace, view traces, view audit trail, approve
+or reject proposals) works normally on the seeded data.
 
 To run real iterations: clone the repo and `make dev-up` locally.

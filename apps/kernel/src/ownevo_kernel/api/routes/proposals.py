@@ -32,7 +32,7 @@ from ...approvals import (
     rollback_proposal,
 )
 from ...types import ApproverType
-from ..deps import ConnDep
+from ..deps import ConnDep, DemoModeCheck
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     ApprovalDetail,
@@ -333,6 +333,7 @@ async def deploy(
     proposal_id: UUID,
     body: DeployRequest,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> DeployResponse:
     """Transition `approved-awaiting-deploy` → `deployed`.
 
@@ -358,6 +359,7 @@ async def rollback(
     proposal_id: UUID,
     body: DeployRequest,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> DeployResponse:
     """Transition `deployed` → `rolled-back`.
 

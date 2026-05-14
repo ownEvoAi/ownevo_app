@@ -431,8 +431,7 @@ fly-seed:
 
 # Tail logs from both apps.
 fly-logs:
-	flyctl logs -a ownevo-kernel &
-	flyctl logs -a ownevo-web
+	flyctl logs -a ownevo-kernel & flyctl logs -a ownevo-web; wait
 
 # Open a shell on the kernel machine.
 fly-ssh:
