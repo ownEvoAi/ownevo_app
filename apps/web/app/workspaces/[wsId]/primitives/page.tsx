@@ -69,7 +69,7 @@ const SECTIONS: Section[] = [
     spec: {
       inputShape:
         '{ series: { name, points: [{ t, value }] }[], baseline?, baseline_label?, annotations? }',
-      bestFor: 'Lift over time · before/after improvement story · YC demo hero',
+      bestFor: 'Lift over time · before/after improvement story · demo hero chart',
       avoidWhen: 'Comparing categorical values (use TableView) or single point-in-time state (use MetricCards)',
     },
   },
