@@ -78,7 +78,7 @@ Format follows the standard:
 These were added to the W1-W3 plan by the 2026-05-03 eng review. Listed here as
 backup tracking in case PLAN.md edits drift.
 
-### TODO-5: Cluster-label LLM eval (W3, Track B) — ✅ DONE 2026-05-06
+### TODO-5: Cluster-label LLM eval (W3, Track B) — DONE 2026-05-06
 
 - **What:** Hand-label 20 M5 clusters with ground-truth names. Add nightly judge-vs-human eval at `apps/kernel/src/ownevo_kernel/clustering/label_eval/`. Target agreement ≥0.7.
 - **Status (2026-05-06):** Shipped. 20 hand-authored fixtures at `apps/kernel/src/ownevo_kernel/clustering/label_eval/fixtures.py` (`LABELED_CLUSTER_CASES`) spanning the failure-mode taxonomy. Sonnet 4.6 judge (D4: different from haiku 4.5 labeler). The ≥0.7 gate runs on demand via `make cluster-label-eval LABEL_EVAL_ARGS='--require-agreement 0.7 ...'` — not in GitHub Actions, per project policy that CI doesn't consume API keys. Cost ~$1.20/run on default models. 64 new tests; kernel suite 1009 passing. Module landed at `clustering/label_eval/` (adjacent to the thing being evaluated, mirroring A4.6's `nl_gen/meta_eval/` pattern) rather than the original `eval_runner/cluster_label_eval/` path the row called out — that path predated the meta_eval pattern.
@@ -93,7 +93,7 @@ backup tracking in case PLAN.md edits drift.
   - (when M5 dataset available) `make m5-cluster-failures` with `OWNEVO_DATABASE_URL` — cluster rows + eval cases land in DB
   - (when network available) `make m5-cluster-failures CLUSTER_ARGS='--real'` — sentence-transformers + UMAP + HDBSCAN + Anthropic end-to-end
 
-### TODO-6: LLM-judge stub eval expansion (W5) — ✅ DONE 2026-05-07
+### TODO-6: LLM-judge stub eval expansion (W5) — DONE 2026-05-07
 
 - **What:** Expand W5.2's "5 hand-crafted proposals" to ~30 hand-labeled (proposal, explanation) pairs with structural-element ground truth. Run nightly.
 - **Status (2026-05-07):** Shipped in W5.2 (PR #57). 30 hand-authored `LabeledApprovalCase` fixtures across 4 buckets: 10 `structural` (admit), 8 `vague-but-positive` (reject), 6 `structural-but-wrong-direction` (reject), 6 `hand-wavy` (reject). `make llm-judge-approver-eval` with `--require-agreement 0.85` gate (on demand only — project policy; ~$0.40/run on opus 4.7 + 30-case set). 68 new tests.
@@ -111,7 +111,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P1 — blocks reproducibility CI being green at full 30-day replay scale (current scope: synthetic fixture only).
 - **Depends on:** M5 pipeline operational (W2).
 
-### TODO-8: Parallel τ³/M5 conditions strategy (W6/W8) — ✅ DONE 2026-05-08 (PR #62)
+### TODO-8: Parallel τ³/M5 conditions strategy (W6/W8) — DONE 2026-05-08 (PR #62)
 
 - **What:** Run the 4 M5 conditions (frozen / static-LLM / loop-autonomous / loop-gated) in parallel on separate Docker compose stacks (each with its own Postgres + sandbox); merge results in `iterations` table at the end. Same pattern for τ³ A/B/C.
 - **Why:** Sequential 30-day replay = ~150 hours wall time. 4-way parallel ≈ 37 hours. Without parallel strategy, W6 budget is too tight.
@@ -120,7 +120,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** M5 pipeline + reproducibility rig operational (W4).
 - **Status (2026-05-08):** Shipped in PR #62. Topology revised from 4 Docker Compose stacks to one Postgres / four `workflow_id`s — schema is already keyed by `workflow_id`, merge is a single `UNION ALL`, sandbox isolation stays per-iteration via Docker. New `replay/thirty_day.py` + `scripts/m5_replay_30day.py` + `make m5-replay-30day` drive condition A (frozen) / C (loop autonomous) / D (loop + LLM-judge) via `asyncio.gather`. `run_improvement_loop.py` gained `--approver {none|autonomous|llm-judge}`. Condition B (static frontier LLM) deferred as no-op slot — not load-bearing for the YC demo. 94 new unit tests; kernel suite 1323 passing. Live-system smoke covered C on granite-4.1-8b LMS and D on Sonnet 4.6 cloud. **Combined with the 2026-05-08 W5.2 / BL.3 local validations (TODO-19 closure + W5.2 local 0.9667 ≥ 0.85), conditions C and D both have free local-model paths now.**
 
-### TODO-17: Sandbox classifier hardening — runner exit-code spoof — ✅ DONE 2026-05-03
+### TODO-17: Sandbox classifier hardening — runner exit-code spoof — DONE 2026-05-03
 
 - **What:** A hostile (or buggy) agent inside `LocalDockerSandbox` can call `os._exit(0)` directly, bypassing the runner's `try/except` around `runpy.run_path`. The classifier sees `exit_code == 0` and returns `status="ok"` — or `os._exit(100)` to spoof the "logical error the agent owns" path with `error_class=None`. Per `apps/kernel/src/ownevo_kernel/types.py:SandboxErrorClass`, the gate runner advances `best_ever_score` only when `error_class is None`, so this is part of the trust boundary.
 - **Status (2026-05-03):** Approach 1 shipped. Runner now runs user code as a subprocess (`subprocess.run([sys.executable, '/sandbox/user_code.py'])`); the runner's own exit code is derived from the child's returncode via a fixed policy (0 → 0; 1 → 100; 100 → 102=Crash; negative → 128+|N|; else passthrough). Closes the `os._exit(100)` spoof and the same-process attack surface. The `os._exit(0)` case remains observably indistinguishable from clean exit at the process boundary; defense-in-depth lives at the metric layer (`run_pipeline`'s JSON-output requirement). Pinned by 3 new tests in `apps/kernel/tests/test_sandbox.py`. Documented limit captured in the runner script's policy comment.
@@ -155,9 +155,9 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** Validates the full substrate (sandbox + skill registry + agent loop + gate) with a non-Anthropic-API LLM. Cost-control during W2-W4 substrate quality, single-vendor risk reduction, and a credibility signal independent of frontier-API capability.
 - **Methodology:** four-tier funnel — Phase 0 probes (`probe_tool_calling`, `probe_skill_quality`) → Phase 1 synthetic-fixture full-loop scan → Phase 2 real-M5 baseline (DONE) → Phase 3 full loop on real M5. See `docs/PLAN.md` §"Pre-W3 (cont.) — Local-model sweep methodology" + `docs/local-model-testing.md` (canonical methodology + findings).
 - **Status (2026-05-04):**
-  - ✅ Phase 0 probes shipped (PR #29).
-  - ✅ Phase 1 ran across 14 candidates; F5 conclusion: qwen3-coder-30b on LMS Anthropic streaming is the only end-to-end driver. ~37 candidates still untested by probes.
-  - ✅ Phase 2 baseline locked: `val_score = 0.330988`.
+  - Phase 0 probes shipped (PR #29).
+  - Phase 1 ran across 14 candidates; F5 conclusion: qwen3-coder-30b on LMS Anthropic streaming is the only end-to-end driver. ~37 candidates still untested by probes.
+  - Phase 2 baseline locked: `val_score = 0.330988`.
   - ⚠️ Phase 3 v1-v3 burned iteration budget on `SkillFormatError` variants → fixed in PR #26-#28 (parser leniency) + PR #30 (structured-tool refactor — agent never serializes YAML).
   - ⚠️ Phase 3 v5: `write_skill` succeeded on structured surface (`version_seq=2` registered, no SkillFormatError). LMS server-side rejected a later tool call (`anthropic.APIStatusError: Failed to generate a valid tool call`) before the gate could run. Mid-debug — likely a JSON-Schema strictness mismatch in the new `write_skill` schema (esp. nested `retention` object).
 - **Next moves:** (a) inspect content_delta tail to identify which tool call LMS rejected, (b) try a different backend (direct Anthropic Claude) as a sanity check, (c) once one backend reaches gate, probe-sweep the remaining ~37 candidates for redundancy.
@@ -166,7 +166,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** none — substrate is in place.
 - **Status update (2026-05-04):** Phase 3 closed on Sonnet 4.6 via Anthropic cloud — v10 produced `val_score=0.395143` (+19% over baseline 0.331), v12 demonstrated the gate-blocked regression at 0.385126. B4.2 + B4.3 both achieved on real M5 for ~$0.78. Stage B 7-iter replay (also 2026-05-04) confirmed the gate held `best_ever=0.3958` through 6 consecutive non-pass iterations ($1.84 cost). **Stage C 7-iter replay with F9 fix produced first compound lift: iter 0 0.3859 → iter 2 0.3988, gate held best_ever across 5 non-pass iters, $1.86 cost.** Local-model lift on real M5 is NOT yet achieved — TODO-20/21/23 cover the gaps.
 - **Status update (2026-05-07):** Probe-sweep residue (23 candidates) closed as superseded by the A4.4 broader sweep (PR #52 — 19 local models pass 3/3 across LMS + Ollama). The probe-sweep was looking for BL.3-loop drivers via two single-turn probes; PR #52 delivered a wider list via the actual A4.4 forced-tool-use gate, which is a stronger signal. Headline goal of TODO-19 (a measured local-model lift on real M5) remains open and is now gated on (a) cross-iter failure memory empirically helping qwen3-coder route around F6 — exercise pending the BL.3 OpenAI-loop `/no_think` fix landing — or (b) a non-frontier model with stronger codegen than devstral on M5. Devstral-small-2:latest formally dropped as a candidate (TODO-21 closed; CLAUDE.md no longer recommends it).
-- **Status update (2026-05-08 morning):** ✅ **CLOSED.** First local-model lift on real M5 achieved. qwen3-coder:30b on Ollama OpenAI + the PR #61 `/no_think` patch + PR #40 cross-iter failure memory lifted val_score 0.330346 → **0.379663 (+14.9%)** on Stage D iter 4. Agent diff: "Added is_weekend boolean feature." Free, ~12 min wall, fresh DB `ownevo_phase3_realm5_v22_qwen_memretest`. Memory hypothesis confirmed: 14 prior attempts on this model deterministically hit F6 `_long_frame`; with prior failures in context the agent proposed an entirely different feature class. B4.2 + B4.3 both reproduced on a free local model. Sweep-residue work formally not needed.
+- **Status update (2026-05-08 morning):** **CLOSED.** First local-model lift on real M5 achieved. qwen3-coder:30b on Ollama OpenAI + the PR #61 `/no_think` patch + PR #40 cross-iter failure memory lifted val_score 0.330346 → **0.379663 (+14.9%)** on Stage D iter 4. Agent diff: "Added is_weekend boolean feature." Free, ~12 min wall, fresh DB `ownevo_phase3_realm5_v22_qwen_memretest`. Memory hypothesis confirmed: 14 prior attempts on this model deterministically hit F6 `_long_frame`; with prior failures in context the agent proposed an entirely different feature class. B4.2 + B4.3 both reproduced on a free local model. Sweep-residue work formally not needed.
 - **Status update (2026-05-08 evening — RETRACTED, see `docs/local-model-testing.md` § F15):** ❌ **The 2026-05-08-morning closure does not hold.** W6 30-day v5 re-test (`ownevo_30day_v5`, identical setup to Stage D — Ollama OpenAI, qwen3-coder:30b, /no_think, PR #67 compaction, 48k context) hit F6 / `M5SandboxError` 7/7 before being killed. F6 is a `qwen3-coder-30b` codegen property, **not** an LMS-Anthropic-transport property as the prior closure assumed. Stage D's iter-4 lift was a lucky outlier across 7 sequential invocations — too small a sample to distinguish "model finds the lift" from "iter 4 happened to be the one where the model didn't pattern-match on the buggy lag/rolling class." **TODO-19's headline goal (a *reproducible* free local-model lift on real M5) reverts to OPEN.** The Stage D DB still contains the audit-logged event; the substrate isn't the cause. No local model currently produces reliable lift on real M5 — Sonnet 4.6 cloud remains the only confirmed driver (v6 +23.2% on v1 / v7 +0.62% on v2). Path forward: (a) F6 root-cause investigation (TODO captured in `docs/W6_30DAY_REPLAY_NOTES.md`), (b) try a model class outside qwen3-coder, or (c) accept that the pitch's free-local-lift narrative is dead and lean on Sonnet-on-tuned-baseline + the v6/v7 contrast.
 
 ### TODO-20: F6 mitigation effectiveness retest on qwen3-coder-30b
@@ -187,8 +187,8 @@ backup tracking in case PLAN.md edits drift.
 - **Pros / Cons:** (a) is one CLI flag change in the runner + a re-run (~5 min) but increases sandbox blast radius; (b) is a prompt change that may or may not work on devstral's coding style; (c) closes the avenue. (a) preferred — 512 MB is a defensible-but-tight default; 1 GB is still bounded. Update `docs/local-model-testing.md` with the new finding regardless.
 - **Context:** v13b runlog at `.temp/runlogs/20260504-140903-phase3-v13b-devstral-retry/loop.log`. 15 iterations, 14 tool calls, 4 tool errors. Final iteration hit `M5SandboxError: Sandboxed M5 pipeline did not return ok: status=error, error_class=OOM, error='Sandbox memory limit exceeded (OOM-killed)'`. Sandbox config at `apps/kernel/src/ownevo_kernel/sandbox/local_docker.py`.
 - **Status update (2026-05-04, post-PR-#35):** PR #35 merged. `--sandbox-mem-mb` flag now on main. Two retests:
-  - First retest (DB `_v21_devstral_1gb`): exit=`sandbox-error` with `'dict' object has no attribute 'train'` (agent returned dict not FeatureMatrix from `engineer()`). OOM ✅ cleared.
-  - Second retest (DB `_v21_devstral_1gb_v2`, with F9-mitigation prompt): exit=6 ("agent did not register any skill change"). 13 iter / 12 tool calls / **9 tool errors**. OOM ✅ cleared again, but devstral writes runnable-looking code that fails `run_pipeline` validation each time and never produces a clean candidate to commit.
+  - First retest (DB `_v21_devstral_1gb`): exit=`sandbox-error` with `'dict' object has no attribute 'train'` (agent returned dict not FeatureMatrix from `engineer()`). OOM cleared.
+  - Second retest (DB `_v21_devstral_1gb_v2`, with F9-mitigation prompt): exit=6 ("agent did not register any skill change"). 13 iter / 12 tool calls / **9 tool errors**. OOM cleared again, but devstral writes runnable-looking code that fails `run_pipeline` validation each time and never produces a clean candidate to commit.
   - **TODO-21's primary ask (clear OOM) is DONE; devstral codegen quality is the bottleneck, not memory. Closing TODO-21.** Devstral on real M5 is not viable as a local-model lift driver.
 - **Effort:** XS (CC ~30 min for option (a); ~1 h for option (b)).
 - **Priority:** P2 — same reasoning as TODO-20: strengthens local-model story; not on YC critical path.
@@ -202,7 +202,7 @@ backup tracking in case PLAN.md edits drift.
 - **Why:** Stage B showed 5/7 iterations hitting the same bug independently. The gate held `best_ever=0.3958` throughout, but the loop made no forward progress. Without mitigation, any future multi-iteration run against a best_ever-constrained DB will cycle on the same error.
 - **Pros / Cons:** (a) is 30 min and unblocks the lift curve immediately. (b) is the architecturally correct answer but requires wiring `analyze_failures` to read live cluster data + failure-cluster creation from sandbox runs (currently clusters are created from eval runs, not sandbox crashes). Do (a) now, track (b) as a separate item.
 - **Context:** Stage B runlog `.temp/runlogs/20260504-143146-stageb-sonnet-7iter/`. Full analysis in `docs/local-model-testing.md` § F9. DB: `ownevo_phase3_realm5_stageb_v1`.
-- **Status update (2026-05-04, post-PR-#35):** ✅ Option (a) prompt fix MERGED (PR #35) and EMPIRICALLY VALIDATED. Stage C's iter 0 successfully integrated the `month` feature using day-ID arithmetic (no `DateParseError`). First compound lift on real M5 followed: iter 0 0.3859 → iter 2 0.3988 (gate-passed twice). **Option (a) closed.** Option (b) cross-iteration failure memory remains open — Stage C still showed iter 4 + iter 6 hitting OOM patterns and iter 5 hitting a near-baseline regression, all with the same lack of memory of prior failures. Captured separately under TODO-23 below since this is a P1 substrate gap, not a workaround.
+- **Status update (2026-05-04, post-PR-#35):** Option (a) prompt fix MERGED (PR #35) and EMPIRICALLY VALIDATED. Stage C's iter 0 successfully integrated the `month` feature using day-ID arithmetic (no `DateParseError`). First compound lift on real M5 followed: iter 0 0.3859 → iter 2 0.3988 (gate-passed twice). **Option (a) closed.** Option (b) cross-iteration failure memory remains open — Stage C still showed iter 4 + iter 6 hitting OOM patterns and iter 5 hitting a near-baseline regression, all with the same lack of memory of prior failures. Captured separately under TODO-23 below since this is a P1 substrate gap, not a workaround.
 - **Effort:** ~~XS for (a)~~ DONE; M for (b) (CC ~half day).
 - **Priority:** ~~P1 — blocks Stage B from producing a lift curve beyond iter 0. Prompt fix is the unblock; failure-memory is P2.~~ → (a) closed; (b) graduates to TODO-23.
 - **Depends on:** ~~none for (a)~~ DONE.
@@ -216,14 +216,14 @@ backup tracking in case PLAN.md edits drift.
 - **Effort:** M (CC ~half day).
 - **Priority:** P1 — pattern is now the binding constraint on Stage D and beyond.
 - **Depends on:** none. Self-contained. Touches `apps/kernel/src/ownevo_kernel/observability/learnings.py` and the `analyze_failures` tool definition.
-- **Status update (2026-05-04, shipped in PR #40):** ✅ CLOSED. Implemented as **B+A** on `feat/cross-iter-failure-memory`:
+- **Status update (2026-05-04, shipped in PR #40):** CLOSED. Implemented as **B+A** on `feat/cross-iter-failure-memory`:
   - **B (driver-side prompt injection):** new `observability/past_attempts.py` (`fetch_past_attempts` / `format_past_attempts` / `render_past_attempts_block`); `run_improvement_loop.py` queries the most recent finalized iterations on the workflow and prepends a compact "Past attempts" block to the agent kickoff. Memory is in-context, not tool-gated.
   - **A (`analyze_failures` extension):** `FailureSnapshot` gains `iteration_state` / `sandbox_error_class` / `eval_rationale`. SQL LEFT JOINs `iterations` + `proposals`; sandbox-error iterations sort to top regardless of tool-error count. Tool description and dispatcher updated to surface and explain the new ranking.
   - Tests: new `test_observability_past_attempts.py` (8 tests) + `test_analyze_failures_surfaces_sandbox_error_metadata`. Full kernel suite 436/436 green.
   - **Post-review fixes (2026-05-05):** LATERAL join replaces bare LEFT JOIN on `proposals` (no UNIQUE constraint on `iteration_id` — plain join would duplicate rows if an iteration ever gains a second proposal); `analyze_failures` sort-after-break bug fixed (early break prevented sandbox-error traces from reaching the sort when k+ newer non-sandbox traces were present — the exact scenario the feature was built for); `_truncate` extended to strip `\r`/`\r\n`; `render_past_attempts_block` call wrapped in exception guard so a DB hiccup degrades gracefully rather than crashing the loop.
   - **Empirical validation pending:** Stage D run on real M5 to confirm the lift curve is steeper with memory in-context than Stage C's 2/7 gate-passes.
 
-### TODO-28: W6 row 6.1 — dogfood / dry-run NL-gen demo loop end-to-end — ✅ DONE 2026-05-09
+### TODO-28: W6 row 6.1 — dogfood / dry-run NL-gen demo loop end-to-end — DONE 2026-05-09
 
 - **What:** Exercise `apps/kernel/scripts/nl_gen_demo_loop.py` (PR #64) end-to-end against the live `/workflows/preview` UI with a real reviewer flow ("type description → sim+evals+metric → loop runs → lift visible"). Confirm the **<5-minute total wall-time budget** holds for an external reviewer (PLAN.md row 6.1 validation gate). Captures any latency, prompt-clarity, or UI-glue bugs before W8 video record.
 - **Why:** Row 6.1 demo loop shipped on `feat/w6-nl-gen-loop` (PR #64) with unit tests, but the validation gate is "external reviewer can sit through the live demo without intervention; lift chart visibly moves." That requires a human-in-the-loop dry-run, not a pytest pass. Without it, we discover demo-budget overruns during the YC video shoot in W8 — too late.
@@ -234,7 +234,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** ~~P2~~ → closed.
 - **Depends on:** PR #64 merged.
 
-### TODO-29: W6 rows 6.2 + 6.3 — execute 30-day M5 replay + verify success thresholds — ✅ DONE 2026-05-09
+### TODO-29: W6 rows 6.2 + 6.3 — execute 30-day M5 replay + verify success thresholds — DONE 2026-05-09
 
 - **What:** Run `make m5-replay-30day` (TODO-8 / PR #62 infra — conditions A/C/D in parallel via `asyncio.gather`, optionally B) on real M5 and verify the four W6 success thresholds: ≥+25% RMSE lift Day-1→Day-30 in condition D, ≥50 eval cases generated, ≥15 approved revisions, ≥5 gate-blocked regressions. If any threshold misses, document why + decide between extending Phase 2 or accepting the lower number.
 - **Why:** PLAN.md row 6.3 is the **Phase-2 validation gate** before W7 starts officially. The infrastructure is shipped (PR #62) and conditions C+D both have a free local-model path (TODO-19 closed). The only thing missing is actually executing the run on real M5 and recording the result. Without it, the W8 hero chart in `m5-results-2026-Q3.md` has no data behind it.
@@ -245,7 +245,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** PR #64 merged (for full W6 surface area).
 - **Status (2026-05-09):** `ownevo_30day_v6_sonnet` ran **30+30+30 ✓** across conditions A/C/D — the first full 30-day replay to complete (Sonnet 4.6 loop driver + Opus 4.7 judge). **Condition C:** 4 gate-passes; `best_ever val_score = 0.4077` (+23.2% over v1 baseline); WRMSSE 1.046 on full 30,490-series test fold (−19.5% vs static baseline 1.300). **Condition D:** 7 gate-passes, all judge-rejected — the "cost of safety" frame in the data. The ≥+25% WRMSSE threshold was not met (−19.5% actual); decision: accept the −19.5% number and proceed — it still demonstrates substantial agent-driven lift. Cost ~$15–20; zero context errors over 90 paid iterations. Follow-on runs: v7 (Sonnet on skill_v2 baseline, 30+30+30 ✓, +0.62% lift — confirms v6 was recovering textbook ML from a weak baseline); v8 (Opus 4.7 on skill_v2, in-flight as of 2026-05-08 23:10, +2.79% by iter 2). Full run history: `docs/W6_30DAY_REPLAY_NOTES.md`.
 
-### TODO-31: τ³ schema — `skills.head_version_id` should track best-gate-pass, not latest write — ✅ DONE 2026-05-09
+### TODO-31: τ³ schema — `skills.head_version_id` should track best-gate-pass, not latest write — DONE 2026-05-09
 
 - **What:** `register_skill` (called by the agent's `write_skill` tool) advances `skills.head_version_id` *before* the gate runs. So after a NO_IMPROVEMENT or SANDBOX_ERROR cycle, HEAD points at the rejected proposal, not at the last gate-passing version. By end of τ³ P2 batch 1, HEAD pointed at v54 (failed) instead of v38 (the val_score=0.95 winner). Two fix shapes:
   - **(a) `skills.head_version_id` follows the best gate-pass** — the gate runner moves head only on `gate-pass`. Add a separate `latest_proposed_version_id` column for "agent's most recent write" if the proposer needs to read its own last attempt. Cleanest model.
@@ -266,7 +266,7 @@ backup tracking in case PLAN.md edits drift.
 - **Context:** `docs/TAU3_LOCAL_TESTPLAN.md` § Recent learnings from papers (Claw-Eval row); skill v38 in `/Users/jit/code/ownevo/backups/tau3_p2_batch1_complete_20260509/winning_skill_v38_iter11_val095.py`.
 - **Effort:** XS (CC ~30 min — kick off three gate cycles via `tau3_baseline.py --skill-override-dir ...`).
 - **Priority:** P2 — required for P4 results doc credibility.
-- **Depends on:** trace persistence (✅ shipped 2026-05-09 commit `daef4c2`).
+- **Depends on:** trace persistence (shipped 2026-05-09 commit `daef4c2`).
 
 ### TODO-33: τ³ task 33 + 49 failure analysis — what's left at val_score=0.95
 
@@ -276,9 +276,9 @@ backup tracking in case PLAN.md edits drift.
 - **Context:** Failed-task computation: `set(RETAIL_TEST_TASK_IDS) - promotable_task_ids` from the iter 11 audit entry (already done — failures are 33, 49). Inspection: `uv run --extra agent python scripts/tau3_inspect_task.py --workflow-id tau3-retail-v1 --task-id 49 --iteration <new-v38-iter>`.
 - **Effort:** S (CC ~30-60 min: 1 fresh gate cycle to repopulate traces (~$3-5, ~12 min wall) + 30 min trace inspection + writeup).
 - **Priority:** P2 — directly informs whether P3 condition-C work targets concrete misses or punts on Sonnet's capability ceiling.
-- **Depends on:** trace persistence (✅ shipped). One re-run of v38 to populate traces.
+- **Depends on:** trace persistence (shipped). One re-run of v38 to populate traces.
 
-### TODO-34: Deploy / Rollback action on the skill detail page — ✅ DONE 2026-05-09
+### TODO-34: Deploy / Rollback action on the skill detail page — DONE 2026-05-09
 
 - **What:** Wire the `approved-awaiting-deploy → deployed → rolled-back` proposal-state-machine transitions end-to-end (service + API + UI) so the operator can ship an approved skill version into production from the skill detail page and revert it if needed. Adds `skills.deployed_version_id` as the production pointer, separate from `head_version_id` (best gate-validated, advanced atomically by the gate runner per TODO-31).
 - **Why:** The proposal state machine in `docs/STATE_MACHINES.md` already named the transitions and `AuditKind` already reserved `proposal-deployed` / `proposal-rolled-back`, but no implementation existed. Approved proposals stalled in `approved-awaiting-deploy` with no operator-driven path forward. For the YC demo "click Approve → click Deploy → see live skill swap" needs to actually work. With TODO-31 splitting validated state from agent's-last-write, the production pointer fits cleanly as a third column on `skills`.
@@ -301,7 +301,7 @@ backup tracking in case PLAN.md edits drift.
 
 ---
 
-### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction` — ✅ DONE 2026-05-09
+### TODO-30: Demo workspace consolidation — `demo-demand-prediction` vs `m5-demand-prediction` — DONE 2026-05-09
 
 - **What:** Resolve the split between two demand-prediction workflows in the demo workspace. The sidebar's "Demand prediction" link points to `demo-demand-prediction` (W2.5 demo seed — clean shell, 0 skills, 1 seeded proposal) while every other pending inbox proposal lives on `m5-demand-prediction` (BL.3 bootstrap — 8 iterations, real LightGBM diffs, the actual lift story). Three options: (a) repoint the sidebar link to `m5-demand-prediction`; (b) rename `m5-demand-prediction` → `demo-demand-prediction` and drop the empty shell (single transaction across iterations / proposals / eval_cases / failure_clusters / traces / meta_evals / skills); (c) treat them as two separate workflows surfaced through the Health page table only.
 - **Why:** Reviewer clicking the sidebar's primary workflow lands on a near-empty page; the real BL.3 lift curve, skill diffs, and approval queue all live on a workflow only reachable via Inbox or the Health table. For the W8.1.1 YC video, "click Demand prediction → see lift" needs to land on the actual lift workflow.
@@ -398,7 +398,7 @@ backup tracking in case PLAN.md edits drift.
 ### TODO-27: Cloud NL-gen — sim_plan AST safety failures + `nemotron-3-super` workflow_spec validation
 
 - **What:** Two cloud-NL-gen probe failures from F14g/F14j-adjacent work that warrant a follow-up retry once additional prompt mitigations land:
-  - **`qwen3-coder:480b-cloud`** passes workflow_spec ✅ + sim_plan ✅ (both schema-aware patches in commit 594bbb4 helped) but its `init_state_code` violates `_ast_safety_check` rule #7 ("NO imports inside the function bodies") by emitting `from datetime import timedelta` inside the function body. Per-stage prompt rule already exists; cloud model didn't comply. Fix candidates: (a) move `from datetime import timedelta` to the `imports: list` field automatically in the renderer when detected (mechanical fix-up); (b) strengthen prompt rule #7 with an explicit example showing the violation pattern; (c) accept that 480B coder model writes Python the way it knows how and isn't a NL-gen pick.
+  - **`qwen3-coder:480b-cloud`** passes workflow_spec + sim_plan (both schema-aware patches in commit 594bbb4 helped) but its `init_state_code` violates `_ast_safety_check` rule #7 ("NO imports inside the function bodies") by emitting `from datetime import timedelta` inside the function body. Per-stage prompt rule already exists; cloud model didn't comply. Fix candidates: (a) move `from datetime import timedelta` to the `imports: list` field automatically in the renderer when detected (mechanical fix-up); (b) strengthen prompt rule #7 with an explicit example showing the violation pattern; (c) accept that 480B coder model writes Python the way it knows how and isn't a NL-gen pick.
   - **`nemotron-3-super:cloud`** still failed workflow_spec validation even after the rules-9-10-11 patch (3 errors in run 1 → 1 error in run 2 = partial improvement, but didn't reach sim_plan). Different failure mode each time; likely needs schema-error feedback loop OR few-shot example.
 - **Why:** Cloud free-tier NL-gen is the cheapest "is there a non-Anthropic NL-gen driver" probe. Two real candidates landed close to passing — worth iterating once.
 - **Effort:** S (CC ~half day to land prompt strengthening + fix-up renderer + re-run).
@@ -455,7 +455,7 @@ backup tracking in case PLAN.md edits drift.
 - **Priority:** P3.
 - **Depends on:** —
 
-### TODO-38: New-workflow review-before-commit step — ✅ DONE 2026-05-13
+### TODO-38: New-workflow review-before-commit step — DONE 2026-05-13
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/04-new-workflow-step2.html`. After `POST /api/nl-gen/generate` returns the spec + simulation plan + eval cases + metric, route the operator to a review page that shows what NL-gen produced before the workflow row is committed. Operator clicks Commit to persist, Discard to throw away. Today the endpoint persists immediately and there's no preview.
 - **Why:** When NL-gen produces a poor spec (wrong domain, missing reviewer, hallucinated tool) the only path today is `delete workflow` (now wired, PR #85) and start over — wasting the ~30s LLM round-trip. Preview catches it before the wasted commit.
@@ -467,7 +467,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** —
 - **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). Generate now redirects to `/workflows/new/review/[wfId]`; page shows description + `AgentAnatomy` + eval-case count with Confirm and Revise actions.
 
-### TODO-39: Baseline-complete landing page — ✅ DONE 2026-05-13
+### TODO-39: Baseline-complete landing page — DONE 2026-05-13
 
 - **What:** Mock parity with `www/preview/s26-rk7p3/19-run-baseline.html`. After an operator clicks Run iteration on a workflow with zero iterations, instead of dropping them on the Overview tab with a green "iteration complete" toast, show a dedicated landing page summarizing the baseline run: val_score, n_failed/n_cases, dominant failure cluster, suggested next step (review proposal, regenerate evals, etc.).
 - **Why:** First-iteration outcome is the highest-information event in the loop. Operator currently navigates back to Overview which shows the same lift chart (now with one point) — the framing of "this is your baseline; here's where to go next" is missing.
@@ -479,7 +479,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** —
 - **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). Iteration #0 completion redirects to `/workflows/baseline/[wfId]`; page carries a "Baseline complete" hero, 4-cell metric strip (val_score, cases passed, run time, next step), per-case roster preview, mini lift chart anchored on iter 0, and Continue/See-the-run actions.
 
-### TODO-40: Skills library workflow filter — ✅ DONE 2026-05-13
+### TODO-40: Skills library workflow filter — DONE 2026-05-13
 
 - **What:** `/workspaces/[wsId]/skills` shows every skill across every workflow. Add a `?workflow=credit-risk` query param + a chip strip across the top so an operator can scope to one workflow. Skills already carry `workflow_id`; the kernel endpoint just needs an optional query param.
 - **Why:** With ≥3 workflows the skills list gets noisy. The mock `s26-rk7p3/11-skills-registry.html` already references `?workflow=…`.
@@ -491,7 +491,7 @@ backup tracking in case PLAN.md edits drift.
 - **Depends on:** —
 - **Status (2026-05-13):** Shipped on `feat/real-ui-loop` (PR #85 follow-up). `?workflow=<wfId>` query param + chip strip listing every workflow that owns at least one skill; `(unscoped)` chip for workflowless skills; empty state branches on filter active vs not.
 
-### TODO-41: Recent activity feed across workflows — ✅ DONE 2026-05-13
+### TODO-41: Recent activity feed across workflows — DONE 2026-05-13
 
 - **What:** A workspace-scoped "what just happened" feed showing the last N audit-entries-of-interest across every workflow (proposal-approved, gate-run-completed, cluster-created, skill-version-created). Roughly the workspace inbox but for all state changes, not just gate-passed proposals. Sits at `/workspaces/[wsId]/activity` or as a "Recent activity" card on Health.
 - **Why:** Operators monitoring multiple workflows want a "did anything important happen" surface that doesn't require clicking into each workflow's audit tab.

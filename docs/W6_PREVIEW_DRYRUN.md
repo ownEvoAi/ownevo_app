@@ -36,15 +36,15 @@ visual headliner per W5.5:
 
 | Element | Status |
 |---|---|
-| `PREVIEW · demo data from kernel fixtures` banner | ✅ |
-| `Steps` (Describe ✓ / Review generated · / Run baseline) | ✅ |
-| Workflow picker (3 fixtures: demand-prediction / credit-risk / contract-review) | ✅ |
-| `From your description` quote block | ✅ |
-| **Coverage badge — "Ready for the agent loop / 100% coverage"** | ✅ |
-| Per-dimension verdicts (sim / eval-case / metric-alignment) with rationales | ✅ all `pass` |
-| Simulator section (12 event fields, 12 steps default) | ✅ |
-| Eval cases · 12 generated (5 train / 7 test) | ✅ |
-| Success metric (recall@0.50 · maximize · target 0.5) | ✅ |
+| `PREVIEW · demo data from kernel fixtures` banner | yes |
+| `Steps` (Describe ✓ / Review generated · / Run baseline) | yes |
+| Workflow picker (3 fixtures: demand-prediction / credit-risk / contract-review) | yes |
+| `From your description` quote block | yes |
+| **Coverage badge — "Ready for the agent loop / 100% coverage"** | yes |
+| Per-dimension verdicts (sim / eval-case / metric-alignment) with rationales | all `pass` |
+| Simulator section (12 event fields, 12 steps default) | yes |
+| Eval cases · 12 generated (5 train / 7 test) | yes |
+| Success metric (recall@0.50 · maximize · target 0.5) | yes |
 | `Run baseline ›` button | ⚠️ disabled — see UX gap §2 |
 
 Per-fixture API smoke (kernel cold-start):
@@ -129,7 +129,7 @@ for any reviewer who hovers. Two cheap patches:
 
 Recommendation: ship (a) on this branch.
 
-### §3 — cycle-2 regression risk on a live demo — ✅ patched
+### §3 — cycle-2 regression risk on a live demo — patched
 
 Run 1 above showed `[0.20, 0.80, 0.60]` — the lift curve climbs on
 cycle 1 then regresses on cycle 2. On the YC video this is a 50/50
@@ -150,7 +150,7 @@ cluster → instruction → lift narrative is intact; the regression
 coin flip is excised. For diagnostic / engineering runs `--cycles 5+`
 remains supported.
 
-### §4 — no live progress output during the loop — ✅ patched
+### §4 — no live progress output during the loop — patched
 
 The CLI emitted one stderr preflight line then a single JSON dump at
 the end. For a 17–34 s wall window in a video, no per-cycle progress
@@ -178,12 +178,12 @@ test coverage extended (`test_parse_args_progress_flag`,
 
 | Gate | Result |
 |---|---|
-| Page renders, all 4 artifacts visible | ✅ |
-| Coverage badge prominently positioned, all dimensions pass | ✅ |
-| 3 fixtures swappable via picker | ✅ |
-| CLI loop completes inside 5-minute budget | ✅ (15–34 s) |
-| Lift curve visibly moves | ✅ all runs (+0.40 / +0.80 / +0.80) |
-| Lift curve **strictly climbs** | ✅ on the new `--cycles 2` storyboard command |
+| Page renders, all 4 artifacts visible | yes |
+| Coverage badge prominently positioned, all dimensions pass | yes |
+| 3 fixtures swappable via picker | yes |
+| CLI loop completes inside 5-minute budget | (15–34 s) |
+| Lift curve visibly moves | all runs (+0.40 / +0.80 / +0.80) |
+| Lift curve **strictly climbs** | on the new `--cycles 2` storyboard command |
 
 All four UX gaps surfaced by the dry-run are patched on this branch:
 §1 storyboard URL → workspace-shell path; §2 disabled-button tooltip

@@ -109,12 +109,12 @@ The Phase-2 quality gate (`make nl-gen-smoketest WORKFLOW=all SMOKE_ARGS='--from
 
 | backend | model | demand-pred (recall ≥0.50) | credit-risk (balanced_acc ≥0.40) | contract-review (f1 ≥0.75) | cost |
 |---|---|---:|---:|---:|---:|
-| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 ✅ | ~$0.10 |
-| Anthropic | **sonnet 4.6** | **0.60 ✅** | **0.50 ✅** | 0.77 ✅ | ~$0.50 |
-| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 ✅ (thin) | 1.00 ✅ | ~$2 |
-| Ollama @ 192.168.1.50 | qwen2.5-coder:32b | 1.00 ✅ (always-True bias) | 0.50 ✅ | 0.89 ✅ | $0 |
-| Ollama @ 192.168.1.50 | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 ✅ | $0 |
-| Ollama @ 192.168.1.50 | **devstral-small-2** (24B) | **0.80 ✅** | **0.42 ✅** | 0.89 ✅ | $0 |
+| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 | ~$0.10 |
+| Anthropic | **sonnet 4.6** | **0.60** | **0.50** | 0.77 | ~$0.50 |
+| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 (thin) | 1.00 | ~$2 |
+| Ollama @ 192.168.1.50 | qwen2.5-coder:32b | 1.00 (always-True bias) | 0.50 | 0.89 | $0 |
+| Ollama @ 192.168.1.50 | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 | $0 |
+| Ollama @ 192.168.1.50 | **devstral-small-2** (24B) | **0.80** | **0.42** | 0.89 | $0 |
 | Ollama @ 192.168.1.50 | gpt-oss:20b | err (max_tokens) | — | — | $0 |
 
 **Two reference baselines:**

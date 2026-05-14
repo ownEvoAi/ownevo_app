@@ -1694,7 +1694,7 @@ distribution `agree=17 / disagree=3`. Per-`dominant_hint` correctness:
   vs hand-calibrated fixture targets 0.40/0.50). The metric generator has no
   knowledge of sim difficulty and sets aggressive targets. Fixture-based gate
   (`--from-fixtures`) remains the canonical quality gate; `--regenerate`
-  validates pipeline plumbing only. contract-review passed (f1=1.00 ✅).
+  validates pipeline plumbing only. contract-review passed (f1=1.00).
 
 ### Added
 - `apps/kernel/src/ownevo_kernel/eval_runner/agent_solver.py` — A4.4: Claude
@@ -1878,10 +1878,10 @@ PRs: #37, #38, #39, #40.
     `feature_engineer.py` v1 (3 features: `lag_28` + DOW + `cat_id`) →
     v2 (7 features: + `lag_7`, `rolling_mean_28`, `is_weekend`,
     `dept_id_code`). `val_score=0.395143` vs static baseline `0.331`
-    = **+19% relative lift**. **B4.2 ✅.**
+    = **+19% relative lift**. **B4.2.**
   - **v12** — first gate-blocked regression: same workflow + DB; agent
     retry scored 0.385126; gate held best_ever at 0.3951 with
-    `gate-blocked-no-improvement`. **B4.3 ✅.**
+    `gate-blocked-no-improvement`. **B4.3.**
   - **Stage B** (post PR #33 caching) — 7-iter replay; gate held
     best_ever=0.3958 across 6 consecutive non-pass iterations
     (1× gate-blocked + 5× sandbox-error from a `pd.Timestamp("d_1858")`
@@ -2008,8 +2008,8 @@ PRs: #21, #23, #24, #25, #27, #28, #29, #30, #31, #32 + the
   sandbox, scored `val_score=0.3951` vs static-baseline `0.3310` =
   **+19% relative lift**. Multi-iter replay (v12) confirmed gate's
   regression-blocking path: a follow-up Sonnet diff scored 0.3851 and
-  was correctly rejected (`gate-blocked-no-improvement`). B4.2 ✅,
-  B4.3 ✅.
+  was correctly rejected (`gate-blocked-no-improvement`). B4.2,
+  B4.3.
 - `apps/kernel/scripts/run_improvement_loop.py` — `--ollama-num-ctx`
   CLI flag (PR #24) plumbed through to AsyncOpenAI as
   `extra_body={"options": {"num_ctx": N}}`. Closes F1 from the local-model
