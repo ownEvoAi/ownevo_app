@@ -249,3 +249,52 @@ async def test_list_skills_returns_workspace_wide_index(
     assert "py.b" in ids
     assert ids.index("instr.shared") < ids.index("py.a")
     assert ids.index("py.a") < ids.index("py.b")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/skills?workflow_id= — library filter (TODO-40)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_skills_workflow_filter_isolates_by_workflow(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """?workflow_id=X returns only skills whose workflow_id matches X."""
+    await _seed_workflow(db, workflow_id="wf-filter-a")
+    await _seed_workflow(db, workflow_id="wf-filter-b")
+    await _seed_skill(db, skill_id="filter.a1", kind="python", workflow_id="wf-filter-a")
+    await _seed_skill(db, skill_id="filter.a2", kind="instruction", workflow_id="wf-filter-a")
+    await _seed_skill(db, skill_id="filter.b1", kind="python", workflow_id="wf-filter-b")
+
+    res = await api_client.get("/api/skills?workflow_id=wf-filter-a")
+    assert res.status_code == 200
+    ids = {s["id"] for s in res.json()["items"]}
+    assert "filter.a1" in ids
+    assert "filter.a2" in ids
+    assert "filter.b1" not in ids
+
+
+async def test_list_skills_unscoped_filter_returns_only_null_workflow(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """?workflow_id=_unscoped returns skills with no workflow_id."""
+    await _seed_workflow(db, workflow_id="wf-filter-c")
+    await _seed_skill(db, skill_id="filter.scoped", kind="python", workflow_id="wf-filter-c")
+    await _seed_skill(db, skill_id="filter.unscoped1", kind="python", workflow_id=None)
+    await _seed_skill(db, skill_id="filter.unscoped2", kind="instruction", workflow_id=None)
+
+    res = await api_client.get("/api/skills?workflow_id=_unscoped")
+    assert res.status_code == 200
+    ids = {s["id"] for s in res.json()["items"]}
+    assert "filter.unscoped1" in ids
+    assert "filter.unscoped2" in ids
+    assert "filter.scoped" not in ids
+
+
+async def test_list_skills_workflow_filter_empty_for_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    """?workflow_id=does-not-exist returns an empty list, not a 404."""
+    res = await api_client.get("/api/skills?workflow_id=does-not-exist-xyz")
+    assert res.status_code == 200
+    assert res.json()["items"] == []

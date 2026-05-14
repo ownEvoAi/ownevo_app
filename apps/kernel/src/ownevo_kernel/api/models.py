@@ -604,12 +604,14 @@ class AuditList(_Strict):
 
 
 class AuditVerifyResponse(_Strict):
-    """Result of running the chain-integrity check.
+    """Result of running the chain-integrity check (TODO-3).
 
-    For MVP (D2 — append-only, no crypto) "valid chain" means: every
-    `seq` from 1..max is present (no gaps), no duplicate seqs, count
-    is sane. A future hash-chain (TODO-3) extends this with parent_hash
-    + entry_hash verification.
+    `valid` covers seq contiguity + no duplicates (structural integrity).
+    `hash_chain_valid` covers SHA-256 content hashes + parent-linkage
+    for entries that have hash data (written after 0009_audit_hash_chain).
+    Pre-epoch entries (NULL entry_hash) are counted in `total_entries`
+    but skipped by hash verification — they are structurally valid, just
+    from before the hash chain was activated.
     """
 
     valid: bool
@@ -620,6 +622,10 @@ class AuditVerifyResponse(_Strict):
     duplicate_seqs: list[int]  # likewise
     canonical_export_bytes: int  # size of `to_canonical_json(...)` output
     checked_at: datetime
+    # Hash chain (TODO-3)
+    hash_chain_valid: bool  # True if every hashed entry's hash recomputes correctly
+    hash_chain_entries: int  # Count of entries that carry hash data
+    first_broken_seq: int | None  # First seq where the chain breaks; None if valid
 
 
 # ---------------------------------------------------------------------------

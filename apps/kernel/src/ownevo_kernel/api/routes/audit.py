@@ -20,7 +20,8 @@ from datetime import UTC, datetime
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
 
-from ...audit.writer import export_audit_log, to_canonical_json
+from ...audit.writer import compute_entry_hash, export_audit_log, to_canonical_json
+from ...types import AuditKind
 from ..deps import ConnDep
 from ..models import AuditEntryRow, AuditList, AuditVerifyResponse
 
@@ -127,13 +128,12 @@ async def list_audit(
 
 @router.post("/verify", response_model=AuditVerifyResponse)
 async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
-    """Verify the audit chain's structural integrity.
+    """Verify audit chain structural integrity + SHA-256 hash chain (TODO-3).
 
-    For D2 (append-only, no crypto) "valid" means: every `seq` from 1
-    to max(seq) is present, no duplicates, and the canonical-JSON
-    export round-trips. The response carries the gap + duplicate lists
-    (capped at 100 each) so the UI can surface the diagnostic without
-    blowing the payload.
+    `valid` = seq contiguity, no duplicates.
+    `hash_chain_valid` = every hashed entry's entry_hash recomputes correctly
+    and each entry's parent_hash equals the previous hashed entry's entry_hash.
+    Pre-epoch entries (NULL entry_hash) are skipped by hash verification.
     """
     entries = await export_audit_log(conn)
     canonical = to_canonical_json(entries)
@@ -142,6 +142,31 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
 
     counts = Counter(seqs)
     duplicates = sorted(s for s, n in counts.items() if n > 1)[:_MAX_REPORTED_GAPS]
+
+    # Hash-chain verification over entries that carry hash data.
+    hashed = [e for e in entries if e.entry_hash is not None]
+    hash_chain_valid = True
+    first_broken_seq: int | None = None
+
+    for i, entry in enumerate(hashed):
+        kind_str = entry.kind.value if isinstance(entry.kind, AuditKind) else entry.kind
+        expected_hash = compute_entry_hash(
+            seq=entry.seq,
+            kind=kind_str,
+            payload=entry.payload,
+            related_id=entry.related_id,
+            actor=entry.actor,
+            created_at=entry.created_at,
+            parent_hash=entry.parent_hash or "",
+        )
+        if entry.entry_hash != expected_hash:
+            hash_chain_valid = False
+            first_broken_seq = entry.seq
+            break
+        if i > 0 and entry.parent_hash != hashed[i - 1].entry_hash:
+            hash_chain_valid = False
+            first_broken_seq = entry.seq
+            break
 
     if not seqs:
         return AuditVerifyResponse(
@@ -153,6 +178,9 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
             duplicate_seqs=[],
             canonical_export_bytes=len(canonical),
             checked_at=datetime.now(tz=UTC),
+            hash_chain_valid=True,
+            hash_chain_entries=0,
+            first_broken_seq=None,
         )
 
     min_seq = min(seqs)
@@ -171,4 +199,7 @@ async def verify_chain(conn: ConnDep) -> AuditVerifyResponse:
         duplicate_seqs=duplicates,
         canonical_export_bytes=len(canonical),
         checked_at=datetime.now(tz=UTC),
+        hash_chain_valid=hash_chain_valid,
+        hash_chain_entries=len(hashed),
+        first_broken_seq=first_broken_seq,
     )

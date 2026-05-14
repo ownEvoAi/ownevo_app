@@ -272,6 +272,10 @@ class Approval(_Base):
 class AuditEntry(_Base):
     """Append-only WORM (D2). Read-only here; writes go through the
     audit module which enforces canonical-JSON serialization.
+
+    `entry_hash` / `parent_hash` are None for entries written before
+    the hash-chain migration (0009_audit_hash_chain.sql). The verify
+    endpoint skips those pre-epoch rows.
     """
 
     id: UUID
@@ -281,6 +285,8 @@ class AuditEntry(_Base):
     related_id: UUID | None = None
     actor: str
     created_at: datetime
+    parent_hash: str | None = None
+    entry_hash: str | None = None
 
 
 class MetaEvalResult(_Base):
