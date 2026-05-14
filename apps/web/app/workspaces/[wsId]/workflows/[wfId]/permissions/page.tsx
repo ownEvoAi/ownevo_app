@@ -47,7 +47,7 @@ export default async function WorkflowPermissionsPage({ params }: PageProps) {
           Who can do what on this workflow. The MVP is single-tenant
           (D4) so the live RBAC surface is one row — the reviewer
           declared on the workflow spec. The multi-tenant retrofit
-          (post-program, before next deployment) lights up the full surface.
+          (multi-tenant retrofit, before next deployment) lights up the full surface.
         </p>
 
         <div className="planned-tab-card" style={{ marginTop: 14 }}>

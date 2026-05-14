@@ -18,7 +18,7 @@ const SEVERITY_PILL: Record<string, string> = {
 //
 // W7 slice 7 (7.1.4) — when a proposal has been spawned against the
 // cluster (`latest_proposal_id` non-null), the cluster header becomes a
-// link to the proposal-detail surface so the investor programdemo flow is one
+// link to the proposal-detail surface so the demo flow is one
 // click: cluster → proposal → approve. When no proposal exists yet,
 // the header stays non-interactive.
 //

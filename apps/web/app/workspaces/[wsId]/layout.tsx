@@ -12,7 +12,7 @@ interface LayoutProps {
 // www/preview/s26-rk7p3/01-health.html § Sidebar nav.
 //
 // The wsId URL param is cosmetic for MVP — D4 single-tenant means the
-// backend ignores it. The slug shows in the address bar during the investor program
+// backend ignores it. The slug shows in the address bar during the live
 // demo (default value: "acme"). Multi-tenant retrofit (TODO-1) reuses
 // this URL contract once the backend gains workspace_id columns.
 export default async function WorkspaceLayout({ children, params }: LayoutProps) {

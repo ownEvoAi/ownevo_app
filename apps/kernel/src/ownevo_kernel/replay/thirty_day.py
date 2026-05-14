@@ -5,7 +5,7 @@ Orchestrates the four M5 conditions:
   * **A — Frozen baseline.** Skill files baked into the sandbox image, no
     agent. Lift curve is flat at the baseline `val_score`.
   * **B — Static frontier LLM.** Single-shot prediction without LightGBM.
-    Deferred for W6 (sanity check, not load-bearing for the investor programdemo —
+    Deferred for W6 (sanity check, not load-bearing for the live demo —
     see ``SUPPORTED_CONDITIONS``).
   * **C — ownEvo loop, autonomous.** Agent proposes → gate → auto-approve
     every gate-pass via ``approver_mode='autonomous'``. reference-shaped
