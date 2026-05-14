@@ -70,3 +70,4 @@ docs/demo-video/
 
 # Fly.io local CLI state
 .fly/
+STATUS.md
