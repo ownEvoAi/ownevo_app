@@ -1,17 +1,16 @@
 # Database Schema
 
 **Source of truth:** [`apps/kernel/migrations/0001_substrate.sql`](../apps/kernel/migrations/0001_substrate.sql).
-This doc explains the shape; the SQL is authoritative.
+This doc explains the shape; the SQL is authoritative. Changes go through
+migrations (`0002_*.sql`, etc.); this doc is updated with every
+schema-affecting commit.
 
-Locked 2026-05-03 by design + engineering review. Changes go through migrations
-(`0002_*.sql`, etc.); this doc gets updated with every schema-affecting commit.
+## Design decisions reflected in the schema
 
-## Decisions reflected
-
-- **D2** — `audit_entries` is append-only (WORM). UPDATE/DELETE blocked by row trigger AND app-role grants. Crypto-grade tamper-evidence is Phase 2.
-- **D3** — `iterations.sandbox_error_class` enum captures Timeout/OOM/Crash distinctly. Gate consumer does NOT advance best-ever when iteration ends in a sandbox error.
-- **D4** — Single-tenant for MVP. NO `workspace_id` columns. The Phase-2 retrofit is a single-pass `ALTER TABLE ... ADD COLUMN workspace_id` across every domain table + RLS policies.
-- **D7** — `meta_evals` table stores NL-gen meta-eval results.
+- **Append-only audit (WORM).** `audit_entries` blocks UPDATE/DELETE via a row trigger and via app-role grants. Crypto-grade tamper-evidence (Merkle root + signed export on top of the SHA-256 chain) is Phase 2.
+- **Sandbox-error class.** `iterations.sandbox_error_class` captures Timeout / OOM / Crash distinctly. The gate consumer does **not** advance best-ever when an iteration ends in a sandbox error.
+- **Single-tenant for MVP.** There are no `workspace_id` columns. The Phase-2 retrofit is a single-pass `ALTER TABLE ... ADD COLUMN workspace_id` across every domain table + RLS policies.
+- **NL-gen meta-eval storage.** The `meta_evals` table stores judge-vs-human meta-eval results from the NL-gen quality gate.
 
 ## ER diagram (substrate, MVP)
 
@@ -81,7 +80,7 @@ Locked 2026-05-03 by design + engineering review. Changes go through migrations
 
             ┌────────────────────┐      ┌──────────────────────┐
             │   audit_entries    │      │     meta_evals       │
-            │  (WORM — D2)       │      │  workflow_id (FK)    │
+            │  (append-only WORM)│      │  workflow_id (FK)    │
             │  seq (bigserial)   │      │  description         │
             │  kind (enum)       │      │  coverage_score      │
             │  payload (jsonb)   │      │  per_dimension       │
@@ -100,7 +99,7 @@ Locked 2026-05-03 by design + engineering review. Changes go through migrations
 ## Table-by-table notes
 
 ### `workflows`
-The user's described workflow + the NL-gen-generated artifacts. `spec` is the frozen-schema JSONB containing tools, ui block, environment description. `meta_eval_score` is the description-coverage from D7.
+The described workflow plus the NL-gen-generated artifacts. `spec` is the frozen-schema JSONB containing tools, ui block, environment description. `meta_eval_score` is the description-coverage score from the NL-gen meta-eval.
 
 `mode` is `'gated' | 'autonomous'` (default `'gated'`). In `autonomous` mode the regression gate's `gate-passed` state transitions directly to `approved-awaiting-deploy` without a human or LLM-judge step — used for benchmarking (τ³-bench conditions A/B/C) and any future fully-automated deployment pipeline. Mode is set per-workflow at creation and cannot be changed mid-run in MVP.
 
@@ -117,14 +116,14 @@ Named deployment configs for a skill — same content, different runtime. Each r
 `iterations.deployment_id` ties each gate run to the config it ran under, so the `lift_series` view can plot variant lines on the same eval set. Which deployment drives the loop is a runtime concern, not a schema constraint.
 
 ### `iterations`
-One row per loop iteration. `parent_skill_version_id` is what the agent started with; `proposed_skill_version_id` is what it ended with (only written if gate passes; null if rejected). `sandbox_error_class` is non-null iff `state = 'sandbox-error'` (D3). `deployment_id` is the deployment config the iteration ran under; null for iterations without a deployment config.
+One row per loop iteration. `parent_skill_version_id` is what the agent started with; `proposed_skill_version_id` is what it ended with (only written if gate passes; null if rejected). `sandbox_error_class` is non-null iff `state = 'sandbox-error'`. `deployment_id` is the deployment config the iteration ran under; null for iterations without a deployment config.
 
 `best_ever_score_before` and `best_ever_score_after` are the gate's "best ever val_score" snapshots. The convention: `best_ever_score_after = max(best_ever_score_before, val_score)` if gate passed, else equals `best_ever_score_before`.
 
 ### `proposals` + `approvals`
 The approval queue. State machine documented in [`STATE_MACHINES.md`](./STATE_MACHINES.md). One proposal can have at most one resolved approval.
 
-`proposals.eval_score` (numeric(3,2), `[0,1]` check) and `proposals.eval_rationale` (text) hold the LLM-judge-stub output. Shape carried over from `core/agentos_harness/types.py:Proposal` (MIT); populated starting W2 when the judge wires up.
+`proposals.eval_score` (numeric(3,2), `[0,1]` check) and `proposals.eval_rationale` (text) hold the LLM-judge-stub output. Populated when the judge wires up to the proposal flow.
 
 `approvals.approver_type` is `'human' | 'llm-judge' | 'autonomous'`. In autonomous mode the gate runner writes the approval row directly (no human in the loop); `decided_by` is `"autonomous"` and `comment` is null. `approvals.became_eval_case_id` closes the comment-becomes-eval-case flow: when a human reviewer rejects with a comment, the comment is structured into an `eval_cases` row tagged `provenance = 'rejected-feedback'`. Not applicable in autonomous mode.
 
@@ -132,20 +131,20 @@ The approval queue. State machine documented in [`STATE_MACHINES.md`](./STATE_MA
 Per-workflow, with provenance tracking. `is_test_fold` enforces train/test discipline — gate runner refuses to use test-fold rows as training input.
 
 ### `failure_clusters`
-HDBSCAN output. `centroid vector(384)` matches `sentence-transformers/all-MiniLM-L6-v2`'s output dim. `quality_score` is HDBSCAN cluster persistence; below threshold the UI shows "more iterations needed" rather than an unhelpful card. `label_eval_score` is the D4 cluster-label-vs-human agreement.
+HDBSCAN output. `centroid vector(384)` matches `sentence-transformers/all-MiniLM-L6-v2`'s output dim. `quality_score` is HDBSCAN cluster persistence; below threshold the UI shows "more iterations needed" rather than an unhelpful card. `label_eval_score` is the cluster-label-vs-human agreement score.
 
-### `audit_entries` (WORM — D2)
+### `audit_entries` (append-only WORM)
 Append-only spine. Every state change in proposals/iterations/skills/clusters/etc. writes a row here. `seq` is the canonical export ordering. WORM-enforced two ways:
 1. Row trigger raises on UPDATE/DELETE (works against any role).
 2. App-role grants (set in `0002_grants.sql`) only allow INSERT and SELECT.
 
-Crypto-grade tamper-evidence (canonical-JSON content hash + parent hash + chain rotation procedure for migrations; Merkle + signed root + transparency log) is a **Phase-2 retrofit** when first regulated buyer requires it.
+Crypto-grade tamper-evidence beyond the SHA-256 parent/entry chain (Merkle root + signed export + transparency log) is a **Phase-2 retrofit**.
 
-### `meta_evals` (D7)
+### `meta_evals`
 Stores judge-vs-human meta-eval results from the NL-gen quality gate. `coverage_score` is the headline number; `per_dimension` breaks it down (sim_completeness / eval_coverage / metric_alignment). Surfaced in the workspace UI as the "sim covers 11/12 of your description" badge.
 
 ### `learnings`
-Mirrors the auto-harness `learnings.md` append-only file. Every iteration writes hypotheses, observations, and requests-to-human here. The loop-stuck alert (W2.4a) fires when no new entry appears in 2h.
+Mirrors the auto-harness `learnings.md` append-only file. Every iteration writes hypotheses, observations, and requests-to-human here. The loop-stuck alert fires when no new entry appears in 2h.
 
 ### `traces`
 The high-volume table. JSONB `events` is an array of typed `AgentEvent` (defined in `packages/trace-format/`). Phase 2 will migrate to ClickHouse if volume justifies; for MVP, monthly partitioning on `started_at` is the migration path if needed.
@@ -169,4 +168,4 @@ When a second tenant onboards, run a migration that:
 4. Wraps every kernel session start with `SET LOCAL app.workspace_id = ...`.
 5. Drops the old "single-tenant" assumption from API endpoints.
 
-Estimated 1-2 weeks per the Phase-2 retrofit checklist in [`PLAN.md`](./PLAN.md).
+Estimated 1-2 weeks of work whenever a second deployment requires it.

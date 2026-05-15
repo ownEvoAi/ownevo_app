@@ -1,6 +1,6 @@
 # ownEvo Harness Design Guide
 
-Design rules for the improvement loop harness: proposer context, agent prompts, eval skill shape, and gate contract. Grounded in the a reference auto-harness pattern and the Meta-Harness findings (arXiv 2603.28052).
+Design rules for the improvement loop harness: proposer context, agent prompts, eval skill shape, and gate contract. Grounded in the reference auto-harness pattern and published meta-harness ablation studies.
 
 ---
 
@@ -20,7 +20,7 @@ The harness has three layers:
 
 ### Give the proposer raw traces, not summaries
 
-The most important design rule, grounded in a published ablation (Meta-Harness, 2603.28052):
+The most important design rule, grounded in published meta-harness ablation studies:
 
 | Proposer sees | Accuracy |
 |---|---|
@@ -34,7 +34,7 @@ LLM-generated summaries of traces actively hurt. The proposer needs to read raw 
 
 ### Give the proposer prior proposal history
 
-Meta-Harness's proposer reads a median of 82 files per iteration across 20+ prior candidates. The critical behavioral consequence: it can identify confounded diffs ("both structural changes AND prompt edits landed in iteration 3 — isolate them") and avoid re-exploring known-bad directions.
+A representative meta-harness proposer reads a median of 82 files per iteration across 20+ prior candidates. The critical behavioral consequence: it can identify confounded diffs ("both structural changes AND prompt edits landed in iteration 3 — isolate them") and avoid re-exploring known-bad directions.
 
 The proposer's context should include:
 - Current skill version (the file it will edit)
@@ -157,7 +157,7 @@ The 3-step gate (`gate/`) in order:
 
 Gate does NOT advance `best_ever` on a sandbox error. It DOES log to `learnings.md` with `error_class` so the proposer can see it in the next iteration's prior proposal history.
 
-**Don't add a fourth verification step.** Published ablations (NLAH, 2603.25723) show a verifier module costs −0.8% resolved rate at the benchmark level. The 3-step gate is the right size. Adding "did the agent explain its reasoning correctly?" or "is the diff semantically coherent?" passes overhead to every iteration without measurable improvement.
+**Don't add a fourth verification step.** Published ablations show a separate LLM verifier module costs roughly −0.8% resolved rate at the benchmark level. The 3-step gate is the right size. Adding "did the agent explain its reasoning correctly?" or "is the diff semantically coherent?" passes overhead to every iteration without measurable improvement.
 
 ---
 
@@ -165,7 +165,7 @@ Gate does NOT advance `best_ever` on a sandbox error. It DOES log to `learnings.
 
 Out of scope for this harness:
 
-- **Multi-model ensemble proposals** — proposer generates one candidate per iteration. Multi-candidate search cost −2.4% in the NLAH ablation.
-- **Automated harness search** (Meta-Harness style) — ownEvo's proposer operates at the skill/workflow layer, not the context-pipeline layer. Don't conflate the two.
+- **Multi-model ensemble proposals** — proposer generates one candidate per iteration. Multi-candidate search shows ~−2.4% in published ablations at this layer.
+- **Automated harness search** (meta-harness style) — ownEvo's proposer operates at the skill/workflow layer, not the context-pipeline layer. Don't conflate the two.
 - **Continuous proposer runs without gate** — every proposed change pays the gate toll. No "auto-approve if small diff" shortcut for MVP.
 - **Custom verifier LLM pass** — the gate is the verifier. A second LLM judging the proposer's output adds latency and cost with no demonstrated benefit at this layer.

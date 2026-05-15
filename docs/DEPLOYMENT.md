@@ -171,7 +171,7 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0006_workflow_kind.sql` | `kind` enum on `workflows` |
 | `0007_workflow_mode_eval_modes.sql` | `mode` enum + `eval_modes` on `workflows` |
 | `0008_iteration_case_outputs.sql` | `iteration_case_outputs` table for operator shell primitives |
-| `0009_audit_hash_chain.sql` | `parent_hash` + `entry_hash` on `audit_entries` (TODO-3 crypto chain) |
+| `0009_audit_hash_chain.sql` | `parent_hash` + `entry_hash` on `audit_entries` (SHA-256 chain) |
 | `0010_grants_and_constraints.sql` | `workflows.id <> '_unscoped'` constraint; REVOKE template for role-level WORM (edit before running) |
 
 **Local:** `make api` and `make dev-up` both run migrations automatically on start.

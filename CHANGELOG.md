@@ -81,6 +81,16 @@ Open-source release prep, plus the audit-chain hardening pass from PR #88.
 - **`m5-replay-nightly.yml` CI guard.** Pin on `4 passed` replaced with
   a non-zero-pass-count + zero-failure check so adding a test doesn't
   break CI.
+- **`docs/` polish pass.** Stripped residual internal task-tracker
+  references and sprint codes (`TODO-N`, `PLAN W#.#.#`, bare `W7`/`W8`,
+  `P1.5`, `M2–M9`, internal `D2`/`D3`/`D4`/`D7` decision codes) across
+  `ARCHITECTURE`, `SCHEMA`, `STATE_MACHINES`, `SKILL_FORMAT`,
+  `HARNESS`, `BENCHMARK_ARCHITECTURE`, `DEPLOYMENT`, `STATE_MACHINES`,
+  `api/openapi.yaml`, and `runbooks/demo-rollback.md`. Softened
+  unverifiable citations in `HARNESS.md` to "published meta-harness
+  ablations". Rewrote `local-model-testing.md` as a polished public
+  summary (350 lines, two-track framing, top-pick tables); the full
+  1641-line dogfooding diary lives in the private companion repo.
 
 ### Security
 

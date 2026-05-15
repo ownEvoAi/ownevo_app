@@ -1,7 +1,7 @@
 # ownEvo — Architecture
 
 **Status:** living doc. Update whenever a structural change ships.
-**Source of truth precedent:** when this doc disagrees with code, code wins; update this doc.
+**Authority:** when this doc disagrees with code, code wins — update this doc to match.
 
 This is the one-document tour. For deep dives:
 
@@ -42,7 +42,7 @@ flowchart LR
   K -- httpx --> LLM
 ```
 
-**Why two processes:** Python owns the core algorithms (improvement loop, eval harness, failure clustering, regression gate). TypeScript/Next owns the product surface (approval UX, diff viewer, lift chart, audit trail). The clustering ecosystem is Python-first at the quality bar required; the web UI is unavoidably TS/Next. Joining the two with REST + SSE keeps the boundary honest.
+**Why two processes:** the Python kernel implements the core algorithms (improvement loop, eval harness, failure clustering, regression gate). The TypeScript/Next app drives the product surface (approval UX, diff viewer, lift chart, audit trail). The clustering ecosystem is Python-first at the quality bar required; the web UI is unavoidably TS/Next. Joining the two with REST + SSE keeps the boundary honest.
 
 **Why Postgres + pgvector:** one substrate for relational state (workflows, skills, proposals, audit) AND vector search over failure embeddings. Avoids dual-write between OLTP and a vector store.
 
@@ -74,7 +74,7 @@ flowchart TD
 ```
 
 **Key invariants:**
-- Every state transition writes an `audit_entries` row (D2). Append-only at the DB level (`REVOKE UPDATE, DELETE` from the app role; only `INSERT` permitted).
+- Every state transition writes an `audit_entries` row. Append-only at the DB level (`REVOKE UPDATE, DELETE` from the app role; only `INSERT` permitted).
 - `eval_cases` are the durable substrate — they accumulate over time and define the regression suite. They are what makes the "every prior fix is regression-tested" claim load-bearing.
 - The 3-step gate maps `FAIL_REGRESSION` and `FAIL_NO_IMPROVEMENT` to `ProposalState.REJECTED`; only `SANDBOX_ERROR` maps to `GATE_FAILED`. UI conditionals must check both.
 
@@ -97,7 +97,7 @@ flowchart LR
 
 The four artifacts are **discriminated unions**: each typed (Pydantic schemas in `packages/trace-format/` and `apps/kernel/src/ownevo_kernel/nl_gen/`), `extra="forbid"`, `frozen=True`. The seam is the schema; the prompts are best-effort.
 
-The `WorkflowSpec.ui.tabs[].primitives[]` field declares which **render primitives** (MetricCards, TimeSeriesChart, etc.) the workspace should show — Track 0 of W8 makes those visible in the web app; layer D (TODO-35) closes the agent-output-to-render-data loop.
+The `WorkflowSpec.ui.tabs[].primitives[]` field declares which **render primitives** (MetricCards, TimeSeriesChart, etc.) the workspace should show. The web app renders those primitives today; the resolver that maps real agent output to typed render data is deferred work.
 
 ---
 
@@ -195,20 +195,20 @@ apps/web/app/
     page.tsx                              Health dashboard (LiftChart + workflow rows)
     inbox/                                proposal queue
     audit/                                append-only audit trail viewer
-    skills/                               Skills library (8.0.4)
+    skills/                               Skills library
     skills/[skillId]/                     per-skill detail + version history + LCS diff
-    primitives/                           Views library — render-primitive showcase (8.0.1)
+    primitives/                           Views library — render-primitive showcase
     workflows/[wfId]/                     per-workflow Overview, Failures, Traces, Audit tabs
     workflows/[wfId]/traces/[traceId]/    per-trace step inspection
-    workflows/new/                        NL-gen storyboard (W5.5 → W8.0.5–6)
+    workflows/new/                        NL-gen storyboard
     proposals/[id]/                       proposal review (diff + gate + approve/deploy/rollback)
   components/
-    primitives/                           9 leaf render components (Track 0)
+    primitives/                           9 leaf render components
     agent-anatomy.tsx                     three-column skills + tools + topology pane
     skill-diff.tsx                        LCS diff
   lib/
     api.ts                                kernel API client (typed)
-    primitives-mock-data.ts               per-workflow mock resolver (Track 0 layer C)
+    primitives-mock-data.ts               per-workflow mock resolver
 
 packages/trace-format/                    AgentEvent + UIPrimitive Pydantic schemas + canonical SPEC.md
 ```
@@ -225,13 +225,13 @@ There is **no `workspace_id` column on any domain table** today. The `[wsId]` UR
 
 Two distinct primitive layers, intentional:
 
-**ownEvo platform primitives** (internal primitives):
+**ownEvo platform primitives:**
 - LiftChart (improvement-loop signal)
 - FailureClusterCard
 - AgentAnatomy pane
 - ProposalDiff (SideBySide for skill versions)
 
-**Workflow render primitives** (8.0.1–8.0.4):
+**Workflow render primitives:**
 - MetricCards, TimeSeriesChart, TableView, AlertList
 - KanbanBoard, ScheduleGrid
 - ConversationView, SideBySideView (clause-level), DocumentReader
@@ -242,10 +242,8 @@ Platform primitives drive the **improvement-loop surface** (what the platform te
 
 ## 9. Known boundaries (not yet built)
 
-- **Layer D resolver** (TODO-35): real agent output → primitive `source` field → typed render data. Today the resolver is hand-curated mocks. Phase-2 work.
-- **Multi-tenant retrofit** (TODO-1): D4.
-- **Sandbox provider migration** (TODO-2): e2b / Modal swap behind `SandboxRuntime` Protocol.
-- **Audit-chain crypto upgrade** (TODO-3): content hash + parent hash + Merkle root + signed export. Reframed claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
-- **τ³-bench condition C + prior-art reproduction** (PLAN W7.3.3 + 8.3.x).
-
-Each has a TODO entry with motivation, effort, and dependency.
+- **Layer D resolver:** real agent output → primitive `source` field → typed render data. Today the resolver is hand-curated mocks.
+- **Multi-tenant retrofit:** `workspace_id` column + RLS across every domain table.
+- **Sandbox provider migration:** e2b / Modal swap behind the `SandboxRuntime` Protocol.
+- **Audit-chain crypto upgrade:** Merkle root + signed export on top of the existing parent-hash chain. The shipped claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
+- **τ³-bench condition C + prior-art reproduction.**

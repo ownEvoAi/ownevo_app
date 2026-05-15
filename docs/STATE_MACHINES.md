@@ -1,8 +1,8 @@
 # State Machines
 
-Locked 2026-05-03 by eng review. Every state transition writes an `audit_entries`
-row (D2). The state machines below define which transitions are legal and which
-audit kind they produce.
+Every state transition writes an `audit_entries` row. The state machines
+below define which transitions are legal and which audit kind they
+produce.
 
 ## Proposal
 
@@ -61,7 +61,7 @@ audit kind they produce.
                     ┌──────────────────┐
                     │     deployed     │
                     └────────┬─────────┘
-                             │ (W7 demo rollback runbook)
+                             │ (demo rollback runbook)
                              ▼
                     ┌──────────────────┐
                     │   rolled-back    │
@@ -83,7 +83,7 @@ audit kind they produce.
 | `gate-passed` | `approved-awaiting-deploy` | LLM-judge approves | `llm-judge` | `proposal-approved` |
 | `gate-passed` | `rejected` | Human or LLM-judge rejects | `human` / `llm-judge` | `proposal-rejected` |
 | `approved-awaiting-deploy` | `deployed` | Deploy job advances HEAD on `skills` table | — | `proposal-deployed` |
-| `deployed` | `rolled-back` | `make revert-skill` operator script (W7 demo runbook; see `docs/runbooks/demo-rollback.md`) | — | `proposal-rolled-back` |
+| `deployed` | `rolled-back` | `make revert-skill` operator script (see `docs/runbooks/demo-rollback.md`) | — | `proposal-rolled-back` |
 
 ### Invariants
 
@@ -113,7 +113,7 @@ audit kind they produce.
 `best_ever_score_after = best_ever_score_before` UNLESS state = `gate-pass`,
 in which case `best_ever_score_after = max(best_ever_score_before, val_score)`.
 
-D3: `sandbox-error` does NOT advance best_ever_score.
+A `sandbox-error` state does **not** advance `best_ever_score`.
 
 ## Workflow (NL-gen lifecycle)
 
@@ -131,7 +131,7 @@ D3: `sandbox-error` does NOT advance best_ever_score.
    ┌────────────────────┐
    │   artifacts-built  │
    └──────────┬─────────┘
-              │ meta-eval (D7) runs
+              │ meta-eval runs
               ▼
    ┌────────────────────────────────────────────┐
    │  meta-eval-passed | meta-eval-failed       │

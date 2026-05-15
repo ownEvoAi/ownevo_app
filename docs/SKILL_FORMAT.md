@@ -1,8 +1,7 @@
 # Skill File Format
 
-Locked 2026-05-03 by eng review (D3). Every skill — Python pipeline skill (M5
-forecasting), instruction skill (NL-gen-emitted prompts), τ³ multi-turn agent
-skill — uses this format.
+Every skill — Python pipeline skill (M5 forecasting), instruction skill
+(NL-gen-emitted prompts), τ³ multi-turn agent skill — uses this format.
 
 ## Why
 
@@ -160,7 +159,7 @@ silently stops re-fetching gets blocked.
 Skill-registry write fails with `SkillFormatError` if validation fails. Stays
 out of the registry; agent gets the error in `tool_call_result`.
 
-## Skill-detail UI rendering (W7.1.10 / W7.1.11)
+## Skill-detail UI rendering
 
 The workspace UI shows:
 

@@ -254,7 +254,7 @@ paths:
   /api/workflows/{id}/case-outputs:
     get:
       tags: [workflows]
-      summary: Per-case agent output for one iteration (PLAN 8.4.9)
+      summary: Per-case agent output for one iteration
       description: |
         Returns an empty items list (iteration_index=null) when no iteration
         has run yet. The operator-shell TableView binds to this endpoint.
@@ -533,12 +533,11 @@ paths:
   /api/audit/verify:
     post:
       tags: [audit]
-      summary: Verify the append-only chain (W7 slice 4)
+      summary: Verify the append-only chain
       description: |
         Structural integrity check: every seq from min..max present
         (no gaps), no duplicates, canonical-JSON export round-trips.
-        D2 (append-only, no crypto). TODO-3 extends with parent_hash /
-        entry_hash verification when first regulated buyer evaluates.
+        Verifies the SHA-256 parent_hash / entry_hash chain.
       responses:
         '200':
           description: ok
@@ -550,12 +549,12 @@ paths:
   # ---------- skills ----------
   /api/skills:
     get:
-      summary: Workspace-scoped skill library index (PLAN 8.0.4)
+      summary: Workspace-scoped skill library index
       description: |
         Returns every skill across all workflows in the workspace, sorted
         by kind (instruction → python → composite) then id ASC.
-        Single-tenant for MVP per D4 — no workspace filter applied yet.
-        Multi-tenant retrofit (TODO-1) adds WHERE workspace_id = $1.
+        Single-tenant for MVP — no workspace filter applied yet.
+        Multi-tenant retrofit will add a `WHERE workspace_id = $1` clause.
       tags: [skills]
       responses:
         '200':

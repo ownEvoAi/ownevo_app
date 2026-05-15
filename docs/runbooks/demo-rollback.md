@@ -1,8 +1,7 @@
 # Demo rollback runbook
 
-*W7 slice 12 (PLAN row 7.1.13). For when a bad skill version goes
-live in the demo workspace and the lift chart goes negative the day
-before the demo video record.*
+For when a bad skill version goes live in the demo workspace and the
+lift chart turns negative ahead of a live demo.
 
 This runbook re-points a skill's HEAD at an earlier `version_seq`. It
 **does not** delete the bad version — `skill_versions` is append-only
@@ -165,7 +164,7 @@ true`.
 
 ---
 
-## Phase-2 follow-ups (out of W7 scope)
+## Phase-2 follow-ups
 
 - A "Revert" button on the skill detail page that wraps the same SQL
   + audit write behind a confirmation dialog. (Right now the revert
