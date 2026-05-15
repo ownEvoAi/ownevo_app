@@ -38,8 +38,41 @@ fresh `[Unreleased]` block above it.
   workflow. Omit for the workspace-wide index (existing behaviour). PR #88.
 - **`docs/DEPLOYMENT.md`.** Single reference for all three deployment paths
   (bare-metal, Docker compose, Fly.io), env-var table, full migration table
-  (0001–0009), health checks, DEMO_MODE blocked-routes list, and cost
+  (0001–0010), health checks, DEMO_MODE blocked-routes list, and cost
   breakdown. PR #88.
+- **Migration `0010_grants_and_constraints.sql`.** Two hardening items: (1)
+  a REVOKE template comment for role-level WORM on `audit_entries` — run
+  after substituting the actual DB user from `OWNEVO_DATABASE_URL` (this is
+  layer 2 of the append-only guarantee; the trigger-based WORM in 0001 is
+  layer 1); (2) a `CHECK (id <> '_unscoped')` constraint on `workflows` so
+  the `_unscoped` magic sentinel used by `GET /api/skills?workflow_id=` can
+  never collide with a real workflow id.
+
+### Security
+
+- **Timing oracle: replaced `!=` with `hmac.compare_digest` for all hash
+  comparisons in `POST /api/audit/verify`.** SHA-256 hex string comparison
+  via `!=` leaks timing information. All three comparison sites (`entry_hash`
+  vs recomputed, `parent_hash` vs previous `entry_hash`, genesis anchor
+  check) now use `hmac.compare_digest` from the standard library.
+- **Race condition: serialised concurrent `append_audit_entry` writers with
+  `pg_advisory_xact_lock`.** Two simultaneous callers could read the same
+  `prev_hash` before either inserted, silently forking the chain. A
+  transaction-scoped advisory lock (`hashtext('ownevo.audit_chain')`) is
+  acquired inside `conn.transaction()` before reading `prev_hash`, ensuring
+  the read–compute–insert sequence is atomic under concurrent load. The lock
+  is released automatically when the transaction ends.
+- **Genesis anchor: verify endpoint now checks the first hashed entry's
+  `parent_hash` equals the all-zeros sentinel.** Without this check, a raw
+  INSERT could plant an arbitrary `parent_hash` on the first hashed row and
+  the per-entry loop would pass it unchanged. The pre-loop guard catches
+  this before iterating.
+- **DoS guard: `POST /api/audit/verify` now requires `DemoModeCheck`.**
+  The endpoint performs an unbounded `SELECT *` over `audit_entries` then
+  recomputes SHA-256 for every hashed row — impractical on a demo instance
+  open to web traffic. Adding `DemoModeCheck` as a FastAPI dependency blocks
+  the endpoint on the Fly.io demo (returns 503), consistent with other
+  expensive operator diagnostics.
 
 ## [0.7.0] — 2026-05-13
 
