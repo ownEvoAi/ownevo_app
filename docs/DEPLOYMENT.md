@@ -40,7 +40,7 @@ The short list below covers the deployment path. **For the full inventory** of e
 | `OWNEVO_CORS_ORIGINS` | `""` (allow all) | Comma-separated list of allowed CORS origins for the kernel API. |
 | `OWNEVO_M5_DIR` | `./data/m5` | Path to M5 forecasting CSVs (only needed for the M5 improvement loop). |
 | `OWNEVO_LLM_BASE_URL` | Anthropic cloud | Override base URL for local LLM backends (LM Studio, Ollama via LiteLLM). |
-| `OWNEVO_LLM_MODEL` | `claude-sonnet-4-6` | Model name passed to the local backend. |
+| `OWNEVO_LLM_MODEL` | `qwen/qwen3-coder-30b` | Model name passed to the local backend. |
 | `OWNEVO_LLM_HOST` | `localhost` | Hostname for the Ollama OpenAI path (`http://$OWNEVO_LLM_HOST:11434/v1`). |
 | `DEMO_MODE` | `false` | Set `true` to block write operations — used on the Fly.io demo instance. Kernel returns HTTP 503 on writes when true; web app surfaces a demo banner. Set independently on the two apps. |
 
@@ -275,7 +275,8 @@ See [`AUDIT_HARDENING.md`](AUDIT_HARDENING.md) for the full three-layer story (D
 Migration `0009_audit_hash_chain.sql` adds the chain columns; **no backfill** is run. Entries written before 0009 have NULL hashes and are skipped by the verifier (the "pre-hash epoch"). Verify the chain post-deploy:
 
 ```bash
-curl -X POST https://demo.ownevo.ai/api/audit/verify
+# Use your production kernel URL (not the demo instance — DEMO_MODE blocks this endpoint there).
+curl -X POST https://ownevo-kernel.fly.dev/api/audit/verify
 # {"hash_chain_entries": N, "hash_chain_valid": true}
 ```
 
@@ -289,8 +290,9 @@ The kernel uses local Docker (or whichever sandbox provider is wired behind `San
 # Build the M5 sandbox image (one-time per host).
 make sandbox-image-m5
 
-# Smoke test — run a no-op pipeline.
-make sandbox-smoke
+# Verify the image is runnable (no standalone smoke target yet — run the
+# sandbox unit tests as a build-time sanity check):
+make test
 ```
 
 If you're using a managed sandbox provider (Modal, e2b, …) the swap is one file behind the `SandboxRuntime` Protocol — verify the provider's credentials are set as Fly secrets, not in `fly.toml`.

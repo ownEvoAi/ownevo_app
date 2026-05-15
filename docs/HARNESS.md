@@ -167,8 +167,8 @@ Why: the gate is the only thing standing between an agent's hypothesis and a dep
 
 The self-test is **not** run on every iteration of an existing workflow — it would double iteration cost. It runs on:
 - Fresh workflow creation (first iteration).
-- Kernel startup (background; results surfaced on `/api/health/gate`).
-- Manual trigger via `make gate-selftest`.
+- Kernel startup (background; logged to stdout; not yet surfaced via a dedicated health endpoint).
+- Manual trigger: run the gate-selftest test directly via `make test` (no standalone make target yet).
 
 If you change the gate's behavior, add a synthetic skill case to the self-test before merging.
 
@@ -185,7 +185,7 @@ approvals/service.py creates eval_cases row with:
     description     = the comment, verbatim
     is_test_fold    = false  (added to train fold by default)
   ↓
-proposals.became_eval_case_id ← new eval_case_id
+approvals.became_eval_case_id ← new eval_case_id
   ↓
 Audit: proposal-rejected (with eval_case_id in payload)
 ```

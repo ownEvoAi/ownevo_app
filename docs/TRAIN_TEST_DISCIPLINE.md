@@ -32,12 +32,13 @@ Two tools enforce the rule:
 | `read_metrics(db, trace_id, *, include_test_fold=False)` | Raises `TestFoldAccessRefused` unless the caller passes `include_test_fold=True`. |
 | `analyze_failures(db, workflow_id, *, include_test_fold=False)` | Silently filters test-fold traces out of the returned list. Same opt-in flag if a caller needs them. |
 
-The flag default is **`False`** everywhere. To surface test-fold data, a caller has to opt in explicitly. Authorized callers (verified by grep):
+The flag default is **`False`** everywhere. To surface test-fold data, a caller has to opt in explicitly. Authorized callers today (verified by grep):
 
-- The **gate runner** (`gate/runner.py`) — opts in when scoring a candidate skill against the held-out test cases. This is the *only* production code path that uses `include_test_fold=True`.
 - Two tests (`test_agent_tools_metrics.py:98, 147`) — exercise the opt-in path.
 
-That's it. Any new caller passing `include_test_fold=True` should trigger a code review eyebrow.
+The train/test separation in production works via **fold stamping** in `gate/persistence.py` (which stamps the `fold` field when writing traces) and the `False` default in agent tools — not via a production code path calling `include_test_fold=True`. When the gate runner is extended to call `read_metrics` or `analyze_failures` directly, that will be the intended production opt-in caller.
+
+Any new caller passing `include_test_fold=True` should trigger a code review eyebrow.
 
 ## 2. How traces get tagged
 

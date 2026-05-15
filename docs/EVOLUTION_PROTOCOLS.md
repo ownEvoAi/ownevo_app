@@ -149,15 +149,15 @@ For a single iteration that ends in failure:
 trace (with metric_outputs.fold = "train")
   ↓
 Tracker.record_hypothesis(iter_id, "I bumped duplicate threshold to 0.6")
-  → learnings(kind=HYPOTHESIS, iteration_id=...)
+  → learnings(kind='hypothesis', iteration_id=...)
   ↓
 gate runs → gate_result: GATE_BLOCKED_NO_IMPROVEMENT
   ↓
-Tracker.record_outcome(iter_id, "val_score=0.6 < best_ever=0.667", success=False)
-  → learnings(kind=OUTCOME, iteration_id=..., success=False)
+Tracker.record_outcome(iter_id, "val_score=0.6 < best_ever=0.667", ...)
+  → learnings(kind='observation', iteration_id=..., content=gate_result_summary)
   ↓
 Reflector.reflect(iteration) → ReflectionDecision.CONTINUE
-  → learnings(kind=REFLECTION, iteration_id=..., decision=CONTINUE)
+  → learnings(kind='observation', iteration_id=..., content="CONTINUE: no improvement")
   ↓
 (next iteration runs; same parent skill_version)
   ...

@@ -20,7 +20,7 @@ The append-only property is enforced at **three layers**, defense in depth:
 |---|---|---|
 | **DB trigger (layer 1)** | Migration 0001 installs a trigger on `audit_entries` that raises on `UPDATE` or `DELETE`. | App-code bugs and SQL typos. |
 | **Role-level grants (layer 2)** | Migration 0010 ships a `REVOKE UPDATE, DELETE ON audit_entries FROM <app_role>;` template. **Operators must edit-and-run it** with the real role name. | A bypassed trigger or an app that runs as superuser. |
-| **Hash chain (layer 3)** | Migration 0009 adds `parent_hash` + `entry_hash`. Any tampering detectable via `GET /api/audit/verify`. | Direct manual mutation by anyone with DB write access. |
+| **Hash chain (layer 3)** | Migration 0009 adds `parent_hash` + `entry_hash`. Any tampering detectable via `POST /api/audit/verify`. | Direct manual mutation by anyone with DB write access. |
 
 Layers 1 and 2 prevent mutation from happening; layer 3 makes it detectable if it does. The chain is the only one of the three that survives a malicious DBA.
 

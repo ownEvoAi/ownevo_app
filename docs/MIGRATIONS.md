@@ -4,9 +4,12 @@
 the migration wins — update this doc to match.
 
 Ordering is enforced by filename prefix. The migration runner applies each
-`.sql` file in its own session, in lexicographic order, idempotently
-(every CREATE / ALTER uses `IF NOT EXISTS` / `IF EXISTS`). Re-running the
-whole sequence on a partially-migrated DB is safe.
+`.sql` file in its own transaction, in lexicographic order. Most files are
+idempotent (using `CREATE / ALTER ... IF NOT EXISTS` / `IF EXISTS`), but
+`0009_audit_hash_chain.sql` (`ADD COLUMN`) and `0010_grants_and_constraints.sql`
+(`ADD CONSTRAINT`) are **not** — re-running them on an already-migrated DB
+will fail with a Postgres error. The schema_migrations table prevents
+accidental re-runs under normal operation.
 
 See [`SCHEMA.md`](SCHEMA.md) for the resulting table layout. This doc
 explains **why** each migration exists, in dependency order.
@@ -99,7 +102,7 @@ Backfill: pre-existing benchmark workflows (`m5-*`, `tau-*`, `tau2-*`, `tau3-*`,
 | `gated` (existing) | Full loop, propose + auto-gate, human approval before deploy. |
 | `autonomous` (existing) | Full loop; gate-pass auto-deploys. |
 
-**Postgres quirk:** `ALTER TYPE ... ADD VALUE` must run *outside* a transaction. The migration runner runs each `.sql` file in its own session, so these two statements stand alone. Per Postgres docs the new values are visible immediately in subsequent statements within the same session.
+**Postgres quirk:** `ALTER TYPE ... ADD VALUE` must run *outside* a transaction on Postgres < 16. The migration runner detects `ADD VALUE` in the SQL and runs those files without a transaction wrapper (the schema_migrations record is then inserted in a short separate transaction). Per Postgres docs the new values are visible immediately in subsequent statements within the same connection.
 
 ## 0008 — per-case structured agent output
 
@@ -115,7 +118,7 @@ Adds `parent_hash text` + `entry_hash text` (SHA-256 hex, 64 chars) to `audit_en
 
 - **No backfill.** Existing rows keep NULL hashes; they are the **"pre-hash epoch"** and the verify-chain logic skips them.
 - The chain begins from the first entry written *after* this migration.
-- `GET /api/audit/verify` returns `hash_chain_entries = 0` and `hash_chain_valid = true` on a freshly-migrated DB (an empty chain is valid by definition).
+- `POST /api/audit/verify` returns `hash_chain_entries = 0` and `hash_chain_valid = true` on a freshly-migrated DB (an empty chain is valid by definition).
 
 Index `audit_entries_entry_hash_idx` covers `entry_hash IS NOT NULL` for chain-verification traversal. See [`AUDIT_HARDENING.md`](AUDIT_HARDENING.md) for verification semantics.
 
@@ -176,6 +179,6 @@ For production: take a base backup before applying any migration, and resolve is
 1. Number it `00NN_<short_kebab_description>.sql` — pick `NN` = highest existing + 1.
 2. Header comment: state the **why** in plain English, reference any PR or design doc, and list any **backfill** explicitly.
 3. Use `CREATE / ALTER ... IF NOT EXISTS` / `IF EXISTS` so the file is idempotent.
-4. If your migration uses `ALTER TYPE ADD VALUE`, remember each `.sql` file gets its own transaction (see 0007).
+4. If your migration uses `ALTER TYPE ADD VALUE`, the runner detects it and runs the file *without* a transaction wrapper (see 0007 and `scripts/migrate.py`). No extra action needed — just don't mix `ADD VALUE` with other DDL in the same file.
 5. Update this doc — add an Index-table row + a `## NNNN — short title` section.
 6. Update [`SCHEMA.md`](SCHEMA.md) if you've added or changed a column the schema reference covers.
