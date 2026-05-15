@@ -344,6 +344,40 @@ that a future cross-walk (Phase 2 TODO) is bounded:
 
 The cross-walk doc is **not** in MVP scope. When OTel Gen AI conventions stabilize and there's a customer with OTel-native traces who needs to ingest into ownEvo (Entry Point B per MVP doc), the cross-walk gets written. Schema is designed to make that mapping additive, not breaking.
 
+## Python ↔ TypeScript cross-walk
+
+`AgentEvent` lives in two languages. The contract is the JSON schema at
+`schemas/agent_event.v1.0.json` (Pydantic-derived); both implementations
+must round-trip against it.
+
+| Concern | Python | TypeScript |
+|---|---|---|
+| Source of truth | `packages/trace-format/src/ownevo_format/agent_event.py` (Pydantic v2, `frozen=True`, `extra="forbid"`) | `apps/web/lib/api.ts` lines 684-746 (hand-written `interface` types, no Zod yet) |
+| Schema snapshot | `packages/trace-format/schemas/agent_event.v1.0.json` | (same — TS reads from the JSON snapshot for type-narrowing helpers) |
+| Conformance test | `packages/trace-format/tests/test_schema_freeze.py` — re-derives the schema from Pydantic and diff-asserts against the snapshot | (none today — TS types are reviewed by hand against the snapshot at PR time; **gap**) |
+| UI primitives counterpart | `packages/trace-format/src/ownevo_format/ui_primitives.py` | (interface defs scattered in `apps/web/app/components/primitives/*.tsx`; **also a gap** — not consolidated to one types file) |
+
+### How the TS side stays in sync today
+
+Manually. The interface definitions in `api.ts` carry a comment
+`// Matches packages/trace-format/SPEC.md v1.0`. The schema-freeze
+test catches Python drift; **TS drift is on the reviewer**. If you add
+a variant or field on the Python side:
+
+1. Regenerate the snapshot: `python scripts/regen_schemas.py`.
+2. Mirror the change in `apps/web/lib/api.ts` in the same PR.
+3. Add the type to the `AgentEvent` discriminated union (line 746).
+4. Update this cross-walk table if the locations changed.
+
+### Adding a Zod conformance test (planned)
+
+A TS-side conformance test is a known gap. Approach: ship a Zod schema
+generated from the JSON snapshot and run `parseAsync` against the same
+test fixtures the Python suite uses. That would let CI catch TS/Python
+drift the way `test_schema_freeze.py` catches Python/snapshot drift.
+
+Tracked as a doc-only TODO until a reviewer hits the gap in earnest.
+
 ## References
 
 - [`README.md`](./README.md) — orientation + status
