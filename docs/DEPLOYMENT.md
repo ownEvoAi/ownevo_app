@@ -24,6 +24,8 @@ Three deployment paths are supported:
 
 ## Environment variables
 
+The short list below covers the deployment path. **For the full inventory** of every variable read anywhere in the repo (web, scripts, sandbox images, dogfooding probes), see [`ENV_VARS.md`](ENV_VARS.md).
+
 ### Required
 
 | Variable | Used by | Description |
@@ -40,7 +42,7 @@ Three deployment paths are supported:
 | `OWNEVO_LLM_BASE_URL` | Anthropic cloud | Override base URL for local LLM backends (LM Studio, Ollama via LiteLLM). |
 | `OWNEVO_LLM_MODEL` | `claude-sonnet-4-6` | Model name passed to the local backend. |
 | `OWNEVO_LLM_HOST` | `localhost` | Hostname for the Ollama OpenAI path (`http://$OWNEVO_LLM_HOST:11434/v1`). |
-| `DEMO_MODE` | `false` | Set `true` to block write operations — used on the Fly.io demo instance. |
+| `DEMO_MODE` | `false` | Set `true` to block write operations — used on the Fly.io demo instance. Kernel returns HTTP 503 on writes when true; web app surfaces a demo banner. Set independently on the two apps. |
 
 The kernel reads `OWNEVO_DATABASE_URL` at startup. If it's unset, the API starts but every DB call returns a startup error.
 
@@ -240,3 +242,69 @@ Running on Fly.io free tier:
 **Total: $0–5/month** depending on outbound traffic. The free allowance covers three `shared-cpu-1x` machines and 3 GB of Fly volumes per billing account.
 
 Local Docker compose runs entirely on your machine. No cloud costs.
+
+---
+
+## Post-deploy hardening checklist
+
+The pieces below are **not optional for production deploys.** Local-dev and demo deploys can skip them; regulated-industry or paid deploys must complete every step before going live.
+
+### 1. Audit WORM grants (layer 2)
+
+Migration `0010_grants_and_constraints.sql` ships the `REVOKE UPDATE, DELETE ON audit_entries FROM <app_role>;` statement **commented out** because the actual role name depends on the deployment environment. The migration tool runs the file as-is; the operator must edit-and-rerun (or hand-execute the REVOKE after the migration applies).
+
+```bash
+# 1. Find the role used by the kernel.
+# On Fly.io managed Postgres:
+fly pg connect -a ownevo-pg -c "\du"
+
+# 2. Apply the REVOKE.
+fly pg connect -a ownevo-pg <<'SQL'
+REVOKE UPDATE, DELETE ON audit_entries FROM ownevo_app;
+SQL
+
+# 3. Verify — the privileges column should show no a/r/w/d for the app role,
+#    only insert + select.
+fly pg connect -a ownevo-pg -c "\dp audit_entries"
+```
+
+See [`AUDIT_HARDENING.md`](AUDIT_HARDENING.md) for the full three-layer story (DB trigger, role-level grants, SHA-256 hash chain).
+
+### 2. Audit hash chain (layer 3)
+
+Migration `0009_audit_hash_chain.sql` adds the chain columns; **no backfill** is run. Entries written before 0009 have NULL hashes and are skipped by the verifier (the "pre-hash epoch"). Verify the chain post-deploy:
+
+```bash
+curl -X POST https://demo.ownevo.ai/api/audit/verify
+# {"hash_chain_entries": N, "hash_chain_valid": true}
+```
+
+A freshly-migrated DB returns `hash_chain_entries = 0` and `hash_chain_valid = true` — empty chain is valid by definition. The chain grows from the first audit entry written after 0009 applies.
+
+### 3. Sandbox preflight
+
+The kernel uses local Docker (or whichever sandbox provider is wired behind `SandboxRuntime`). Before serving real traffic, build the sandbox image and confirm it's runnable:
+
+```bash
+# Build the M5 sandbox image (one-time per host).
+make sandbox-image-m5
+
+# Smoke test — run a no-op pipeline.
+make sandbox-smoke
+```
+
+If you're using a managed sandbox provider (Modal, e2b, …) the swap is one file behind the `SandboxRuntime` Protocol — verify the provider's credentials are set as Fly secrets, not in `fly.toml`.
+
+### 4. Demo-mode banner
+
+For public demo URLs only: set `DEMO_MODE=true` on **both** the kernel and the web app (independently — see `fly.toml` and `apps/web/fly.toml`). The kernel returns HTTP 503 on write endpoints; the web renders a top-of-page banner. The two are decoupled on purpose so a kernel that's mid-deploy can already be in read-only mode while the web takes longer to rebuild.
+
+### 5. CORS origins
+
+Set the production allowlist via Fly secret (not `fly.toml`, because the value is environment-specific):
+
+```bash
+flyctl secrets set OWNEVO_CORS_ORIGINS=https://ownevo-web.fly.dev,https://demo.ownevo.ai -a ownevo-kernel
+```
+
+The default value is dev-friendly (permissive); production must override.
