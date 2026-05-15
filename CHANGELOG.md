@@ -3,9 +3,9 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
-This project does not yet follow semver — pre-W1 substrate work runs against
-moving targets. Versions on PyPI / npm publication are deferred (see TODOS.md
-TODO-4 for `ownevo-trace-format` license + naming + publication path).
+This project does not yet follow semver — early substrate work runs against
+moving targets. Versions on PyPI / npm publication are deferred until the
+`ownevo-trace-format` license + naming + publication path firm up.
 
 Sections per release: **Added** (new features), **Changed** (existing
 behavior), **Deprecated**, **Removed**, **Fixed** (bug fixes), **Security**
@@ -17,9 +17,24 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-14
+
+Open-source release prep, plus the audit-chain hardening pass from PR #88.
+
 ### Added
 
-- **Audit hash chain — migration `0009_audit_hash_chain.sql` (TODO-3).**
+- **Licenses.** Root `LICENSE` is Business Source License 1.1 with Change
+  Date 2030-01-01 and Change License Apache 2.0; an Additional Use Grant
+  permits production use except as a hosted competing service.
+  `packages/trace-format/LICENSE` is Apache 2.0 — the trace schema is
+  meant to be a standard.
+- **Demo mode (web).** New `DEMO_MODE=true` in `apps/web/fly.toml`. A
+  sticky `<DemoBanner>` renders site-wide via the root layout; the
+  proposal-detail Approve / Reject / Deploy / Rollback buttons render
+  disabled with an inline pointer back to GitHub. Kernel-side
+  enforcement (`DemoModeCheck` in `api/deps.py`) was already wired —
+  this is the matching UX so visitors don't click into a 503.
+- **Audit hash chain — migration `0009_audit_hash_chain.sql`.**
   `audit_entries` gains `parent_hash` and `entry_hash` (SHA-256 hex, 64
   chars). `append_audit_entry` pre-claims `seq` via `nextval` and supplies
   `created_at` from Python so both are known before hashing — avoids a
@@ -47,6 +62,25 @@ fresh `[Unreleased]` block above it.
   layer 1); (2) a `CHECK (id <> '_unscoped')` constraint on `workflows` so
   the `_unscoped` magic sentinel used by `GET /api/skills?workflow_id=` can
   never collide with a real workflow id.
+
+### Changed
+
+- **README redrafted.** Single product name (ownEvo, no subname). Short
+  prose hook + flow diagram of the improvement loop, tight quick-start,
+  docs index. Long status narrative and the local-model comparison
+  table moved out of the README — `CHANGELOG.md` and
+  `docs/local-model-testing.md` remain the source of truth.
+- **`CLAUDE.md` rewritten as a public-facing developer note.**
+- **Scripts: sprint-code prefixes dropped.**
+  `run_a4_4_local_smoke.sh` → `run_nl_gen_smoke.sh`,
+  `tau3_p2_local_loop.sh` → `tau3_local_loop.sh`,
+  `tau3_p2_local_sweep.sh` → `tau3_local_sweep.sh`,
+  `tau3_p2_sonnet_loop.sh` → `tau3_sonnet_loop.sh`.
+- **Local-dev defaults switched to `localhost`** in scripts, infra
+  config, and tests so a fresh clone runs out of the box.
+- **`m5-replay-nightly.yml` CI guard.** Pin on `4 passed` replaced with
+  a non-zero-pass-count + zero-failure check so adding a test doesn't
+  break CI.
 
 ### Security
 
