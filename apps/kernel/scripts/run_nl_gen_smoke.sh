@@ -10,10 +10,10 @@
 #
 # Usage:
 #   OWNEVO_OLLAMA_HOST=http://localhost:11434 \
-#     bash apps/kernel/scripts/run_a4_4_local_smoke.sh
+#     bash apps/kernel/scripts/run_nl_gen_smoke.sh
 #
 #   OWNEVO_OLLAMA_HOST=http://localhost:11434 \
-#     bash apps/kernel/scripts/run_a4_4_local_smoke.sh devstral-small-2
+#     bash apps/kernel/scripts/run_nl_gen_smoke.sh devstral-small-2
 #
 # First positional arg restricts to one model id (matches model_name
 # in infra/litellm/ollama.yaml). Default runs all configured models.
@@ -107,7 +107,7 @@ fi
 echo "[a4.4-smoke] Ollama reachable at ${OWNEVO_OLLAMA_HOST}"
 
 # Skip starting our own proxy if 4001 is already serving (e.g. a prior
-# `bash run_a4_4_local_smoke.sh` left one running). Health-check first.
+# `bash run_nl_gen_smoke.sh` left one running). Health-check first.
 if curl -fsS --max-time 2 "http://localhost:${PROXY_PORT}/health/readiness" >/dev/null 2>&1; then
   echo "[a4.4-smoke] reusing LiteLLM proxy already on :${PROXY_PORT}"
 else

@@ -1,6 +1,6 @@
 """LoopStuckAlerter — Slack webhook for the agent-stuck failure mode (W2.4a).
 
-The design review flagged a specific failure mode: the agent loop runs,
+A specific failure mode worth alerting on: the agent loop runs,
 proposes changes, the gate rejects them, and the agent keeps spinning
 without making progress. From the outside, the loop *looks* alive —
 processes are running, traces are being written — but no learnings

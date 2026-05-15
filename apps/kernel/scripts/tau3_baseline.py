@@ -4,9 +4,7 @@ Runs the SandboxedTauBenchRunner against the retail test split with the
 baked-in `tau3.retail.baseline.v1.agent` skill and (by default) writes
 one `iterations` row at gate-pass with the resulting `val_score`. This
 is the kernel-native equivalent of running condition A through the
-auto-harness scaffolding and matches the P1 (auto-harness) baseline
-within ±5pp — that match is the M6 validation gate per
-`docs/TAU3_LOCAL_TESTPLAN.md`.
+auto-harness scaffolding and matches the auto-harness baseline within ±5pp.
 
 Mirrors `scripts/m5_baseline.py` shape:
   * Run benchmark in process (here: in the τ³ Docker sandbox).

@@ -13,8 +13,8 @@ This is the one-document tour. For deep dives:
 | Multi-benchmark substrate (M5 + τ³) | [`BENCHMARK_ARCHITECTURE.md`](BENCHMARK_ARCHITECTURE.md) |
 | Skill format + retention contract | [`SKILL_FORMAT.md`](SKILL_FORMAT.md) |
 | AgentEvent trace schema | [`../packages/trace-format/SPEC.md`](../packages/trace-format/SPEC.md) |
-| Build plan + sequencing | [`PLAN.md`](PLAN.md) |
-| Deferred work | [`../TODOS.md`](../TODOS.md) |
+| Local LLM backends (Ollama / LM Studio) | [`local-model-testing.md`](local-model-testing.md) |
+| Deployment | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 
 ---
 
@@ -215,9 +215,9 @@ packages/trace-format/                    AgentEvent + UIPrimitive Pydantic sche
 
 ---
 
-## 7. What is single-tenant for MVP (D4)
+## 7. Single-tenant by design (for now)
 
-There is **no `workspace_id` column on any domain table** today. The `[wsId]` URL slug is cosmetic. Multi-tenant retrofit is `TODO-1`, a bounded 1-2 week job before next deployment, and the schema was designed retrofit-friendly. Do not add patterns that would fight a future `workspace_id` column.
+There is **no `workspace_id` column on any domain table** today. The `[wsId]` URL slug is cosmetic. Multi-tenant retrofit is a bounded 1-2 week job whenever a second deployment requires it, and the schema is designed retrofit-friendly. Do not add patterns that would fight a future `workspace_id` column.
 
 ---
 

@@ -44,10 +44,10 @@ export default async function WorkflowPermissionsPage({ params }: PageProps) {
         <div className="planned-tab-pill">Partially wired</div>
         <h2 className="planned-tab-title">Permissions</h2>
         <p className="planned-tab-body">
-          Who can do what on this workflow. The MVP is single-tenant
-          (D4) so the live RBAC surface is one row — the reviewer
-          declared on the workflow spec. The multi-tenant retrofit
-          (multi-tenant retrofit, before next deployment) lights up the full surface.
+          Who can do what on this workflow. The current cut is
+          single-tenant, so the live RBAC surface is one row — the
+          reviewer declared on the workflow spec. The multi-tenant
+          retrofit lights up the full surface.
         </p>
 
         <div className="planned-tab-card" style={{ marginTop: 14 }}>

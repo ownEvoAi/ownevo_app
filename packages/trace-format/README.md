@@ -28,7 +28,7 @@ Revisit when any of these trigger:
 - An OTel Gen AI working group asks to align (or vice versa)
 - Strategic decision to publish (post-MVP, with first design partners)
 
-See [`../../TODOS.md`](../../TODOS.md) TODO-4 for the unresolved strategic surface.
+The strategic surface (license, public-release timing, package naming) is tracked outside this repo.
 
 ## What's in this package
 
@@ -84,4 +84,3 @@ is internal — used to gate the W3 NL-gen schema freeze and to detect drift in 
 - [`../../docs/SCHEMA.md`](../../docs/SCHEMA.md) — DB schema (where `events` JSONB lives in the `traces` table)
 - [`../../docs/SKILL_FORMAT.md`](../../docs/SKILL_FORMAT.md) — skill file format with retention contracts
 - [`../../docs/api/openapi.yaml`](../../docs/api/openapi.yaml) — REST + SSE API contract
-- [`../../docs/PLAN.md`](../../docs/PLAN.md) — build plan

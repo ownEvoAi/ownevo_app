@@ -69,8 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SANDBOX_IMAGE: ownevo-sandbox-m5:0.1.0
-    # 30 min is the W4 reproducibility CI budget per docs/PLAN.md
-    # § B3.4. The synthetic-fixture run is seconds; the budget exists
+    # 30 min reproducibility CI budget. The synthetic-fixture run is seconds; the budget exists
     # so a future cache-miss cold image build doesn't silently hang.
     timeout-minutes: 30
 

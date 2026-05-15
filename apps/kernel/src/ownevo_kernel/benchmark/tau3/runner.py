@@ -217,9 +217,7 @@ if sims_root.is_dir():
 # container's tmpfs-backed /tau2_data/simulations dir is destroyed when
 # the container exits, so without this we lose the per-task message
 # history forever and can never re-analyze a failure (task 33 / 49 in
-# iter 11 are exactly the case that motivated this — see
-# <repo>/backups/tau3_p2_batch1_complete_20260509/README.md
-# § Schema note for the postmortem). pydantic objects → JSON via
+# iter 11 are exactly the case that motivated this). pydantic objects → JSON via
 # `.model_dump(mode="json")` to keep enums / datetimes serializable.
 def _dump_sim(sim):
     def _maybe_dump(obj):

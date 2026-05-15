@@ -70,14 +70,13 @@ inbox — the proposal moves from "Awaiting review" to "Recently decided".
 
 ## What's not in scope yet
 
-- SSE-driven live gate updates (W8 polish).
+- SSE-driven live gate updates.
 - Workspace switcher / multi-tenant UX. Slug is cosmetic today;
   authentication + tenant resolution land with the multi-tenant
-  retrofit before next deployment (per design review D4).
+  retrofit.
 - Pagination for trace events and the per-workflow list endpoints
   (workflows / iterations / failure_clusters / traces / skills) —
-  tracked in TODOS.md § TODO-18, deferred until customer volume
-  surfaces it.
+  deferred until production volume surfaces it.
 - Playwright smoke test. Manual click-through covers the W7 surface;
   CI smoke lands once `kernel-substrate-nightly.yml` is in place.
 

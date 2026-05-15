@@ -5,8 +5,7 @@ observation, request-to-human, failure-note) — the same append-only
 discipline auto-harness uses for `learnings.md`. The loop-stuck alerter
 reads the most recent row and fires a Slack webhook when the gap
 exceeds the idle threshold (default 2h), catching the
-"best-ever stuck / agent-spinning-on-rejected-proposals" failure mode
-the design review flagged.
+"best-ever stuck / agent-spinning-on-rejected-proposals" failure mode.
 
 Slack webhook integration uses stdlib HTTP via `asyncio.to_thread` —
 no `httpx` / `aiohttp` dep added for one webhook call. A custom

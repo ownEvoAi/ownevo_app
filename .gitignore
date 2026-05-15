@@ -40,6 +40,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Per-developer local notes (machine-specific paths, billing accounts, etc.)
+CLAUDE.local.md
+
 # Logs
 *.log
 npm-debug.log*

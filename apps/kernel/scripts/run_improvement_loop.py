@@ -19,8 +19,8 @@ fires from the command line:
                                                                 audit entries
              3. Print structured summary
 
-Bootstrap-mode contract (per docs/PLAN.md v3.8 § Pre-W3 Bootstrap loop)
-----------------------------------------------------------------------
+Bootstrap-mode contract
+-----------------------
 * `prior_eval_task_ids=[]` — no regression suite yet (B3.3 seeds it).
 * `best_ever_score=None` is the *caller-supplied* fallback. Inside
   `persist_gate_run` the DB-authoritative `MAX(best_ever_score_after)`

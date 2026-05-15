@@ -6,9 +6,9 @@ Six skill modules chained into one forecasting pipeline:
                  → model_trainer    → predictor
                  → ensemble
 
-The 6-file split mirrors the agent's intended iteration target: in W4,
-the loop will propose a diff to one of these modules at a time
-(per `docs/PLAN.md` § Track B "One hypothesis per iteration").
+The 6-file split mirrors the agent's intended iteration target: the
+loop proposes a diff to one of these modules at a time (one
+hypothesis per iteration).
 
 LightGBM model shape
 --------------------

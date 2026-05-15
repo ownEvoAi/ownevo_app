@@ -8,7 +8,7 @@
 
 The improvement loop for core agents: every production failure becomes an eval case, every proposed fix is regression-tested against every prior fix, and a domain expert approves changes in plain language.
 
-Release history: [`CHANGELOG.md`](CHANGELOG.md). Deferred work: [`TODOS.md`](TODOS.md). Live demo walk-through: [`docs/W6_DEMO_STORYBOARD.md`](docs/W6_DEMO_STORYBOARD.md).
+Release history: [`CHANGELOG.md`](CHANGELOG.md). Architecture tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Layout
 
@@ -112,15 +112,15 @@ The Phase-2 quality gate (`make nl-gen-smoketest WORKFLOW=all SMOKE_ARGS='--from
 | Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 | ~$0.10 |
 | Anthropic | **sonnet 4.6** | **0.60** | **0.50** | 0.77 | ~$0.50 |
 | Anthropic | opus 4.7 | 0.20 ❌ | 0.42 (thin) | 1.00 | ~$2 |
-| Ollama @ localhost | qwen2.5-coder:32b | 1.00 (always-True bias) | 0.50 | 0.89 | $0 |
-| Ollama @ localhost | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 | $0 |
-| Ollama @ localhost | **devstral-small-2** (24B) | **0.80** | **0.42** | 0.89 | $0 |
-| Ollama @ localhost | gpt-oss:20b | err (max_tokens) | — | — | $0 |
+| Ollama (LAN host) | qwen2.5-coder:32b | 1.00 (always-True bias) | 0.50 | 0.89 | $0 |
+| Ollama (LAN host) | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 | $0 |
+| Ollama (LAN host) | **devstral-small-2** (24B) | **0.80** | **0.42** | 0.89 | $0 |
+| Ollama (LAN host) | gpt-oss:20b | err (max_tokens) | — | — | $0 |
 
 **Two reference baselines:**
 - **Sonnet 4.6** is the cloud reference. Only frontier model that clears every gate by a clear margin (Opus is more conservative; Haiku is too biased toward False).
 - **devstral-small-2** is the local reference. 24B open-weight model running on a home Ollama matches/beats Sonnet across all 3 workflows — catches `winter-boot-spike-week-47` (the canonical past-miss Sonnet missed). Local proof that the gate isn't a frontier-only artifact.
 
-Repro the local run: `OWNEVO_OLLAMA_HOST=http://<ollama-host>:11434 bash apps/kernel/scripts/run_a4_4_local_smoke.sh`. Config in `infra/litellm/ollama.yaml`. See [PR #44](https://github.com/ownEvoAi/ownevo_app/pull/44) and [`docs/local-model-testing.md` § F13](docs/local-model-testing.md) for the full diagnosis (sim-difficulty inspection, prompt-fix iteration, calibration story, LiteLLM gotchas).
+Repro the local run: `OWNEVO_OLLAMA_HOST=http://<ollama-host>:11434 bash apps/kernel/scripts/run_nl_gen_smoke.sh`. Config in `infra/litellm/ollama.yaml`. See [PR #44](https://github.com/ownEvoAi/ownevo_app/pull/44) and [`docs/local-model-testing.md` § F13](docs/local-model-testing.md) for the full diagnosis (sim-difficulty inspection, prompt-fix iteration, calibration story, LiteLLM gotchas).
 
 **Broader local-model sweep (F14, 2026-05-06/07):** 19+ models pass 3/3 across LM Studio (desktop + laptop) and Ollama. Top desktop picks: `granite-4.1-8b` (33s, fastest), `google/gemma-4-e4b` (34s, smallest 3/3 at this tier), `mistralai/ministral-3-14b-reasoning` (47s), `qwen/qwen3.5-9b` via **Anthropic API** (52s — only passes through `/v1/messages`, see F14g), `qwen2.5-coder-32b-instruct` (98s). Laptop picks: `qwen/qwen3-4b-2507` (152s), `qwen/qwen3-1.7b` (826s, smallest 3/3). Full results + recommendations by class in [`apps/kernel/README.md`](apps/kernel/README.md) and [`docs/local-model-testing.md` § F14a-k](docs/local-model-testing.md). F14k (2026-05-07 evening) re-tested granite-4.1-8b on laptop and weakened the F14j "Apple Metal kernel drift" finding to "boundary noise on credit-risk" — desktop pick is unchanged, laptop should still default to `qwen/qwen3-4b-2507`.

@@ -19,7 +19,7 @@
 #                            Sonnet baseline anchor at val=0.85+)
 #
 # Used to produce the val_score 0.85 -> 0.95 result on 2026-05-09 (skill v38,
-# iter 11). See docs/TAU3_LOCAL_TESTPLAN.md § Phase 2.
+# iter 11).
 set -u
 
 KERNEL_DIR=$(cd "$(dirname "$0")/.." && pwd)

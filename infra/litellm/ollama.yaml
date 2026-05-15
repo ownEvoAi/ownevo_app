@@ -2,7 +2,7 @@
 # plus passthrough entries for Anthropic cloud models (for hybrid runs where
 # NL-gen uses a frontier model and the agent solver uses a local model).
 #
-# Used by `apps/kernel/scripts/run_a4_4_local_smoke.sh` to dogfood the A4.4
+# Used by `apps/kernel/scripts/run_nl_gen_smoke.sh` to dogfood the NL-gen smoke
 # NL-gen smoketest gate against local models. Set `OWNEVO_OLLAMA_HOST` to the
 # host running the Ollama daemon (default localhost).
 #

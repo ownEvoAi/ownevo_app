@@ -16,9 +16,8 @@ Today this package ships:
 Future:
 
   * Severity-based auto-approve, time-delayed deploy, and other
-    enterprise-polish approvers are out of scope for the MVP.
-    See `docs/PLAN.md` § "Out of scope" → "Approval-process enterprise
-    polish" for the full list.
+    enterprise-polish approvers are out of scope for the current
+    cut.
 """
 
 #: Approver mode string constants — passed as the ``--approver`` CLI flag to

@@ -511,9 +511,8 @@ modules diverge from the evaluator's acceptance condition").
   6-model sweep. Three new TODOs (`TODOS.md` TODO-31 / TODO-34 / TODO-33)
   cover the schema follow-up (`skills.head_version_id` should track
   best-gate-pass not latest write), Pass³ stretch, and task-33+49 failure
-  analysis enabled by trace persistence. Backups at
-  `<repo>/backups/tau3_p2_*` (DB dump + iterations JSONL +
-  all 54 skill versions + winning v38 skill + per-cycle logs).
+  analysis enabled by trace persistence. Backups archived off-repo
+  (DB dump + iterations JSONL + all 54 skill versions + winning v38 skill + per-cycle logs).
 
 ### Removed
 
@@ -2364,7 +2363,7 @@ PRs: #21, #23, #24, #25, #27, #28, #29, #30, #31, #32 + the
   `created_at DESC, id DESC` for determinism) or None.
   `LoopStuckAlerter` reads the latest learning, compares to `now`,
   and fires a Slack webhook if the gap exceeds
-  `idle_threshold_seconds` (default 2h per the design review's spec).
+  `idle_threshold_seconds` (default 2h).
   Returns a structured `StuckSignal` (is_stuck, last_learning_at,
   seconds_since_last, threshold_seconds, summary, webhook_fired) so
   the caller has the evidence even when no webhook fires. Empty

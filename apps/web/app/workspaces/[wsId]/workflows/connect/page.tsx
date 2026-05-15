@@ -22,8 +22,8 @@ interface PageProps {
 //
 // Wiring real ingestion is a sizeable kernel-side build (OTel
 // receiver + workflow inference from gen-ai conventions + eval-case
-// generation from sampled traces). Captured in TODOS.md when the
-// on-ramp moves out of the planned-shape state.
+// generation from sampled traces). Deferred until the on-ramp moves
+// out of the planned-shape state.
 export default async function ConnectExistingPage({ params }: PageProps) {
   const { wsId } = await params
 

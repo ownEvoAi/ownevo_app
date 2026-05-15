@@ -31,8 +31,8 @@ on a cheaper tier. The meta-eval judge takes its own optional override.
 W5.5 — Meta-eval as quality gate
 ================================
 
-Per `docs/PLAN.md` § W5 § 5.5: "every generated workflow runs through
-meta-eval BEFORE the agent loop starts". The gate is opt-in via
+Every generated workflow runs through meta-eval BEFORE the agent
+loop starts. The gate is opt-in via
 `meta_eval_gate=True` so existing A4.4 callers (smoke test default,
 unit tests, eval-replay) keep their 4-call shape. When enabled:
 

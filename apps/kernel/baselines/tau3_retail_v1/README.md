@@ -45,4 +45,4 @@ crashing tasks.
 | ministral-3-14b-reasoning on LMS | 0.000 (Jinja template incompatible) |
 | gemma4:26b on Ollama | killed mid-run; first 2 tasks max_steps |
 
-See `docs/TAU3_LOCAL_TESTPLAN.md` for the full sanity-test history.
+Sanity-test history is captured in the project change log.

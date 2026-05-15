@@ -3,7 +3,7 @@
 **Source of truth:** [`apps/kernel/migrations/0001_substrate.sql`](../apps/kernel/migrations/0001_substrate.sql).
 This doc explains the shape; the SQL is authoritative.
 
-Locked 2026-05-03 by design review v4.3 + eng review. Changes go through migrations
+Locked 2026-05-03 by design + engineering review. Changes go through migrations
 (`0002_*.sql`, etc.); this doc gets updated with every schema-affecting commit.
 
 ## Decisions reflected
@@ -159,9 +159,9 @@ Indexes target the hot queries:
 - Failure cluster vector search: `ivfflat (centroid vector_cosine_ops)`.
 - Audit log export: `audit_entries(seq)` is the canonical order.
 
-## Phase-2 retrofit (D4 — multi-tenant)
+## Phase-2 retrofit (multi-tenant)
 
-When next deployment onboards, run a migration that:
+When a second tenant onboards, run a migration that:
 
 1. Adds `workspace_id text NOT NULL` to every domain table (`skills`, `skill_versions`, `eval_cases`, `traces`, `failure_clusters`, `iterations`, `proposals`, `approvals`, `audit_entries`, `meta_evals`, `learnings`, `workflows`).
 2. Backfills `workspace_id = 'mvp-default'` on existing rows.

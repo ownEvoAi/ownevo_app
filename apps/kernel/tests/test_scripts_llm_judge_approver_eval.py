@@ -260,9 +260,9 @@ def test_make_async_client_uses_local_api_key_when_base_url_set(monkeypatch):
     bit during the 2026-05-08 W5.2 local-judge run)."""
     pytest.importorskip("anthropic")  # CI's default extras don't ship it
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    client = cli._make_async_client("http://localhost:1234")
+    client = cli._make_async_client("http://192.0.2.50:1234")
     assert client.api_key == "local"
-    assert str(client.base_url).rstrip("/") == "http://localhost:1234"
+    assert str(client.base_url).rstrip("/") == "http://192.0.2.50:1234"
 
 
 def test_make_async_client_respects_explicit_env_key(monkeypatch):
@@ -270,5 +270,5 @@ def test_make_async_client_respects_explicit_env_key(monkeypatch):
     that value, not stomp it with the ``"local"`` placeholder."""
     pytest.importorskip("anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "user-supplied")
-    client = cli._make_async_client("http://localhost:1234")
+    client = cli._make_async_client("http://192.0.2.50:1234")
     assert client.api_key == "user-supplied"

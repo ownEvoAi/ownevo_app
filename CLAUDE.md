@@ -1,8 +1,8 @@
-# Notes for future Claude sessions
+# Notes for Claude Code (and humans) working in this repo
 
 ## What this repo is
 
-The production implementation of ownEvo per `../ownevo_docs/ownEvo_MVP.md`. That doc is the source of truth for scope, stack, and sequencing — read it before making non-trivial changes here.
+The reference implementation of ownEvo — an improvement loop for core agents. Production agents emit typed traces; failures get clustered into eval cases; the loop proposes instruction/skill edits; a regression gate validates them; a domain expert approves through the web UI.
 
 ## Stack split (locked)
 
@@ -13,35 +13,21 @@ The production implementation of ownEvo per `../ownevo_docs/ownEvo_MVP.md`. That
 Why not pure TS: clustering ecosystem is Python-first at the quality bar required.
 Why not pure Python: web UI is unavoidably TS/Next.
 
-## Single-tenant for MVP, multi-tenant retrofit before next deployment (D4)
+## Single-tenant for now
 
-Per the 2026-05-03 design review (D4), the MVP runs on **one workspace** — no `workspace_id` columns, no RLS policies, no workspace-scoped query helpers. Multi-tenant retrofit is a bounded 1-2 week job in the breathing room between the investor program and the next deployment. Schema design should stay "retrofit-friendly" (no patterns that fight a future `workspace_id` column being added) but does not pre-build the isolation.
+The current schema runs on a single workspace — no `workspace_id` columns, no row-level security. Multi-tenant retrofit is intentionally deferred until a second deployment demands it; the schema is designed to stay retrofit-friendly (nothing that fights a future `workspace_id` column).
 
-## Append-only audit log, customer-controlled export (D2)
+## Append-only audit log
 
-`audit_entries` is append-only at the DB level: `REVOKE UPDATE, DELETE` from the app role; only `INSERT` permitted. Exportable in canonical JSON (sorted keys, no whitespace). **Crypto-grade tamper-evidence** (canonical content hash + parent hash + chain rotation; Merkle + signed root for the strongest claim) is a Phase-2 retrofit when first regulated-industry buyer requires it. The marketing claim is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain."
+`audit_entries` is append-only at the DB level: `REVOKE UPDATE, DELETE` from the app role, only `INSERT` permitted. Exportable in canonical JSON (sorted keys, no whitespace). A SHA-256 hash chain over entry content + parent hash is recorded per entry; verification is exposed via `GET /api/audit/verify`.
 
-## Sandbox: local Docker for MVP (D3)
+## Sandbox: local Docker
 
-Agent-generated code runs in **local Docker** with hardening: `--network=none`, `--read-only` rootfs + tmpfs `/tmp`, `--cap-drop=ALL`, mem/cpu/pids limits, hard timeout, structured stdout/stderr capture, explicit failure semantics (`tool_call_result {status: "error", error_class: "Timeout"|"OOM"|"Crash"}`). The `SandboxRuntime` interface stays preserved so a Phase-2 swap to e2b or Modal is bounded. Pyodide eliminated (can't run LightGBM).
+Agent-generated code runs in **local Docker** with hardening: `--network=none`, `--read-only` rootfs + tmpfs `/tmp`, `--cap-drop=ALL`, mem/cpu/pids limits, hard timeout, structured stdout/stderr capture, explicit failure semantics (`tool_call_result {status: "error", error_class: "Timeout"|"OOM"|"Crash"}`). The `SandboxRuntime` Protocol is preserved so swapping to a hosted sandbox (e2b, Modal) stays bounded.
 
 ## Trace format is the contract
 
-`packages/trace-format/` defines the typed `AgentEvent` schema. It's the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing — standardize once, everything downstream works.
-
-**Spec status (2026-05-03):** canonical spec written at `packages/trace-format/SPEC.md`. Pydantic + Zod implementations conform to it. The MVP doc § Open-Core Line names Apache 2 as the working assumption for if/when public release happens, but **license, public-release timing, and package naming are deferred** — not blocking W1 implementation. OTel Gen AI alignment is design-with-awareness only (no formal cross-walk). See `packages/trace-format/README.md` for trigger conditions to revisit, and `TODOS.md` TODO-4 for the unresolved strategic surface.
-
-## Where the IP lives
-
-Build (no OSS substitute): natural-language sim/eval/metric generator, failure clustering pipeline, eval-case generation, regression gating, approval UX, skill registry with retention contracts, knowledge ingestion.
-
-Use (don't build): Langfuse, ClickHouse, OTel collector, LiteLLM, Inspect AI.
-
-## Reference patterns
-
-- `startup2026/core/src/agentos_harness/evolution/` — tracker → reflector → curator → proposer with 377 passing tests. Lift candidate for the improvement loop.
-- `startup2026/mvp5-playground/` — schema reference for tracing + approval models (will diverge once multi-tenant requirements firm up).
-- `startup2026/core/src/agentos_harness/store/` — SQLite + sqlite-vec memory store. Defer lifting until trace + clustering pipelines exist.
+`packages/trace-format/` defines the typed `AgentEvent` schema — the seam between any customer agent and the improvement loop. Same role as OTel for distributed tracing: standardize once, everything downstream works. Canonical spec at `packages/trace-format/SPEC.md`; Pydantic + Zod implementations conform.
 
 ## Local LLM backend (dev / dogfooding)
 
@@ -54,38 +40,45 @@ Code-generating loop on real M5. Supports two API formats via `--api-format`:
 - `anthropic` (default) — `AsyncAnthropic` + `/v1/messages`. Works with LM Studio and any LiteLLM proxy. Add `--no-stream` when proxying Ollama through LiteLLM to bypass the streaming tool-call translation bug.
 - `openai` — `AsyncOpenAI` + `/v1/chat/completions`. Talks directly to Ollama (or vLLM). Default base URL: `http://$OWNEVO_LLM_HOST:11434/v1`.
 
-**Multi-turn loop: one confirmed lift driver as of 2026-05-08.** Sonnet 4.6 on Anthropic cloud (B4.2 + B4.3 + Stage C compound lift, ~$1.86 per 7-iter replay) is confirmed. `qwen3-coder:30b` on Ollama OpenAI produced +14.9% in TODO-19 (3× reproduced), but a subsequent W6 v5 run hit F6/M5SandboxError 7/7 — generalizability is uncertain pending F6 root-cause investigation (see `docs/W6_30DAY_REPLAY_NOTES.md`). `qwen3-coder-30b` on LMS-Anthropic drives the loop but writes a deterministic `_long_frame` bug 14/14 attempts (F6, TODO-20 retest). `devstral-small-2:latest` on Ollama drives the loop and clears the 1 GB sandbox memory limit but its codegen quality fails `run_pipeline` validation every round (TODO-21 closed).
+Confirmed lift drivers on the multi-turn loop:
+
+- **Sonnet 4.6 (Anthropic cloud)** — reliable, ~$0.30/iter on the 7-iter M5 replay.
+- **`qwen3-coder:30b` (Ollama OpenAI)** — produced a real lift in one experiment series; later runs surfaced a deterministic codegen bug, so treat single-driver lift as uncertain pending root-cause. Requires `/no_think` auto-injection (handled by `run_agent_turn_openai` when the model id contains `qwen3`).
 
 ```bash
-# Sonnet 4.6 — confirmed lift, ~$0.30 / iter
+# Sonnet 4.6 — confirmed lift driver
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
   --api-format anthropic \
   --llm-model claude-sonnet-4-6 \
   --no-seed
 
-# qwen3-coder:30b — initial +14.9% lift (TODO-19), but v5 showed F6 7/7 — uncertain
+# qwen3-coder:30b via Ollama — local lift driver (mileage varies)
 uv run --directory apps/kernel --extra agent python scripts/run_improvement_loop.py \
   --api-format openai \
   --llm-model qwen3-coder:30b \
   --no-seed
 ```
 
-Local-model attempts on the multi-turn loop and where they fail:
-- `qwen3-coder:30b` (Ollama OpenAI) — **+14.9% on TODO-19 Stage D (3× reproduced), but W6 v5 showed F6/M5SandboxError 7/7 on same substrate — generalizability uncertain, pending F6 root-cause**. Requires `/no_think` auto-injection in `run_agent_turn_openai` (added 2026-05-07). Without it the model emits text and 0 tool calls on the M5 kickoff.
-- `qwen3-coder-30b` (LMS Anthropic) — drives the loop but hits F6 deterministically.
-- `devstral-small-2:latest` (Ollama) — drives the loop, runnable Python, but `run_pipeline` validation rejects every diff.
+Other local-model attempts on the multi-turn loop and where they fail:
+
+- `qwen3-coder-30b` (LMS Anthropic) — drives the loop but hits a deterministic codegen bug.
+- `devstral-small-2:latest` (Ollama) — drives the loop, but `run_pipeline` validation rejects every diff.
 - `granite4.1:8b` — calls tools but generates em-dashes (U+2013) in Python → SyntaxError.
 - `qwen2.5-coder:32b` — doesn't trigger tool calls with `tool_choice=auto`.
 
-### A4.4 single-turn classification gate (`scripts/nl_gen_smoketest.py --from-fixtures`)
+### Single-turn classification gate (`scripts/nl_gen_smoketest.py --from-fixtures`)
 
-Forced-tool-use `predict_label(value: bool)` per case; orthogonal track from the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama as of the 2026-05-06/07 broader sweep. Source of truth: `docs/local-model-testing.md` § F14a-k (and `apps/kernel/README.md` for the top-pick table). Highlights:
+Forced-tool-use `predict_label(value: bool)` per case; orthogonal to the multi-turn loop. **19+ models pass 3/3** across desktop LMS / laptop LMS / desktop Ollama. Source of truth: `docs/local-model-testing.md` (and `apps/kernel/README.md` for the top-pick table). Highlights:
 
-- Fastest desktop 3/3: `granite-4.1-8b` (33 s, LMS). On laptop Apple Metal it sits on the credit-risk gate boundary — F14j flagged a ~0.17 drift, F14k re-test (4 laptop trials: 0.33 / 0.25 / 0.50 / 0.50 vs 0.40 gate) treats it as boundary noise, not systematic kernel drift. For stable laptop iteration use `qwen/qwen3-4b-2507`.
-- Fastest desktop Ollama 3/3: `qwen3-coder:30b` (82 s) — **only with `/no_think` auto-injection** (both `agent_solver.py` for the A4.4 gate and `middleware/claude_sdk/runner.py:run_agent_turn_openai` for the BL.3 multi-turn loop auto-append the directive when model id contains `qwen3`; F14i unlocked 5 desktop Ollama 3/3 passers including this one).
-- API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages` (F14g).
-- qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override; not unlocked by `/no_think`. qwen3-base + qwen3-coder ARE unlocked.
+- Fastest desktop 3/3: `granite-4.1-8b` (~33 s, LMS). On laptop Apple Metal it sits on the credit-risk gate boundary; for stable laptop iteration prefer `qwen/qwen3-4b-2507`.
+- Fastest desktop Ollama 3/3: `qwen3-coder:30b` (~82 s) — **only with `/no_think` auto-injection**.
+- API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages`.
+- The qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override. qwen3-base + qwen3-coder ARE unlocked.
 
-## Out of scope for MVP (don't build unless asked)
+## Out of scope
 
-Multiple framework integrations beyond Claude Agent SDK, self-evolving harness, custom Rust gateway, knowledge ingestion connectors, mobile UI, skills marketplace. See `ownEvo_MVP.md` § Out of Scope for the full list.
+Multiple framework integrations beyond Claude Agent SDK, self-evolving harness, custom Rust gateway, knowledge ingestion connectors, mobile UI, skills marketplace.
+
+## Personal / machine-local notes
+
+Anything specific to a particular developer's machine, billing account, or experimental branch belongs in `CLAUDE.local.md` (gitignored), not here.

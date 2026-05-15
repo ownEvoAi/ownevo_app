@@ -32,9 +32,9 @@ from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1.1"
-"""Frozen at A3.4 (2026-05-04, end of W3) per docs/PLAN.md schema-freeze.
+"""Frozen at v1.0 — 2026-05-04.
 
-v1.0 → v1.1 (2026-05-11, W8 Track 0): added `ScheduleGrid` to the
+v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
 `UIPrimitive` discriminated union (9 primitives, was 8) to close the
 parity gap with `www/preview/s26-rk7p3/27-primitives.html`. Additive
 change — every v1.0 spec validates under v1.1; no `Literal` union was

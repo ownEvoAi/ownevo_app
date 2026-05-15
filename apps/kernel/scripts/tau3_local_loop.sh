@@ -46,15 +46,15 @@
 # Use only with `lms-*` presets — Ollama doesn't need manual swap.
 #
 # Examples — qwen3.6-35b-a3b on LMS desktop (loop only; task agent on cloud):
-#   bash scripts/tau3_p2_local_loop.sh \
+#   bash scripts/tau3_local_loop.sh \
 #     "qwen/qwen3.6-35b-a3b" lms-openai "qwen36"
 #
 # Examples — gemma4:26b on Ollama native API:
-#   bash scripts/tau3_p2_local_loop.sh \
+#   bash scripts/tau3_local_loop.sh \
 #     "gemma4:26b" ollama "gemma4_26b"
 #
 # Examples — qwen3.6-35b-a3b on LMS Anthropic API, all 3 LLMs local:
-#   bash scripts/tau3_p2_local_loop.sh \
+#   bash scripts/tau3_local_loop.sh \
 #     "qwen/qwen3.6-35b-a3b" lms-anthropic "qwen36_lms_ant" "" \
 #     "anthropic/qwen/qwen3.6-35b-a3b" "anthropic/qwen/qwen3.6-35b-a3b"
 set -u

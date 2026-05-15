@@ -16,8 +16,7 @@ still makes openai-provider calls for the post-conversation evaluator,
 which (a) leaks cost to a different account and (b) fails outright in
 sandboxes whose egress allowlist doesn't include OpenAI.
 
-Discovered during the τ³ test plan's sanity-A run on 2026-05-08 — see
-`docs/TAU3_LOCAL_TESTPLAN.md` § P0.4 for the full diagnostic story.
+Discovered during a τ³ sanity run on 2026-05-08.
 **Worth upstreaming as a tau2 issue** — these defaults should be
 configurable via TextRunConfig.
 

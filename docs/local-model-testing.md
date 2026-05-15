@@ -506,7 +506,7 @@ prior sandbox failures, the same reasoning path is taken every time.
   and avoid the same approach. This is the correct long-term solution —
   the prompt fix is a workaround.
 
-**Captured as TODO-22 (see `TODOS.md`).**
+**Tracked internally as a follow-up.**
 
 ### F10 — Anthropic prompt-caching works cross-iteration at Sonnet latency (confirmed Stage B)
 
@@ -632,7 +632,7 @@ small models.
 Setup: LiteLLM proxy translates Anthropic `/v1/messages` →
 `ollama_chat/<model>` `/api/chat`. Config at
 `infra/litellm/ollama.yaml`; dogfood script at
-`apps/kernel/scripts/run_a4_4_local_smoke.sh`. Same metric-aware
+`apps/kernel/scripts/run_nl_gen_smoke.sh`. Same metric-aware
 prompt the cloud agent gets (per-workflow gate-metric framing block
 naming family + target + dominant error mode).
 
@@ -1272,8 +1272,7 @@ lag/rolling class."
   +14.9% in TODO-19 (3× reproduced), but a subsequent W6 v5 run
   hit F6/M5SandboxError 7/7 — generalizability is uncertain
   pending F6 root-cause investigation."
-- `docs/W6_30DAY_REPLAY_NOTES.md` v5 row records the retraction.
-- `OVERNIGHT_REPORT.md` Day-2 evening section captures it inline.
+- Internal replay notes record the retraction.
 
 **Open question (TODO):** F6 root-cause investigation — same prompt
 to qwen3-coder-30b via both transports, capture both responses,

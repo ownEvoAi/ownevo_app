@@ -1,8 +1,8 @@
 """Evolution loop — 4-stage pipeline (greenfield per W1 spike).
 
 Reference architecture: 4-stage evolution pipeline
-(Tracker → Reflector → Curator → Proposer). See `docs/SPIKE-RESULT.md`
-for the go/no-go decision on wholesale lift (result: greenfield).
+(Tracker → Reflector → Curator → Proposer). Implemented greenfield
+against ownEvo's substrate.
 
     Tracker  (record agent hypothesis + outcome from a trace/iteration)
        ↓

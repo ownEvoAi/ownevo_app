@@ -1,9 +1,9 @@
 """A3.3 — generated sim runs in the W1.3 substrate sandbox.
 
-Validation gate per `docs/PLAN.md` line 231:
+Validation gate:
 
-> The generated `sim.py` executes in the substrate sandbox (W1.3) without
-> modification. Generated sim from A3.2 runs in the sandbox; produces
+> The generated `sim.py` executes in the substrate sandbox without
+> modification. The generated sim runs in the sandbox and produces
 > deterministic output.
 
 The rendered sim is stdlib-only (random, math, statistics, datetime, json)

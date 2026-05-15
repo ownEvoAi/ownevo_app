@@ -24,7 +24,7 @@ Lifecycle (single transaction):
      rationale as `eval_rationale`.
   7a. On gate-pass: advance `skills.head_version_id` to the proposed
      version so "current best" readers always get the gate-validated
-     skill (see TODOS.md TODO-31, closed 2026-05-09).
+     skill.
   8. Append `audit_entries` `gate-run-completed` with the full gate
      evidence (rationale, val_score, failed_prior_task_ids,
      promotable_task_ids).
@@ -377,8 +377,7 @@ async def persist_gate_run(
         # write_skill; HEAD lags until the gate validates the proposal.
         # Anyone restoring "current best skill" via head_version_id
         # therefore gets the most recent gate-validated version, not
-        # the agent's latest (possibly rejected) attempt. See TODOS.md
-        # TODO-31 (closed 2026-05-09) for the original postmortem.
+        # the agent's latest (possibly rejected) attempt.
         if (
             gate_result.decision == GateDecision.PASS
             and proposed_skill_version_id is not None

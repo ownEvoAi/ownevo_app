@@ -6,7 +6,7 @@ Three deployment paths are supported:
 |---|---|---|
 | [Local dev (bare metal)](#local-dev-bare-metal) | Daily kernel + web iteration | ~5 min |
 | [Local Docker (compose)](#local-docker-compose) | Full-stack testing, demo prep | ~10 min |
-| [Fly.io (production demo)](#flyio-production-demo) | Live demo URL, investor outreach | ~45 min first-run |
+| [Fly.io (production demo)](#flyio-production-demo) | Live public demo URL | ~45 min first-run |
 
 ---
 

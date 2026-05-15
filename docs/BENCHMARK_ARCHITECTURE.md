@@ -7,7 +7,6 @@ implementation; same shape applies to terminal-bench, BIRD-Interact, SWE-bench, 
 and post-MVP custom benchmarks (OpsAgent-Bench).
 
 Companion docs:
-- [`TAU3_LOCAL_TESTPLAN.md`](TAU3_LOCAL_TESTPLAN.md) — first benchmark using this substrate
 - [`SCHEMA.md`](SCHEMA.md) — DB tables (iterations, failure_clusters, eval_cases, audit_entries, skills)
 - [`SKILL_FORMAT.md`](SKILL_FORMAT.md) — skill bundle frontmatter contract
 - [`STATE_MACHINES.md`](STATE_MACHINES.md) — proposal/iteration/workflow state transitions

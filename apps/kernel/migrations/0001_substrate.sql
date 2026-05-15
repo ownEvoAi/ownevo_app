@@ -1,5 +1,5 @@
 -- 0001_substrate.sql
--- ownEvo MVP substrate schema. Locked 2026-05-03 by design review v4.3 + eng review.
+-- ownEvo substrate schema. Locked 2026-05-03 by design + engineering review.
 --
 -- Decisions reflected:
 --   D2 — append-only audit log (WORM); crypto-grade tamper-evidence is Phase 2.

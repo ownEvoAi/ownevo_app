@@ -8,12 +8,10 @@
 # All listed models share the same desktop GPU on $OWNEVO_LLM_HOST, so
 # concurrency must be 1 (sequential). Each model gets one gate cycle —
 # enough to answer "drives the loop or not"; multi-cycle runs use
-# `tau3_p2_local_loop.sh`.
+# `tau3_local_loop.sh`.
 #
-# 2026-05-09 results recorded in
-# docs/TAU3_LOCAL_TESTPLAN.md § Phase 2 § Local model sweep + compat matrix.
 #
-# Preset shorthands (matching tau3_p2_local_loop.sh):
+# Preset shorthands (matching tau3_local_loop.sh):
 #   ollama          → http://$LLM_HOST:11434       api_format=ollama
 #   ollama-openai   → http://$LLM_HOST:11434/v1    api_format=openai
 #   lms-openai      → http://$LLM_HOST:1234/v1     api_format=openai
@@ -359,7 +357,7 @@ phase3_full_lms_sweep() {
 
 # ---------------------------------------------------------------------------
 # Driver — run phases listed in $PHASES (default "1,2"). Phase 3 by opt-in:
-#   OWNEVO_TAU3_PHASES=1,2,3 bash apps/kernel/scripts/tau3_p2_local_sweep.sh
+#   OWNEVO_TAU3_PHASES=1,2,3 bash apps/kernel/scripts/tau3_local_sweep.sh
 # ---------------------------------------------------------------------------
 IFS=',' read -ra _phase_list <<< "$PHASES"
 for _p in "${_phase_list[@]}"; do

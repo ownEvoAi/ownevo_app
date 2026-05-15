@@ -13,7 +13,7 @@ Differences from v1 (see `m5_lightgbm/skill_v1/`):
     offsets are >= n_val=28 so prediction stays single-shot.
 
 Reference target: WRMSSE in 0.90-0.95 band (vs v1 baseline 1.30, vs
-M5 leaderboard winners ~0.55-0.70). See
-`docs/M5_STRONGER_BASELINE_PLAN.md` for the rationale and the
-multi-day port that would push this to the top-10/top-50 rung.
+M5 leaderboard winners ~0.55-0.70). A multi-day port adding
+recursive prediction + price features would push this toward the
+top-10/top-50 rung.
 """

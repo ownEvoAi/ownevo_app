@@ -1,6 +1,6 @@
 # ownEvo make targets — thin wrappers over `uv run`.
 #
-# Targets here are user-facing entrypoints from `docs/PLAN.md`. Each one
+# Targets here are user-facing entrypoints into the build. Each one
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 

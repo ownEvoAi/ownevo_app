@@ -25,9 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SCHEMA_VERSION = "1.0"
-"""Frozen at A3.4 (2026-05-04, end of W3) per docs/PLAN.md schema-freeze.
-
-Tag: `v1.0-frozen-2026-W3`. Structural drift detected by
+"""Frozen at v1.0 — 2026-05-04. Structural drift detected by
 `tests/test_nl_gen_schema_freeze.py` against the snapshot at
 `nl_gen/schemas/simulation_plan.v1.0.json`. To intentionally change the
 schema, bump this constant + regenerate via `scripts/regen_nl_gen_schemas.py`."""

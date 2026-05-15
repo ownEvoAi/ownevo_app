@@ -2,7 +2,7 @@
 
 Python kernel — agent runtime, eval harness, failure clustering, regression gate, background jobs.
 
-This is where the IP lives. See `../../CLAUDE.md` and `../../../ownevo_docs/ownEvo_MVP.md`. The canonical module layout is `src/ownevo_kernel/` (also enumerated in the top-level README's Layout block).
+See `../../CLAUDE.md` for repo-wide conventions and `../../docs/ARCHITECTURE.md` for the system tour. The canonical module layout is `src/ownevo_kernel/` (also enumerated in the top-level README's Layout block).
 
 ## A4.4 local model recommendations (from-fixtures gate, OpenAI-compat)
 
