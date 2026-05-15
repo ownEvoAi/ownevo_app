@@ -246,4 +246,5 @@ Platform primitives drive the **improvement-loop surface** (what the platform te
 - **Multi-tenant retrofit:** `workspace_id` column + RLS across every domain table.
 - **Sandbox provider migration:** e2b / Modal swap behind the `SandboxRuntime` Protocol.
 - **Audit-chain crypto upgrade:** Merkle root + signed export on top of the existing parent-hash chain. The shipped claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
+- **Multi-metric Pareto gate:** the gate today compares a single composite `val_score`. A signal-layer Pareto rule (per-dimension metrics, "all improve, none regress") is implied by the talk narrative but not yet in code or schema. See [`MULTI_METRIC_GATE_GAP.md`](MULTI_METRIC_GATE_GAP.md).
 - **τ³-bench condition C + prior-art reproduction.**
