@@ -4,123 +4,100 @@
   </a>
 </p>
 
-# ownEvo — AgentOS
+<h1 align="center">ownEvo</h1>
 
-The improvement loop for core agents: every production failure becomes an eval case, every proposed fix is regression-tested against every prior fix, and a domain expert approves changes in plain language.
+<p align="center">
+  <strong>The improvement loop for core agents.</strong>
+</p>
 
-Release history: [`CHANGELOG.md`](CHANGELOG.md). Architecture tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+<p align="center">
+  Every production failure becomes an eval case.<br>
+  Every proposed fix is regression-tested against every prior fix.<br>
+  A domain expert approves the change in plain language.
+</p>
 
-## Layout
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="https://ownevo.ai">ownevo.ai</a>
+</p>
+
+---
+
+## What it does
 
 ```
-apps/
-  kernel/        Python — agent runtime, eval harness, failure clustering, regression gate
-    src/ownevo_kernel/
-      agent_tools/   read_skill / write_skill / run_pipeline / read_metrics / analyze_failures
-      api/           REST + SSE seam for the approval/diff surface
-      approvals/     approval service (queue, decisions, expert sign-off)
-      audit/         append-only audit log writer (WORM-enforced in DB)
-      benchmark/     M5BenchmarkRunner Protocol + synthetic fixture
-      clustering/    failure-clustering pipeline (B3.x — embed, UMAP, HDBSCAN, label LLM)
-      datasets/      M5 loader + WRMSSE metric
-      eval_cases/    eval case registry
-      eval_runner/   workflow runner (agent solver, fixture/cases mode, OpenAI + Anthropic paths)
-      evolution/     tracker → reflector → curator → proposer (improvement-loop core)
-      gate/          3-step regression gate (regression / no-improvement / sandbox-error)
-      middleware/    Claude Agent SDK middleware (trace + tool plumbing)
-      nl_gen/        NL → WorkflowSpec / SimulationPlan / EvalCases / Metric (A3.x + A4.x)
-      observability/ loop-stuck Slack alerter + learnings writer
-      sandbox/       LocalDockerSandbox + SandboxRuntime Protocol
-      skills/        skill registry, SKILL_FORMAT retention contracts
-      traces/        trace collector
-    baselines/
-      m5_lightgbm/   LightGBM demand-forecast baseline (6-module skill: data_loader /
-                     outlier_handler / feature_engineer / model_trainer / predictor / ensemble)
-  web/           TS / Next.js — approval UX, diff viewer, lift chart, audit trail (W3+)
-packages/
-  trace-format/  Typed AgentEvent schema — Pydantic impl + canonical SPEC.md
-infra/           Docker compose for local Langfuse + Postgres + ClickHouse + collector
-docs/            ARCHITECTURE.md (start here), PLAN.md, SCHEMA.md, SKILL_FORMAT.md, STATE_MACHINES.md, api/openapi.yaml
-docker-compose.yml  Full-stack dev: postgres + kernel API + web in one `make dev-up`
+   Agent runs a workflow
+            ↓
+   AgentEvent traces collected
+            ↓
+   Failures clustered into eval cases
+            ↓
+   Loop proposes a skill edit
+            ↓
+   Regression gate (every prior fix runs)
+            ↓
+   Domain expert approves in plain language
+            ↓
+   Deploy · audit chain extends
 ```
 
-## Quick start (Docker)
+Two processes joined by REST + SSE:
+
+- **Python kernel** — agent runtime, eval harness (Inspect AI), failure clustering (sentence-transformers + UMAP + HDBSCAN), regression gate, sandboxed code execution.
+- **Next.js web** — workspace UI, side-by-side diff, lift chart, audit trail, approval queue.
+
+Detailed system tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Quick start
 
 ```bash
 ANTHROPIC_API_KEY=sk-... make dev-up        # build + start postgres + kernel + web
-make seed-demo-with-iter                    # seed credit-risk + contract-review +
-                                            # run one iteration each — operator pages
-                                            # populate with real data on first load
-# kernel: http://localhost:8000/api/health → {"status":"ok","db":"ok"}
-# web:    http://localhost:3000/workspaces/acme
-# operator-only view: http://localhost:3000/operator/credit-risk?ws=acme
-make dev-logs   # tail logs
-make dev-down   # stop
+make seed-demo-with-iter                    # seed two workflows + run one iteration
 ```
 
-`make seed-demo` (without `-with-iter`) is faster but leaves operator pages
-in their "coming soon" state until you click **Run iteration** on a workflow's
-Overview tab. With iterations, the layer-D resolver fills MetricCards +
-TimeSeriesChart + TableView + AlertList + KanbanBoard from real
-`iteration_case_outputs` rows; remaining primitives (DocumentReader /
-SideBySideView / ScheduleGrid / ConversationView) stay declared but
-unresolved until per-workflow `submit_case_output` shapes ship.
+- Kernel API: <http://localhost:8000/api/health>
+- Web app: <http://localhost:3000/workspaces/acme>
 
-Local dev without Docker: `OWNEVO_DATABASE_URL=postgresql://ownevo:ownevo@localhost:5432/ownevo make api` + `make web-dev`. Postgres must be running separately (e.g. `infra/`).
+`make dev-down` to stop. Local-dev without Docker: `make api` + `make web-dev` (Postgres separate).
 
-## Stack split
+Full deployment options — local, Docker Compose, Fly.io: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-Python owns the core algorithms (improvement loop, eval, clustering, regression gate). TS owns the product surface (approval UX, real-time UI, customer-facing dashboards). Joined by a REST + SSE seam.
+## Repo layout
+
+```
+apps/kernel/      Python — runtime, eval, clustering, gate, baselines, sandbox
+apps/web/         Next.js — workspace UI, approval queue, diff viewer
+packages/         Shared schemas (trace-format)
+docs/             Architecture, schema, skill format, runbooks
+infra/            Docker compose + LiteLLM proxy config
+```
+
+## Docs
+
+| Topic | Read |
+|---|---|
+| System tour | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Database schema | [`docs/SCHEMA.md`](docs/SCHEMA.md) |
+| Skill format + retention contract | [`docs/SKILL_FORMAT.md`](docs/SKILL_FORMAT.md) |
+| State machines (proposal lifecycle) | [`docs/STATE_MACHINES.md`](docs/STATE_MACHINES.md) |
+| Improvement-loop design rules | [`docs/HARNESS.md`](docs/HARNESS.md) |
+| Multi-benchmark substrate | [`docs/BENCHMARK_ARCHITECTURE.md`](docs/BENCHMARK_ARCHITECTURE.md) |
+| Trace-format spec | [`packages/trace-format/SPEC.md`](packages/trace-format/SPEC.md) |
+| Local LLM backends (Ollama / LM Studio) | [`docs/local-model-testing.md`](docs/local-model-testing.md) |
+| Deployment | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| REST + SSE API | [`docs/api/openapi.yaml`](docs/api/openapi.yaml) |
 
 ## Status
 
-**v0.7.0 (2026-05-13)** — W8 Track 4 closes the loop end-to-end in the UI.
-Rows 8.4.7-8.4.10 plus the operator-shell parity work shipped: the
-iteration runner now persists per-case `iteration_case_outputs` (PLAN 8.4.9,
-migration 0008), the layer-D resolver maps those rows onto `TableView` +
-`AlertList` + `KanbanBoard` primitives on the operator shell and the workspace
-Overview/Operate tabs (8.4.10 + follow-ups), and the iteration drill-down
-explains gate decisions in plain English. Seven activity-surface follow-ups
-also shipped: stale-iteration Health banner, skills-library workflow filter,
-cluster↔iteration signposting, inline SkillDiff on iteration detail,
-review-before-commit step on new workflow, baseline-complete landing page, and
-cross-workflow activity feed. `make seed-demo-with-iter` seeds two workflows +
-runs one iteration each so a reviewer's first visit shows real per-case data.
+See [`CHANGELOG.md`](CHANGELOG.md) for releases and roadmap.
 
-**v0.6.0 (2026-05-09)** — W7 Track 1 merged, τ³ first autonomous lift merged, Deploy/Rollback wired, W6 row 6.1 demo dry-run cleared. The non-engineer demo flow is wired end-to-end: open a workspace, see the lift chart climb, click into Failures, follow a cluster to its proposal, approve, deploy, watch the audit chain extend.
+## License
 
-- **W1-W2 substrate** (v0.1.0–v0.1.1): DB schema, hardened LocalDockerSandbox, skill registry, trace collector, M5 loader, eval cases, audit log, agent tools, 3-step regression gate, loop-stuck observability, M5 LightGBM baseline + sandbox image + nightly replay CI, Claude Agent SDK middleware, approval service + REST API + Next.js approval queue UI.
-- **W2-W3 Phase 3 lift** (v0.2.0): first agent-driven gate-pass on real M5 (Sonnet 4.6, +19% lift); first compound 2-step lift (+20.5% across iters 0→2). Cross-iteration failure memory (TODO-23) shipped to break repeat-failure loops.
-- **W3 NL-gen pipeline** (v0.3.0, A3.x): NL description → `WorkflowSpec` → `SimulationPlan` (renderer + AST safety) → sandbox-runnable sim. Schemas frozen at v1.0.
-- **W4 NL-gen pipeline closed** (v0.4.0, A4.1–A4.6): NL → eval cases (A4.1), NL → success metric (A4.2), Inspect AI integration + `make eval-replay` (A4.3), `make nl-gen-smoketest` validates 3 workflows end-to-end with a Claude agent in the loop (A4.4), token budget + determinism guardrails (A4.5), and the LLM-as-judge meta-eval with a 10-pair ground-truth set + `make meta-eval` — agreement 0.85 on the live opus 4.7 smoke (A4.6).
-- **W3-W4 Track B failure clustering** (v0.4.0, B3.1–B3.5): embedding + UMAP + HDBSCAN clustering pipeline over `AgentEvent` failures, plus LLM-judge cluster-label evaluation — B3.5 live gate **0.85 agreement (17/20)** at the v0.4.0 cut (2026-05-07), well above the W3 Track B ≥0.7 contract.
-- **W5 approval surface + benchmark infra** (v0.5.0, W5.1–W5.5): side-by-side diff + per-eval-case gate breakdown (W5.1), LLM-judge stub approver with 30-case ground-truth eval + ≥0.85 gate (W5.2), NL-gen failure clustering wire-up (W5.3), 7-day M5 replay scaffold (W5.4), and meta-eval as quality gate with coverage badge + `/workflows/preview` UI (W5.5).
-- **W6 + W7 customer-facing workspace + benchmarks** (v0.6.0): W6 row 6.1 NL-gen demo loop dry-run cleared (5-min reviewer budget holds, `[0.20, 1.00]` in 15 s); BL.3 conversation compaction + `/no_think` injection; W7 Track 1 complete — full workspace shell under `/workspaces/[wsId]/` with Health/LiftChart, Failures, per-trace inspection, per-skill detail, Agent-anatomy pane, Audit trail, and `make revert-skill` rollback runbook; Deploy/Rollback wired end-to-end (`skills.deployed_version_id`, `POST /api/proposals/{id}/deploy|rollback`); `skills.head_version_id` now tracks best gate-pass (not latest write); τ³ first autonomous lift on 40-task retail fold — **val_score 0.85 → 0.95 (+11.8%)** at iter 11 on skill v38 (prompt-only change); Ollama `/api/chat` native client for A4.4 gate (TODO-25).
+- **`apps/`, `docs/`, `infra/`, root** — [Business Source License 1.1](LICENSE), converting to Apache 2.0 four years after each release. An Additional Use Grant permits production use except as a hosted competing service.
+- **`packages/trace-format/`** — [Apache 2.0](packages/trace-format/LICENSE). The trace schema is meant to be a standard; use it everywhere.
 
-- **Full-stack Docker** (PR #83): root-level `docker-compose.yml` — `make dev-up` starts postgres + kernel + web; accurate kernel API error banners (404 → "Workflow not registered", network → "Kernel API not reachable").
+## Contributing
 
-- **W8 Track 4 + operator-shell parity** (unreleased, `feat/real-ui-loop`): per-iteration drill-down with case-level rationale (8.4.7-8.4.8), `iteration_case_outputs` table + `GET /api/workflows/{id}/case-outputs` (8.4.9, migration 0008), layer-D resolver wires `TableView` / `AlertList` / `KanbanBoard` to that data on `/operator/[wfId]` + workspace Overview/Operate tabs (8.4.10), workflow taxonomy split (production vs `kind='benchmark'`, 4-value `workflow_mode` enum), `make seed-demo-with-iter`, plain-English gate-state banner on iteration drill-down, and the operator/operate de-dupe pass.
-
-Next: hosted live demo on Fly.io (TODO-42), demo video record (TODO-43), README opener polish (TODO-44).
-
-## A4.4 NL-gen smoketest — model comparison (2026-05-05)
-
-The Phase-2 quality gate (`make nl-gen-smoketest WORKFLOW=all SMOKE_ARGS='--from-fixtures'`) drives a Claude agent to predict the redacted bool label for each generated eval case, then scores via the workflow's metric. Calibration: target value = Sonnet 4.6 reference baseline minus 10pp margin.
-
-| backend | model | demand-pred (recall ≥0.50) | credit-risk (balanced_acc ≥0.40) | contract-review (f1 ≥0.75) | cost |
-|---|---|---:|---:|---:|---:|
-| Anthropic | haiku 4.5 | 0.20 ❌ | 0.25 ❌ | 0.91 | ~$0.10 |
-| Anthropic | **sonnet 4.6** | **0.60** | **0.50** | 0.77 | ~$0.50 |
-| Anthropic | opus 4.7 | 0.20 ❌ | 0.42 (thin) | 1.00 | ~$2 |
-| Ollama (LAN host) | qwen2.5-coder:32b | 1.00 (always-True bias) | 0.50 | 0.89 | $0 |
-| Ollama (LAN host) | qwen3-coder:30b | 0.40 ❌ | 0.25 ❌ | 0.89 | $0 |
-| Ollama (LAN host) | **devstral-small-2** (24B) | **0.80** | **0.42** | 0.89 | $0 |
-| Ollama (LAN host) | gpt-oss:20b | err (max_tokens) | — | — | $0 |
-
-**Two reference baselines:**
-- **Sonnet 4.6** is the cloud reference. Only frontier model that clears every gate by a clear margin (Opus is more conservative; Haiku is too biased toward False).
-- **devstral-small-2** is the local reference. 24B open-weight model running on a home Ollama matches/beats Sonnet across all 3 workflows — catches `winter-boot-spike-week-47` (the canonical past-miss Sonnet missed). Local proof that the gate isn't a frontier-only artifact.
-
-Repro the local run: `OWNEVO_OLLAMA_HOST=http://<ollama-host>:11434 bash apps/kernel/scripts/run_nl_gen_smoke.sh`. Config in `infra/litellm/ollama.yaml`. See [PR #44](https://github.com/ownEvoAi/ownevo_app/pull/44) and [`docs/local-model-testing.md` § F13](docs/local-model-testing.md) for the full diagnosis (sim-difficulty inspection, prompt-fix iteration, calibration story, LiteLLM gotchas).
-
-**Broader local-model sweep (F14, 2026-05-06/07):** 19+ models pass 3/3 across LM Studio (desktop + laptop) and Ollama. Top desktop picks: `granite-4.1-8b` (33s, fastest), `google/gemma-4-e4b` (34s, smallest 3/3 at this tier), `mistralai/ministral-3-14b-reasoning` (47s), `qwen/qwen3.5-9b` via **Anthropic API** (52s — only passes through `/v1/messages`, see F14g), `qwen2.5-coder-32b-instruct` (98s). Laptop picks: `qwen/qwen3-4b-2507` (152s), `qwen/qwen3-1.7b` (826s, smallest 3/3). Full results + recommendations by class in [`apps/kernel/README.md`](apps/kernel/README.md) and [`docs/local-model-testing.md` § F14a-k](docs/local-model-testing.md). F14k (2026-05-07 evening) re-tested granite-4.1-8b on laptop and weakened the F14j "Apple Metal kernel drift" finding to "boundary noise on credit-risk" — desktop pick is unchanged, laptop should still default to `qwen/qwen3-4b-2507`.
+Issues and discussion are welcome. For pull requests: keep them focused, run `make test` and `make lint`, and avoid mixing refactors with feature changes.
