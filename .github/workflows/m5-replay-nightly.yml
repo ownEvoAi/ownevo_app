@@ -143,8 +143,14 @@ jobs:
         run: |
           set -o pipefail
           uv run pytest apps/kernel/tests/test_baselines_m5_lightgbm_sandboxed.py -v 2>&1 | tee /tmp/pytest-sandboxed.txt
-          grep -qE '4 passed' /tmp/pytest-sandboxed.txt || {
-            echo "FATAL: sandboxed suite did not report '4 passed' — tests may have been skipped (check Docker daemon + sandbox image)"
+          # Guard against silent skips: the suite must report passes
+          # (no '0 passed', no 'skipped') and zero failures.
+          grep -qE '[1-9][0-9]* passed' /tmp/pytest-sandboxed.txt || {
+            echo "FATAL: sandboxed suite reported no passes — tests may have been skipped (check Docker daemon + sandbox image)"
+            exit 1
+          }
+          ! grep -qE 'failed' /tmp/pytest-sandboxed.txt || {
+            echo "FATAL: sandboxed suite reported failures"
             exit 1
           }
 

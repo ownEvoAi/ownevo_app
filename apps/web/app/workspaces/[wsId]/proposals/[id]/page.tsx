@@ -8,6 +8,7 @@ import {
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
 import { SkillDiff } from '@/app/components/skill-diff'
+import { isDemoMode } from '@/lib/demo-mode'
 import { DecideForm } from './decide-form'
 import { DeployForm } from './deploy-form'
 
@@ -90,7 +91,11 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               <ExpectedImpact impact={proposal.expected_impact} />
             )}
           {canDecide ? (
-            <DecideForm proposalId={proposal.id} wsId={wsId} />
+            <DecideForm
+              proposalId={proposal.id}
+              wsId={wsId}
+              demoMode={isDemoMode()}
+            />
           ) : (
             <DecisionRecorded proposal={proposal} />
           )}
@@ -100,6 +105,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               wsId={wsId}
               workflowId={proposal.workflow.id}
               state={canDeploy ? 'approved-awaiting-deploy' : 'deployed'}
+              demoMode={isDemoMode()}
             />
           )}
         </aside>

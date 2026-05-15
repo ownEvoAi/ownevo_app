@@ -15,11 +15,13 @@ export function DeployForm({
   wsId,
   workflowId,
   state,
+  demoMode = false,
 }: {
   proposalId: string
   wsId: string
   workflowId: string
   state: 'approved-awaiting-deploy' | 'deployed'
+  demoMode?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -82,7 +84,8 @@ export function DeployForm({
       <button
         type="button"
         onClick={handle}
-        disabled={isPending}
+        disabled={isPending || demoMode}
+        title={demoMode ? 'Disabled in read-only demo' : undefined}
         className={isDeploy ? 'btn btn-primary' : 'btn btn-danger'}
         style={{
           width: '100%',
@@ -96,6 +99,12 @@ export function DeployForm({
           ? `${actionLabel === 'Deploy' ? 'Deploying' : 'Rolling back'}…`
           : `${actionLabel} this version`}
       </button>
+
+      {demoMode && (
+        <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.4 }}>
+          {actionLabel} is disabled in this read-only demo.
+        </p>
+      )}
 
       {error && (
         <p

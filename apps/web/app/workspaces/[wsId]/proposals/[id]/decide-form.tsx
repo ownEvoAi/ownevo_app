@@ -16,9 +16,11 @@ import { decideAction } from './actions'
 export function DecideForm({
   proposalId,
   wsId,
+  demoMode = false,
 }: {
   proposalId: string
   wsId: string
+  demoMode?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -145,7 +147,8 @@ export function DecideForm({
         <button
           type="button"
           onClick={() => handleDecision('approve')}
-          disabled={isPending}
+          disabled={isPending || demoMode}
+          title={demoMode ? 'Disabled in read-only demo' : undefined}
           className="btn btn-primary"
           style={{
             width: '100%',
@@ -159,7 +162,8 @@ export function DecideForm({
         <button
           type="button"
           onClick={() => handleDecision('reject')}
-          disabled={isPending}
+          disabled={isPending || demoMode}
+          title={demoMode ? 'Disabled in read-only demo' : undefined}
           className="btn btn-ghost"
           style={{
             width: '100%',
@@ -172,6 +176,28 @@ export function DecideForm({
           Reject
         </button>
       </div>
+
+      {demoMode && (
+        <p
+          style={{
+            fontSize: 11.5,
+            color: 'var(--text-muted)',
+            marginTop: 10,
+            lineHeight: 1.4,
+          }}
+        >
+          Approve / reject are disabled in this read-only demo. Self-host
+          from{' '}
+          <a
+            href="https://github.com/ownEvoAi/ownevo_app"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>{' '}
+          to run the full flow.
+        </p>
+      )}
 
       {error && (
         <p

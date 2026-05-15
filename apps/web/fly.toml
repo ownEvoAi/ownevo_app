@@ -15,6 +15,9 @@ primary_region = "sjc"
   NODE_ENV = "production"
   # Kernel is reachable over Fly's private network — no public hop.
   OWNEVO_KERNEL_API_URL = "http://ownevo-kernel.internal:8000"
+  # Read-only demo: hides Approve/Reject/Deploy buttons + shows a banner.
+  # Kernel enforcement is separate (DEMO_MODE in the kernel fly.toml).
+  DEMO_MODE = "true"
   # NEXTAUTH_URL / other secrets → flyctl secrets set -a ownevo-web ...
 
 [http_service]
