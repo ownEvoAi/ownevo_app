@@ -46,46 +46,46 @@ Three forces driving the shape:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  apps/web/  — workspace UI                                                  │
-│  Workflow detail (tau3-retail-v1, terminal-bench-v1, m5-demand-prediction)  │
-│  Lift chart + Failures + Audit + Skills + Traces tabs (shipped)             │
+│  apps/web/  — workspace UI                                                 │
+│  Workflow detail (tau3-retail-v1, terminal-bench-v1, m5-demand-prediction) │
+│  Lift chart + Failures + Audit + Skills + Traces tabs (shipped)            │
 └────────────────────────────────────────────────────────────────────────────┘
                                   ▲
                                   │  REST + SSE (shipped)
                                   │
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  ownevo_kernel.api  — FastAPI                                               │
-│   /api/workflows/{id}/iterations, /failure_clusters, /skills, /traces        │
+│  ownevo_kernel.api  — FastAPI                                              │
+│   /api/workflows/{id}/iterations, /failure_clusters, /skills, /traces      │
 └────────────────────────────────────────────────────────────────────────────┘
                                   ▲
                                   │
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  ownevo_kernel.gate  — run_gate (3-step: regression / improvement / error)  │
-│  ownevo_kernel.audit  — append-only audit chain                              │
-│  ownevo_kernel.evolution  — proposer / curator / reflector                   │
+│  ownevo_kernel.gate  — run_gate (3-step: regression / improvement / error) │
+│  ownevo_kernel.audit  — append-only audit chain                            │
+│  ownevo_kernel.evolution  — proposer / curator / reflector                 │
 └────────────────────────────────────────────────────────────────────────────┘
                                   ▲
                                   │  uses the BenchmarkRunner Protocol
                                   │
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  ownevo_kernel.benchmarks/  — one package per benchmark                     │
+│  ownevo_kernel.benchmarks/  — one package per benchmark                    │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────────┐ ┌────────────┐ │
 │  │ m5/      │ │ tau3/    │ │ terminal/    │ │ bird/       │ │ claw/      │ │
 │  │ (exists) │ │ (active) │ │ (Phase 2)    │ │ (Phase 2)   │ │ (Phase 3)  │ │
 │  └──────────┘ └──────────┘ └──────────────┘ └─────────────┘ └────────────┘ │
-│                                                                             │
+│                                                                            │
 │  Each implements: BenchmarkRunner Protocol + a SandboxProfile              │
 └────────────────────────────────────────────────────────────────────────────┘
                                   ▲
                                   │  uses the SandboxRuntime Protocol
                                   │
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  ownevo_kernel.sandbox  — SandboxRuntime + profiles                          │
-│  LocalDockerSandbox (default)                                                │
-│   ↳ M5 profile           — --network=none, m5 image                         │
-│   ↳ Tau3 profile         — egress allowlist, tau3 image                     │
-│   ↳ TerminalBench profile — e2b adapter / shell-tool image (Phase 2)        │
-│  E2BSandbox (Phase 2 retrofit)                                               │
+│  ownevo_kernel.sandbox  — SandboxRuntime + profiles                        │
+│  LocalDockerSandbox (default)                                              │
+│   ↳ M5 profile           — --network=none, m5 image                        │
+│   ↳ Tau3 profile         — egress allowlist, tau3 image                    │
+│   ↳ TerminalBench profile — e2b adapter / shell-tool image (Phase 2)       │
+│  E2BSandbox (Phase 2 retrofit)                                             │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
