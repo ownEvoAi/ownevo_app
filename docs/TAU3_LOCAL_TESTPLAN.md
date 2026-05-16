@@ -14,10 +14,10 @@
 - `glm-4.7-flash:latest` on **Ollama** (DeepSeek-2 arch) — Run 32 v2 PASS **0.6750**. Architecture diversity proven.
 - *(low priority)* `qwen/qwen3-coder-30b` LMS — Run 15 PASS but retail-weak (0.1250). Codegen-specialist; only useful if other proposers fail to write clean patches.
 
-**Proposer candidates (untested as proposer, to try):**
-- `qwen/qwen3.6-27b` **LMS** (lms-anthropic, v13 template, ctx=65536) — baseline 0.8750 as task agent (new record); strong candidate as proposer with thinking suppression. Replaces the Ollama variant (Run 23 v2 0.6750 with uncontrolled thinking — dropped).
-- `google/gemma-4-31b` LMS (19.89 GB, lms-openai) — scored 0.6750 as task agent (Run 23 v2); untested as proposer. Replaces gemma-4-e4b (too small, 0.1750). Dense 31B — expect similar tier to qwen3.6:27b Ollama.
-- `qwen/qwen3-30b-a3b` LMS (18.56 GB, MoE) — same MoE architecture as the winning proposer (qwen3.6-35b-a3b); only difference is qwen3 vs qwen3.6 base. Best untested candidate — high probability of matching or approaching 0.82.
+**Proposer candidates status (as of 2026-05-16):**
+- `qwen/qwen3.6-27b` **LMS** — ✅ T10 DONE: val=0.4500, +0.075 lift. Dense, real but half of MoE a3b.
+- `google/gemma-4-31b` LMS — ❌ T9 KILLED: infinite generation, proposer-unviable.
+- `qwen/qwen3-30b-a3b` LMS (18.56 GB, MoE, base thinking variant) — **T11 queued.** NOTE: T7-P1 tested only the `2507` non-thinking sub-variant (rc=6). The base `qwen3-30b-a3b` LMS with v13 thinking-suppression template is still untested. Direct LMS equivalent of T7-P5 (Ollama, +0.15). High probability of matching or approaching 0.82 (same MoE a3b arch as qwen3.6-35b-a3b winner).
 
 **Real task-agent ranking on retail τ³** (JIT-fallback discovery, 2026-05-12):
 `qwen3.6-35b-a3b (0.75)` > `qwen3.5-9b (0.575)` > `gpt-oss-20b (0.30)` ≈ `qwen3.5-4b (0.22-0.30)`. **Bigger > smaller.** The earlier "4B > 9B > 35B inverse-scaling" claim (Runs 21/22 at 0.825/0.725) was invalidated when LMS JIT was discovered to silently route the invalid identifier `anthropic/qwen/qwen3.5-4b` to the loaded model (qwen3.6-35b-a3b). See § "Task-agent role compat" for the full record.
@@ -153,7 +153,7 @@ Cell legend:
 | qwen/qwen3.6-27b (LMS) | n/a | n/a | ✅ ³ᶠ | — | ³ᶠ **T10 COMPLETE (2026-05-16T20:24Z→21:20Z).** val_score=0.4500, +0.075 lift over qwen3.5-4b baseline (0.3750). 17 iters, stop_reason=end_turn, 40/40 tasks, 0 infra_errors. Dense + thinking-suppressed closes Ollama gap partially (0.6750→0.4500 with different task agent) but MoE a3b proposers still 2× better (+0.15). **Finding confirmed: MoE architecture > dense for proposer role.** |
 | qwen3.5-9b | — | ✗ ⁴ | ✗ ⁴ | ⁴ | ⁴ F14g — 0/3 via OpenAI, 3/3 via Anthropic. API-format-load-bearing. **2026-05-11 tau3-retail mixed smokes**: `ollama_chat/qwen3.5:4B` and `ollama_chat/qwen3.5:9B` BOTH fail with `litellm.APIConnectionError "Unsupported Media Type"` (HTTP 415 from Ollama after 4 retries) → 40/40 infra → SANDBOX_ERROR. Deterministic and model-size independent; **`ollama_chat/qwen3.5:*` track CLOSED** pending upstream LiteLLM ollama_chat adapter fix. **`anthropic/qwen/qwen3.5-9b`** (LMS /v1/messages, froggeric v13 template, ctx=65536): Run 28 PASS val_score **0.5750**, 40/40 clean — real 9B (JIT disabled). **Note:** the earlier Run 21/22 attribution to `anthropic/qwen/qwen3.5-4b` (0.825/0.725) was invalidated by JIT-fallback discovery (2026-05-12) — that identifier does not exist in LMS and JIT silently served the loaded qwen3.6-35b-a3b. See § "Task-agent role compat" row for `anthropic/qwen/qwen3.5-4b` and the JIT-fallback note for the corrected ranking. **Real ranking: bigger > smaller for retail task agent.** Untested: `openai/qwen3.5:9B` via Ollama /v1 (`OPENAI_API_BASE=http://LLM_HOST:11434/v1`) — post-merge. |
 | qwen3:30b-a3b | ⚠ ⁴ᵇ | — | — | — | ⁴ᵇ **2026-05-11 tau3-retail smoke** `qwen3_30b_a3b_full_local` (all-3-roles all-Ollama, native preset with `think:false` patch on both sides): same throughput trap as qwen3.6:35b-a3b. Killed at 1/40 in 25 min, reward 0.00 (N=1). Task 5 stuck 22 min on initial attempt. 17-40s per `/api/chat` call. think:false patch holds (no 500s) but per-call latency × no KV-cache-reuse × NUM_PARALLEL=2 makes wall-time unviable. qwen3 family confirmed to share the qwen3.6 family bottleneck on Ollama. **Important: failure was as TASK AGENT (throughput-bound multi-turn). As LOOP PROPOSER (single-stream), throughput is not a bottleneck — planned as Run F: Ollama native proposer + `anthropic/qwen/qwen3.5-4b` LMS task.** |
-| qwen/qwen3-30b-a3b (LMS) | n/a | n/a | ❌ ⁴ᵈ | — | ⁴ᵈ **T7-P1 DONE (2026-05-16).** `qwen3-30b-a3b-2507` LMS variant: rc=6 — no write_skill. Non-thinking 2507-variant ignores tool protocol regardless of template. Ollama `qwen3:30b-a3b` (native thinking, no 2507) works fine (T7-P5: val=0.5250, +0.15). LMS non-thinking variant is proposer-unviable. |
+| qwen/qwen3-30b-a3b (LMS) | n/a | n/a | ❌ ⁴ᵈ | — | ⁴ᵈ **T7-P1 + T11 DONE (2026-05-16).** Both LMS variants (2507 and base) fail rc=6 — no write_skill. Root cause: LMS v13 template suppresses thinking → model cannot produce proposals (243 output tokens in 3 iters). Ollama `qwen3:30b-a3b` (thinking enabled, T7-P5: val=0.5250 +0.15) works because thinking is not suppressed. **Rule: qwen3-30b-a3b family requires thinking; use Ollama not LMS as proposer backend.** |
 | qwen3:30b-instruct | ⚠ ⁴ᶜ | — | — | — | ⁴ᶜ **2026-05-11 tau3-retail smoke** `qwen3_30b_instruct_full_local` (all-3-roles all-Ollama, native preset, think:false on both sides): dense (not MoE) — fastest Ollama start so far (19/40 in 26 min, /api/chat 13-16s). But got stuck on task 49 retry R1 for 33+ min while reward stalled at 0.36 (N=22). Killed at 22/40 after ~53 min. Best Ollama reward signal aside from gpt-oss (0.36) but task 49 burning a concurrency slot indefinitely means the 4 hr per-task timeout would have to fire before completion. Same retry-stall pattern as other all-Ollama configs, just at higher reward. **As PROPOSER only (Run G): stall was task-agent side — as single-stream proposer, stalls can't happen. Good candidate to test with `anthropic/qwen/qwen3.5-4b` LMS task.** |
 | qwen3:32b | — | ⚠ ⁵ | — | — | ⁵ hallucinated `AGENT_REASONING_EFFORT` env var; needs prompt nudge. |
 | qwen2.5-coder:32b | — | 🚫 ⁶ | — | — | ⁶ doesn't trigger tool calls with `tool_choice=auto`. |
@@ -612,6 +612,31 @@ echo "T10 PID=$!"
 
 ---
 
+## T11 — qwen3-30b-a3b LMS (base, thinking-suppressed) as proposer (2026-05-16)
+
+**Question:** Does the LMS qwen3-30b-a3b base variant (v13 template, thinking suppressed) match the Ollama variant's +0.15 lift? T7-P1 only tested the `2507` non-thinking sub-variant (rc=6) — the base variant was still untested on LMS.
+**Config:** Proposer=`qwen/qwen3-30b-a3b` LMS lms-anthropic (v13 template, ctx=65536), task=`anthropic/qwen3.5-4b`, user-sim=`openai/nvidia/nemotron-3-nano-4b`, 1 cycle.
+**Workflow:** `tau3-retail-v1__qwen3_30b_a3b_lms_prop_qwen35_4b`. Log: `qwen3_30b_a3b_lms_prop_qwen35_4b_t11_nohup.log`.
+**Started:** 2026-05-16T22:39:01Z. **Completed:** 2026-05-16T22:40:44Z. Duration: 1m43s.
+
+**Result: rc=6, 3 iters, 243 output tokens, no write_skill. FAIL.**
+
+**Finding: qwen3-30b-a3b requires thinking to write code.** The v13 template suppresses thinking → model produces almost no output (243 tokens vs thousands for a full proposal) and never calls write_skill. The Ollama version (T7-P5) works because Ollama cannot suppress thinking for this model — it runs with full chain-of-thought enabled. qwen3.6-35b-a3b is immune because it embeds thinking differently (or the thinking suppression leaves enough capacity for codegen).
+
+**Revised proposer model for LMS:** Only models that can function without thinking (qwen3.6-35b-a3b, qwen3.6-27b) work via LMS lms-anthropic. Models that require thinking (qwen3-30b-a3b, qwen3-30b-a3b-2507) must use Ollama (thinking enabled) as proposer backend.
+
+```bash
+OWNEVO_TAU3_CYCLES=1 \
+nohup bash apps/kernel/scripts/tau3_p2_local_loop.sh \
+  "qwen/qwen3-30b-a3b" "lms-anthropic" "qwen3_30b_a3b_lms_prop_qwen35_4b" "" \
+  "anthropic/qwen3.5-4b" \
+  "openai/nvidia/nemotron-3-nano-4b" \
+> log/tau3_p2/qwen3_30b_a3b_lms_prop_qwen35_4b_t11_nohup.log 2>&1 &
+echo "T11 PID=$!"
+```
+
+---
+
 ## Phase 3 — Condition C: Gated loop (LLM-judge approval)
 
 **Status:** ☐ deferred post-merge.
@@ -854,7 +879,7 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 **Pending (deferred post-merge):**
 1. P3 — gated loop with LLM-judge approval (`apps/kernel/src/ownevo_kernel/approvals/llm_judge.py`)
 2. P4 — results doc (`benchmarks/tau3-results-2026-Q3.md`) + Pass³ stretch metric
-3. PR: `feat/tau3-lift-sweep` → `main` (uncommitted: `tool_definitions.py` schema fix + this testplan)
+3. PR: `feat/tau3-lift-sweep` → `main`
 
 **To reproduce the winning local config:**
 
