@@ -552,7 +552,7 @@ async def _dispatch_write_skill(
                     "validation_error": tb,
                 },
                 is_error=True,
-                error_class="SkillValidationError",
+                error_class=None,
                 duration_ms=None,
             )
 
