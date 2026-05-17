@@ -61,8 +61,8 @@ NeoSigma reference: 0.56 → 0.78 (+39.3%) on retail, fully autonomous, cloud GP
 | **P1.5 — Kernel migration** | tau2 into `apps/kernel`, native `TauBenchRunner`, tau3-retail-v1 workflow + skill | done | ~1 day |
 | **P2 — Cloud autonomous loop** | Sonnet 4.6 as loop agent + Sonnet task agent (cloud); 14 cycles | done 2026-05-09: val=**0.9500** (+10pp over 0.85) | ~$50-80, 14 cycles |
 | **P2-LOCAL — All-local autonomous loop (this branch's headline)** | qwen3.6-35b-a3b LMS as loop+task+user-sim, retail test split, 40 tasks | done 2026-05-12: val=**0.8250** (+10pp over 0.75 baseline); 5-cycle mean 0.7350; ceiling reached via 2 distinct skills | $0, ~25-30 min/cycle |
-| **P3 — Gated loop (LLM-judge approval)** | LLM-judge approves/rejects each gate-passing proposal | ☐ deferred — post-merge | TBD |
-| **P4 — Results doc + Pass³ stretch** | `tau3-results-2026-Q3.md` + Pass³ re-runs | ☐ deferred — post-merge | XS-S |
+| **P3 — Gated loop (LLM-judge approval)** | LLM-judge approves/rejects each gate-passing proposal | ✅ wired (`42e646e`) — awaiting run | TBD |
+| **P4 — Results doc + Pass³ stretch** | `tau3-results-2026-Q3.md` + Pass³ re-runs | ☐ deferred — after P3 run | XS-S |
 
 ---
 
@@ -670,13 +670,40 @@ echo "T12 PID=$!"
 
 ## Phase 3 — Condition C: Gated loop (LLM-judge approval)
 
-**Status:** ☐ deferred post-merge.
+**Status:** ✅ implemented (`--llm-judge` flag wired in `scripts/run_tau3_loop.py`, commit `42e646e`). Awaiting run.
 
-Re-run the improvement loop with ownEvo's LLM-judge approval engaged at `apps/kernel/src/ownevo_kernel/approvals/llm_judge.py`. Every gate-passing proposal goes through the judge; approved → committed to skill + audit chain.
+Re-run the improvement loop with ownEvo's LLM-judge approval engaged via `--llm-judge`. Every gate-passing proposal is sent to `claude-opus-4-7` on Anthropic cloud; admitted → `approved-awaiting-deploy` in the audit chain; rejected → `rejected` with rationale.
 
-**Substeps:** wire gate-pass → approval queue → LLM-judge → commit; 10 iterations on fresh workspace; record val_score_C, gate-blocked regressions, judge approve/reject; founder re-approves ≥5 to compare against the judge.
+**Implementation notes:**
+- Judge always uses Anthropic cloud (hardcoded `base_url="https://api.anthropic.com"`) regardless of `ANTHROPIC_API_BASE` / `--api-format`.
+- `val_score` is recorded by `persist_gate_run` on gate-PASS regardless of judge verdict — the judge gates deployment, not the eval score. `val_score_C` = best gate-val among judge-admitted proposals.
+- Cycle always returns rc=0 so the shell series continues across judge-rejected cycles.
+- `judge:` lines in the cycle log capture verdict + rationale for post-run analysis.
 
-**Exit gate:** `val_score_C > val_score_A` (any lift with gate engaged).
+**To run condition C (local, qwen3:30b-a3b proposer + qwen3.5-4b task, fresh workflow):**
+
+```bash
+# Prereqs: same as condition B, plus ANTHROPIC_API_KEY must be set for the cloud judge.
+# Proposer: qwen3:30b-a3b on Ollama (thinking on). Task: anthropic/qwen3.5-4b via LMS.
+# Use a fresh workflow_id (suffix _condC) to start best_ever from 0.
+
+cd apps/kernel
+OWNEVO_TAU3_CYCLES=10 \
+./scripts/tau3_local_loop.sh \
+  qwen3:30b-a3b \
+  ollama \
+  my_workflow_condC \
+  openai \
+  anthropic/qwen3.5-4b \
+  openai/nvidia/nemotron-3-nano-4b \
+  "--llm-judge"
+```
+
+**What to record:** val_score_C (judge-admitted best_ever), n_gate_pass, n_judge_admit, n_judge_reject. Exit gate: `val_score_C > val_score_A=0.3750`.
+
+**Substeps:** 10 cycles on fresh workflow; record val_score_C, gate-blocked regressions, judge approve/reject counts; founder re-approves ≥5 to compare against judge verdict.
+
+**Exit gate:** `val_score_C > val_score_A` (any lift with judge engaged).
 
 ---
 
@@ -933,9 +960,9 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 
 **PR #91 OPEN:** https://github.com/ownEvoAi/ownevo_app/pull/91 (`feat/tau3-lift-sweep-v2` → `main`) — 2026-05-16
 
-**Pending (deferred post-merge):**
-1. P3 — gated loop with LLM-judge approval (`apps/kernel/src/ownevo_kernel/approvals/llm_judge.py`)
-2. P4 — results doc (`benchmarks/tau3-results-2026-Q3.md`) + Pass³ stretch metric
+**Pending:**
+1. P3 — ✅ `--llm-judge` flag wired (`42e646e`). **Awaiting run** (10 cycles on fresh workflow with judge engaged — see Phase 3 section for run command).
+2. P4 — results doc (`benchmarks/tau3-results-2026-Q3.md`) + Pass³ stretch metric (deferred until P3 run complete)
 
 **To reproduce the winning local config:**
 
