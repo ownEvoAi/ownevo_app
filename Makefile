@@ -236,7 +236,7 @@ TAU3_LOOP_ARGS ?=
 tau3-loop:
 	cd apps/kernel && uv run --extra agent python scripts/run_tau3_loop.py $(TAU3_LOOP_ARGS)
 
-# τ³ B-LOCAL reproduction: winning local config from benchmarks/tau3-results-2026-Q3.md.
+# τ³ B-LOCAL reproduction: winning local config from ownevo_docs/mvp-execution/tau3-results-2026-Q3.md.
 # Runs 5 cycles of qwen3.6-35b-a3b LMS as proposer + task agent + user sim.
 # Requires: OWNEVO_LLM_HOST pointing at LM Studio with qwen3.6-35b-a3b loaded at
 # ctx=65536 with froggeric v13 template; Postgres up; sandbox image built.
