@@ -209,6 +209,9 @@ class CliArgs:
     max_iterations: int
     seed_first: bool
     llm_judge: bool
+    llm_judge_model: str
+    llm_judge_base_url: str | None
+    llm_judge_api_key: str
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -260,10 +263,27 @@ def parse_args(argv: list[str]) -> CliArgs:
         action="store_true",
         default=False,
         help="Condition C: gate-passing proposals go through the LLM judge "
-             "(claude-opus-4-7 on Anthropic cloud) before approval. "
-             "Admitted proposals are moved to approved-awaiting-deploy; "
-             "rejected proposals are rejected with the judge's rationale. "
-             "Cycle always returns rc=0 so the series continues.",
+             "before approval. Admitted → approved-awaiting-deploy; "
+             "rejected → rejected with rationale. rc=0 either way.",
+    )
+    parser.add_argument(
+        "--llm-judge-model",
+        default="claude-opus-4-7",
+        help="Model id for the LLM judge (default: claude-opus-4-7). "
+             "Override to a local model id when using --llm-judge-base-url.",
+    )
+    parser.add_argument(
+        "--llm-judge-base-url",
+        default=None,
+        help="Base URL for the judge's Anthropic-compat endpoint. "
+             "Default: Anthropic cloud (https://api.anthropic.com). "
+             "Set to e.g. http://192.168.1.50:1234 to use LMS as judge.",
+    )
+    parser.add_argument(
+        "--llm-judge-api-key",
+        default=None,
+        help="API key for the judge endpoint. Defaults to ANTHROPIC_API_KEY "
+             "env var. Use 'lm-studio' or any non-empty string for local endpoints.",
     )
 
     ns = parser.parse_args(argv)
@@ -290,6 +310,12 @@ def parse_args(argv: list[str]) -> CliArgs:
         max_iterations=ns.max_iterations,
         seed_first=ns.seed_first,
         llm_judge=ns.llm_judge,
+        llm_judge_model=ns.llm_judge_model,
+        llm_judge_base_url=ns.llm_judge_base_url,
+        llm_judge_api_key=(
+            ns.llm_judge_api_key
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        ),
     )
 
 
@@ -788,11 +814,16 @@ async def main_async(args: CliArgs) -> int:
 
         if args.llm_judge and gr.decision.name == "PASS":
             import anthropic as _anthropic  # noqa: PLC0415
-            # Judge always targets Anthropic cloud regardless of --api-format /
-            # ANTHROPIC_API_BASE (which may point at a local LMS proxy).
+            # Default: Anthropic cloud (bypasses local ANTHROPIC_API_BASE).
+            # Override with --llm-judge-base-url for local LMS judge.
+            _judge_base_url = args.llm_judge_base_url or "https://api.anthropic.com"
             _judge_client = _anthropic.AsyncAnthropic(
-                api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-                base_url="https://api.anthropic.com",
+                api_key=args.llm_judge_api_key,
+                base_url=_judge_base_url,
+            )
+            print(
+                f"judge-client: model={args.llm_judge_model} "
+                f"base_url={_judge_base_url}",
             )
             _plain_summary = (
                 proposal.diff_summary
@@ -808,7 +839,9 @@ async def main_async(args: CliArgs) -> int:
                 ground_truth_verdict="admit",  # not used by judge; required by dataclass
                 bucket="structural",           # not used by judge; required by dataclass
             )
-            _judgment = await judge_proposal_explanation(_judge_client, _case)
+            _judgment = await judge_proposal_explanation(
+                _judge_client, _case, model=args.llm_judge_model,
+            )
             print(
                 f"\njudge: verdict={_judgment.verdict} "
                 f"rationale={_judgment.rationale!r}",

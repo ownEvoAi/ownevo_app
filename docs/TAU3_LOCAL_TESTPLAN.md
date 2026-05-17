@@ -705,7 +705,33 @@ OWNEVO_TAU3_LLM_JUDGE=1 \
   > log/tau3_p2/qwen3_30b_a3b_prop_qwen35_4b_condC_master.log 2>&1 &
 ```
 
-**Blocker as of 2026-05-16:** `ANTHROPIC_API_KEY` not set in local env — judge can't call cloud. Load qwen3.5-4b in LMS before running (currently only qwen3.5-9b loaded; 9b baseline 0.5750 is in regression risk zone per T12).
+**Local-judge alternative (no ANTHROPIC_API_KEY needed):** Use LMS as judge endpoint with qwen3.6-35b-a3b. Less calibrated than opus-4.7 but unblocks the E2E mechanic test:
+
+```bash
+# Load qwen3.6-35b-a3b in LMS (ctx=65536, v13 template).
+# qwen3.5:4B is available in Ollama (use as task agent — slow due to thinking,
+# set TASK_TIMEOUT=7200 or use qwen/qwen3.5-9b from LMS at regression risk).
+
+export OWNEVO_TAU3_JUDGE_BASE_URL="http://192.168.1.50:1234"
+export OWNEVO_TAU3_JUDGE_MODEL="qwen/qwen3.6-35b-a3b"
+export OWNEVO_TAU3_JUDGE_API_KEY="lm-studio"
+cd apps/kernel
+OWNEVO_TAU3_CYCLES=10 \
+OWNEVO_TAU3_LLM_JUDGE=1 \
+OWNEVO_TAU3_TASK_TIMEOUT=7200 \
+./scripts/tau3_local_loop.sh \
+  qwen3:30b-a3b \
+  ollama \
+  qwen3_30b_a3b_prop_qwen35_4b_condC_local \
+  openai \
+  openai/qwen3.5:4B \
+  openai/nvidia/nemotron-3-nano-4b \
+  > log/tau3_p2/condC_local_master.log 2>&1 &
+```
+
+**Note:** qwen3.5:4B (Ollama) has thinking enabled — expect ~3.5 min/task, requires TASK_TIMEOUT=7200. Alternatively load qwen/qwen3.5-4b in LMS for faster thinking-suppressed runs.
+
+**Cloud judge (original spec):** set `ANTHROPIC_API_KEY=<real-key>` and omit OWNEVO_TAU3_JUDGE_* vars to use claude-opus-4-7.
 
 **What to record:** val_score_C (judge-admitted best_ever), n_gate_pass, n_judge_admit, n_judge_reject. Exit gate: `val_score_C > val_score_A=0.3750`.
 
