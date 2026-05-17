@@ -15,7 +15,7 @@
 | **B — autonomous loop (cloud)** | claude-sonnet-4-6 | claude-sonnet-4-6 | **0.9500** | **+10pp** | ~$50–80 | 14 cycles |
 | **A-LOCAL — frozen baseline (local)** | — | qwen3.6-35b-a3b LMS | **0.7500** | — | $0 | ~27 min |
 | **B-LOCAL — autonomous loop (local)** | qwen3.6-35b-a3b LMS | qwen3.6-35b-a3b LMS | **0.8250** (best); mean 0.7350 | **+10pp** | $0 | ~25–30 min/cycle |
-| **C — gated loop (LLM-judge)** | qwen3:30b-a3b Ollama | qwen3.5-4b LMS | ☐ pending P3 run | — | ~$0 + judge API | TBD |
+| **C — gated loop (LLM-judge)** | qwen3:30b-a3b Ollama | qwen3.5-9b LMS | 🔄 running (2026-05-17, 10 cycles, local judge) | — | $0 (local judge) | TBD |
 
 **Headline:** ownEvo's autonomous improvement loop matches the +10pp lift of cloud Sonnet — running entirely on a local LLM at zero marginal cost.
 
@@ -26,7 +26,7 @@
 - **A-LOCAL / B-LOCAL task agent:** `qwen3.6-35b-a3b` on LM Studio (local desktop GPU). Not cloud GPT-5.4. The local model's ceiling (A-LOCAL=0.75) is below the cloud Sonnet ceiling (A=0.85); the *relative* lift (+10pp) matches.
 - **Condition B-LOCAL best:** 0.8250 from Run 24 cycle 4 (5-cycle scale-up). Mean across 5 cycles = 0.7350 — skill quality oscillates; 0.8250 is the confirmed ceiling on this substrate.
 - **User simulator:** same model as task agent in all local conditions (no separate "cheaper" user-sim model for local runs). Cloud conditions used claude-haiku as user-sim.
-- **Condition C:** pending P3 run. Blocked on `ANTHROPIC_API_KEY` for the LLM-judge cloud call (judge always uses claude-opus-4-7 on Anthropic cloud regardless of local LLM setup). See `docs/TAU3_LOCAL_TESTPLAN.md` § Phase 3.
+- **Condition C:** 🔄 running (2026-05-17, v3-resume PID 691099, 9 cycles). Using `qwen/qwen3.5-9b` on LM Studio as judge (Anthropic-compat endpoint — no cloud key needed). Task agent is `qwen3.5-9b` LMS (carries regression risk per P2 T12; goal is judge mechanic E2E verification). Results pending cycle completion. See `ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md` § Phase 3.
 
 ---
 
@@ -103,4 +103,4 @@ make tau3-replay
 
 Per Claw-Eval (PKU/HKU, 2026): Pass³ (reliability across 3 independent runs) diverges from Pass@3 (peak) by up to 24pp under perturbation. After condition C run completes, re-run the top-N tasks from condition C three times and report Pass³ alongside the mean reward. This is a more honest capability claim than single-trial val_score.
 
-Planned: condition C top-10 tasks × 3 trials after P3 run. Pending ANTHROPIC_API_KEY availability.
+Planned: condition C top-10 tasks × 3 trials after P3 run completes. P3 now running with local judge (no cloud key needed).
