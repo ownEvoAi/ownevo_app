@@ -620,7 +620,7 @@ export interface MetricDefinitionShape {
   direction?: string
   description?: string
   rationale?: string
-  provenance?: { kind: string; source: string }
+  provenance?: SpecProvenance
   [key: string]: unknown
 }
 

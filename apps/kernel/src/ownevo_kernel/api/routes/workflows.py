@@ -532,13 +532,15 @@ async def list_workflow_eval_cases(
             kind = prov_raw.get("kind")
             source = prov_raw.get("source")
             if isinstance(kind, str) and isinstance(source, str):
-                eb_prov = EvalCaseProvenance(kind=kind, source=source)
                 # 'derived' = verbatim user-flagged past miss; 'inferred'
                 # = a named domain pattern (regression / edge case bucket).
                 if kind == "derived":
+                    eb_prov = EvalCaseProvenance(kind=kind, source=source)
                     category = "past-miss"
                 elif kind == "inferred":
+                    eb_prov = EvalCaseProvenance(kind=kind, source=source)
                     category = "inferred"
+                # Unknown kind: leave both None (consistent with hand-authored)
         items.append(
             EvalCaseSummary(
                 id=c.id,
@@ -724,10 +726,6 @@ async def create_eval_case(
             "target_label_field": payload.target_label_field,
             "expected_value": payload.expected_value,
             "rationale": payload.rationale or "(manually added)",
-            "provenance": {
-                "kind": "inferred",
-                "source": "hand-authored",
-            },
         },
         is_test_fold=payload.is_test_fold,
     )
@@ -1052,7 +1050,8 @@ async def update_workflow(
         UPDATE workflows
         SET description = $2
         WHERE id = $1
-        RETURNING id, description, mode::text AS mode, kind, spec
+        RETURNING id, description, mode::text AS mode, kind, spec,
+                  simulation_plan, metric_definition
         """,
         workflow_id,
         payload.description.strip(),
@@ -1069,6 +1068,8 @@ async def update_workflow(
         mode=row["mode"],
         kind=row["kind"],
         spec=spec,
+        simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
+        metric_definition=decode_jsonb_obj(row["metric_definition"]),
     )
 
 

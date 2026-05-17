@@ -291,7 +291,7 @@ class EvalCaseProvenance(_Strict):
     domain pattern the eval generator pulled in.
     """
 
-    kind: str  # 'derived' | 'inferred'
+    kind: Literal["derived", "inferred"]
     source: str
 
 
@@ -330,7 +330,7 @@ class EvalCaseSummary(_Strict):
     cluster_id: UUID | None
     created_at: datetime
     expected_behavior_provenance: EvalCaseProvenance | None = None
-    category: str | None = None  # 'past-miss' | 'inferred' | None
+    category: Literal["past-miss", "inferred"] | None = None
 
 
 class EvalCaseList(_Strict):

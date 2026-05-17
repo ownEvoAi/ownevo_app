@@ -1074,6 +1074,14 @@ components:
             v1.1 — keys: domain, environment, tools, reviewer,
             success_criterion, ui (ui.tabs[].primitives now includes
             ScheduleGrid in addition to the original 8 types).
+        simulation_plan:
+          type: object
+          nullable: true
+          description: Persisted SimulationPlan JSONB (0005 migration). Null when NL-gen hasn't run.
+        metric_definition:
+          type: object
+          nullable: true
+          description: Persisted MetricDefinition JSONB (0005 migration). Null when NL-gen hasn't run.
 
     # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail DTOs
     SkillSummaryResponse:
@@ -1236,6 +1244,19 @@ components:
         is_test_fold: { type: boolean }
         cluster_id: { type: string, format: uuid, nullable: true }
         created_at: { type: string, format: date-time }
+        expected_behavior_provenance:
+          type: object
+          nullable: true
+          description: "{kind, source} from expected_behavior.provenance; null for hand-authored and pre-convention rows."
+          properties:
+            kind: { type: string, enum: [derived, inferred] }
+            source: { type: string }
+          required: [kind, source]
+        category:
+          type: string
+          nullable: true
+          enum: [past-miss, inferred, null]
+          description: "Server-derived bucket: past-miss (derived), inferred (inferred), null (hand-authored or no provenance)."
 
     EvalCaseListResponse:
       type: object

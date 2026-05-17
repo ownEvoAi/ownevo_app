@@ -468,6 +468,13 @@
   align-items: center;
   gap: 10px;
 }
+.gen-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
 .gen-section-icon {
   width: 32px;
   height: 32px;
@@ -553,7 +560,7 @@
 .artifact-derived {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 5px;
+  margin-top: 4px;
   font-style: italic;
 }
 .artifact-derived em {

@@ -18,6 +18,8 @@ import {
 import { GenerateEvalCasesButton } from '../../../[wfId]/eval-cases/generate-button'
 import { ReviseButton } from './revise-button'
 
+const EVAL_TABLE_PREVIEW_LIMIT = 8
+
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
 }
@@ -196,8 +198,8 @@ function SimulatorSection(props: {
             <>
               <div className="sub-block-label">Tools the agent can call</div>
               <div className="artifact-list" style={{ marginBottom: 6 }}>
-                {tools.map((t) => (
-                  <div key={t.name} className="artifact">
+                {tools.map((t, i) => (
+                  <div key={`${t.name}-${i}`} className="artifact">
                     <div className="artifact-icon">›</div>
                     <div className="artifact-body">
                       <div className="artifact-title">
@@ -252,8 +254,8 @@ function SimulatorSection(props: {
             <>
               <div className="sub-block-label">Environment generators</div>
               <div className="artifact-list">
-                {envGenerators.map((g) => (
-                  <div key={g.name} className="artifact">
+                {envGenerators.map((g, i) => (
+                  <div key={`${g.name}-${i}`} className="artifact">
                     <div className="artifact-icon">◇</div>
                     <div className="artifact-body">
                       <div className="artifact-title">{g.name}</div>
@@ -329,8 +331,7 @@ function EvalCasesSection({
   if (other) metaParts.push(`${other} hand-authored`)
   const meta = metaParts.join(' · ')
 
-  const SHOW_LIMIT = 8
-  const shown = cases.slice(0, SHOW_LIMIT)
+  const shown = cases.slice(0, EVAL_TABLE_PREVIEW_LIMIT)
   const remaining = total - shown.length
 
   return (
