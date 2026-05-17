@@ -120,6 +120,58 @@ Open-source release prep, plus the audit-chain hardening pass from PR #88.
 
 ## [0.7.0] — 2026-05-13
 
+### Added (PR #85 — W8 Track 4 main sequence: rip mocks → full gen→eval→propose UI loop, 2026-05-13)
+
+The headline of PR #85: Track 0's hand-curated mock data and
+positioning-mock workflows come out; the workflow lifecycle (NL-gen →
+eval cases → run iteration → proposal → approve) becomes clickable
+end-to-end in the UI on a fresh DB. Closes PLAN rows 8.4.1 through
+8.4.6. PR `bb42925`.
+
+- **8.4.1 + 8.4.2 — rip mocks, seed real workflow rows.** Deleted
+  `apps/web/app/workspaces/[wsId]/workflows/[wfId]/mocks.ts`,
+  `apps/web/lib/primitives-mock-data.ts`, the `WORKFLOW_MOCKS` merge +
+  `isMock` plumbing in `skills/page.tsx` and `failures/page.tsx`, and
+  the `<MockBanner />` + `buyer` / `buyerRole` / `version`-pill
+  rendering in `workflows/[wfId]/layout.tsx`. Sidebar nav now reads
+  workflows from `GET /api/workflows` instead of hard-coded labour /
+  contract / support / m5-demand-prediction / tau3-retail-v1 links.
+  New `apps/kernel/scripts/seed_demo.py` + `make seed-demo` writes
+  credit-risk + contract-review as real `workflows` rows via the same
+  kernel-internal path that NL-gen uses (idempotent — re-running is a
+  no-op).
+- **8.4.3 — live `POST /api/nl-gen/generate` + wired `/workflows/new`.**
+  New endpoint in `apps/kernel/src/ownevo_kernel/api/routes/nl_gen.py`
+  accepts `{description}`, runs the existing `generate_workflow_spec`
+  pipeline, persists the WorkflowSpec + skills, returns the new
+  workflow id. `apps/web/app/workspaces/[wsId]/workflows/new/` flipped
+  from a disabled-button placeholder to a live Server Action that
+  redirects into `/workflows/[newId]` on success. The
+  `"CLI demo: make nl-gen-demo-loop — UI wire-up planned for W8"`
+  tooltip is gone.
+- **8.4.4 — eval cases UI surface.** New route
+  `apps/web/app/workspaces/[wsId]/workflows/[wfId]/eval-cases/`
+  lists `EvalCase` rows (id · cluster_label · prompt · expected_label)
+  with per-case drill-down. Backed by `GET
+  /api/workflows/{id}/eval-cases`. Sidebar `Eval cases` link added
+  alongside Failures / Traces / Audit.
+- **8.4.5 — "Run iteration" button → proposal in inbox.** New
+  `run-iteration-button.tsx` on the workflow Overview POSTs to new
+  `POST /api/workflows/{id}/iterations/run`
+  (`apps/kernel/src/ownevo_kernel/api/routes/workflows.py:898`); the
+  endpoint enqueues one iteration cycle as a background task and
+  returns a `task_id`. UI polls task status; the resulting proposal
+  lands in the existing `/proposals` inbox, where approve/reject
+  already worked. Closes the loop end-to-end.
+- **8.4.6 — layer-D resolver (MetricCards + TimeSeriesChart branches).**
+  Initial cut of `apps/web/lib/primitive-data-resolver.ts` —
+  `resolvePrimitives()` joins `WorkflowSpec.ui.primitives[].source`
+  against the latest iteration's `metrics_json` (MetricCards) and
+  cross-iteration lift history (TimeSeriesChart). Replaces the
+  empty-state placeholder shipped in 8.4.1. The TableView / AlertList
+  / KanbanBoard branches arrive in the post-PR #85 follow-ups below
+  once 8.4.9 lands the per-case output capture.
+
 ### Added (post-PR #85 — operator-shell layer-D parity, 2026-05-12)
 
 The operator shell + workspace Operate/Overview tabs now render real
