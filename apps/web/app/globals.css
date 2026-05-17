@@ -468,6 +468,13 @@
   align-items: center;
   gap: 10px;
 }
+.gen-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
 .gen-section-icon {
   width: 32px;
   height: 32px;
@@ -549,6 +556,82 @@
   color: var(--text-3);
   margin-top: 3px;
   line-height: 1.5;
+}
+.artifact-derived {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+.artifact-derived em {
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* Sub-block label inside a gen-section (e.g., "Tools the agent can call"
+   above the artifact-list inside the Simulator section). */
+.sub-block-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 18px 0 8px;
+}
+.sub-block-label:first-child {
+  margin-top: 0;
+}
+
+/* UI primitives grid (Operate-view selection on review page). */
+.prim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.prim {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.prim.selected {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+.prim-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.prim.selected .prim-icon {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.prim-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.prim-check {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.prim.selected .prim-check {
+  color: var(--accent);
 }
 
 /* Eval cases compact table */

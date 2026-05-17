@@ -282,6 +282,19 @@ class WorkflowList(_Strict):
     total: int
 
 
+class EvalCaseProvenance(_Strict):
+    """The `{kind, source}` shape NL-gen writes into
+    `expected_behavior.provenance` (see `nl_gen/eval_persistence.py`).
+
+    `kind="derived"` → `source` is a verbatim phrase from the user's
+    `known_past_misses`. `kind="inferred"` → `source` is a named
+    domain pattern the eval generator pulled in.
+    """
+
+    kind: Literal["derived", "inferred"]
+    source: str
+
+
 class EvalCaseSummary(_Strict):
     """One row on the workflow Eval cases page.
 
@@ -289,6 +302,19 @@ class EvalCaseSummary(_Strict):
     `expected_value` / `rationale` come from the `expected_behavior` JSONB
     (see `nl_gen/eval_persistence.py`). `sim_seed` / `n_steps` /
     `target_step_index` from `input`.
+
+    `expected_behavior_provenance` surfaces the `{kind, source}` substructure
+    so the new-workflow Step 2 review page (PLAN 8.4.11) can render the
+    "derived from <user phrase>" caption per row. `category` is a coarse
+    bucket derived server-side from `provenance.kind` so the UI can colour
+    pills consistently without re-deriving the rule:
+
+      derived  → 'past-miss'  (verbatim user-flagged miss)
+      inferred → 'inferred'   (named domain pattern; regression / edge case)
+
+    Both fields are `None` for hand-authored cases (no NL-gen provenance)
+    and for legacy rows that pre-date the `expected_behavior.provenance`
+    convention.
     """
 
     id: UUID
@@ -303,6 +329,8 @@ class EvalCaseSummary(_Strict):
     is_test_fold: bool
     cluster_id: UUID | None
     created_at: datetime
+    expected_behavior_provenance: EvalCaseProvenance | None = None
+    category: Literal["past-miss", "inferred"] | None = None
 
 
 class EvalCaseList(_Strict):
@@ -346,6 +374,18 @@ class WorkflowAnatomy(_Strict):
     spec opaque (`dict[str, Any]`) so spec-version bumps don't break
     the API contract; the web app does its own field-by-field reads
     with sensible empty-state fallbacks.
+
+    `simulation_plan` and `metric_definition` are the other two NL-gen
+    artifacts persisted on the workflow row (jsonb columns from
+    migration `0005_workflow_sim_metric.sql`). Both are null on rows
+    that pre-date the generator pipeline. The new-workflow Step 2
+    review page (PLAN 8.4.11) renders the metric definition (with its
+    `provenance.source` provenance) so the reviewer sees the formula
+    NL-gen derived from their description. `simulation_plan` is
+    surfaced for completeness but the review UI doesn't render the
+    raw step_code today — the rich `WorkflowSpec.tools / personas /
+    env_generators / data_sources` arrays carry the user-facing
+    surface, and SimulationPlan itself has no provenance layer.
     """
 
     id: str
@@ -353,6 +393,8 @@ class WorkflowAnatomy(_Strict):
     mode: str
     kind: str | None = None  # 'benchmark' | null (production)
     spec: dict[str, Any]
+    simulation_plan: dict[str, Any] | None = None
+    metric_definition: dict[str, Any] | None = None
 
 
 class EvalCaseCreate(_Strict):
