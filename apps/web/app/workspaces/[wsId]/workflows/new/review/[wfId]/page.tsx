@@ -87,9 +87,17 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
 
   // Aux skill count used in the meta line under the page header.
   const skillCount = skills.length
-  const simMeta = simPlan
-    ? `${tools.length} tools · ${personas.length} personas · ${envGenerators.length + dataSources.length} environment sources`
-    : 'simulator not generated yet'
+  // The spec is the source of truth for tools/personas/environment — these
+  // arrive at row creation time. `simulation_plan` jsonb is a separate
+  // artifact that lands when eval-case generation runs; missing it doesn't
+  // mean the section is empty. Fall back to "not generated yet" only when
+  // every sub-array is empty.
+  const totalSimItems =
+    tools.length + personas.length + envGenerators.length + dataSources.length
+  const simMeta =
+    totalSimItems === 0
+      ? 'simulator not generated yet'
+      : `${tools.length} tool${tools.length === 1 ? '' : 's'} · ${personas.length} persona${personas.length === 1 ? '' : 's'} · ${envGenerators.length + dataSources.length} environment source${envGenerators.length + dataSources.length === 1 ? '' : 's'}${simPlan ? '' : ' · sim code pending'}`
 
   return (
     <div className="preview-wrap">
