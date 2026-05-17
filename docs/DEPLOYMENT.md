@@ -40,7 +40,7 @@ The short list below covers the deployment path. **For the full inventory** of e
 | `OWNEVO_CORS_ORIGINS` | `""` (allow all) | Comma-separated list of allowed CORS origins for the kernel API. |
 | `OWNEVO_M5_DIR` | `./data/m5` | Path to M5 forecasting CSVs (only needed for the M5 improvement loop). |
 | `OWNEVO_LLM_BASE_URL` | Anthropic cloud | Override base URL for local LLM backends (LM Studio, Ollama via LiteLLM). |
-| `OWNEVO_LLM_MODEL` | `qwen/qwen3-coder-30b` | Model name passed to the local backend. |
+| `OWNEVO_LLM_MODEL` | `claude-sonnet-4-6` | Model name for the improvement loop agent. For a local $0 alternative, use `qwen/qwen3.6-35b-a3b` (LM Studio, lms-anthropic path). |
 | `OWNEVO_LLM_HOST` | `localhost` | Hostname for the Ollama OpenAI path (`http://$OWNEVO_LLM_HOST:11434/v1`). |
 | `DEMO_MODE` | `false` | Set `true` to block write operations — used on the Fly.io demo instance. Kernel returns HTTP 503 on writes when true; web app surfaces a demo banner. Set independently on the two apps. |
 
