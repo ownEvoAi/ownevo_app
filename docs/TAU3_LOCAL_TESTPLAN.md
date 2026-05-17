@@ -931,10 +931,11 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 | T11 | `qwen3-30b-a3b` LMS base | — | rc=6 | — | ❌ LMS thinking suppression kills write_skill |
 | T12 | `qwen3:30b-a3b` Ollama | qwen3.5-9b | 0.4000 | **−0.175** | ❌ Regression on high-baseline task agent |
 
+**PR #91 OPEN:** https://github.com/ownEvoAi/ownevo_app/pull/91 (`feat/tau3-lift-sweep-v2` → `main`) — 2026-05-16
+
 **Pending (deferred post-merge):**
 1. P3 — gated loop with LLM-judge approval (`apps/kernel/src/ownevo_kernel/approvals/llm_judge.py`)
 2. P4 — results doc (`benchmarks/tau3-results-2026-Q3.md`) + Pass³ stretch metric
-3. PR: `feat/tau3-lift-sweep` → `main`
 
 **To reproduce the winning local config:**
 
