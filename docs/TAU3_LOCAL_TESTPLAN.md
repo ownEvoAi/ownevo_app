@@ -683,21 +683,29 @@ Re-run the improvement loop with ownEvo's LLM-judge approval engaged via `--llm-
 **To run condition C (local, qwen3:30b-a3b proposer + qwen3.5-4b task, fresh workflow):**
 
 ```bash
-# Prereqs: same as condition B, plus ANTHROPIC_API_KEY must be set for the cloud judge.
-# Proposer: qwen3:30b-a3b on Ollama (thinking on). Task: anthropic/qwen3.5-4b via LMS.
-# Use a fresh workflow_id (suffix _condC) to start best_ever from 0.
+# Prereqs:
+#   - ANTHROPIC_API_KEY must be a real cloud key (judge always calls Anthropic cloud).
+#   - qwen3:30b-a3b loaded in Ollama (thinking on — default).
+#   - qwen3.5-4b loaded in LMS ctx=65536 (lms load "qwen/qwen3.5-4b" --gpu max -c 65536).
+#   - Postgres + sandbox: docker compose -f infra/docker-compose.yml up -d postgres
+#   - OWNEVO_LLM_HOST=192.168.1.50 (or set in env)
+#   - Use fresh workflow_id suffix (_condC) so best_ever starts from 0.
 
+export ANTHROPIC_API_KEY="<your-real-key>"   # REQUIRED for judge
 cd apps/kernel
 OWNEVO_TAU3_CYCLES=10 \
+OWNEVO_TAU3_LLM_JUDGE=1 \
 ./scripts/tau3_local_loop.sh \
   qwen3:30b-a3b \
   ollama \
-  my_workflow_condC \
+  qwen3_30b_a3b_prop_qwen35_4b_condC \
   openai \
   anthropic/qwen3.5-4b \
   openai/nvidia/nemotron-3-nano-4b \
-  "--llm-judge"
+  > log/tau3_p2/qwen3_30b_a3b_prop_qwen35_4b_condC_master.log 2>&1 &
 ```
+
+**Blocker as of 2026-05-16:** `ANTHROPIC_API_KEY` not set in local env — judge can't call cloud. Load qwen3.5-4b in LMS before running (currently only qwen3.5-9b loaded; 9b baseline 0.5750 is in regression risk zone per T12).
 
 **What to record:** val_score_C (judge-admitted best_ever), n_gate_pass, n_judge_admit, n_judge_reject. Exit gate: `val_score_C > val_score_A=0.3750`.
 
