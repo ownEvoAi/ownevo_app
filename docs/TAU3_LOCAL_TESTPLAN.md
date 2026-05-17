@@ -62,7 +62,7 @@ NeoSigma reference: 0.56 → 0.78 (+39.3%) on retail, fully autonomous, cloud GP
 | **P2 — Cloud autonomous loop** | Sonnet 4.6 as loop agent + Sonnet task agent (cloud); 14 cycles | done 2026-05-09: val=**0.9500** (+10pp over 0.85) | ~$50-80, 14 cycles |
 | **P2-LOCAL — All-local autonomous loop (this branch's headline)** | qwen3.6-35b-a3b LMS as loop+task+user-sim, retail test split, 40 tasks | done 2026-05-12: val=**0.8250** (+10pp over 0.75 baseline); 5-cycle mean 0.7350; ceiling reached via 2 distinct skills | $0, ~25-30 min/cycle |
 | **P3 — Gated loop (LLM-judge approval)** | LLM-judge approves/rejects each gate-passing proposal | ✅ wired (`42e646e`) — awaiting run | TBD |
-| **P4 — Results doc + Pass³ stretch** | `tau3-results-2026-Q3.md` + Pass³ re-runs | ☐ deferred — after P3 run | XS-S |
+| **P4 — Results doc + Pass³ stretch** | `tau3-results-2026-Q3.md` + Pass³ re-runs | ✅ drafted — C row + Pass³ pending P3 | XS-S |
 
 ---
 
@@ -717,9 +717,9 @@ OWNEVO_TAU3_LLM_JUDGE=1 \
 
 ## Phase 4 — Results document
 
-**Status:** ☐ deferred post-merge.
+**Status:** ✅ drafted (`benchmarks/tau3-results-2026-Q3.md`, `make tau3-replay` target added to Makefile). Condition C row and Pass³ stretch pending P3 run.
 
-Write `benchmarks/tau3-results-2026-Q3.md` with three-condition table (val_score A/B/C + lift A→C), honest disclosure (all-local task agent = qwen3.6-35b-a3b LMS, not cloud GPT-5.4), NeoSigma comparison, top 3 improvements (from skill audit chain). Reproducibility: `make tau3-replay` target. **Pass³ stretch:** re-run condition C top-N tasks 3× per Claw-Eval.
+Covers: three-condition table (A/B/A-LOCAL/B-LOCAL; C = TBD), honest disclosure, NeoSigma comparison, top 2 skill patterns from B-LOCAL audit chain, `make tau3-replay` reproducibility. Pass³ stretch (top-N tasks × 3 trials) pending after P3.
 
 ---
 
@@ -970,7 +970,7 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 
 **Pending:**
 1. P3 — ✅ `--llm-judge` flag wired (`42e646e`). **Awaiting run** (10 cycles on fresh workflow with judge engaged — see Phase 3 section for run command).
-2. P4 — results doc (`benchmarks/tau3-results-2026-Q3.md`) + Pass³ stretch metric (deferred until P3 run complete)
+2. P4 — ✅ `benchmarks/tau3-results-2026-Q3.md` drafted + `make tau3-replay` target added. **C row + Pass³ pending P3 run.**
 
 **To reproduce the winning local config:**
 
