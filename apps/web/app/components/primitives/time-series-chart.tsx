@@ -152,9 +152,11 @@ export function TimeSeriesChart({ data }: Props) {
                   className="chart-marker"
                   fill={SERIES_STROKE[sIdx] ?? 'var(--accent)'}
                 >
-                  <title>
-                    {s.name}: {p.value} @ {p.t}
-                  </title>
+                  {/* Single text node — multi-line JSX interpolations
+                      inside SVG <title> hydrate inconsistently across
+                      SSR/CSR (Next 15 reports "didn't match the server").
+                      Template literal collapses to one child. */}
+                  <title>{`${s.name}: ${p.value} @ ${p.t}`}</title>
                 </circle>
               ))}
             </g>
