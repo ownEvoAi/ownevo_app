@@ -177,6 +177,11 @@ def _kickoff_message(workflow_id: str, past_attempts_block: str = "") -> str:
         "\"tau3_retail_test_val_score\"}`). The kernel constructs the "
         "canonical file with frontmatter + docstring wrapper.\n"
         "\n"
+        "When calling `write_skill`, set `diff_summary` to a sentence that "
+        "(1) names the failure cluster being addressed (e.g. 'tau3 retail "
+        "task-completion failures') and (2) states the expected direction "
+        "of the val_score metric (up or down).\n"
+        "\n"
         f"workflow_id: {workflow_id}"
     )
     if past_attempts_block:
