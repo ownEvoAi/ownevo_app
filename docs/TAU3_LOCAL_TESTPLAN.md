@@ -637,6 +637,37 @@ echo "T11 PID=$!"
 
 ---
 
+## T12 — qwen3:30b-a3b Ollama proposer × qwen3.5-9b task agent (2026-05-16)
+
+**Question:** Does the best proposer (qwen3:30b-a3b Ollama, +0.15 on qwen3.5-4b) also lift qwen3.5-9b (baseline 0.5750)? T1 used the weaker qwen3.6-35b-a3b SWAP proposer and produced no lift (best_ever=0.4250, below baseline). This tests whether the MoE Ollama proposer overcomes the T1 regression.
+**Config:** Proposer=`qwen3:30b-a3b` Ollama ollama-openai, task=`anthropic/qwen/qwen3.5-9b`, user-sim=`openai/nvidia/nemotron-3-nano-4b`, 1 cycle, concurrency=4.
+**Workflow:** `tau3-retail-v1__qwen3_30b_a3b_prop_qwen35_9b`. Log: `qwen3_30b_a3b_prop_qwen35_9b_t12_nohup.log`.
+**T12v1:** Started 2026-05-16T23:21:23Z → 23:36:03Z (15 min). rc=8 SMOKE_CRASH — proposer wrote skill using `os.environ` but forgot `import os`. Stochastic codegen bug. Skill registered (v_seq=413) but never gated.
+**T12v2 (retry):** Started 2026-05-16T23:49:39Z → 2026-05-17T00:32:03Z (42 min). rc=0. 4 iters, 0 tool_errors, stop_reason=end_turn, v_seq=415, 40/40 tasks, 0 infra_errors.
+
+**Result: val_score=0.4000 — REGRESSION vs baseline (0.5750 → 0.4000, -0.175).** Gate decision=PASS only because best_ever initializes to 0 for a fresh workflow; absolute comparison to no-proposer baseline is what matters here.
+
+**Finding: qwen3:30b-a3b Ollama proposer hurts qwen3.5-9b.** This matches T1 (qwen3.6-35b-a3b SWAP proposer also regressed 9b to 0.4250). The proposer optimizes for the failure modes of low-baseline task agents (qwen3.5-4b at 0.3750) and writes skills that confuse stronger models. Pattern: **proposer lift degrades as task agent baseline increases.**
+
+| Task agent | Baseline | T12 val_score | Δ |
+|---|---|---|---|
+| `qwen3.5-4b` (T7-P5) | 0.3750 | 0.5250 | **+0.150** ✅ |
+| `qwen3.5-9b` (T12v2) | 0.5750 | 0.4000 | **−0.175** ❌ |
+
+**T13 (qwen3.6-27b, baseline 0.8750) not pursued** — the regression pattern predicts further degradation. T5 also showed SANDBOX_ERROR 2/2 with the SWAP proposer on this task agent.
+
+```bash
+OWNEVO_TAU3_CYCLES=1 \
+nohup bash apps/kernel/scripts/tau3_p2_local_loop.sh \
+  "qwen3:30b-a3b" "ollama-openai" "qwen3_30b_a3b_prop_qwen35_9b" "" \
+  "anthropic/qwen/qwen3.5-9b" \
+  "openai/nvidia/nemotron-3-nano-4b" \
+> log/tau3_p2/qwen3_30b_a3b_prop_qwen35_9b_t12_nohup.log 2>&1 &
+echo "T12 PID=$!"
+```
+
+---
+
 ## Phase 3 — Condition C: Gated loop (LLM-judge approval)
 
 **Status:** ☐ deferred post-merge.
