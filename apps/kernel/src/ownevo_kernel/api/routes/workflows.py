@@ -24,6 +24,7 @@ from ..models import (
     CaseOutputRow,
     EvalCaseCreate,
     EvalCaseList,
+    EvalCaseProvenance,
     EvalCaseSummary,
     FailureClusterList,
     FailureClusterSummary,
@@ -518,13 +519,26 @@ async def list_workflow_eval_cases(
         )
 
     from ...eval_cases.registry import list_eval_cases
-    from ..jsonb import decode_jsonb_obj
 
     cases = await list_eval_cases(conn, workflow_id=workflow_id)
     items: list[EvalCaseSummary] = []
     for c in cases:
         eb = c.expected_behavior or {}
         inp = c.input or {}
+        prov_raw = eb.get("provenance") if isinstance(eb, dict) else None
+        eb_prov: EvalCaseProvenance | None = None
+        category: str | None = None
+        if isinstance(prov_raw, dict):
+            kind = prov_raw.get("kind")
+            source = prov_raw.get("source")
+            if isinstance(kind, str) and isinstance(source, str):
+                eb_prov = EvalCaseProvenance(kind=kind, source=source)
+                # 'derived' = verbatim user-flagged past miss; 'inferred'
+                # = a named domain pattern (regression / edge case bucket).
+                if kind == "derived":
+                    category = "past-miss"
+                elif kind == "inferred":
+                    category = "inferred"
         items.append(
             EvalCaseSummary(
                 id=c.id,
@@ -539,6 +553,8 @@ async def list_workflow_eval_cases(
                 is_test_fold=c.is_test_fold,
                 cluster_id=c.cluster_id,
                 created_at=c.created_at,
+                expected_behavior_provenance=eb_prov,
+                category=category,
             )
         )
     return EvalCaseList(workflow_id=workflow_id, items=items, total=len(items))

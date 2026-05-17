@@ -282,6 +282,19 @@ class WorkflowList(_Strict):
     total: int
 
 
+class EvalCaseProvenance(_Strict):
+    """The `{kind, source}` shape NL-gen writes into
+    `expected_behavior.provenance` (see `nl_gen/eval_persistence.py`).
+
+    `kind="derived"` → `source` is a verbatim phrase from the user's
+    `known_past_misses`. `kind="inferred"` → `source` is a named
+    domain pattern the eval generator pulled in.
+    """
+
+    kind: str  # 'derived' | 'inferred'
+    source: str
+
+
 class EvalCaseSummary(_Strict):
     """One row on the workflow Eval cases page.
 
@@ -289,6 +302,19 @@ class EvalCaseSummary(_Strict):
     `expected_value` / `rationale` come from the `expected_behavior` JSONB
     (see `nl_gen/eval_persistence.py`). `sim_seed` / `n_steps` /
     `target_step_index` from `input`.
+
+    `expected_behavior_provenance` surfaces the `{kind, source}` substructure
+    so the new-workflow Step 2 review page (PLAN 8.4.11) can render the
+    "derived from <user phrase>" caption per row. `category` is a coarse
+    bucket derived server-side from `provenance.kind` so the UI can colour
+    pills consistently without re-deriving the rule:
+
+      derived  → 'past-miss'  (verbatim user-flagged miss)
+      inferred → 'inferred'   (named domain pattern; regression / edge case)
+
+    Both fields are `None` for hand-authored cases (no NL-gen provenance)
+    and for legacy rows that pre-date the `expected_behavior.provenance`
+    convention.
     """
 
     id: UUID
@@ -303,6 +329,8 @@ class EvalCaseSummary(_Strict):
     is_test_fold: bool
     cluster_id: UUID | None
     created_at: datetime
+    expected_behavior_provenance: EvalCaseProvenance | None = None
+    category: str | None = None  # 'past-miss' | 'inferred' | None
 
 
 class EvalCaseList(_Strict):
