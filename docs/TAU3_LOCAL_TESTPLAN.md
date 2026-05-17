@@ -707,6 +707,28 @@ Write `benchmarks/tau3-results-2026-Q3.md` with three-condition table (val_score
 | 23 v2 | qwen3.6:27b Ollama dense | anthropic/qwen3.5-* LMS (JIT→qwen3.6) | 0.6750 | 40/40 clean — MoE > dense for proposer |
 | 32 v2 | glm-4.7-flash:latest Ollama (DeepSeek-2) | qwen3.6-35b-a3b LMS | 0.6750 | Architecture diversity proven |
 
+**P2 mixed-topology proposer sweep (2026-05-16, task=qwen3.5-4b baseline 0.3750):**
+
+| Track | Proposer | Backend | Val score | Lift | Verdict |
+|---|---|---|---|---|---|
+| T7-P5 | `qwen3:30b-a3b` | Ollama (thinking on) | **0.5250** | **+0.150** | ✅ Best proposer |
+| T8v2 | `qwen3:30b-a3b` | Ollama (multi-cycle) | 0.5000 (c1 peak) | +0.125 | ✅ Plateau ~0.50 |
+| T10 | `qwen3.6-27b` | LMS lms-anthropic | **0.4500** | **+0.075** | ✅ Dense, half lift |
+| T11 | `qwen3-30b-a3b` | LMS lms-anthropic | — | — | ❌ rc=6, thinking required |
+| T9 | `gemma-4-31b` | LMS | — | — | ❌ Infinite generation |
+| T7-P1 | `qwen3-30b-a3b-2507` | LMS | — | — | ❌ rc=6, non-thinking variant |
+| T7-P4 | `qwen3:30b-instruct` | Ollama | — | — | ❌ rc=6, no write_skill |
+| T7-P2/T7-P3 | gemma-4-26b-a4b / glm-4.7-flash | LMS/Ollama | — | — | ❌ Unviable (infinite gen / breaks skill) |
+
+**Proposer × task agent cross (best proposer = qwen3:30b-a3b Ollama):**
+
+| Task agent | Baseline | Val score | Δ | Source |
+|---|---|---|---|---|
+| `qwen3.5-4b` | 0.3750 | 0.5250 | **+0.150** ✅ | T7-P5 |
+| `qwen3.5-9b` | ~0.5750 ⚠ | 0.4000 | **−0.175** ❌ | T12v2 |
+
+⚠ qwen3.5-9b "baseline" 0.5750 is from Run 28 which had a proposer running — true no-proposer floor may be lower. Both T1 (0.4250) and T12 (0.4000) still regress vs this figure.
+
 **Alternative task agents landed (proposer = qwen3.6-35b-a3b LMS):**
 
 | Run | Task agent | val_score | Notes |
