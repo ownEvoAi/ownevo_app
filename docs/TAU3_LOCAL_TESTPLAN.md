@@ -17,7 +17,7 @@
 **Proposer candidates status (as of 2026-05-16):**
 - `qwen/qwen3.6-27b` **LMS** — ✅ T10 DONE: val=0.4500, +0.075 lift. Dense, real but half of MoE a3b.
 - `google/gemma-4-31b` LMS — ❌ T9 KILLED: infinite generation, proposer-unviable.
-- `qwen/qwen3-30b-a3b` LMS (18.56 GB, MoE, base thinking variant) — **T11 queued.** NOTE: T7-P1 tested only the `2507` non-thinking sub-variant (rc=6). The base `qwen3-30b-a3b` LMS with v13 thinking-suppression template is still untested. Direct LMS equivalent of T7-P5 (Ollama, +0.15). High probability of matching or approaching 0.82 (same MoE a3b arch as qwen3.6-35b-a3b winner).
+- `qwen/qwen3-30b-a3b` LMS (18.56 GB, MoE, base thinking variant) — **T11 DONE (2026-05-16): rc=6, 243 output tokens.** LMS v13 thinking suppression kills write_skill for this model (same as 2507 variant). Must use Ollama (thinking on) — see T7-P5.
 
 **Real task-agent ranking on retail τ³** (JIT-fallback discovery, 2026-05-12):
 `qwen3.6-35b-a3b (0.75)` > `qwen3.5-9b (0.575)` > `gpt-oss-20b (0.30)` ≈ `qwen3.5-4b (0.22-0.30)`. **Bigger > smaller.** The earlier "4B > 9B > 35B inverse-scaling" claim (Runs 21/22 at 0.825/0.725) was invalidated when LMS JIT was discovered to silently route the invalid identifier `anthropic/qwen/qwen3.5-4b` to the loaded model (qwen3.6-35b-a3b). See § "Task-agent role compat" for the full record.
@@ -264,7 +264,7 @@ Other attempts — abbreviated, model-selection signal only (infra details in `S
 
 **qwen3.5 task agents (Runs 18/20/21/22 → 27/28/36):** Run 18 hit LMS jinja error ("No user query found"); user applied froggeric v13 template — fixed for both 4b and 9b. **Runs 21/22 PASS 0.825 / 0.725 were JIT-fallback to qwen3.6-35b-a3b** (Run 28 retest at real 9B + ctx=65k landed val=0.5750). **Run 36 v2 (2026-05-12, killed at 9/40 @ avg 0.2222)** locked the real qwen3.5-4b verdict — per-task latency ~3.5 min on small thinking model, trajectory matches diag smoke (10/40 @ 0.30). **Final retail task-agent ranking: qwen3.6-35b-a3b (0.75) > qwen3.5-9b (0.575) > gpt-oss-20b (0.30) ≈ qwen3.5-4b (0.22–0.30).** Bigger > smaller, "inverse scaling" invalidated. ⚠ no-prefix identifier `qwen3.5-4b` (not `qwen/qwen3.5-4b`) is the actual loaded artifact in LMS.
 
-**gemma-4-31b dense (Run 19):** all-3-roles PASS qua model, 36/40 evaluated at avg **0.62** before LMS HTTP 500 infra-flake on 4 tasks. Dense 31B avoids the MoE max_tokens cap that bit gemma-4-26b-a4b. **Viable task agent + proposer** — gate retry queued #13.
+**gemma-4-31b dense (Run 19):** all-3-roles PASS qua model, 36/40 evaluated at avg **0.62** before LMS HTTP 500 infra-flake on 4 tasks. Dense 31B avoids the MoE max_tokens cap that bit gemma-4-26b-a4b. **Viable task agent.** As proposer: **T9 KILLED (2026-05-16T20:06Z)** — infinite generation at 31 min (same failure mode as gemma-4-26b-a4b T7-P2). gemma-4 family (both MoE and dense) is proposer-unviable. Gate retry for task-agent baseline run superseded by T7–T12 finding (lift only on low-baseline agents).
 
 **gemma-4-26b-a4b (Run 29):** mechanically OK as loop driver (7 iters, 14K out, end_turn — NOT the feared max_tokens cap), but proposal literally ended with `return (None, state) # Placeholder for logic below` — **planning capacity insufficient to hold a full HarnessAgent rewrite**. Same codegen-incomplete class as Run 20 (qwen3.6 `self.known_facts` uninit) and granite-30B. **Mark proposer-unviable;** as task-agent-only untested (post-merge #21).
 
@@ -762,7 +762,7 @@ LMS IDs from `lms ls` (authoritative). GGUF models registered with short IDs (e.
 | F (v2) | `nvidia_nemotron-cascade-2-30b-a3b` | `openai/nvidia_nemotron-cascade-2-30b-a3b` | 22.45 GB | v1 SANDBOX_ERROR (2400s timeout). **v2 PASS val_score=0.5000** — N=40/40, infra_errors=0, TASK_TIMEOUT=7200 (~44 min). Best non-qwen3.6 proposer+task result. |
 | G (✗) | `exaone-4.5-33b` | `openai/exaone-4.5-33b` | 25.19 GB | rc=9 — exaone4 arch not supported in LMS (load fails exit code 1); proposer v_seq=259 clean |
 | H (⚠) | `apriel-1.6-15b-thinker` | `openai/apriel-1.6-15b-thinker` | 9.66 GB | SANDBOX_ERROR (2400s timeout); partial **avg_reward=0.09 (N=11/40)** — retail-weak. Task 36 stalled 22+ min (thinking-model retry). ctx=65536 WORKS (Llama arch). |
-| I (⚠) | `nvidia/nemotron-3-nano-omni` | `openai/nvidia/nemotron-3-nano-omni` | 26.10 GB | SANDBOX_ERROR (2400s timeout); partial **avg_reward=0.38 (N≥16/40)**. Trajectory: 0.60 (N=5) → 0.38 (N=16). nemotron_h_moe consistent ~0.38-0.41. Extended retry queued (TASK_TIMEOUT=7200). |
+| I (⚠) | `nvidia/nemotron-3-nano-omni` | `openai/nvidia/nemotron-3-nano-omni` | 26.10 GB | SANDBOX_ERROR (2400s timeout); partial **avg_reward=0.38 (N≥16/40)**. Trajectory: 0.60 (N=5) → 0.38 (N=16). nemotron_h_moe consistent ~0.38-0.41. **Extended retry deferred** — T4 lift attempt abandoned (context overflow); T12 finding shows proposer lift degrades on high-baseline agents (0.6250 baseline is in regression risk zone). Not a priority for further lift experiments. |
 | J (yes) | `nvidia/nemotron-3-nano-4b` | `openai/nvidia/nemotron-3-nano-4b` | 2.84 GB | **val_score=0.3000** — 40/40 clean, 0 infra_errors, ~41 min. 4B floor: surprisingly capable. ctx=65536 WORKS (nemotron_h arch). |
 | skip | `apriel-nemotron-15b-thinker` | — | 9.11 GB | skipped per user |
 
@@ -918,7 +918,7 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 
 ## Next action
 
-**Status as of 2026-05-16:** Proposer sweep T7–T10 complete. All queued P2 experiments done.
+**Status as of 2026-05-16:** Proposer sweep T7–T12 complete. All queued P2 experiments done.
 
 **Completed sweep summary:**
 
@@ -928,6 +928,8 @@ All resolved as of 2026-05-12. Kept for institutional reference:
 | T8v2 | `qwen3:30b-a3b` Ollama | qwen3.5-4b | 0.5000 (c1 peak) | +0.125 | ✅ Plateau at ~0.50 |
 | T9 | `gemma-4-31b` LMS | — | KILLED | — | ❌ Infinite generation |
 | T10 | `qwen3.6-27b` LMS | qwen3.5-4b | 0.4500 | +0.075 | ✅ Real lift, 2× less than MoE |
+| T11 | `qwen3-30b-a3b` LMS base | — | rc=6 | — | ❌ LMS thinking suppression kills write_skill |
+| T12 | `qwen3:30b-a3b` Ollama | qwen3.5-9b | 0.4000 | **−0.175** | ❌ Regression on high-baseline task agent |
 
 **Pending (deferred post-merge):**
 1. P3 — gated loop with LLM-judge approval (`apps/kernel/src/ownevo_kernel/approvals/llm_judge.py`)
