@@ -126,7 +126,8 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
     """
     row = await conn.fetchrow(
         """
-        SELECT id, description, mode::text AS mode, kind, spec
+        SELECT id, description, mode::text AS mode, kind, spec,
+               simulation_plan, metric_definition
         FROM workflows
         WHERE id = $1
         """,
@@ -145,6 +146,8 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         mode=row["mode"],
         kind=row["kind"],
         spec=spec,
+        simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
+        metric_definition=decode_jsonb_obj(row["metric_definition"]),
     )
 
 

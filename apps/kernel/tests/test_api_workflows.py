@@ -414,6 +414,70 @@ async def test_get_workflow_anatomy_returns_spec(
     assert body["spec"]["domain"] == "supply-chain"
     assert body["spec"]["tools"][0]["name"] == "lookup_supplier"
     assert body["spec"]["reviewer"]["role"] == "Supply Chain VP"
+    # sim_plan + metric_def default to None for rows where NL-gen
+    # didn't persist them (this row was inserted with spec only).
+    assert body["simulation_plan"] is None
+    assert body["metric_definition"] is None
+
+
+async def test_get_workflow_anatomy_returns_sim_plan_and_metric(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """sim_plan + metric_def round-trip through JSONB and surface on
+    the anatomy response, with their `provenance` substructure intact
+    (PLAN 8.4.11 — review-page parity needs these for the Simulator,
+    Success metric, and per-tool/persona/env "derived from" badges).
+    """
+    spec = {"schema_version": "1.1", "id": "wf-sm", "domain": "credit"}
+    sim_plan = {
+        "schema_version": "1.0",
+        "workflow_spec_id": "wf-sm",
+        "description": "Credit risk simulator",
+        "n_steps_default": 1,
+        "seed_default": 0,
+        "imports": ["random"],
+        "init_state_code": "return {}",
+        "step_code": "return {}",
+        "event_fields": [],
+    }
+    metric_def = {
+        "schema_version": "1.0",
+        "workflow_spec_id": "wf-sm",
+        "name": "approval_accuracy",
+        "family": "classification",
+        "direction": "higher-is-better",
+        "lower_bound": 0.0,
+        "upper_bound": 1.0,
+        "description": "Fraction of correct approve/deny calls.",
+        "rationale": "Standard binary-classification metric.",
+        "provenance": {
+            "kind": "derived",
+            "source": "an approval is correct if it matches the human decision",
+        },
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec, mode, "
+        "simulation_plan, metric_definition) "
+        "VALUES ($1, $2, $3::jsonb, 'gated'::workflow_mode, "
+        "$4::jsonb, $5::jsonb)",
+        "wf-sm",
+        "Credit risk workflow",
+        json.dumps(spec),
+        json.dumps(sim_plan),
+        json.dumps(metric_def),
+    )
+
+    res = await api_client.get("/api/workflows/wf-sm")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["simulation_plan"]["description"] == "Credit risk simulator"
+    assert body["simulation_plan"]["n_steps_default"] == 1
+    assert body["metric_definition"]["name"] == "approval_accuracy"
+    assert body["metric_definition"]["provenance"]["kind"] == "derived"
+    assert (
+        body["metric_definition"]["provenance"]["source"]
+        == "an approval is correct if it matches the human decision"
+    )
 
 
 async def test_failure_clusters_latest_proposal_picks_newest(

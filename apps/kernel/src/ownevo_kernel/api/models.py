@@ -346,6 +346,18 @@ class WorkflowAnatomy(_Strict):
     spec opaque (`dict[str, Any]`) so spec-version bumps don't break
     the API contract; the web app does its own field-by-field reads
     with sensible empty-state fallbacks.
+
+    `simulation_plan` and `metric_definition` are the other two NL-gen
+    artifacts persisted on the workflow row (jsonb columns from
+    migration `0005_workflow_sim_metric.sql`). Both are null on rows
+    that pre-date the generator pipeline. The new-workflow Step 2
+    review page (PLAN 8.4.11) renders the metric definition (with its
+    `provenance.source` provenance) so the reviewer sees the formula
+    NL-gen derived from their description. `simulation_plan` is
+    surfaced for completeness but the review UI doesn't render the
+    raw step_code today — the rich `WorkflowSpec.tools / personas /
+    env_generators / data_sources` arrays carry the user-facing
+    surface, and SimulationPlan itself has no provenance layer.
     """
 
     id: str
@@ -353,6 +365,8 @@ class WorkflowAnatomy(_Strict):
     mode: str
     kind: str | None = None  # 'benchmark' | null (production)
     spec: dict[str, Any]
+    simulation_plan: dict[str, Any] | None = None
+    metric_definition: dict[str, Any] | None = None
 
 
 class EvalCaseCreate(_Strict):
