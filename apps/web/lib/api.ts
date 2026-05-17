@@ -284,6 +284,12 @@ export async function generateWorkflow(
   })
 }
 
+export interface EvalCaseProvenance {
+  /** 'derived' = verbatim user-flagged miss; 'inferred' = named pattern. */
+  kind: string
+  source: string
+}
+
 export interface EvalCaseSummary {
   id: string
   case_id: string
@@ -297,6 +303,12 @@ export interface EvalCaseSummary {
   is_test_fold: boolean
   cluster_id: string | null
   created_at: string
+  /** `{kind, source}` from `expected_behavior.provenance`; null for
+   * hand-authored cases and any row that pre-dates the convention. */
+  expected_behavior_provenance: EvalCaseProvenance | null
+  /** Coarse bucket derived server-side from provenance.kind:
+   * 'past-miss' (derived) | 'inferred' (inferred) | null. */
+  category: string | null
 }
 
 export interface EvalCaseList {
@@ -510,24 +522,55 @@ export interface AgentToolParam {
   required?: boolean
 }
 
+/** `{kind, source}` shape NL-gen attaches to most spec sub-items.
+ * `kind="derived"` → `source` is a verbatim phrase from the user's
+ * description. `kind="inferred"` → `source` names a domain pattern. */
+export interface SpecProvenance {
+  kind: string
+  source: string
+}
+
 export interface AgentToolSpec {
   name: string
   description?: string
   inputs?: AgentToolParam[]
   outputs?: AgentToolParam[]
+  provenance?: SpecProvenance | null
 }
 
 export interface ReviewerSpec {
   role: string
   cadence?: string
   description?: string
+  provenance?: SpecProvenance | null
+}
+
+export interface DataSourceSpec {
+  id: string
+  description?: string
+  entity?: string | null
+  provenance?: SpecProvenance | null
+}
+
+export interface EnvGeneratorSpec {
+  name: string
+  description?: string
+  provenance?: SpecProvenance | null
+}
+
+export interface PersonaSpec {
+  role: string
+  name?: string | null
+  cadence?: string
+  description?: string
+  provenance?: SpecProvenance | null
 }
 
 export interface WorkflowEnvironmentSpec {
-  entities?: Array<{ name: string }>
-  data_sources?: Array<{ id: string }>
-  env_generators?: Array<{ name: string }>
-  personas?: Array<{ name?: string }>
+  entities?: Array<{ name: string; description?: string }>
+  data_sources?: DataSourceSpec[]
+  env_generators?: EnvGeneratorSpec[]
+  personas?: PersonaSpec[]
   seasonality?: string[]
 }
 
@@ -555,6 +598,32 @@ export interface WorkflowSpecShape {
   [key: string]: unknown
 }
 
+/** Loose shape — the kernel schema is `SimulationPlan` in
+ * `nl_gen/sim_plan.py`. The review page reads `description` +
+ * `n_steps_default`; everything else is left opaque so spec-version
+ * bumps don't force a TS revision. */
+export interface SimulationPlanShape {
+  description?: string
+  n_steps_default?: number
+  seed_default?: number
+  [key: string]: unknown
+}
+
+/** Loose shape — kernel schema is `MetricDefinition` in
+ * `nl_gen/metric_def.py`. Review page reads name + family + direction +
+ * description + provenance.{kind,source} for the "derived from <phrase>"
+ * caption. `[key: string]: unknown` covers bounds / target_value /
+ * rationale without typing them. */
+export interface MetricDefinitionShape {
+  name?: string
+  family?: string
+  direction?: string
+  description?: string
+  rationale?: string
+  provenance?: SpecProvenance
+  [key: string]: unknown
+}
+
 export interface WorkflowAnatomy {
   id: string
   description: string
@@ -562,6 +631,10 @@ export interface WorkflowAnatomy {
   /** 'benchmark' tags M5/tau-bench rows; null/absent = production. */
   kind?: string | null
   spec: WorkflowSpecShape
+  /** Persisted SimulationPlan JSONB; null when NL-gen hasn't run. */
+  simulation_plan?: SimulationPlanShape | null
+  /** Persisted MetricDefinition JSONB; null when NL-gen hasn't run. */
+  metric_definition?: MetricDefinitionShape | null
 }
 
 export async function getWorkflowAnatomy(

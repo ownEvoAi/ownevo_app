@@ -414,6 +414,159 @@ async def test_get_workflow_anatomy_returns_spec(
     assert body["spec"]["domain"] == "supply-chain"
     assert body["spec"]["tools"][0]["name"] == "lookup_supplier"
     assert body["spec"]["reviewer"]["role"] == "Supply Chain VP"
+    # sim_plan + metric_def default to None for rows where NL-gen
+    # didn't persist them (this row was inserted with spec only).
+    assert body["simulation_plan"] is None
+    assert body["metric_definition"] is None
+
+
+async def test_get_workflow_anatomy_returns_sim_plan_and_metric(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """sim_plan + metric_def round-trip through JSONB and surface on
+    the anatomy response, with their `provenance` substructure intact
+    (PLAN 8.4.11 — review-page parity needs these for the Simulator,
+    Success metric, and per-tool/persona/env "derived from" badges).
+    """
+    spec = {"schema_version": "1.1", "id": "wf-sm", "domain": "credit"}
+    sim_plan = {
+        "schema_version": "1.0",
+        "workflow_spec_id": "wf-sm",
+        "description": "Credit risk simulator",
+        "n_steps_default": 1,
+        "seed_default": 0,
+        "imports": ["random"],
+        "init_state_code": "return {}",
+        "step_code": "return {}",
+        "event_fields": [],
+    }
+    metric_def = {
+        "schema_version": "1.0",
+        "workflow_spec_id": "wf-sm",
+        "name": "approval_accuracy",
+        "family": "classification",
+        "direction": "higher-is-better",
+        "lower_bound": 0.0,
+        "upper_bound": 1.0,
+        "description": "Fraction of correct approve/deny calls.",
+        "rationale": "Standard binary-classification metric.",
+        "provenance": {
+            "kind": "derived",
+            "source": "an approval is correct if it matches the human decision",
+        },
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec, mode, "
+        "simulation_plan, metric_definition) "
+        "VALUES ($1, $2, $3::jsonb, 'gated'::workflow_mode, "
+        "$4::jsonb, $5::jsonb)",
+        "wf-sm",
+        "Credit risk workflow",
+        json.dumps(spec),
+        json.dumps(sim_plan),
+        json.dumps(metric_def),
+    )
+
+    res = await api_client.get("/api/workflows/wf-sm")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["simulation_plan"]["description"] == "Credit risk simulator"
+    assert body["simulation_plan"]["n_steps_default"] == 1
+    assert body["metric_definition"]["name"] == "approval_accuracy"
+    assert body["metric_definition"]["provenance"]["kind"] == "derived"
+    assert (
+        body["metric_definition"]["provenance"]["source"]
+        == "an approval is correct if it matches the human decision"
+    )
+
+
+async def test_list_eval_cases_surfaces_provenance_and_category(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """`/eval-cases` exposes `expected_behavior.provenance` ({kind, source})
+    and the derived `category` bucket so the review page (PLAN 8.4.11)
+    can render "derived from <user phrase>" badges + type pills without
+    re-reaching into the raw JSONB.
+
+    Coverage:
+      - kind=derived → category="past-miss", source verbatim
+      - kind=inferred → category="inferred", source = pattern name
+      - hand-authored (no provenance substructure) → both fields None
+    """
+    from ownevo_kernel.eval_cases.registry import add_eval_case
+
+    await _seed_workflow(db, workflow_id="wf-evcat")
+
+    # derived (user-flagged past miss)
+    await add_eval_case(
+        db,
+        provenance="nl-gen",
+        input={"sim_seed": 1, "n_steps": 1, "target_step_index": 0},
+        expected_behavior={
+            "case_id": "past-miss-pnw-boot",
+            "target_label_field": "alert_correct",
+            "expected_value": True,
+            "rationale": "Replay of the 2025 PNW boot miss.",
+            "provenance": {
+                "kind": "derived",
+                "source": "missed the 2025 Pacific NW winter boot spike",
+            },
+        },
+        workflow_id="wf-evcat",
+    )
+    # inferred (named domain pattern)
+    await add_eval_case(
+        db,
+        provenance="nl-gen",
+        input={"sim_seed": 2, "n_steps": 1, "target_step_index": 0},
+        expected_behavior={
+            "case_id": "steady-demand-no-alert",
+            "target_label_field": "alert_correct",
+            "expected_value": False,
+            "rationale": "Steady demand — must not fire false alerts.",
+            "provenance": {
+                "kind": "inferred",
+                "source": "supply chain seasonal markdown pattern",
+            },
+        },
+        workflow_id="wf-evcat",
+    )
+    # hand-authored (no provenance substructure)
+    await add_eval_case(
+        db,
+        provenance="hand-authored",
+        input={"sim_seed": 3, "n_steps": 1, "target_step_index": 0},
+        expected_behavior={
+            "case_id": "manual-edge-case",
+            "target_label_field": "alert_correct",
+            "expected_value": True,
+            "rationale": "Operator-added edge case.",
+        },
+        workflow_id="wf-evcat",
+    )
+
+    res = await api_client.get("/api/workflows/wf-evcat/eval-cases")
+    assert res.status_code == 200
+    body = res.json()
+    by_case = {item["case_id"]: item for item in body["items"]}
+
+    derived = by_case["past-miss-pnw-boot"]
+    assert derived["category"] == "past-miss"
+    assert derived["expected_behavior_provenance"] == {
+        "kind": "derived",
+        "source": "missed the 2025 Pacific NW winter boot spike",
+    }
+
+    inferred = by_case["steady-demand-no-alert"]
+    assert inferred["category"] == "inferred"
+    assert inferred["expected_behavior_provenance"] == {
+        "kind": "inferred",
+        "source": "supply chain seasonal markdown pattern",
+    }
+
+    manual = by_case["manual-edge-case"]
+    assert manual["category"] is None
+    assert manual["expected_behavior_provenance"] is None
 
 
 async def test_failure_clusters_latest_proposal_picks_newest(
