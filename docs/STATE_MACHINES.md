@@ -94,6 +94,39 @@ produce.
 - `autonomous` mode is per-workflow (`workflows.mode`), not per-proposal. Switching a workflow between modes mid-run is not supported in MVP.
 - The `became_eval_case_id` on `approvals` is non-null when (decision = reject) AND (comment is non-empty). Not applicable in autonomous mode (no rejection path from auto-approve).
 
+### ApproverType × transition matrix
+
+There are three approver types, defined in `apps/kernel/src/ownevo_kernel/approvers/__init__.py`:
+
+| Constant | String value | Identity stored in `approvals.approver` |
+|---|---|---|
+| `APPROVER_NONE` | `"none"` | (unused — sentinel) |
+| `APPROVER_AUTONOMOUS` | `"autonomous"` | `"autonomous"` (no human identity) |
+| `APPROVER_LLM_JUDGE` | `"llm-judge"` | `"llm-judge:<model-id>"` |
+| (human) | — | `"human:<reviewer-id>"` (prefixed by convention; no enum constant) |
+
+Which approver type can drive which proposal-state transition:
+
+| Transition | `human` | `autonomous` | `llm-judge` | Notes |
+|---|:-:|:-:|:-:|---|
+| `gate-passed` → `approved-awaiting-deploy` | ✓ | ✓ | ✓ | Only `autonomous` skips writing an `approvals` row. |
+| `gate-passed` → `rejected` | ✓ | ✗ | ✓ | `autonomous` cannot reject — the gate already passed. |
+| `approved-awaiting-deploy` → `deployed` | ✓ | ✓ | ✓ | The deploy step is mode-agnostic; the deciding identity comes from whoever triggered `/deploy`. |
+| `deployed` → `rolled-back` | ✓ | ✗ | ✗ | Rollback is operator-only via `make revert-skill`. |
+
+The workflow's `mode` column (see [`MIGRATIONS.md`](MIGRATIONS.md) #0007) gates which approver path is allowed:
+
+| `workflow.mode` | Allowed paths from `gate-passed` |
+|---|---|
+| `eval-only` | (never reaches `gate-passed` — gate is disabled in this mode) |
+| `eval-propose` | `human` only — proposals go straight to operator review, no auto-approval |
+| `gated` | `human` (default UI path) or `llm-judge` (when wired up) |
+| `autonomous` | `autonomous` only — no human approval row written |
+
+A `gated` workflow can be configured to delegate first-pass approval to the LLM-judge (W5.2 work), with humans only reviewing rejections or specific kinds. That delegation is per-workflow configuration, not a separate state.
+
+The audit log always records the `approver_type` in the `proposal-approved` payload, so post-hoc you can answer "which proposals were auto-approved vs human-approved" with a single query on `audit_entries`.
+
 ## Iteration
 
 ```

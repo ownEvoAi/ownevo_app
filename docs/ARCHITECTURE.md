@@ -191,6 +191,9 @@ apps/kernel/src/ownevo_kernel/
   traces/               trace collector
 
 apps/web/app/
+  (legacy)/                               pre-workspace routes — kept for backwards compat, do not extend
+    inbox/, proposals/[id]/, workflows/preview/
+  operator/[workflowId]/                  operator shell (no workspace chrome) — embeds in a customer's product
   workspaces/[wsId]/
     page.tsx                              Health dashboard (LiftChart + workflow rows)
     inbox/                                proposal queue
@@ -201,6 +204,7 @@ apps/web/app/
     workflows/[wfId]/                     per-workflow Overview, Failures, Traces, Audit tabs
     workflows/[wfId]/traces/[traceId]/    per-trace step inspection
     workflows/new/                        NL-gen storyboard
+    workflows/connect/                    Connect-existing-agent flow (eval-only / eval-propose modes)
     proposals/[id]/                       proposal review (diff + gate + approve/deploy/rollback)
   components/
     primitives/                           9 leaf render components
@@ -212,6 +216,24 @@ apps/web/app/
 
 packages/trace-format/                    AgentEvent + UIPrimitive Pydantic schemas + canonical SPEC.md
 ```
+
+### Route taxonomy
+
+Three top-level partitions, intentional, **not interchangeable**:
+
+| Partition | URL prefix | Audience | Authoring chrome | Status |
+|---|---|---|---|---|
+| `workspaces/[wsId]/` | `/workspaces/acme/...` | The improvement-loop operator (domain expert + reviewer) | Full sidebar, Activity tab, Skills library | Primary surface — extend here |
+| `operator/[workflowId]/` | `/operator/credit-risk/` | The agent's *day-of* operator (a different role) | None — embeds in customer's product | Production surface for customers using `operate-only` mode |
+| `(legacy)/` | `/inbox`, `/proposals/[id]`, `/workflows/preview` | — | — | Kept for backwards compat with old links; **do not add new routes here** |
+
+The `(legacy)/` group uses Next.js's route group syntax (parens hide it from the URL): the routes themselves render at the URL root, not under `/legacy`. They predate the workspace model. New URLs should always go under `workspaces/[wsId]/`.
+
+**Why two top-level shells (`workspaces/` vs `operator/`):**
+
+The improvement-loop operator and the day-of operator are different jobs. The improvement-loop operator reviews proposals, approves diffs, reads the lift chart — they need the full sidebar and Activity tab. The day-of operator runs the workflow against real inputs and reads the recommended-action output — they need a focused view that embeds in their own product without ownEvo chrome. Same underlying workflow row, two different render surfaces.
+
+The `[wsId]` slug is cosmetic today — single-tenant MVP, no `workspace_id` column on any domain table. Multi-tenant retrofit will give `[wsId]` real meaning; until then, treat it as a fixed string like `acme` in dev.
 
 ---
 
@@ -246,4 +268,5 @@ Platform primitives drive the **improvement-loop surface** (what the platform te
 - **Multi-tenant retrofit:** `workspace_id` column + RLS across every domain table.
 - **Sandbox provider migration:** e2b / Modal swap behind the `SandboxRuntime` Protocol.
 - **Audit-chain crypto upgrade:** Merkle root + signed export on top of the existing parent-hash chain. The shipped claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
+- **Multi-metric Pareto gate:** the gate today compares a single composite `val_score`. A signal-layer Pareto rule (per-dimension metrics, "all improve, none regress") is implied by the talk narrative but not yet in code or schema. See [`MULTI_METRIC_GATE_GAP.md`](MULTI_METRIC_GATE_GAP.md).
 - **τ³-bench condition C + prior-art reproduction.**
