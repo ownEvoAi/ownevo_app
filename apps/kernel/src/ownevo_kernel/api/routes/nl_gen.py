@@ -47,6 +47,14 @@ _DESCRIPTION_MAX_LEN = 4096
 # Allowed shape for a workflow id (matches the kebab-slug rule on WorkflowSpec.id).
 _WORKFLOW_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 
+# Allowlist of template IDs that may be stored as created_from_template.
+# Must stay in sync with VERTICAL_TEMPLATES in apps/web/.../templates.ts.
+_VALID_TEMPLATE_IDS: frozenset[str] = frozenset({
+    "retail-demand-planning",
+    "credit-risk-recalibration",
+    "clinical-trial-site-selection",
+})
+
 
 class PreviewResponse(BaseModel):
     """Wire shape for the W5.5 UI preview.
@@ -156,9 +164,8 @@ class GenerateRequest(BaseModel):
         max_length=_DESCRIPTION_MAX_LEN,
     )
     workflow_id: str | None = Field(default=None, max_length=64)
-    # Vertical-template slug the user picked on /workflows/new (PLAN 8.5.1).
-    # Recorded on the workflow row so the audit log + Theme 1.1 design
-    # agent can later branch on it. None = free-form description.
+    # Vertical-template slug the user picked on /workflows/new.
+    # Recorded on the workflow row for analytics. None = free-form description.
     template_id: str | None = Field(default=None, max_length=64)
 
 
@@ -209,16 +216,23 @@ async def generate_workflow(
             ),
         )
 
-    if body.template_id is not None and not _WORKFLOW_ID_PATTERN.fullmatch(
-        body.template_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"template_id {body.template_id!r} is not a kebab slug "
-                "(must match /^[a-z0-9][a-z0-9-]*[a-z0-9]$/)."
-            ),
-        )
+    if body.template_id is not None:
+        if not _WORKFLOW_ID_PATTERN.fullmatch(body.template_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"template_id {body.template_id!r} is not a kebab slug "
+                    "(must match /^[a-z0-9][a-z0-9-]*[a-z0-9]$/)."
+                ),
+            )
+        if body.template_id not in _VALID_TEMPLATE_IDS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"template_id {body.template_id!r} is not a recognised template. "
+                    f"Valid values: {sorted(_VALID_TEMPLATE_IDS)}."
+                ),
+            )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:

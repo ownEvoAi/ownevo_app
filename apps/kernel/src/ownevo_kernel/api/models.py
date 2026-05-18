@@ -443,10 +443,9 @@ class WorkflowAnatomy(_Strict):
     spec: dict[str, Any]
     simulation_plan: dict[str, Any] | None = None
     metric_definition: dict[str, Any] | None = None
-    # Vertical template id the workflow was created from (PLAN 8.5.1), or
-    # None for free-form authoring. Kebab-case slug matching one of the
-    # entries in `apps/web/.../workflows/new/templates.ts`. The Theme 1.1
-    # design agent reads this to surface the template's discovery_questions.
+    # Vertical template id the workflow was created from, or None for
+    # free-form authoring. Kebab-case slug matching an entry in
+    # `apps/web/.../workflows/new/templates.ts`.
     created_from_template: str | None = None
 
 

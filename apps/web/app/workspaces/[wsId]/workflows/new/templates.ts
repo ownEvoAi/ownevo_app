@@ -1,17 +1,12 @@
 /**
- * Vertical-template starters for /workflows/new (PLAN 8.5.1).
+ * Vertical-template starters for /workflows/new.
  *
  * Three buyer-persona one-click starters. Picking a card prefills the
  * description textarea and tags the workflow with `template_id` — the
- * kernel persists that as `workflows.created_from_template` for audit +
- * analytics. The `discovery_questions` field is dormant today: the
- * Theme 1.1 design agent will surface those questions on the review
- * page so the operator can negotiate metric / fold-baseline ambiguity
- * before the loop spends tokens.
- *
- * Source-of-truth for the descriptions + discovery questions is
- * `../../ownevo_docs/ownEvo_MVP.md` "5-minute demo plans per template"
- * (kept in the private docs repo).
+ * kernel persists that as `workflows.created_from_template` for analytics.
+ * The `discovery_questions` field is dormant: a future design agent will
+ * surface those questions on the review page so the operator can negotiate
+ * metric / fold-baseline ambiguity before the loop spends tokens.
  */
 export interface VerticalTemplate {
   id: string

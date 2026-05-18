@@ -35,6 +35,10 @@ export function NewWorkflowForm({
   }
 
   const clearTemplate = () => {
+    const seed = templates.find((t) => t.id === selectedTemplateId)?.sample_description
+    if (seed && description !== seed) {
+      if (!window.confirm('Clear your edited description and start blank?')) return
+    }
     setSelectedTemplateId(null)
     setDescription('')
   }
@@ -42,7 +46,7 @@ export function NewWorkflowForm({
   return (
     <form action={formAction} className="new-workflow-form">
       {templates.length > 0 ? (
-        <div className="template-strip" role="group" aria-label="Vertical templates">
+        <div className="template-strip" role="group" aria-label="Starter templates">
           {templates.map((t) => {
             const active = t.id === selectedTemplateId
             return (
@@ -74,7 +78,7 @@ export function NewWorkflowForm({
             className="template-clear"
             onClick={clearTemplate}
           >
-            Start blank
+            Clear and start blank
           </button>
         </div>
       ) : samples.length > 0 ? (
