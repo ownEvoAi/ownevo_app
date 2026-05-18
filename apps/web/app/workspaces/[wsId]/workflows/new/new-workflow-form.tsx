@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
+import type { VerticalTemplate } from './templates'
 
 const initialState: GenerateState = { error: null }
 
@@ -14,26 +15,80 @@ export interface SampleDescription {
 
 export function NewWorkflowForm({
   wsId,
+  templates,
   samples,
 }: {
   wsId: string
+  templates: VerticalTemplate[]
   samples: SampleDescription[]
 }) {
   const action = generateWorkflowAction.bind(null, wsId)
   const [state, formAction] = useActionState(action, initialState)
   const [description, setDescription] = useState('')
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    null,
+  )
+
+  const pickTemplate = (t: VerticalTemplate) => {
+    setSelectedTemplateId(t.id)
+    setDescription(t.sample_description)
+  }
+
+  const clearTemplate = () => {
+    setSelectedTemplateId(null)
+    setDescription('')
+  }
 
   return (
     <form action={formAction} className="new-workflow-form">
-      {samples.length > 0 ? (
+      {templates.length > 0 ? (
+        <div className="template-strip" role="group" aria-label="Vertical templates">
+          {templates.map((t) => {
+            const active = t.id === selectedTemplateId
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={`template-card${active ? ' active' : ''}`}
+                onClick={() => pickTemplate(t)}
+                aria-pressed={active}
+              >
+                <div className="template-card-name">{t.name}</div>
+                <div className="template-card-tagline">{t.tagline}</div>
+                <div className="template-card-persona">For: {t.persona}</div>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {selectedTemplateId ? (
+        <div className="template-attribution">
+          <span>
+            Started from <strong>{
+              templates.find((t) => t.id === selectedTemplateId)?.name
+            }</strong> template.
+          </span>
+          <button
+            type="button"
+            className="template-clear"
+            onClick={clearTemplate}
+          >
+            Start blank
+          </button>
+        </div>
+      ) : samples.length > 0 ? (
         <div className="sample-row">
-          <span className="sample-row-label">Try a sample:</span>
+          <span className="sample-row-label">Or try a fixture:</span>
           {samples.map((s) => (
             <button
               key={s.id}
               type="button"
               className="sample-chip"
-              onClick={() => setDescription(s.description)}
+              onClick={() => {
+                setSelectedTemplateId(null)
+                setDescription(s.description)
+              }}
               title={s.description}
             >
               {s.label}
@@ -43,7 +98,7 @@ export function NewWorkflowForm({
             <button
               type="button"
               className="sample-chip-clear"
-              onClick={() => setDescription('')}
+              onClick={clearTemplate}
             >
               Clear
             </button>
@@ -63,10 +118,21 @@ export function NewWorkflowForm({
         minLength={50}
         maxLength={4096}
         value={description}
-        onChange={(e) => setDescription(e.target.value)}
+        onChange={(e) => {
+          setDescription(e.target.value)
+          // Editing the text after picking a template still counts as
+          // template-attributed authoring — the user kept the starter
+          // as a base. The "Start blank" button is how they opt out.
+        }}
         placeholder={
           'Recalibrate credit lines monthly across our 22,000-SMB portfolio. Flag accounts where utilization, DPD, or sector exposure suggest the line should be reduced. The chief risk officer reviews weekly. Past misses: we underweighted hospitality concentration in Q3 2024 and held lines too high through the spring rate-shock.'
         }
+      />
+
+      <input
+        type="hidden"
+        name="template_id"
+        value={selectedTemplateId ?? ''}
       />
 
       <details className="new-workflow-details">

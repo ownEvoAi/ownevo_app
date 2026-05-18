@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { listPreviewWorkflows, type PreviewIndexEntry } from '@/lib/api'
 import { NewWorkflowForm } from './new-workflow-form'
+import { VERTICAL_TEMPLATES } from './templates'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
@@ -70,6 +71,7 @@ export default async function NewWorkflowPage({
 
       <NewWorkflowForm
         wsId={wsId}
+        templates={VERTICAL_TEMPLATES}
         samples={samples.map((s) => ({
           id: s.workflow_id,
           label: SAMPLE_LABEL[s.workflow_id] ?? s.workflow_id,

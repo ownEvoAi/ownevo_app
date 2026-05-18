@@ -275,9 +275,11 @@ export interface GenerateWorkflowResponse {
 export async function generateWorkflow(
   description: string,
   workflowId?: string,
+  templateId?: string,
 ): Promise<GenerateWorkflowResponse> {
   const body: Record<string, unknown> = { description }
   if (workflowId) body.workflow_id = workflowId
+  if (templateId) body.template_id = templateId
   return jsonFetch<GenerateWorkflowResponse>('/api/nl-gen/generate', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -692,6 +694,10 @@ export interface WorkflowAnatomy {
   simulation_plan?: SimulationPlanShape | null
   /** Persisted MetricDefinition JSONB; null when NL-gen hasn't run. */
   metric_definition?: MetricDefinitionShape | null
+  /** Vertical-template id the workflow was created from (PLAN 8.5.1);
+   * null for free-form authoring. Matches an entry in
+   * `app/.../workflows/new/templates.ts`. */
+  created_from_template?: string | null
 }
 
 export async function getWorkflowAnatomy(
