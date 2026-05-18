@@ -36,6 +36,7 @@ itself is gated on the agent extra.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = os.environ.get("OWNEVO_META_EVAL_MODEL") or "claude-opus-4-7"
 """Opus 4.7 by default — the meta-eval judge is the calibration anchor
 for the W5 ≥0.7 agreement gate, so we use the strongest model for the
 ground-truth runs. The runner accepts a `model=` override so cheaper

@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from .corruptions import Bundle
@@ -34,7 +34,7 @@ from .judge import (
     MetaEvalJudgmentValidationError,
     judge_artifacts,
 )
-from .judgment import DimensionVerdict, MetaEvalJudgment, OverallVerdict
+from .judgment import MetaEvalJudgment, OverallVerdict
 
 _log = logging.getLogger(__name__)
 

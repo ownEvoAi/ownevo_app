@@ -53,7 +53,6 @@ from ..metric_def import MetricDefinition, MetricFamily
 from ..sim_plan import SimulationPlan
 from ..spec import WorkflowSpec
 
-
 Bundle = tuple[WorkflowSpec, SimulationPlan, EvalCaseSet, MetricDefinition]
 """4-tuple shape every recipe takes + returns."""
 

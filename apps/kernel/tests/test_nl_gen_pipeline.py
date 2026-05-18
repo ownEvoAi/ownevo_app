@@ -220,7 +220,12 @@ async def test_default_max_tokens_varies_by_step():
 
 
 async def test_workflow_spec_validation_error_propagates(monkeypatch):
-    """If step 1 fails validation, the pipeline raises and never calls step 2."""
+    """If step 1 fails validation, the pipeline raises and never calls step 2.
+
+    Disables retry (`max_retries=0`) so the scripted client only needs
+    to script one bad spec response — the retry-on-validation-error
+    path is exercised directly in the generator-level tests, not here.
+    """
     workflow_id = "demand-prediction"
     payloads = _payloads_for(workflow_id)
     payloads[0] = {"id": "x"}  # missing required fields
@@ -229,8 +234,8 @@ async def test_workflow_spec_validation_error_propagates(monkeypatch):
     from ownevo_kernel.nl_gen import WorkflowSpecValidationError
 
     with pytest.raises(WorkflowSpecValidationError):
-        await generate_full_pipeline(client, "any description")
-    # Only one call attempted.
+        await generate_full_pipeline(client, "any description", max_retries=0)
+    # Only one call attempted — pipeline did not progress to step 2.
     assert len(client.messages.calls) == 1
 
 

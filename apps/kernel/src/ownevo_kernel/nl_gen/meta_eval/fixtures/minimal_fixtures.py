@@ -25,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ownevo_format import AlertList, MetricCards
+
 from ...eval_case_set import EvalCaseSet, GeneratedEvalCase
 from ...metric_def import MetricDefinition, MetricFamily
 from ...sim_plan import EventField, SimulationPlan
@@ -46,7 +48,6 @@ from ...spec import (
     WorkflowEnvironment,
     WorkflowSpec,
 )
-from ownevo_format import AlertList, MetricCards
 
 
 @dataclass(frozen=True)

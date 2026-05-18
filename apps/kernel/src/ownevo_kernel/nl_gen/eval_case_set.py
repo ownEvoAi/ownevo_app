@@ -141,7 +141,7 @@ class GeneratedEvalCase(_Base):
     )
 
     @model_validator(mode="after")
-    def _step_index_within_n_steps(self) -> "GeneratedEvalCase":
+    def _step_index_within_n_steps(self) -> GeneratedEvalCase:
         if self.target_step_index >= self.n_steps:
             raise ValueError(
                 f"target_step_index={self.target_step_index} must be < "
@@ -185,7 +185,7 @@ class EvalCaseSet(_Base):
     )
 
     @model_validator(mode="after")
-    def _back_pointers_agree(self) -> "EvalCaseSet":
+    def _back_pointers_agree(self) -> EvalCaseSet:
         if self.simulation_plan_workflow_id != self.workflow_spec_id:
             raise ValueError(
                 f"simulation_plan_workflow_id="
@@ -195,7 +195,7 @@ class EvalCaseSet(_Base):
         return self
 
     @model_validator(mode="after")
-    def _case_ids_unique(self) -> "EvalCaseSet":
+    def _case_ids_unique(self) -> EvalCaseSet:
         ids = [c.case_id for c in self.cases]
         if len(ids) != len(set(ids)):
             dupes = sorted(k for k, v in Counter(ids).items() if v > 1)
@@ -203,7 +203,7 @@ class EvalCaseSet(_Base):
         return self
 
     @model_validator(mode="after")
-    def _balanced_classes(self) -> "EvalCaseSet":
+    def _balanced_classes(self) -> EvalCaseSet:
         """Both expected_value classes must appear at least 3 times.
 
         Catches the failure mode where the LLM emits a one-class suite

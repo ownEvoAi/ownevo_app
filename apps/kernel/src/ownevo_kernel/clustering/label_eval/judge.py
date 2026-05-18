@@ -41,6 +41,7 @@ judge call itself is gated on the agent extra.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -52,11 +53,12 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
-"""Sonnet 4.6 by default — strictly stronger than the haiku-4.5 labeler
-(D4 calls for "different model from the labeler") and cheaper than opus.
-The runner accepts a `model=` override so calibration runs on opus or
-diagnostic runs on haiku are easy."""
+DEFAULT_MODEL = os.environ.get("OWNEVO_CLUSTER_JUDGE_MODEL") or "claude-opus-4-7"
+"""Opus 4.7 by default — strictly stronger than the labeler model (D4
+calls for "different model from the labeler"). The runner accepts a
+`model=` override so calibration runs are easy. `OWNEVO_CLUSTER_JUDGE_MODEL`
+env var overrides the module default for operators pointing at a
+local-LLM judge — see `docs/local-model-testing.md`."""
 
 
 DEFAULT_MAX_TOKENS = 1_000

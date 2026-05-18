@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -35,7 +36,9 @@ _log = logging.getLogger(__name__)
 
 
 _DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-_DEFAULT_LABEL_MODEL = "claude-sonnet-4-6"
+# `OWNEVO_CLUSTER_LABEL_MODEL` overrides the labeller for cost / local-LLM
+# experiments. See `docs/local-model-testing.md` for protocol options.
+_DEFAULT_LABEL_MODEL = os.environ.get("OWNEVO_CLUSTER_LABEL_MODEL") or "claude-sonnet-4-6"
 
 
 class SentenceTransformerEmbedder:

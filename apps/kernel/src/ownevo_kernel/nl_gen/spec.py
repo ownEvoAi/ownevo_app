@@ -155,7 +155,7 @@ class WorkflowEnvironment(_Base):
     seasonality: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _unique_names(self) -> "WorkflowEnvironment":
+    def _unique_names(self) -> WorkflowEnvironment:
         for label, items, key in [
             ("entities", self.entities, lambda e: e.name),
             ("data_sources", self.data_sources, lambda d: d.id),
@@ -260,7 +260,7 @@ class WorkflowSpec(_Base):
     ui: UILayout
 
     @model_validator(mode="after")
-    def _unique_tool_names(self) -> "WorkflowSpec":
+    def _unique_tool_names(self) -> WorkflowSpec:
         names = [t.name for t in self.tools]
         if len(names) != len(set(names)):
             dupes = {n for n in names if names.count(n) > 1}

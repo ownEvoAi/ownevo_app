@@ -36,6 +36,7 @@ from ...nl_gen.workflow_spec_generator import (
     WorkflowSpecValidationError,
     generate_workflow_spec,
 )
+from .._anthropic_client import build_async_anthropic
 
 router = APIRouter(prefix="/api/nl-gen", tags=["nl-gen"])
 
@@ -252,27 +253,11 @@ async def generate_workflow(
             ),
         )
 
-    from anthropic import AsyncAnthropic
-
-    # Optional overrides for cheaper / faster / self-hosted dev. The default
-    # is Anthropic cloud + the per-generator DEFAULT_MODEL (opus 4.7); these
-    # env vars let an operator point at sonnet, an LM Studio / LiteLLM proxy,
-    # or anything else that speaks /v1/messages without touching code.
-    #
-    # Defensive: docker-compose's `${VAR:-}` interpolation passes the env
-    # var through as an empty string when unset on the host, and the
-    # Anthropic SDK respects that empty `ANTHROPIC_BASE_URL` — producing
-    # `UnsupportedProtocol("Request URL is missing an 'http://' or 'https://'")`.
-    # Wipe it from the process env so the SDK falls back to its default.
-    if os.environ.get("ANTHROPIC_BASE_URL") == "":
-        del os.environ["ANTHROPIC_BASE_URL"]
-    base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+    # Optional model override: caller can target a cheaper / faster /
+    # self-hosted model without touching code. `ANTHROPIC_BASE_URL` for
+    # the endpoint is honored by `build_async_anthropic`.
+    client = build_async_anthropic(api_key)
     nl_gen_model = os.environ.get("OWNEVO_NL_GEN_MODEL") or None
-    client = (
-        AsyncAnthropic(api_key=api_key, base_url=base_url)
-        if base_url
-        else AsyncAnthropic(api_key=api_key)
-    )
     spec_kwargs: dict[str, str] = {"model": nl_gen_model} if nl_gen_model else {}
     try:
         spec = await generate_workflow_spec(
