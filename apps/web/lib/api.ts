@@ -226,10 +226,12 @@ export async function generateWorkflow(
   description: string,
   workflowId?: string,
   templateId?: string,
+  designAgentLog?: DesignAgentLog | null,
 ): Promise<GenerateWorkflowResponse> {
   const body: Record<string, unknown> = { description }
   if (workflowId) body.workflow_id = workflowId
   if (templateId) body.template_id = templateId
+  if (designAgentLog) body.design_agent_log = designAgentLog
   return jsonFetch<GenerateWorkflowResponse>('/api/nl-gen/generate', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -263,6 +265,30 @@ export interface NextDiscoveryQuestionResponse {
   done: boolean
   total_questions: number
   answered_count: number
+}
+
+// PLAN 9.1.4 — structured persistence of the authoring-time discovery
+// conversation. Mirrors the kernel `DesignAgentLog` pydantic shape so
+// the web layer can post it as the structured `design_agent_log` field
+// on POST /api/nl-gen/generate. Server persists to the JSONB column +
+// mirrors per-entry rows into `audit_entries`.
+export interface DesignAgentLogEntry {
+  question_index: number
+  kind: DiscoveryQuestionKind
+  question: string
+  /** `null` records a skipped question — the design agent still
+   *  surfaces the row in the audit trail with skipped=true so the
+   *  compliance read is "did the agent ASK about X?", not just
+   *  "did the operator ANSWER X?". */
+  answer: string | null
+}
+
+export interface DesignAgentLog {
+  discovery_transcript: DesignAgentLogEntry[]
+  /** The ambiguity report is wired through in a later patch. Today it
+   *  always rides as `null`. Kept on the shape so the server contract
+   *  stays stable when the web side starts populating it. */
+  ambiguity_report: null
 }
 
 export async function fetchNextDiscoveryQuestion(
