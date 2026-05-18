@@ -9,10 +9,13 @@ DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = (
         kind="metric",
         question=(
             "Cost of overstock vs. cost of stockout — which dominates in "
-            "your environment? Most retail teams weight recall over "
-            "precision by a factor of 2x to 8x depending on category. "
-            "Want me to calibrate at 3x as a default, or do you have a "
-            "number?"
+            "your environment? If overstock is roughly $X per overstocked "
+            "SKU-week (carrying cost + markdown) and stockout is roughly "
+            "$Y per unit-day of lost sales (revenue + customer-trust "
+            "impact), the metric should weight recall over precision by a "
+            "factor of Y/X. Most retail teams land between 2× and 8× "
+            "depending on category. Want me to calibrate at 3× as a "
+            "default, or do you have a number?"
         ),
         options=("Avoid overstock", "Avoid stockouts", "Balanced (3x)"),
         rationale=(
@@ -26,8 +29,9 @@ DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = (
         question=(
             "You said 'flag SKUs likely to need markdown' — likely for "
             "stockout, likely for slow-sell, or likely for seasonal-end? "
-            "Each generates a different eval set. Pick one, or describe "
-            "the operational moment the markdown decision happens."
+            "Each generates a different eval set. I'll generate three "
+            "options and let you pick — or you can describe the "
+            "operational moment the markdown decision happens."
         ),
         options=("Stockout risk", "Slow-sell risk", "Seasonal-end risk"),
         rationale=(
