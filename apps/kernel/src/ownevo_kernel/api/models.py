@@ -447,6 +447,13 @@ class WorkflowAnatomy(_Strict):
     # free-form authoring. Kebab-case slug matching an entry in
     # `apps/web/.../workflows/new/templates.ts`.
     created_from_template: str | None = None
+    # Design-agent discovery transcript + ambiguity report (PLAN 9.1.4).
+    # Persisted as JSONB on `workflows.design_agent_log` when the
+    # operator ran the discovery interview before generation; null
+    # otherwise. The web Audit tab renders this chronologically alongside
+    # the matching audit_entries rows (`design-agent-negotiation` +
+    # `design-agent-ambiguity` kinds).
+    design_agent_log: dict[str, Any] | None = None
 
 
 class EvalCaseCreate(_Strict):

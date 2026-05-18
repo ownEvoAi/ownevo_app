@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..nl_gen.metric_def import MetricDefinition
 from ..nl_gen.spec import WorkflowSpec
@@ -75,11 +75,16 @@ class AmbiguityReport(BaseModel):
 
     workflow_spec_id: str = Field(min_length=1)
     findings: tuple[AmbiguityFinding, ...] = Field(default_factory=tuple)
+    high_severity_count: int = Field(default=0, init=False)
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def high_severity_count(self) -> int:
-        return sum(1 for f in self.findings if f.severity == "high")
+    @model_validator(mode="after")
+    def _compute_high_severity_count(self) -> "AmbiguityReport":
+        object.__setattr__(
+            self,
+            "high_severity_count",
+            sum(1 for f in self.findings if f.severity == "high"),
+        )
+        return self
 
 
 # ---------------------------------------------------------------------------
