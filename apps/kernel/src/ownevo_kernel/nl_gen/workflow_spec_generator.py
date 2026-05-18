@@ -153,6 +153,24 @@ _TOOL_DEFINITION: dict[str, Any] = _build_tool_definition()
 """Computed once at import time — WorkflowSpec schema is static."""
 
 
+def _normalize_payload(payload: Any) -> Any:
+    """Force-overwrite fields where local models' training priors
+    consistently violate the schema.
+
+    Observed on `qwen/qwen3.6-35b-a3b`: the model emits
+    `schema_version: "1.1"` regardless of the system prompt ("Set
+    schema_version to {SCHEMA_VERSION!r}"), the retry feedback, and
+    five attempts of correction. The training prior is stronger than
+    any in-prompt signal we've tried. Override it transparently rather
+    than burning retries on a value the model won't yield on.
+    Cloud frontier models already emit the correct value, so this
+    is a no-op for them.
+    """
+    if isinstance(payload, dict) and "schema_version" in payload:
+        return {**payload, "schema_version": SCHEMA_VERSION}
+    return payload
+
+
 _RETRY_FEEDBACK = (
     "Reminders from the system prompt:\n"
     f"- `schema_version` MUST be the exact literal \"{SCHEMA_VERSION}\".\n"
@@ -214,6 +232,7 @@ async def generate_workflow_spec(
             envelope_key="spec",
             max_retries=max_retries,
             extra_feedback=_RETRY_FEEDBACK,
+            normalize=_normalize_payload,
         )
         return spec
     except NoToolUseSignal as exc:

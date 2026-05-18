@@ -186,6 +186,14 @@ def _format_user_message(
     )
 
 
+def _normalize_payload(payload: Any) -> Any:
+    """Force-overwrite `schema_version` to the canonical literal.
+    See `workflow_spec_generator._normalize_payload` for rationale."""
+    if isinstance(payload, dict) and "schema_version" in payload:
+        return {**payload, "schema_version": SCHEMA_VERSION}
+    return payload
+
+
 _RETRY_FEEDBACK = (
     "Reminders:\n"
     "- `workflow_spec_id` and `simulation_plan_id` MUST match the source "
@@ -250,6 +258,7 @@ async def generate_eval_case_set(
             envelope_key="eval_case_set",
             max_retries=max_retries,
             extra_feedback=_RETRY_FEEDBACK,
+            normalize=_normalize_payload,
         )
         return case_set
     except NoToolUseSignal as exc:

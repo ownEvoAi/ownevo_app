@@ -185,6 +185,17 @@ def _format_user_message(workflow_spec: WorkflowSpec) -> str:
     )
 
 
+def _normalize_payload(payload: Any) -> Any:
+    """Force-overwrite `schema_version` to the canonical literal.
+    See `workflow_spec_generator._normalize_payload` for rationale —
+    qwen3-family's `schema_version: "1.1"` training prior won't yield
+    to in-prompt directives. No-op for cloud models that already emit
+    the correct value."""
+    if isinstance(payload, dict) and "schema_version" in payload:
+        return {**payload, "schema_version": SCHEMA_VERSION}
+    return payload
+
+
 _RETRY_FEEDBACK = (
     "Reminders from the system prompt:\n"
     "- Stay within `ALLOWED_IMPORTS` for the sim module.\n"
@@ -237,6 +248,7 @@ async def generate_simulation_plan(
             envelope_key="plan",
             max_retries=max_retries,
             extra_feedback=_RETRY_FEEDBACK,
+            normalize=_normalize_payload,
         )
         return plan
     except NoToolUseSignal as exc:

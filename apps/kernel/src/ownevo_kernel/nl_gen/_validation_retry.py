@@ -21,6 +21,7 @@ the first attempt.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -32,10 +33,15 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound=BaseModel)
 
 
-DEFAULT_MAX_RETRIES = 2
-"""Default 2 retries → up to 3 attempts total. Cloud models pass on
-attempt 1; local models get two chances to correct based on the
-ValidationError feedback."""
+DEFAULT_MAX_RETRIES = 4
+"""Default 4 retries → up to 5 attempts total. Cloud frontier models
+pass on attempt 1 (zero cost); local proposers (qwen3-family) get four
+chances to correct based on the ValidationError feedback. Empirically
+on `qwen/qwen3.6-35b-a3b` against the WorkflowSpec schema, error count
+drops 15 → 7 → 2 across 3 attempts; the extra two retries close the
+remaining gap when the model is one or two corrections away. Per-attempt
+context grows ~5k tokens (assistant tool_use + user tool_result), so 5
+attempts on a 65k-ctx local model still leaves ~40k+ headroom."""
 
 
 _MAX_REPORTED_ERRORS = 20
@@ -144,6 +150,7 @@ async def call_with_validation_retry(
     envelope_key: str | None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     extra_feedback: str = "",
+    normalize: Callable[[Any], Any] | None = None,
 ) -> tuple[T, Any]:
     """Run a forced-tool-use call with retry on `ValidationError`.
 
@@ -161,11 +168,18 @@ async def call_with_validation_retry(
             (e.g., `spec`, `plan`), pass that key; we unwrap when the
             tool input is `{key: {...}}`. Pass `None` if no wrapping.
         max_retries: Number of retry attempts after the first call.
-            Total calls = `max_retries + 1`. Default 2.
+            Total calls = `max_retries + 1`. Default 4.
         extra_feedback: Domain-specific rules appended to the feedback
             tool_result on retry. Lets each generator restate its
             non-obvious constraints (allowed enums, forbidden fields,
             schema_version literal).
+        normalize: Optional callback applied to the unwrapped payload
+            BEFORE every `model_validate` call (including attempt 1).
+            Use it to force-overwrite fields where a local model's
+            training prior consistently violates the schema (e.g.
+            qwen3-family insisting on `schema_version: "1.1"` even
+            when the system prompt and the retry feedback both say
+            otherwise). Should be idempotent and side-effect-free.
 
     Returns:
         Tuple of `(validated_model, raw_input_from_successful_attempt)`.
@@ -212,6 +226,9 @@ async def call_with_validation_retry(
             payload = raw_input[envelope_key]
         else:
             payload = raw_input
+
+        if normalize is not None:
+            payload = normalize(payload)
 
         try:
             return schema_class.model_validate(payload), raw_input

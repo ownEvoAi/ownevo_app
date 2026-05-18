@@ -209,6 +209,14 @@ def _format_user_message(workflow_spec: WorkflowSpec) -> str:
     )
 
 
+def _normalize_payload(payload: Any) -> Any:
+    """Force-overwrite `schema_version` to the canonical literal.
+    See `workflow_spec_generator._normalize_payload` for rationale."""
+    if isinstance(payload, dict) and "schema_version" in payload:
+        return {**payload, "schema_version": SCHEMA_VERSION}
+    return payload
+
+
 _RETRY_FEEDBACK = (
     "Reminders:\n"
     "- `direction` MUST equal the spec's `success_criterion.direction` "
@@ -263,6 +271,7 @@ async def generate_metric_definition(
             envelope_key="metric_definition",
             max_retries=max_retries,
             extra_feedback=_RETRY_FEEDBACK,
+            normalize=_normalize_payload,
         )
     except NoToolUseSignal as exc:
         raise NoMetricToolUseError(
