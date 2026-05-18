@@ -17,6 +17,9 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Changed
+- **Design-with-agent flow now sends a structured `design_agent_log`** to the kernel instead of stitching the discovery transcript into the description as appendix text. `generateWithDiscoveryAction` builds a `DesignAgentLog` (matching the kernel pydantic shape) and passes it on `POST /api/nl-gen/generate`; the kernel persists it to `workflows.design_agent_log` and mirrors per-Q/A rows into the audit chain. The description column stays clean — no more "## Design-agent discovery" appendix that bloated the workflow's plain-English record. Backward-compatible (omitted when the operator skips discovery; old web clients still work).
+
 ### Removed
 - **Dead `discovery_questions` field** on `apps/web/.../templates.ts`. The 8.5.1 vertical-template starters originally carried an inline `discovery_questions: VerticalDiscoveryQuestion[]` array per template — a dormant field reserved for the design agent. With the chat panel on `/workflows/new/design` now calling `POST /api/design-agent/next-question` directly, the kernel prompt library (`apps/kernel/src/ownevo_kernel/design_agent/prompts/`) is the single source of truth and the inline field was redundant. Dropped the field + the `VerticalDiscoveryQuestion` interface (no remaining consumers). Closes Track 9.1 — Design Agent at Authoring.
 

@@ -5,6 +5,8 @@ import {
   fetchNextDiscoveryQuestion,
   generateWorkflow,
   KernelApiError,
+  type DesignAgentLog,
+  type DesignAgentLogEntry,
   type DiscoveryQuestionKind,
   type NextDiscoveryQuestion,
   type NextDiscoveryQuestionResponse,
@@ -20,7 +22,6 @@ const _DISCOVERY_KINDS: ReadonlySet<DiscoveryQuestionKind> = new Set([
 ])
 const _MAX_TRANSCRIPT_ENTRIES = 32
 const _MAX_ANSWER_LEN = 2048
-const _MAX_AUGMENTED_LEN = 4096
 
 export interface NextQuestionInput {
   description: string
@@ -92,15 +93,11 @@ export interface GenerateWithDiscoveryState {
   error: string | null
 }
 
-// Stitch the discovery transcript onto the description before handing
-// off to the existing NL-gen pipeline. The transcript becomes part of
-// the spec's input record.
-//
-// TODO: pass the structured transcript as `design_agent_log` to the
-// kernel (9.1.4 shipped the kernel side — migration 0012, the optional
-// `design_agent_log` field on POST /api/nl-gen/generate). Until this
-// is wired up, `workflows.design_agent_log` stays NULL and the
-// audit-chain entries for this conversation are not written.
+// Send the discovery transcript as a structured `design_agent_log`
+// field on POST /api/nl-gen/generate (PLAN 9.1.4). The kernel persists
+// it on the `workflows.design_agent_log` JSONB column and mirrors each
+// Q/A into `audit_entries` as a `design-agent-negotiation` row. The
+// original description stays clean — no more appendix-stitching.
 export async function generateWithDiscoveryAction(
   input: GenerateWithDiscoveryInput,
 ): Promise<GenerateWithDiscoveryState> {
@@ -121,21 +118,15 @@ export async function generateWithDiscoveryAction(
     }
   }
 
-  const augmented = withDiscoveryAppendix(description, input.transcript)
-  if (augmented.length > _MAX_AUGMENTED_LEN) {
-    return {
-      error:
-        'Your answers are too long to attach to the description (combined limit: 4096 characters). ' +
-        'Shorten some answers or skip questions, then try again.',
-    }
-  }
+  const log = buildDesignAgentLog(input.transcript)
 
   let result
   try {
     result = await generateWorkflow(
-      augmented,
+      description,
       undefined,
       input.templateId ?? undefined,
+      log,
     )
   } catch (err) {
     if (err instanceof KernelApiError) {
@@ -149,19 +140,24 @@ export async function generateWithDiscoveryAction(
   )
 }
 
-function withDiscoveryAppendix(
-  description: string,
+// Build the wire-shape DesignAgentLog from the client-side transcript.
+// Returns null when the operator skipped every question — no need to
+// send an empty log; the column stays NULL on the workflow row, which
+// is what the kernel expects.
+function buildDesignAgentLog(
   transcript: DiscoveryTranscriptEntry[],
-): string {
-  const answered = transcript.filter((t) => t.answer !== null && t.answer.trim() !== '')
-  if (answered.length === 0) return description
-  const lines = answered.map(
-    (t) => `- [${t.kind}] ${t.question}\n  → ${t.answer}`,
-  )
-  return [
-    description,
-    '',
-    '## Design-agent discovery',
-    ...lines,
-  ].join('\n')
+): DesignAgentLog | null {
+  if (transcript.length === 0) return null
+
+  const entries: DesignAgentLogEntry[] = transcript.map((t) => ({
+    question_index: t.question_index,
+    kind: t.kind as DiscoveryQuestionKind,
+    question: t.question,
+    answer: t.answer,
+  }))
+
+  return {
+    discovery_transcript: entries,
+    ambiguity_report: null,
+  }
 }
