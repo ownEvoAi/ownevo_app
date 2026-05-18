@@ -269,6 +269,7 @@ export async function fetchNextDiscoveryQuestion(
   description: string,
   templateId: string | null,
   priorAnswers: PriorDiscoveryAnswer[],
+  signal?: AbortSignal,
 ): Promise<NextDiscoveryQuestionResponse> {
   return jsonFetch<NextDiscoveryQuestionResponse>('/api/design-agent/next-question', {
     method: 'POST',
@@ -277,6 +278,7 @@ export async function fetchNextDiscoveryQuestion(
       template_id: templateId,
       prior_answers: priorAnswers,
     }),
+    signal,
   })
 }
 

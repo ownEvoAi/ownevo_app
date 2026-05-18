@@ -132,6 +132,7 @@ export function DesignFlow({
   // immediately on submit, even before the next-question fetch resolves.
   const answered = transcript.length
   const percent = total > 0 ? Math.round((answered / total) * 100) : 0
+  const draftIsEmpty = draft.trim().length === 0
 
   return (
     <div className="design-grid">
@@ -268,8 +269,8 @@ export function DesignFlow({
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={isFetching || draft.trim().length === 0}
-                  aria-disabled={isFetching || draft.trim().length === 0}
+                  disabled={isFetching || draftIsEmpty}
+                  aria-disabled={isFetching || draftIsEmpty}
                 >
                   {isFetching ? 'Loading…' : 'Send answer ›'}
                 </button>

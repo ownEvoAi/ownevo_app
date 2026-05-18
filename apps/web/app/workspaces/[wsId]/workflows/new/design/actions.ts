@@ -5,15 +5,28 @@ import {
   fetchNextDiscoveryQuestion,
   generateWorkflow,
   KernelApiError,
+  type DiscoveryQuestionKind,
   type NextDiscoveryQuestion,
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
 } from '@/lib/api'
 
+const _DISCOVERY_KINDS: ReadonlySet<DiscoveryQuestionKind> = new Set([
+  'metric',
+  'ambiguity',
+  'trigger',
+  'surface',
+  'premise',
+])
+const _MAX_TRANSCRIPT_ENTRIES = 32
+const _MAX_ANSWER_LEN = 2048
+const _MAX_AUGMENTED_LEN = 4096
+
 export interface NextQuestionInput {
   description: string
   templateId: string | null
   priorAnswers: PriorDiscoveryAnswer[]
+  signal?: AbortSignal
 }
 
 export interface NextQuestionState {
@@ -33,6 +46,7 @@ export async function loadNextQuestion(
       input.description,
       input.templateId,
       input.priorAnswers,
+      input.signal,
     )
     return {
       loaded: true,
@@ -90,30 +104,44 @@ export async function generateWithDiscoveryAction(
     return { error: 'Description must be at least 50 characters.' }
   }
 
-  const augmented = withDiscoveryAppendix(description, input.transcript)
+  if (input.transcript.length > _MAX_TRANSCRIPT_ENTRIES) {
+    return { error: 'Too many discovery answers — please reload and try again.' }
+  }
+  for (const entry of input.transcript) {
+    if (entry.answer !== null && entry.answer.length > _MAX_ANSWER_LEN) {
+      return { error: `Answer for question ${entry.question_index} exceeds the maximum length.` }
+    }
+    if (!_DISCOVERY_KINDS.has(entry.kind as DiscoveryQuestionKind)) {
+      return { error: `Unknown question kind '${entry.kind}' — please reload and try again.` }
+    }
+  }
 
+  const augmented = withDiscoveryAppendix(description, input.transcript)
+  if (augmented.length > _MAX_AUGMENTED_LEN) {
+    return {
+      error:
+        'Your answers are too long to attach to the description (combined limit: 4096 characters). ' +
+        'Shorten some answers or skip questions, then try again.',
+    }
+  }
+
+  let result
   try {
-    const result = await generateWorkflow(
+    result = await generateWorkflow(
       augmented,
       undefined,
       input.templateId ?? undefined,
     )
-    redirect(
-      `/workspaces/${input.wsId}/workflows/new/review/${encodeURIComponent(
-        result.workflow_id,
-      )}`,
-    )
   } catch (err) {
-    // Next.js redirect() throws — let it propagate so the navigation
-    // completes instead of being swallowed as an error banner.
-    if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
     if (err instanceof KernelApiError) {
       return { error: `Kernel error (${err.status}): ${err.detail}` }
     }
     return { error: err instanceof Error ? err.message : String(err) }
   }
-  // unreachable — redirect threw
-  return { error: null }
+
+  redirect(
+    `/workspaces/${input.wsId}/workflows/new/review/${encodeURIComponent(result.workflow_id)}`,
+  )
 }
 
 function withDiscoveryAppendix(

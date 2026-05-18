@@ -38,8 +38,7 @@ export default async function DesignAgentPage({
   params,
   searchParams,
 }: PageProps) {
-  const { wsId } = await params
-  const sp = await searchParams
+  const [{ wsId }, sp] = await Promise.all([params, searchParams])
 
   const templateId = sp.template_id ?? null
   const template: VerticalTemplate | undefined = templateId
@@ -55,13 +54,15 @@ export default async function DesignAgentPage({
 
   // Pre-fetch question #0 so the chat panel doesn't flash an empty state
   // on first paint. Subsequent questions load client-side via the server
-  // action.
+  // action. The 5-second timeout prevents a slow or down kernel from
+  // blocking the page indefinitely; the client chat panel retries on load.
   const initialQuestion =
     description.length > 0
       ? await loadNextQuestion({
           description,
           templateId,
           priorAnswers: [],
+          signal: AbortSignal.timeout(5000),
         })
       : EMPTY_QUESTION_STATE
 
@@ -78,9 +79,13 @@ export default async function DesignAgentPage({
         </p>
         <p className="design-back-row">
           <Link
-            href={`/workspaces/${wsId}/workflows/new${
-              templateId ? `?template_id=${encodeURIComponent(templateId)}` : ''
-            }`}
+            href={`/workspaces/${wsId}/workflows/new${(() => {
+              const qs = new URLSearchParams()
+              if (templateId) qs.set('template_id', templateId)
+              if (description) qs.set('description', description)
+              const s = qs.toString()
+              return s ? `?${s}` : ''
+            })()}`}
             className="design-back-link"
           >
             &lsaquo; Back to description
