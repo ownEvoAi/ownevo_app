@@ -54,8 +54,9 @@ async def list_audit(
         description=(
             "Filter to entries whose related_id ties back to this workflow — "
             "via proposals.id (whose iteration belongs to the workflow), "
-            "iterations.id, or failure_clusters.id. Entries with a NULL "
-            "related_id are workspace-level and not returned by this filter."
+            "iterations.id, or failure_clusters.id. Also matches rows whose "
+            "payload carries `workflow_id` directly (design-agent rows write "
+            "`workflow_id` into payload but anchor to no related_id row)."
         ),
     ),
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
@@ -67,6 +68,11 @@ async def list_audit(
     so the UI can render "showing 200 of 412 entries" with a "load
     earlier" cue.
     """
+    # TODO: export_audit_log fetches all rows before Python-side filtering.
+    # At large log volumes this will OOM / timeout. Fix: push workflow_id
+    # and payload->>'workflow_id' predicates into SQL with an expression
+    # index on (payload->>'workflow_id'). Tracked for TODO-18 keyset
+    # pagination work.
     try:
         entries = await export_audit_log(conn, since_seq=since_seq, kind=kind)
     except (ValueError, asyncpg.exceptions.InvalidTextRepresentationError) as exc:
@@ -97,7 +103,17 @@ async def list_audit(
         wf_related_ids = {r["id"] for r in related_rows}
         entries = [
             e for e in entries
-            if e.related_id is not None and e.related_id in wf_related_ids
+            if (e.related_id is not None and e.related_id in wf_related_ids)
+            # design-agent-negotiation / design-agent-ambiguity rows write
+            # the workflow_id into payload but have no related_id anchor —
+            # match them by payload field so the per-workflow Audit tab
+            # surfaces the conversation rows alongside iteration/proposal
+            # entries. Future row kinds that follow the same convention
+            # ride along for free.
+            or (
+                isinstance(e.payload, dict)
+                and e.payload.get("workflow_id") == workflow_id
+            )
         ]
 
     # `export_audit_log` returns ASC. Reverse + cap for the UI.
