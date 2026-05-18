@@ -1,0 +1,53 @@
+# Build context exclusions for `docker compose build web`.
+#
+# The Dockerfile does `COPY . .` from this directory. Without these
+# excludes, a developer who has run `npm install` or `npm run dev /
+# build` on the host will leak their local node_modules and .next
+# tree into the build context. That tree then layers on top of the
+# in-container `npm ci` result and the .next produced by `npm run
+# build`, with two symptoms:
+#
+#   1. Buildkit fails with "cannot replace to directory
+#      /var/lib/docker/buildkit/.../node_modules/<pkg> with file" when
+#      host node_modules and container node_modules have different
+#      package layouts (Linux x64 vs. macOS arm64 native deps, etc.).
+#   2. The runner image serves 500s on every route because the
+#      runtime resolves stale .next server chunks against a freshly
+#      installed node_modules.
+#
+# Keep this list in sync with apps/web/.gitignore — anything that
+# .gitignore considers a build artifact is also wrong inside the
+# image build context.
+
+node_modules
+.next
+out
+build
+dist
+.pnp
+.pnp.js
+
+# Logs + lock backup files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local env (the runner reads OWNEVO_KERNEL_API_URL from compose env,
+# never from a baked-in .env).
+.env
+.env.local
+.env.*.local
+
+# IDE / OS noise
+.vscode
+.idea
+.DS_Store
+
+# Test/coverage artifacts (no current use; precautionary)
+coverage
+.next-test
+
+# Git metadata (build doesn't need it)
+.git
+.gitignore
