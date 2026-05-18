@@ -1215,12 +1215,12 @@
 .gen-action-primary {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .confirm-cluster {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
