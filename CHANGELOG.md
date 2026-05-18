@@ -18,6 +18,7 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- **`POST /api/design-agent/next-question`** — stateless discovery-interview endpoint. Accepts `{description, template_id?, prior_answers[]}` and returns the next `DiscoveryQuestion` (or `done=true` when the interview is complete). Question identity is positional — the client echoes `question_index` back on every request. No LLM call; reads from the static prompt registry. Falls back to the generic prompt set when `template_id` is null or unknown. Out-of-range indices return 422; the endpoint runs DB-free and key-free so it can be exercised from the web layer without standing up the full kernel.
 - **Design-agent prompt library** (`ownevo_kernel.design_agent.prompts`). Template-aware discovery questions the design agent will run at authoring time to negotiate the success metric and surface description ambiguities before NL-gen spends tokens. Ships with prompt sets for the three vertical templates (retail demand planning, credit risk recalibration, clinical trial site selection) plus a generic fallback for free-form descriptions. Each template carries at least one `metric` question (e.g. PIT vs. TTC framework for credit risk; speed-vs-diversity floor for clinical trials) and one `ambiguity` question (e.g. drift baseline; under-recruit baseline). Public API: `get_discovery_questions(template_id) -> tuple[DiscoveryQuestion, ...]`. No API endpoint or UX yet — those land in the next slice.
 
 ## [0.9.0] — 2026-05-17
