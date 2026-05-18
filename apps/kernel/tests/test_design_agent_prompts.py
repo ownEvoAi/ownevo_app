@@ -15,6 +15,7 @@ the matching web UX will rely on:
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from ownevo_kernel.design_agent.prompts import (
     GENERIC_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
@@ -75,3 +76,51 @@ def test_questions_have_non_empty_rationale(template_id: str) -> None:
         assert q.rationale and q.rationale.strip(), (
             f"{template_id} question has no rationale: {q.question!r}"
         )
+
+
+def test_generic_fallback_questions_have_non_empty_rationale() -> None:
+    for q in GENERIC_DISCOVERY_QUESTIONS:
+        assert q.rationale and q.rationale.strip(), (
+            f"generic question has no rationale: {q.question!r}"
+        )
+
+
+def test_discovery_question_options_none_is_valid() -> None:
+    q = DiscoveryQuestion(kind="ambiguity", question="What cadence?", options=None)
+    assert q.options is None
+    rt = DiscoveryQuestion.model_validate_json(q.model_dump_json())
+    assert rt == q
+    assert rt.options is None
+
+
+def test_discovery_question_is_immutable() -> None:
+    q = DiscoveryQuestion(kind="metric", question="Which metric?")
+    with pytest.raises((ValidationError, TypeError)):
+        q.kind = "ambiguity"  # type: ignore[misc]
+
+
+def test_design_agent_all_exports_are_importable() -> None:
+    import ownevo_kernel.design_agent as pkg
+
+    for name in pkg.__all__:
+        assert hasattr(pkg, name), f"design_agent.__all__ lists {name!r} but it is not an attribute"
+
+
+def test_design_agent_prompts_all_exports_are_importable() -> None:
+    import ownevo_kernel.design_agent.prompts as pkg
+
+    for name in pkg.__all__:
+        assert hasattr(pkg, name), f"design_agent.prompts.__all__ lists {name!r} but it is not an attribute"
+
+
+@pytest.mark.parametrize(
+    "bad_kwargs",
+    [
+        {"kind": "metric", "question": ""},
+        {"kind": "unknown_kind", "question": "Q?"},
+        {"kind": "metric", "question": "Q?", "extra_field": "x"},
+    ],
+)
+def test_discovery_question_rejects_invalid_inputs(bad_kwargs: dict) -> None:
+    with pytest.raises(ValidationError):
+        DiscoveryQuestion(**bad_kwargs)

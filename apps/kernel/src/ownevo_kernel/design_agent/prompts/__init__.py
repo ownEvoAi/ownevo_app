@@ -7,14 +7,16 @@ Falls back to `generic` for free-form descriptions.
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from . import clinical_trial, credit_risk, generic, retail_demand
 from ._types import DiscoveryQuestion, DiscoveryQuestionKind
 
-_REGISTRY: dict[str, tuple[DiscoveryQuestion, ...]] = {
+_REGISTRY: MappingProxyType[str, tuple[DiscoveryQuestion, ...]] = MappingProxyType({
     "retail-demand-planning": retail_demand.DISCOVERY_QUESTIONS,
     "credit-risk-recalibration": credit_risk.DISCOVERY_QUESTIONS,
     "clinical-trial-site-selection": clinical_trial.DISCOVERY_QUESTIONS,
-}
+})
 
 GENERIC_DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = generic.DISCOVERY_QUESTIONS
 
@@ -35,7 +37,7 @@ def get_discovery_questions(
 
 
 def known_template_ids() -> tuple[str, ...]:
-    """Stable-sorted list of template ids the kernel has prompts for."""
+    """Stable-sorted tuple of template ids the kernel has prompts for."""
     return tuple(sorted(_REGISTRY.keys()))
 
 

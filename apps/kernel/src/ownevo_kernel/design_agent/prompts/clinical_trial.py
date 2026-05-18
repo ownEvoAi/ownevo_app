@@ -31,12 +31,14 @@ DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = (
         kind="ambiguity",
         question=(
             "You said 'flag sites likely to under-recruit within 90 "
-            "days' — under-recruit relative to the protocol target, or "
-            "relative to historical recruitment for similar Phase III "
-            "studies at that site? The first is contractual; the second "
-            "is empirical. Clinical ops teams typically want the "
-            "empirical signal for site selection. Want both, or pick "
-            "one for this workflow?"
+            "days' — under-recruit relative to your study protocol "
+            "target, or under-recruit relative to historical recruitment "
+            "for similar oncology Phase III studies at that site? These "
+            "are very different eval sets. The first is contractual; the "
+            "second is empirical. Most clinical operations teams want the "
+            "empirical signal for site selection and the contractual "
+            "signal for ongoing monitoring. Want both, or pick one for "
+            "this workflow?"
         ),
         options=(
             "Protocol target (contractual)",
