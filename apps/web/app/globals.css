@@ -1206,6 +1206,72 @@
   cursor: not-allowed;
 }
 
+/* 8.5.3 cold-start polish — keyboard-shortcut hints + auto-advance.
+   `kbd-hint` sits next to a primary button to show the ⌘↵ accelerator.
+   `confirm-cluster` lines up the auto-advance pill, button, and hint.
+   `auto-advance-pill` is the countdown badge on the review page.
+   `journey-preview` is the one-line "what happens next" copy under the
+   three-step indicator on /workflows/new. */
+.gen-action-primary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.confirm-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.kbd-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kbd-hint kbd {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  color: var(--text-2, var(--text));
+  line-height: 1;
+}
+.auto-advance-pill {
+  font-size: 12px;
+  color: var(--text-2, var(--text-muted));
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.auto-advance-pill:hover {
+  background: var(--surface-3, rgba(255, 255, 255, 0.06));
+}
+.auto-advance-pill strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.journey-preview {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: -4px 0 24px;
+  line-height: 1.55;
+}
+.journey-preview strong {
+  color: var(--text-2, var(--text));
+  font-weight: 500;
+}
+
 /* ---------------------------------------------------------------------
    Coverage badge — the W5.5 headliner.
    --------------------------------------------------------------------- */

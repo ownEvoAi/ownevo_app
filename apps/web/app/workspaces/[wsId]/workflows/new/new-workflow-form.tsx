@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useRef, useState, type KeyboardEvent } from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
 import type { VerticalTemplate } from './templates'
@@ -28,6 +28,7 @@ export function NewWorkflowForm({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     null,
   )
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   const pickTemplate = (t: VerticalTemplate) => {
     setSelectedTemplateId(t.id)
@@ -43,8 +44,18 @@ export function NewWorkflowForm({
     setDescription('')
   }
 
+  // ⌘↵ / Ctrl-↵ from the textarea submits Generate without forcing the
+  // reviewer to mouse over to the button. Browser default for ↵ in a
+  // textarea is a newline, so we only intercept when a modifier is held.
+  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      formRef.current?.requestSubmit()
+    }
+  }
+
   return (
-    <form action={formAction} className="new-workflow-form">
+    <form ref={formRef} action={formAction} className="new-workflow-form">
       {templates.length > 0 ? (
         <div className="template-strip" role="group" aria-label="Starter templates">
           {templates.map((t) => {
@@ -128,6 +139,7 @@ export function NewWorkflowForm({
           // template-attributed authoring — the user kept the starter
           // as a base. The "Start blank" button is how they opt out.
         }}
+        onKeyDown={onTextareaKeyDown}
         placeholder={
           'Recalibrate credit lines monthly across our 22,000-SMB portfolio. Flag accounts where utilization, DPD, or sector exposure suggest the line should be reduced. The chief risk officer reviews weekly. Past misses: we underweighted hospitality concentration in Q3 2024 and held lines too high through the spring rate-shock.'
         }
@@ -164,11 +176,25 @@ export function NewWorkflowForm({
         <a href={`/workspaces/${wsId}`} className="btn btn-secondary">
           &lsaquo; Cancel
         </a>
-        <SubmitButton />
+        <div className="gen-action-primary">
+          <SubmitButton />
+          <span className="kbd-hint">
+            <kbd>⌘</kbd>
+            <kbd>↵</kbd> to generate
+          </span>
+        </div>
       </div>
     </form>
   )
 }
+
+// NL-gen p50 from local dogfooding runs on Sonnet 4.6 / Sonnet 4.5:
+// spec + simulation_plan + metric_definition land in 25-35 s for the
+// three vertical templates. We surface ~30s as the visible estimate so
+// the reviewer knows what "Generating" means, instead of an open-ended
+// spinner. When we have a rolling avg from `iterations.duration_ms` we
+// can read that from a config endpoint and replace this constant.
+const NL_GEN_ETA_SECONDS = 30
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -176,7 +202,7 @@ function SubmitButton() {
     <button type="submit" className="btn btn-primary" disabled={pending} aria-disabled={pending}>
       {pending ? (
         <>
-          <span className="spinner" aria-hidden /> Generating…
+          <span className="spinner" aria-hidden /> Generating spec — ~{NL_GEN_ETA_SECONDS}s
         </>
       ) : (
         <>Generate &rsaquo;</>

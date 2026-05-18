@@ -69,6 +69,13 @@ export default async function NewWorkflowPage({
 
       <Steps step="describe" />
 
+      <p className="journey-preview">
+        What happens next: <strong>describe</strong> (~1 min) →
+        <strong> review</strong> the generated spec (~10 s) →
+        <strong> run iteration #1</strong> (~30-90 s) → failures cluster,
+        the loop proposes an edit, you approve.
+      </p>
+
       <NewWorkflowForm
         wsId={wsId}
         templates={VERTICAL_TEMPLATES}
