@@ -15,13 +15,14 @@ the matching web UX will rely on:
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 from ownevo_kernel.design_agent.prompts import (
+    DISCOVERY_QUESTION_KINDS,
     GENERIC_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
     get_discovery_questions,
     known_template_ids,
 )
+from pydantic import ValidationError
 
 EXPECTED_TEMPLATE_IDS = (
     "clinical-trial-site-selection",
@@ -42,9 +43,40 @@ def test_each_template_has_metric_and_ambiguity_question(template_id: str) -> No
     assert "ambiguity" in kinds, f"{template_id} missing ambiguity question"
 
 
-def test_generic_fallback_has_metric_and_ambiguity_question() -> None:
+def test_generic_fallback_exercises_every_discovery_question_kind() -> None:
+    """Generic is the most expansive set — covers every kind in the Literal.
+
+    Per-template prompt sets ship a focused subset (typically metric +
+    ambiguity from the verbatim demo plans); generic carries at least
+    one example of every kind so the wire format is exercised end-to-end
+    before any per-template set opts into the additional kinds.
+    """
     kinds = {q.kind for q in GENERIC_DISCOVERY_QUESTIONS}
-    assert {"metric", "ambiguity"} <= kinds
+    assert kinds == set(DISCOVERY_QUESTION_KINDS), (
+        f"generic missing kinds: {set(DISCOVERY_QUESTION_KINDS) - kinds}"
+    )
+
+
+def test_discovery_question_kinds_enumerates_full_literal() -> None:
+    """The runtime tuple must stay in sync with the Literal at module load."""
+    assert DISCOVERY_QUESTION_KINDS == (
+        "metric",
+        "ambiguity",
+        "trigger",
+        "surface",
+        "premise",
+    )
+
+
+@pytest.mark.parametrize("kind", DISCOVERY_QUESTION_KINDS)
+def test_discovery_question_accepts_every_declared_kind(kind: str) -> None:
+    q = DiscoveryQuestion(kind=kind, question="x", rationale="y")
+    assert q.kind == kind
+
+
+def test_discovery_question_rejects_unknown_kind() -> None:
+    with pytest.raises(ValidationError):
+        DiscoveryQuestion(kind="bogus-kind", question="x")
 
 
 @pytest.mark.parametrize(
@@ -110,7 +142,9 @@ def test_design_agent_prompts_all_exports_are_importable() -> None:
     import ownevo_kernel.design_agent.prompts as pkg
 
     for name in pkg.__all__:
-        assert hasattr(pkg, name), f"design_agent.prompts.__all__ lists {name!r} but it is not an attribute"
+        assert hasattr(pkg, name), (
+            f"design_agent.prompts.__all__ lists {name!r} but it is not an attribute"
+        )
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,11 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from . import clinical_trial, credit_risk, generic, retail_demand
-from ._types import DiscoveryQuestion, DiscoveryQuestionKind
+from ._types import (
+    DISCOVERY_QUESTION_KINDS,
+    DiscoveryQuestion,
+    DiscoveryQuestionKind,
+)
 
 _REGISTRY: MappingProxyType[str, tuple[DiscoveryQuestion, ...]] = MappingProxyType({
     "retail-demand-planning": retail_demand.DISCOVERY_QUESTIONS,
@@ -42,6 +46,7 @@ def known_template_ids() -> tuple[str, ...]:
 
 
 __all__ = [
+    "DISCOVERY_QUESTION_KINDS",
     "DiscoveryQuestion",
     "DiscoveryQuestionKind",
     "GENERIC_DISCOVERY_QUESTIONS",

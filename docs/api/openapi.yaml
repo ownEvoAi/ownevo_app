@@ -34,6 +34,8 @@ tags:
     description: Failure clusters
   - name: traces
     description: Agent event streams
+  - name: design-agent
+    description: Authoring-time discovery interview
 
 paths:
   # ---------- workflows ----------
@@ -633,6 +635,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/TraceListResponse'
 
+  # ---------- design-agent ----------
+  /api/design-agent/next-question:
+    post:
+      tags: [design-agent]
+      summary: Return the next discovery question for the authoring interview
+      description: |
+        Stateless discovery-interview endpoint. The client owns conversation
+        state and sends the full `prior_answers` list on every request.
+        The kernel returns the lowest-index question not yet present in
+        `prior_answers`, or `done=true` when all questions are answered.
+
+        Question identity is positional: `question_index` indexes into the
+        template's prompt set (or the generic fallback when `template_id` is
+        null or unknown). No LLM call; DB-free and key-free.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NextQuestionRequest'
+      responses:
+        '200':
+          description: Next question or done signal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NextQuestionResponse'
+        '400':
+          description: |
+            Semantic validation error — e.g. a `question_index` in
+            `prior_answers` is out of range for the resolved template.
+            `detail` is a plain string (distinct from Pydantic 422 which
+            returns a list of error objects).
+        '422':
+          description: Request schema validation error (Pydantic)
+
   /api/traces/{trace_id}:
     get:
       tags: [traces]
@@ -651,6 +689,75 @@ paths:
 
 components:
   schemas:
+    # ---------- design-agent ----------
+    DiscoveryQuestionKind:
+      type: string
+      enum: [metric, ambiguity, trigger, surface, premise]
+    PriorAnswer:
+      type: object
+      additionalProperties: false
+      required: [question_index]
+      properties:
+        question_index:
+          type: integer
+          minimum: 0
+        answer:
+          type: string
+          nullable: true
+          maxLength: 2048
+    NextQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 50
+          maxLength: 4096
+        template_id:
+          type: string
+          nullable: true
+          maxLength: 64
+        prior_answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriorAnswer'
+          maxItems: 32
+          default: []
+    NextDiscoveryQuestion:
+      type: object
+      additionalProperties: false
+      required: [question_index, kind, question]
+      properties:
+        question_index:
+          type: integer
+        kind:
+          $ref: '#/components/schemas/DiscoveryQuestionKind'
+        question:
+          type: string
+        options:
+          type: array
+          items: { type: string }
+          nullable: true
+        rationale:
+          type: string
+          nullable: true
+    NextQuestionResponse:
+      type: object
+      additionalProperties: false
+      required: [done, total_questions, answered_count]
+      properties:
+        next_question:
+          allOf:
+            - $ref: '#/components/schemas/NextDiscoveryQuestion'
+          nullable: true
+        done:
+          type: boolean
+        total_questions:
+          type: integer
+        answered_count:
+          type: integer
+
     # ---------- enums ----------
     SkillKind:
       type: string

@@ -8,24 +8,26 @@ WorkflowSpec / SimulationPlan / EvalCaseSet trio.
 
 This package ships in slices:
 
-  1. `prompts/` — the template-aware prompt library (this slice).
-  2. (next) `POST /api/design-agent/next-question` endpoint.
+  1. `prompts/` — the template-aware prompt library.
+  2. `POST /api/design-agent/next-question` — stateless discovery interview endpoint.
   3. (next) `ambiguity.py` — post-generation ambiguity-detection pass.
   4. (next) audit-chain integration via a `design-agent-negotiation` kind.
 """
 
 from .prompts import (
+    DISCOVERY_QUESTION_KINDS,
+    GENERIC_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
     DiscoveryQuestionKind,
-    GENERIC_DISCOVERY_QUESTIONS,
     get_discovery_questions,
     known_template_ids,
 )
 
 __all__ = [
+    "DISCOVERY_QUESTION_KINDS",
+    "GENERIC_DISCOVERY_QUESTIONS",
     "DiscoveryQuestion",
     "DiscoveryQuestionKind",
-    "GENERIC_DISCOVERY_QUESTIONS",
     "get_discovery_questions",
     "known_template_ids",
 ]
