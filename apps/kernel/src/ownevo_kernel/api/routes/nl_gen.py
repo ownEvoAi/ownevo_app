@@ -156,6 +156,10 @@ class GenerateRequest(BaseModel):
         max_length=_DESCRIPTION_MAX_LEN,
     )
     workflow_id: str | None = Field(default=None, max_length=64)
+    # Vertical-template slug the user picked on /workflows/new (PLAN 8.5.1).
+    # Recorded on the workflow row so the audit log + Theme 1.1 design
+    # agent can later branch on it. None = free-form description.
+    template_id: str | None = Field(default=None, max_length=64)
 
 
 class GenerateResponse(BaseModel):
@@ -205,6 +209,17 @@ async def generate_workflow(
             ),
         )
 
+    if body.template_id is not None and not _WORKFLOW_ID_PATTERN.fullmatch(
+        body.template_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"template_id {body.template_id!r} is not a kebab slug "
+                "(must match /^[a-z0-9][a-z0-9-]*[a-z0-9]$/)."
+            ),
+        )
+
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -250,8 +265,9 @@ async def generate_workflow(
         row = await conn.fetchrow(
             """
             INSERT INTO workflows (id, description, spec,
-                                   simulation_plan, metric_definition)
-            VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb)
+                                   simulation_plan, metric_definition,
+                                   created_from_template)
+            VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6)
             ON CONFLICT (id) DO NOTHING
             RETURNING id
             """,
@@ -260,6 +276,7 @@ async def generate_workflow(
             spec.model_dump_json(),
             sim_plan.model_dump_json(),
             metric_def.model_dump_json(),
+            body.template_id,
         )
     if row is None:
         raise HTTPException(
