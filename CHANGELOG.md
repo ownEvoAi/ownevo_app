@@ -17,6 +17,16 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+- Vertical template starters on `/workflows/new`: retail demand planning, credit risk recalibration, clinical trial site selection — one-click card prefills the description textarea and tags the workflow
+- `workflows.created_from_template` column (migration 0011): records which template a workflow started from, with a kebab-slug CHECK constraint
+- `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper
+- `created_from_template` surfaced on `GET /api/workflows/{id}` and `PATCH /api/workflows/{id}` responses
+- Template attribution badge on the new-workflow review page when `created_from_template` is set
+
+### Changed
+- `POST /api/nl-gen/generate` accepts optional `template_id` field (kebab slug, validated server-side)
+
 ## [0.8.0] — 2026-05-14
 
 Open-source release prep, plus the audit-chain hardening pass from PR #88.

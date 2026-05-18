@@ -445,6 +445,25 @@
   flex: 1;
   margin: 0;
 }
+.source-quote-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.source-quote-template {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 999px;
+  padding: 3px 10px;
+  align-self: flex-start;
+}
+.source-quote-template strong {
+  color: var(--text-2);
+  font-weight: 600;
+}
 
 /* Generated artifact section card */
 .gen-section {
@@ -3212,6 +3231,83 @@ a.anatomy-row-name:hover {
 }
 .sample-chip-clear:hover {
   color: var(--text-2);
+}
+
+/* Vertical templates — buyer-persona starters on /workflows/new */
+.template-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.template-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.template-card:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.template-card.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.template-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.template-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.template-card-tagline {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.template-card-persona {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.template-attribution {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.template-clear {
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: auto;
+}
+.template-clear:hover {
+  color: var(--text-2);
+}
+.template-clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Overview "next step" card (8.4.4 — workflow detail Overview) */

@@ -131,7 +131,8 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
     row = await conn.fetchrow(
         """
         SELECT id, description, mode::text AS mode, kind, spec,
-               simulation_plan, metric_definition
+               simulation_plan, metric_definition,
+               created_from_template
         FROM workflows
         WHERE id = $1
         """,
@@ -152,6 +153,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         spec=spec,
         simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
         metric_definition=decode_jsonb_obj(row["metric_definition"]),
+        created_from_template=row["created_from_template"],
     )
 
 
@@ -1219,7 +1221,8 @@ async def update_workflow(
         SET description = $2
         WHERE id = $1
         RETURNING id, description, mode::text AS mode, kind, spec,
-                  simulation_plan, metric_definition
+                  simulation_plan, metric_definition,
+                  created_from_template
         """,
         workflow_id,
         payload.description.strip(),
@@ -1238,6 +1241,7 @@ async def update_workflow(
         spec=spec,
         simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
         metric_definition=decode_jsonb_obj(row["metric_definition"]),
+        created_from_template=row["created_from_template"],
     )
 
 
