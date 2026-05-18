@@ -16,6 +16,7 @@ import {
   type WorkflowAnatomy,
 } from '@/lib/api'
 import { GenerateEvalCasesButton } from '../../../[wfId]/eval-cases/generate-button'
+import { ConfirmButton } from './confirm-button'
 import { ReviseButton } from './revise-button'
 import { getTemplate } from '../../templates'
 
@@ -162,9 +163,7 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
 
       <div className="gen-action-row">
         <ReviseButton wsId={wsId} wfId={wfId} />
-        <Link href={continueHref} className="btn btn-primary">
-          Looks good · open workflow &rsaquo;
-        </Link>
+        <ConfirmButton continueHref={continueHref} />
       </div>
     </div>
   )
