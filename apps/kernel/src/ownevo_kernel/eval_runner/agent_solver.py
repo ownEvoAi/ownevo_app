@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -69,7 +70,7 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from .token_budget import TokenBudget
 
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = os.environ.get("OWNEVO_AGENT_SOLVER_MODEL") or "claude-haiku-4-5-20251001"
 DEFAULT_MAX_TOKENS = 1_000
 """Bool + one-line rationale fits in <500 tokens; 1k is the cap."""
 DEFAULT_MAX_TOKENS_OPENAI = 8_000

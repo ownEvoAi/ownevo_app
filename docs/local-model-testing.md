@@ -17,6 +17,61 @@ the loop, and vice versa. Treat them as separate qualifications.
 
 ---
 
+## Kernel LLM surfaces — protocols and env vars
+
+Three protocols are in play across the kernel. Each surface picks
+independently — there is no single gateway. Use this table before
+choosing a model and backend.
+
+**The three protocols:**
+
+1. **Anthropic `/v1/messages`** via `AsyncAnthropic` — cloud Anthropic, LMS Anthropic-compat, LiteLLM Anthropic proxy.
+2. **OpenAI `/v1/chat/completions`** via `AsyncOpenAI` — LMS OpenAI-compat, Ollama OpenAI-compat, vLLM, LiteLLM OpenAI proxy.
+3. **Ollama native `/api/chat`** via `OllamaChatClient` (`eval_runner/ollama_native.py`) — `AsyncOpenAI`-shaped duck-type that routes to Ollama's native endpoint. **The only reliable way to suppress qwen3-family thinking on Ollama** — `options.think=false` is silently stripped by the OpenAI-compat layer, which causes runaway thinking → `500 | 10m0s` timeouts.
+
+**Surface map:**
+
+| Surface | Source | Protocols supported | Model env var | Hardcoded fallback | Local-friendly? |
+|---|---|---|---|---|---|
+| NL-gen pipeline (4 forced-tool calls: spec / sim / metric / eval cases) | `api/routes/nl_gen.py` → `nl_gen/*_generator.py` | Anthropic only | `OWNEVO_NL_GEN_MODEL` | `claude-opus-4-7` | LMS Anthropic-compat. Ollama needs a LiteLLM proxy. |
+| NL-gen instruction proposer | `nl_gen/instruction_proposer.py` | Anthropic only | `OWNEVO_INSTRUCTION_PROPOSER_MODEL` | `claude-sonnet-4-6` | Same as above. |
+| NL-gen meta-eval judge | `nl_gen/meta_eval/judge.py` | Anthropic only | `OWNEVO_META_EVAL_MODEL` | `claude-opus-4-7` | Same as above. |
+| Agent solver (per-case classifier) | `eval_runner/agent_solver.py` | All three | `OWNEVO_AGENT_SOLVER_MODEL` | `claude-haiku-4-5-20251001` | Pass `AsyncAnthropic`, `AsyncOpenAI`, or `OllamaChatClient`. |
+| Improvement-loop driver | `middleware/claude_sdk/runner.py` (called from `scripts/run_improvement_loop.py`) | All three via `--api-format` + Ollama auto-routing | `OWNEVO_LOOP_MODEL` | `claude-opus-4-7` | The τ³-tested path. |
+| Clustering labeller | `clustering/default_impl.py` | Anthropic only | `OWNEVO_CLUSTER_LABEL_MODEL` | `claude-sonnet-4-6` | LMS Anthropic-compat. |
+| Clustering label judge | `clustering/label_eval/judge.py` | Anthropic only | `OWNEVO_CLUSTER_JUDGE_MODEL` | `claude-opus-4-7` | Same as above. |
+| LLM-judge approver | `approvers/llm_judge/judge.py` | Anthropic only | `OWNEVO_APPROVER_MODEL` | `claude-opus-4-7` | Same as above. |
+| Design agent (discovery + ambiguity) | `api/routes/design_agent*.py` | None — deterministic | — | — | No LLM calls. |
+
+For every Anthropic-only surface, the endpoint is configured globally
+via `ANTHROPIC_BASE_URL` (read by `api/_anthropic_client.py`). Set both
+together:
+
+```bash
+# Point all Anthropic-only surfaces at LMS:
+export ANTHROPIC_BASE_URL=http://192.168.1.50:1234
+export OWNEVO_NL_GEN_MODEL=qwen/qwen3.6-35b-a3b
+docker compose up -d --force-recreate kernel
+```
+
+Caller-passed `model=` arguments still win over both the env var and the
+hardcoded fallback. The override chain per surface is:
+
+```
+caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
+```
+
+### Local-model picks (current best)
+
+Authoritative source: [`../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md`](../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md) (private docs repo). Summary:
+
+- **Improvement-loop proposer (all-local headline):** `qwen/qwen3.6-35b-a3b` on LMS, Anthropic `/v1/messages`, froggeric v13 chat template, ctx=65536, LMS JIT off. τ³ retail val_score = **0.825**.
+- **NL-gen + meta-eval + clustering judge (Anthropic-only surfaces):** untested locally as of 2026-05; default Opus 4.7 is the safe pick. If you must run local, try the loop pick first — same protocol, same template requirements.
+- **Tool-forced single-stream codegen runner-up:** `qwen/qwen3-coder-30b` LMS (F5 multi-turn gold standard). Weaker on τ³ retail but the strongest on forced-tool codegen. Use as fallback if 35b-a3b stalls on NL-gen's 4 forced-tool calls.
+- **Avoid for Anthropic-format calls:** `qwen3.5/3.6-*` family without the froggeric v13 template — LMS's bundled template returns `"No user query found in messages"` on the retail evaluator's first message. The v13 template is API-agnostic; same fix applies to `/v1/messages` and `/v1/chat/completions`.
+
+---
+
 ## Why local models
 
 The improvement loop is the heart of ownEvo. A hosted frontier model

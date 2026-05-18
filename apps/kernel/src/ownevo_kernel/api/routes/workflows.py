@@ -18,6 +18,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
+from .._anthropic_client import build_async_anthropic
 from ..deps import ConnDep, DemoModeCheck, PoolDep
 from ..jsonb import decode_jsonb_obj
 from ..models import (
@@ -861,9 +862,7 @@ async def generate_workflow_eval_cases(
             ),
         )
 
-    from anthropic import AsyncAnthropic
-
-    client = AsyncAnthropic(api_key=api_key)
+    client = build_async_anthropic(api_key)
     try:
         sim_plan = await generate_simulation_plan(client, workflow_spec)
         case_set = await generate_eval_case_set(client, workflow_spec, sim_plan)
@@ -997,9 +996,7 @@ async def run_workflow_iteration(
                 ),
             )
 
-    from anthropic import AsyncAnthropic
-
-    client = AsyncAnthropic(api_key=api_key)
+    client = build_async_anthropic(api_key)
     try:
         outcome = await run_one_iteration_for_workflow(
             pool,
@@ -1137,9 +1134,7 @@ async def try_workflow_one_case(
             ),
         )
 
-    from anthropic import AsyncAnthropic
-
-    client = AsyncAnthropic(api_key=api_key)
+    client = build_async_anthropic(api_key)
     model = payload.model or DEFAULT_MODEL
 
     async with lock:

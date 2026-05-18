@@ -14,6 +14,7 @@ images, or the dev/benchmarking scripts. Grouped by what they configure.
 |---|---|---|---|---|
 | `OWNEVO_DATABASE_URL` | **yes** | (none) | `db.py`, `replay/thirty_day.py`, `apps/web/lib/api.ts` (server-side) | Postgres connection string. `db.ENV_VAR` constant. Tests fail fast if unset. |
 | `ANTHROPIC_API_KEY` | **yes** for NL-gen + agent runs | (none) | `api/routes/nl_gen.py`, `api/routes/workflows.py` (eval-cases/generate, iterations/run) | Returns HTTP 400 from `/api/nl-gen/generate` if missing. |
+| `ANTHROPIC_BASE_URL` | optional | (SDK cloud default) | `api/_anthropic_client.py` → every `AsyncAnthropic` site (`nl_gen`, `workflows`) | Point the kernel at a self-hosted endpoint (LMS Anthropic-compat, LiteLLM proxy) without touching code. Defensive: an empty string from `${VAR:-}` is wiped before reading (docker-compose interpolation trap). See [`local-model-testing.md`](local-model-testing.md). |
 | `OWNEVO_KERNEL_API_URL` | optional | `http://localhost:8000` | `apps/web/lib/api.ts` | Where the Next.js server-side fetcher reaches the kernel. Override for Docker Compose or staging. |
 
 ## 2. Demo / production hardening
@@ -53,7 +54,22 @@ for which backend takes which combination.
 | `OWNEVO_NL_GEN_LIVE_MODEL` | `claude-haiku-4-5-20251001` | NL-gen live tests (`test_nl_gen_*.py`) | Model id used by the live-API snapshot tests. |
 | `OWNEVO_ANTHROPIC_LIVE` | unset (= off) | NL-gen live tests | Set to `1` to opt the live-API snapshot tests into actually hitting Anthropic. |
 
-## 5. τ³-bench / sandbox image
+## 5. Per-surface model overrides
+
+Each LLM-calling kernel surface has a hardcoded `DEFAULT_MODEL` (matched to its quality/cost profile) and an `OWNEVO_*_MODEL` env var that overrides it. Caller-passed `model=` arguments still win over both. Pair these with `ANTHROPIC_BASE_URL` (§1) to send the calls to a local backend; see [`local-model-testing.md`](local-model-testing.md) for the surface→protocol map and validated local picks.
+
+| Name | Default | Surface | Notes |
+|---|---|---|---|
+| `OWNEVO_NL_GEN_MODEL` | `claude-opus-4-7` | `nl_gen/{workflow_spec,sim,metric,eval}_generator.py` | Covers all four forced-tool generators in the NL-gen pipeline. Read at module import; also read fresh at request time by `api/routes/nl_gen.py` for backward compat. |
+| `OWNEVO_INSTRUCTION_PROPOSER_MODEL` | `claude-sonnet-4-6` | `nl_gen/instruction_proposer.py` | The evolution loop's instruction-edit proposer. Prompt-cache hit rate matters more than peak quality here. |
+| `OWNEVO_META_EVAL_MODEL` | `claude-opus-4-7` | `nl_gen/meta_eval/judge.py` | NL-gen quality judge — calibration anchor for the W5 ≥0.7 agreement gate. Use the strongest model available. |
+| `OWNEVO_AGENT_SOLVER_MODEL` | `claude-haiku-4-5-20251001` | `eval_runner/agent_solver.py` | Per-case classifier. Haiku by default because the call is single-turn forced-tool. Caller can also pass an `openai_client` to switch protocol. |
+| `OWNEVO_CLUSTER_LABEL_MODEL` | `claude-sonnet-4-6` | `clustering/default_impl.py` | The cluster-labeller. Cluster labels are short factual strings. |
+| `OWNEVO_CLUSTER_JUDGE_MODEL` | `claude-opus-4-7` | `clustering/label_eval/judge.py` | The label-judge for the labeller. Must be a different model than the labeller (D4). |
+| `OWNEVO_APPROVER_MODEL` | `claude-opus-4-7` | `approvers/llm_judge/judge.py` | LLM-as-judge approver — the W5.2 ≥0.85 calibration anchor. |
+| `OWNEVO_LOOP_MODEL` | `claude-opus-4-7` | `middleware/claude_sdk/runner.py` | Default model for the kernel improvement loop's manual agentic loop. The τ³-tested local pick is `qwen/qwen3.6-35b-a3b` via LMS Anthropic-compat. |
+
+## 6. τ³-bench / sandbox image
 
 | Name | Default | Used by | What it does |
 |---|---|---|---|
@@ -61,7 +77,7 @@ for which backend takes which combination.
 | `USER_MODEL` | `=AGENT_MODEL` | `benchmark/tau3/runner.py` line 141 | Model id the simulated user uses; defaults to whatever `AGENT_MODEL` is. |
 | `TAU2_DATA_DIR` | `/tau2_data` (in image) | `benchmark/tau3/runner.py`, `sandbox/Dockerfile.tau3` | tau2 reads this at module import; the Docker image bakes it as `ENV TAU2_DATA_DIR=/tau2_data`. |
 
-## 6. Web app (Next.js)
+## 7. Web app (Next.js)
 
 | Name | Default | Notes |
 |---|---|---|

@@ -51,6 +51,7 @@ required, not optional.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
@@ -60,7 +61,12 @@ from .conversation_compaction import (
     compact_anthropic_messages,
     compact_openai_messages,
 )
-from .event_router import FinalizedBlock, FinalizedToolCall, StreamEventRouter, _OpenAIStreamAccumulator
+from .event_router import (
+    FinalizedBlock,
+    FinalizedToolCall,
+    StreamEventRouter,
+    _OpenAIStreamAccumulator,
+)
 from .tool_definitions import (
     KernelContext,
     ToolDispatchResult,
@@ -72,10 +78,15 @@ from .tool_definitions import (
 if TYPE_CHECKING:
     from ...traces.collector import TraceCollector
 
-DEFAULT_MODEL = "claude-opus-4-7"
-"""Per the claude-api skill: ALWAYS default to Opus 4.7. Callers can
+DEFAULT_MODEL = os.environ.get("OWNEVO_LOOP_MODEL") or "claude-opus-4-7"
+"""Default model for the kernel improvement loop.
+
+Per the claude-api skill: ALWAYS default to Opus 4.7. Callers can
 override via `model=` for a cheaper Sonnet/Haiku variant on testing
-paths, but the spine should stay on Opus 4.7."""
+paths, but the spine should stay on Opus 4.7. The `OWNEVO_LOOP_MODEL`
+env var is the operator's hook for pointing at a local-LLM proposer
+(LMS Anthropic-compat, LiteLLM proxy, etc.) without code changes —
+see `docs/local-model-testing.md`."""
 
 DEFAULT_MAX_TOKENS = 64000
 """Streaming-required default for Opus 4.7. The skill notes >16K

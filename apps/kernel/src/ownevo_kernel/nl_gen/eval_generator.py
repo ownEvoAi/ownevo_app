@@ -26,6 +26,7 @@ kernel-runtime dep.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = os.environ.get("OWNEVO_NL_GEN_MODEL") or "claude-opus-4-7"
 DEFAULT_MAX_TOKENS = 12_000
 
 TOOL_NAME = "emit_eval_case_set"
