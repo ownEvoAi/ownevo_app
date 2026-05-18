@@ -20,6 +20,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...design_agent.log import DesignAgentLog, persist_design_agent_log
 from ...nl_gen.fixtures import (
     DESCRIPTIONS,
     EVAL_CASE_SET_FIXTURES,
@@ -167,6 +168,13 @@ class GenerateRequest(BaseModel):
     # Vertical-template slug the user picked on /workflows/new.
     # Recorded on the workflow row for analytics. None = free-form description.
     template_id: str | None = Field(default=None, max_length=64)
+    # PLAN 9.1.4. The design-agent discovery transcript + ambiguity
+    # report (if the operator ran the /workflows/new/design flow before
+    # generate). Persisted to `workflows.design_agent_log` JSONB column
+    # and mirrored into the hash-chained audit trail. None when the
+    # operator skipped discovery — backward-compatible with pre-9.1.4
+    # web clients.
+    design_agent_log: DesignAgentLog | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -275,16 +283,16 @@ async def generate_workflow(
     workflow_id = body.workflow_id or spec.id
 
     pool = request.app.state.pool
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
             """
-            INSERT INTO workflows (id, description, spec,
-                                   simulation_plan, metric_definition,
-                                   created_from_template)
-            VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6)
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id
-            """,
+                INSERT INTO workflows (id, description, spec,
+                                       simulation_plan, metric_definition,
+                                       created_from_template)
+                VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6)
+                ON CONFLICT (id) DO NOTHING
+                RETURNING id
+                """,
             workflow_id,
             body.description,
             spec.model_dump_json(),
@@ -292,14 +300,21 @@ async def generate_workflow(
             metric_def.model_dump_json(),
             body.template_id,
         )
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"workflow_id {workflow_id!r} already exists. Pass a different "
-                "workflow_id, or delete the existing row first."
-            ),
-        )
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"workflow_id {workflow_id!r} already exists. Pass a "
+                    "different workflow_id, or delete the existing row first."
+                ),
+            )
+
+        if body.design_agent_log is not None:
+            await persist_design_agent_log(
+                conn,
+                workflow_id=workflow_id,
+                log=body.design_agent_log,
+            )
 
     return GenerateResponse(
         workflow_id=workflow_id,

@@ -12,7 +12,8 @@ This package ships in slices:
   2. `POST /api/design-agent/next-question` — stateless discovery interview endpoint.
   3. `ambiguity.py` — post-generation ambiguity-detection pass over the
      WorkflowSpec + MetricDefinition.
-  4. (next) audit-chain integration via a `design-agent-negotiation` kind.
+  4. `log.py` + audit chain integration via the `design-agent-negotiation`
+     and `design-agent-ambiguity` entry kinds.
 """
 
 from .ambiguity import (
@@ -24,6 +25,13 @@ from .ambiguity import (
     find_description_conflicts,
     find_inferred_artifacts,
     find_metric_direction_conflicts,
+)
+from .log import (
+    DESIGN_AGENT_ACTOR,
+    DesignAgentLog,
+    DesignAgentLogEntry,
+    load_design_agent_log,
+    persist_design_agent_log,
 )
 from .prompts import (
     DISCOVERY_QUESTION_KINDS,
@@ -39,7 +47,10 @@ __all__ = [
     "AmbiguityKind",
     "AmbiguityReport",
     "AmbiguitySeverity",
+    "DESIGN_AGENT_ACTOR",
     "DISCOVERY_QUESTION_KINDS",
+    "DesignAgentLog",
+    "DesignAgentLogEntry",
     "DiscoveryQuestion",
     "DiscoveryQuestionKind",
     "GENERIC_DISCOVERY_QUESTIONS",
@@ -49,4 +60,6 @@ __all__ = [
     "find_metric_direction_conflicts",
     "get_discovery_questions",
     "known_template_ids",
+    "load_design_agent_log",
+    "persist_design_agent_log",
 ]
