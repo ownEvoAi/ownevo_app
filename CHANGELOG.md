@@ -17,6 +17,9 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+- **Design-agent prompt library** (`ownevo_kernel.design_agent.prompts`). Template-aware discovery questions the design agent will run at authoring time to negotiate the success metric and surface description ambiguities before NL-gen spends tokens. Ships with prompt sets for the three vertical templates (retail demand planning, credit risk recalibration, clinical trial site selection) plus a generic fallback for free-form descriptions. Each template carries at least one `metric` question (e.g. PIT vs. TTC framework for credit risk; speed-vs-diversity floor for clinical trials) and one `ambiguity` question (e.g. drift baseline; under-recruit baseline). Public API: `get_discovery_questions(template_id) -> tuple[DiscoveryQuestion, ...]`. No API endpoint or UX yet — those land in the next slice.
+
 ## [0.9.0] — 2026-05-17
 
 Cold-start UX polish on the new-workflow funnel (templates → ⌘↵ → ETA
