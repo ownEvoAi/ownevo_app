@@ -34,7 +34,6 @@ router = APIRouter(prefix="/api/design-agent", tags=["design-agent"])
 
 _DESCRIPTION_MAX_LEN = 4096
 _ANSWER_MAX_LEN = 2048
-<<<<<<< HEAD
 _MAX_PRIOR_ANSWERS = 32
 # Guard: if any template grows beyond _MAX_PRIOR_ANSWERS questions, a
 # client can never complete that interview (the prior_answers list would
@@ -63,7 +62,6 @@ class PriorAnswer(BaseModel):
 class NextQuestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-<<<<<<< HEAD
     description: str = Field(min_length=50, max_length=_DESCRIPTION_MAX_LEN)
     template_id: str | None = Field(default=None, max_length=64)
     prior_answers: list[PriorAnswer] = Field(
@@ -94,7 +92,6 @@ class NextQuestionResponse(BaseModel):
 @router.post(
     "/next-question",
     response_model=NextQuestionResponse,
-<<<<<<< HEAD
     response_model_exclude_none=True,
 )
 def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
