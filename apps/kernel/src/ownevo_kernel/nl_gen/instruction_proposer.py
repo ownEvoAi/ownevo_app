@@ -271,7 +271,7 @@ def _format_user_message(
 
 
 async def propose_instruction_edit(
-    client: "AsyncAnthropic",
+    client: AsyncAnthropic,
     *,
     spec: WorkflowSpec,
     metric: MetricDefinition,

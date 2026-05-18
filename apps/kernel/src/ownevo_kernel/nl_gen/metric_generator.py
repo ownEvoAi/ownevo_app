@@ -29,12 +29,18 @@ not a kernel-runtime dep.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from ._validation_retry import (
+    DEFAULT_MAX_RETRIES,
+    NoToolUseSignal,
+    RetryExhaustedError,
+    call_with_validation_retry,
+    truncate_for_error,
+)
 from .metric_def import SCHEMA_VERSION, MetricDefinition
 from .spec import WorkflowSpec
 from .workflow_spec_generator import NLGenError
@@ -203,12 +209,23 @@ def _format_user_message(workflow_spec: WorkflowSpec) -> str:
     )
 
 
+_RETRY_FEEDBACK = (
+    "Reminders:\n"
+    "- `direction` MUST equal the spec's `success_criterion.direction` "
+    "exactly. Mismatches will be rejected post-validation as a separate "
+    "error class.\n"
+    "- `workflow_spec_id` MUST equal the source spec's id verbatim.\n"
+    "- Don't invent extra top-level fields; pydantic rejects unknown keys."
+)
+
+
 async def generate_metric_definition(
     client: AsyncAnthropic,
     workflow_spec: WorkflowSpec,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> MetricDefinition:
     """Generate a typed MetricDefinition from a WorkflowSpec.
 
@@ -218,6 +235,8 @@ async def generate_metric_definition(
         model: Anthropic model id. Default opus 4.7.
         max_tokens: Output cap. Default 4k — metric definitions are
             single structured objects.
+        max_retries: On `ValidationError`, retry up to this many times
+            with the pydantic error fed back as a `tool_result`. Default 2.
 
     Returns:
         A validated `MetricDefinition`. Compute scores via
@@ -225,62 +244,40 @@ async def generate_metric_definition(
 
     Raises:
         NoMetricToolUseError: Claude stopped without calling the tool.
-        MetricDefinitionValidationError: Claude called the tool but the
-            input failed `MetricDefinition.model_validate`.
+        MetricDefinitionValidationError: All attempts produced inputs that
+            failed `MetricDefinition.model_validate`.
         MetricDirectionMismatchError: The generated metric's direction
             disagrees with `workflow_spec.success_criterion.direction`,
             or its `workflow_spec_id` doesn't match `workflow_spec.id`.
     """
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
-        messages=[
-            {
-                "role": "user",
-                "content": _format_user_message(workflow_spec),
-            }
-        ],
-    )
-
-    tool_blocks = [
-        b for b in msg.content
-        if getattr(b, "type", None) == "tool_use"
-        and getattr(b, "name", None) == TOOL_NAME
-    ]
-    if not tool_blocks:
-        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
-        preview = (text_blocks[0].text if text_blocks else "")[:300]
-        raise NoMetricToolUseError(
-            f"Model {model} did not call {TOOL_NAME} (stop_reason={msg.stop_reason!r})",
-            stop_reason=msg.stop_reason,
-            content_preview=preview,
-        )
-
-    raw_input = tool_blocks[0].input
-    if (
-        isinstance(raw_input, dict)
-        and "metric_definition" in raw_input
-        and len(raw_input) == 1
-    ):
-        md_payload = raw_input["metric_definition"]
-    else:
-        md_payload = raw_input
-
     try:
-        definition = MetricDefinition.model_validate(md_payload)
-    except ValidationError as exc:
-        try:
-            preview = json.dumps(raw_input)[:500]
-        except (TypeError, ValueError):
-            preview = repr(raw_input)[:500]
+        definition, _raw = await call_with_validation_retry(
+            client=client,
+            model=model,
+            max_tokens=max_tokens,
+            system=SYSTEM_PROMPT,
+            tool_definition=_TOOL_DEFINITION,
+            tool_name=TOOL_NAME,
+            initial_user_message=_format_user_message(workflow_spec),
+            schema_class=MetricDefinition,
+            envelope_key="metric_definition",
+            max_retries=max_retries,
+            extra_feedback=_RETRY_FEEDBACK,
+        )
+    except NoToolUseSignal as exc:
+        raise NoMetricToolUseError(
+            f"Model {model} did not call {TOOL_NAME} (stop_reason={exc.stop_reason!r})",
+            stop_reason=exc.stop_reason,
+            content_preview=exc.content_preview,
+        ) from exc
+    except RetryExhaustedError as exc:
+        preview = truncate_for_error(exc.raw_input)
         raise MetricDefinitionValidationError(
-            f"Tool input failed MetricDefinition validation: {exc.error_count()} "
-            f"errors. Input preview: {preview}",
-            raw_input=raw_input,
-            pydantic_error=exc,
+            f"Tool input failed MetricDefinition validation after {exc.attempts} "
+            f"attempts: {exc.pydantic_error.error_count()} errors. "
+            f"Input preview: {preview}",
+            raw_input=exc.raw_input,
+            pydantic_error=exc.pydantic_error,
         ) from exc
 
     if definition.workflow_spec_id != workflow_spec.id:

@@ -25,12 +25,18 @@ kernel-runtime dep.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from ._validation_retry import (
+    DEFAULT_MAX_RETRIES,
+    NoToolUseSignal,
+    RetryExhaustedError,
+    call_with_validation_retry,
+    truncate_for_error,
+)
 from .eval_case_set import SCHEMA_VERSION, EvalCaseSet
 from .sim_plan import SimulationPlan
 from .spec import WorkflowSpec
@@ -180,6 +186,18 @@ def _format_user_message(
     )
 
 
+_RETRY_FEEDBACK = (
+    "Reminders:\n"
+    "- `workflow_spec_id` and `simulation_plan_id` MUST match the source "
+    "artifacts exactly.\n"
+    "- Each case's hidden-state fields must reference fields actually "
+    "produced by the simulation_plan.\n"
+    "- Each case's expected output must match the workflow_spec's tool "
+    "output schema.\n"
+    "- Don't invent extra top-level fields; pydantic rejects unknown keys."
+)
+
+
 async def generate_eval_case_set(
     client: AsyncAnthropic,
     workflow_spec: WorkflowSpec,
@@ -187,6 +205,7 @@ async def generate_eval_case_set(
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> EvalCaseSet:
     """Generate a typed EvalCaseSet from a WorkflowSpec + SimulationPlan.
 
@@ -198,6 +217,8 @@ async def generate_eval_case_set(
         model: Anthropic model id. Default opus 4.7.
         max_tokens: Output cap. Default 12k — case sets are larger than
             sim plans (10-30 structured cases each).
+        max_retries: On `ValidationError`, retry up to this many times
+            with the pydantic error fed back as a `tool_result`. Default 2.
 
     Returns:
         A validated `EvalCaseSet`. Persist via
@@ -206,7 +227,7 @@ async def generate_eval_case_set(
     Raises:
         ValueError: simulation_plan.workflow_spec_id != workflow_spec.id.
         NoEvalToolUseError: Claude stopped without calling the tool.
-        EvalCaseSetValidationError: Claude called the tool but the input
+        EvalCaseSetValidationError: All attempts produced inputs that
             failed `EvalCaseSet.model_validate`.
     """
     if simulation_plan.workflow_spec_id != workflow_spec.id:
@@ -216,55 +237,35 @@ async def generate_eval_case_set(
             f"workflow_spec.id={workflow_spec.id!r}"
         )
 
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
-        messages=[
-            {
-                "role": "user",
-                "content": _format_user_message(workflow_spec, simulation_plan),
-            }
-        ],
-    )
-
-    tool_blocks = [
-        b for b in msg.content
-        if getattr(b, "type", None) == "tool_use"
-        and getattr(b, "name", None) == TOOL_NAME
-    ]
-    if not tool_blocks:
-        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
-        preview = (text_blocks[0].text if text_blocks else "")[:300]
-        raise NoEvalToolUseError(
-            f"Model {model} did not call {TOOL_NAME} (stop_reason={msg.stop_reason!r})",
-            stop_reason=msg.stop_reason,
-            content_preview=preview,
-        )
-
-    raw_input = tool_blocks[0].input
-    if (
-        isinstance(raw_input, dict)
-        and "eval_case_set" in raw_input
-        and len(raw_input) == 1
-    ):
-        set_payload = raw_input["eval_case_set"]
-    else:
-        set_payload = raw_input
     try:
-        return EvalCaseSet.model_validate(set_payload)
-    except ValidationError as exc:
-        try:
-            preview = json.dumps(raw_input)[:500]
-        except (TypeError, ValueError):
-            preview = repr(raw_input)[:500]
+        case_set, _raw = await call_with_validation_retry(
+            client=client,
+            model=model,
+            max_tokens=max_tokens,
+            system=SYSTEM_PROMPT,
+            tool_definition=_TOOL_DEFINITION,
+            tool_name=TOOL_NAME,
+            initial_user_message=_format_user_message(workflow_spec, simulation_plan),
+            schema_class=EvalCaseSet,
+            envelope_key="eval_case_set",
+            max_retries=max_retries,
+            extra_feedback=_RETRY_FEEDBACK,
+        )
+        return case_set
+    except NoToolUseSignal as exc:
+        raise NoEvalToolUseError(
+            f"Model {model} did not call {TOOL_NAME} (stop_reason={exc.stop_reason!r})",
+            stop_reason=exc.stop_reason,
+            content_preview=exc.content_preview,
+        ) from exc
+    except RetryExhaustedError as exc:
+        preview = truncate_for_error(exc.raw_input)
         raise EvalCaseSetValidationError(
-            f"Tool input failed EvalCaseSet validation: {exc.error_count()} "
-            f"errors. Input preview: {preview}",
-            raw_input=raw_input,
-            pydantic_error=exc,
+            f"Tool input failed EvalCaseSet validation after {exc.attempts} "
+            f"attempts: {exc.pydantic_error.error_count()} errors. "
+            f"Input preview: {preview}",
+            raw_input=exc.raw_input,
+            pydantic_error=exc.pydantic_error,
         ) from exc
 
 

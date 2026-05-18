@@ -120,6 +120,7 @@ async def generate_full_pipeline(
     *,
     model: str | None = None,
     max_tokens: int | None = None,
+    max_retries: int | None = None,
     meta_eval_gate: bool = False,
     meta_eval_model: str | None = None,
     meta_eval_max_tokens: int | None = None,
@@ -172,7 +173,7 @@ async def generate_full_pipeline(
     if len(description.encode()) > _MAX_DESCRIPTION_BYTES:
         description = description.encode()[:_MAX_DESCRIPTION_BYTES].decode(errors="ignore")
 
-    kwargs = _kwargs_for(model, max_tokens)
+    kwargs = _kwargs_for(model, max_tokens, max_retries)
     workflow_spec = await generate_workflow_spec(
         client, description, **kwargs
     )
@@ -234,6 +235,7 @@ async def _run_meta_eval_gate(
     """
     from .meta_eval import MetaEvalJudgmentValidationError, judge_artifacts
 
+    # Meta-eval judge has its own retry loop; don't thread max_retries here.
     _kwargs = _kwargs_for(model, max_tokens)
     last_exc: MetaEvalJudgmentValidationError | None = None
     for attempt in range(2):
@@ -278,7 +280,9 @@ async def _run_meta_eval_gate(
 
 
 def _kwargs_for(
-    model: str | None, max_tokens: int | None
+    model: str | None,
+    max_tokens: int | None,
+    max_retries: int | None = None,
 ) -> dict:
     """Build the kwargs dict for a generator call, omitting None overrides."""
     out: dict = {}
@@ -286,6 +290,8 @@ def _kwargs_for(
         out["model"] = model
     if max_tokens is not None:
         out["max_tokens"] = max_tokens
+    if max_retries is not None:
+        out["max_retries"] = max_retries
     return out
 
 

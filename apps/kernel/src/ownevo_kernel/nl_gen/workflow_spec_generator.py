@@ -18,12 +18,18 @@ not a kernel-runtime dep.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from ._validation_retry import (
+    DEFAULT_MAX_RETRIES,
+    NoToolUseSignal,
+    RetryExhaustedError,
+    call_with_validation_retry,
+    truncate_for_error,
+)
 from .spec import SCHEMA_VERSION, WorkflowSpec
 
 if TYPE_CHECKING:
@@ -147,12 +153,32 @@ _TOOL_DEFINITION: dict[str, Any] = _build_tool_definition()
 """Computed once at import time — WorkflowSpec schema is static."""
 
 
+_RETRY_FEEDBACK = (
+    "Reminders from the system prompt:\n"
+    f"- `schema_version` MUST be the exact literal \"{SCHEMA_VERSION}\".\n"
+    "- `provenance` is ONLY allowed on `tool`, `persona`, `env_generator`, "
+    "and `data_source` objects. Remove it from anywhere else (entities, "
+    "environment, success_criterion, ui).\n"
+    "- `type` fields on tool outputs and entity fields MUST be one of: "
+    "`string`, `int`, `float`, `bool`, `date`, `datetime`, `category`. "
+    "Reject `array`, `list`, `object`, `dict`, `number`, `text`, `entity`, "
+    "etc.\n"
+    "- Do not invent extra fields. Pydantic rejects unknown keys with "
+    "`extra_forbidden`."
+)
+"""Domain-specific rules echoed into the tool_result on validation
+retry. Restating the system-prompt constraints next to the concrete
+errors is what gets local-LLM proposers to actually correct their
+output — see `_validation_retry.py`."""
+
+
 async def generate_workflow_spec(
     client: AsyncAnthropic,
     description: str,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> WorkflowSpec:
     """Generate a typed WorkflowSpec from a plain-English description.
 
@@ -162,55 +188,48 @@ async def generate_workflow_spec(
         model: Anthropic model id. Default opus 4.7.
         max_tokens: Output cap. Default 16k — enough for a full spec across
             the 3 fixtures we ship (~6-8k tokens of structured output).
+        max_retries: On `ValidationError`, retry up to this many times,
+            sending the pydantic errors back as a `tool_result` so the
+            model can correct. Default 2 (= 3 attempts total). Cloud
+            models pass on attempt 1; local models benefit from retries.
 
     Returns:
         A validated `WorkflowSpec`.
 
     Raises:
         NoToolUseError: Claude stopped without calling emit_workflow_spec.
-        WorkflowSpecValidationError: Claude called the tool but the input
-            failed `WorkflowSpec.model_validate`.
+        WorkflowSpecValidationError: All attempts produced tool inputs
+            that failed `WorkflowSpec.model_validate`.
     """
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
-        messages=[{"role": "user", "content": description}],
-    )
-
-    tool_blocks = [
-        b for b in msg.content
-        if getattr(b, "type", None) == "tool_use" and getattr(b, "name", None) == TOOL_NAME
-    ]
-    if not tool_blocks:
-        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
-        preview = (text_blocks[0].text if text_blocks else "")[:300]
-        raise NoToolUseError(
-            f"Model {model} did not call {TOOL_NAME} (stop_reason={msg.stop_reason!r})",
-            stop_reason=msg.stop_reason,
-            content_preview=preview,
-        )
-
-    raw_input = tool_blocks[0].input
-    # Tool param is `spec`; some models (rarely) emit the spec un-wrapped at
-    # the top level — accept either shape so the schema-freeze is robust.
-    if isinstance(raw_input, dict) and "spec" in raw_input and len(raw_input) == 1:
-        spec_payload = raw_input["spec"]
-    else:
-        spec_payload = raw_input
     try:
-        return WorkflowSpec.model_validate(spec_payload)
-    except ValidationError as exc:
-        # Truncate the raw input in the error message so logs stay readable
-        # but keep the full payload on the exception for debugging.
-        preview = json.dumps(raw_input)[:500]
+        spec, _raw = await call_with_validation_retry(
+            client=client,
+            model=model,
+            max_tokens=max_tokens,
+            system=SYSTEM_PROMPT,
+            tool_definition=_TOOL_DEFINITION,
+            tool_name=TOOL_NAME,
+            initial_user_message=description,
+            schema_class=WorkflowSpec,
+            envelope_key="spec",
+            max_retries=max_retries,
+            extra_feedback=_RETRY_FEEDBACK,
+        )
+        return spec
+    except NoToolUseSignal as exc:
+        raise NoToolUseError(
+            f"Model {model} did not call {TOOL_NAME} (stop_reason={exc.stop_reason!r})",
+            stop_reason=exc.stop_reason,
+            content_preview=exc.content_preview,
+        ) from exc
+    except RetryExhaustedError as exc:
+        preview = truncate_for_error(exc.raw_input)
         raise WorkflowSpecValidationError(
-            f"Tool input failed WorkflowSpec validation: {exc.error_count()} "
-            f"errors. Input preview: {preview}",
-            raw_input=raw_input,
-            pydantic_error=exc,
+            f"Tool input failed WorkflowSpec validation after {exc.attempts} "
+            f"attempts: {exc.pydantic_error.error_count()} errors. "
+            f"Input preview: {preview}",
+            raw_input=exc.raw_input,
+            pydantic_error=exc.pydantic_error,
         ) from exc
 
 

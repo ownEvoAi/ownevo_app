@@ -58,6 +58,8 @@ for which backend takes which combination.
 
 Each LLM-calling kernel surface has a hardcoded `DEFAULT_MODEL` (matched to its quality/cost profile) and an `OWNEVO_*_MODEL` env var that overrides it. Caller-passed `model=` arguments still win over both. Pair these with `ANTHROPIC_BASE_URL` (§1) to send the calls to a local backend; see [`local-model-testing.md`](local-model-testing.md) for the surface→protocol map and validated local picks.
 
+The four NL-gen generators (`workflow_spec`, `sim`, `metric`, `eval`) also accept a `max_retries` kwarg (default 2 → 3 attempts total). On `ValidationError`, the generator sends the pydantic errors back as a `tool_result` with `is_error=True` so the model can correct on the next turn. Cloud frontier models pass on attempt 1 (zero cost); local models benefit from the retries. The pipeline-level `generate_full_pipeline(..., max_retries=N)` threads this through all four steps uniformly.
+
 | Name | Default | Surface | Notes |
 |---|---|---|---|
 | `OWNEVO_NL_GEN_MODEL` | `claude-opus-4-7` | `nl_gen/{workflow_spec,sim,metric,eval}_generator.py` | Covers all four forced-tool generators in the NL-gen pipeline. Read at module import; also read fresh at request time by `api/routes/nl_gen.py` for backward compat. |
