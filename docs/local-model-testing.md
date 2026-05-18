@@ -61,6 +61,42 @@ hardcoded fallback. The override chain per surface is:
 caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
 ```
 
+### How to choose a model per surface
+
+**Default principle.** The hardcoded `DEFAULT_MODEL` in each generator module is the safest high-quality fallback — don't override it without a specific reason (cost, latency, local-LLM requirement, or an empirical signal that the default is failing). Cloud Anthropic (opus / sonnet / haiku) passes every NL-gen call on attempt 1 and is the documented baseline.
+
+**Three buckets of surfaces** — pick differently depending on which you're configuring:
+
+1. **Calibration anchors** (`cluster_judge`, `approver`, `meta_eval`). These fire 1-2× per iteration so cost is bounded. **Keep on the default Opus 4.7** unless you have a specific cost ceiling. Downgrading risks moving the calibration baseline — the W3 ≥0.7 agreement gate and the W5.2 ≥0.85 approval gate were measured against Opus.
+2. **High-volume per-case calls** (`agent_solver` — fires 25-50× per iteration on a typical suite). Haiku is the cheap default and works for single-tool classifiers; **upgrade to Sonnet 4.6 for multi-tool workflows** (3+ tools, multi-step reasoning) — the empirical lift is real (50% → 100% on the live test) and the cost delta is ~$0.15-0.25/iteration.
+3. **Quality-driven generators** (`nl_gen` 4 calls, `instruction_proposer`, `loop_driver`). Default Opus for safety. Drop to Sonnet on `nl_gen` if cost matters and the workflows are typical (cost saving ~$0.25/workflow). Loop driver stays on Opus per the claude-api skill ("the spine should stay on Opus 4.7").
+
+**What's verified to work (cloud):**
+
+| Model | Surfaces it clears | Notes |
+|---|---|---|
+| `claude-opus-4-7` | every surface | Quality-first default. The safe pick when in doubt. |
+| `claude-sonnet-4-6` | `nl_gen` (richer specs than Haiku), `agent_solver` (lifts multi-tool), `instruction_proposer` (default, cache-friendly), `cluster_label` (default) | The cost/quality sweet spot for everything except calibration anchors. |
+| `claude-haiku-4-5` | `agent_solver` (default for single-tool flows), simple `nl_gen` if you're feeling brave | Cheapest. See "what's not safe" below before using on NL-gen. |
+
+**What's NOT safe (empirical traps from the dogfooding diary):**
+
+- **Haiku on `nl_gen`.** Generates structurally valid output but trips downstream guards. Live-test 2026-05-18 hit the sim-render AST safety pass with `import math` inside `step_code` body — the system prompt explicitly forbids it, Haiku ignored, the renderer correctly rejected. The retry-on-`ValidationError` loop doesn't catch this because pydantic validation passes first; renderer errors fire after. Use Sonnet or Opus.
+- **`qwen3.5/3.6-*` family without the froggeric v13 chat template (local).** LMS's bundled template returns `"No user query found in messages"` on the retail evaluator's first message. The v13 template is API-agnostic; same fix applies to `/v1/messages` and `/v1/chat/completions`.
+- **Local models on strict-schema NL-gen.** `qwen/qwen3.6-35b-a3b` produces *structurally* valid tool inputs but consistently violates finer schema constraints (extra `entities[].provenance`, wrong type literals). The retry+normalize loop closes most of the gap (15 → 2 errors across 5 attempts in the 2026-05-18 live test), but two real schema violations remain — model-quality wall, not infrastructure. Use cloud Anthropic for the `nl_gen` surfaces when correctness matters; route local to the loop driver / agent solver where the improvement loop tolerates noisier baselines.
+- **Calibration anchors on cheaper models** without re-running the gate. The W3 Track B ≥0.7 agreement gate and W5.2 ≥0.85 approver gate were measured against Opus. If you drop `cluster_judge` or `approver` to Sonnet, re-run the gate eval (`make cluster-label-eval` / `make approver-eval`) to confirm the new model still clears.
+
+**Cost reference per iteration on a 25-case eval suite (rough):**
+
+| Configuration | NL-gen | Iteration | Total |
+|---|---|---|---|
+| All-Opus (safest default) | ~$0.30 | ~$2.20 | **~$2.50** |
+| Sonnet NL-gen + Sonnet agent_solver (recommended for demo) | ~$0.05 | ~$0.50 | **~$0.55** |
+| Sonnet NL-gen + Haiku agent_solver (simple flows) | ~$0.05 | ~$0.20 | **~$0.25** |
+| Sonnet NL-gen + qwen3.6-35b-a3b local (operator infra) | ~$0.05 | $0 (own GPU) | **~$0.05** |
+
+NL-gen is per-workflow (4 forced-tool calls), not per-iteration. So the NL-gen cost is amortized across all iterations of a workflow.
+
 ### Cloud model picks per surface
 
 Verified empirically on a 6-tool retail-demand workflow (2026-05-18 live test):

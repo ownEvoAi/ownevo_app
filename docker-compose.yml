@@ -25,16 +25,19 @@ services:
     environment:
       OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # NL-gen model overrides for local dev. Empty/unset → per-generator
-      # DEFAULT_MODEL (claude-opus-4-7). Setting OWNEVO_NL_GEN_MODEL routes
-      # all four authoring-trio calls (spec / sim / metric / eval) to the
-      # chosen model. ANTHROPIC_BASE_URL points the AsyncAnthropic client
-      # at any /v1/messages-compatible endpoint (LM Studio, LiteLLM proxy,
-      # vLLM) for self-hosted runs.
-      OWNEVO_NL_GEN_MODEL: ${OWNEVO_NL_GEN_MODEL:-claude-sonnet-4-6}
+      # Per-surface model overrides (see docs/local-model-testing.md §
+      # "How to choose a model per surface" for the decision guide and
+      # docs/ENV_VARS.md §5 for the full env-var → surface table).
+      # Empty/unset → the hardcoded `DEFAULT_MODEL` in each module
+      # (claude-opus-4-7 for spec/sim/metric/eval, sonnet for proposer,
+      # haiku for agent_solver). Override via the .env file at the repo
+      # root — see .env.example / .env.local-lms.example / .env.hybrid.example.
+      # `ANTHROPIC_BASE_URL` routes every `AsyncAnthropic` call to a
+      # self-hosted endpoint (LMS Anthropic-compat, LiteLLM proxy, vLLM)
+      # when set; cloud Anthropic when empty.
+      OWNEVO_NL_GEN_MODEL: ${OWNEVO_NL_GEN_MODEL:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      # Per-surface model overrides (see docs/ENV_VARS.md §5). Unset →
-      # the hardcoded `DEFAULT_MODEL` in each module.
+      # Other per-surface model overrides.
       OWNEVO_INSTRUCTION_PROPOSER_MODEL: ${OWNEVO_INSTRUCTION_PROPOSER_MODEL:-}
       OWNEVO_META_EVAL_MODEL: ${OWNEVO_META_EVAL_MODEL:-}
       OWNEVO_AGENT_SOLVER_MODEL: ${OWNEVO_AGENT_SOLVER_MODEL:-}
