@@ -320,6 +320,32 @@ export async function fetchNextDiscoveryQuestion(
   })
 }
 
+export interface DescriptionConflictsResponse {
+  findings: AmbiguityFinding[]
+}
+
+// Pre-generation conflict scan. Distinct from `/ambiguity-report`: that
+// endpoint needs a WorkflowSpec and runs after `/generate`; this one
+// runs over the raw description so the chat panel can surface
+// contradictions ("maximize recall, zero false positives") as additional
+// questions before the operator clicks Generate. Returns bare findings
+// (no `workflow_spec_id`, no `high_severity_count`) — the operator's
+// answers ride into `discovery_transcript` alongside the static
+// discovery Q/A entries.
+export async function fetchDescriptionConflicts(
+  description: string,
+  signal?: AbortSignal,
+): Promise<DescriptionConflictsResponse> {
+  return jsonFetch<DescriptionConflictsResponse>(
+    '/api/design-agent/description-conflicts',
+    {
+      method: 'POST',
+      body: JSON.stringify({ description }),
+      signal,
+    },
+  )
+}
+
 export interface EvalCaseProvenance {
   /** 'derived' = verbatim user-flagged miss; 'inferred' = named pattern. */
   kind: string

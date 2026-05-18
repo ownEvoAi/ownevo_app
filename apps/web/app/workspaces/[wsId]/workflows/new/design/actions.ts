@@ -2,9 +2,11 @@
 
 import { redirect } from 'next/navigation'
 import {
+  fetchDescriptionConflicts,
   fetchNextDiscoveryQuestion,
   generateWorkflow,
   KernelApiError,
+  type AmbiguityFinding,
   type DesignAgentLog,
   type DesignAgentLogEntry,
   type DiscoveryQuestionKind,
@@ -70,6 +72,41 @@ export async function loadNextQuestion(
       done: false,
       totalQuestions: 0,
       answeredCount: 0,
+      error: errMsg,
+    }
+  }
+}
+
+export interface DescriptionConflictsState {
+  loaded: boolean
+  findings: AmbiguityFinding[]
+  error: string | null
+}
+
+// Run the pre-generation conflict scan once the static discovery
+// interview reaches done=true. Findings are surfaced in the chat panel
+// as additional questions (kind='ambiguity', question_index continues
+// past the static range) before Generate enables.
+export async function loadDescriptionConflicts(
+  description: string,
+): Promise<DescriptionConflictsState> {
+  try {
+    const resp = await fetchDescriptionConflicts(description)
+    return {
+      loaded: true,
+      findings: resp.findings,
+      error: null,
+    }
+  } catch (err) {
+    const errMsg =
+      err instanceof KernelApiError
+        ? `Kernel error (${err.status}): ${err.detail}`
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    return {
+      loaded: false,
+      findings: [],
       error: errMsg,
     }
   }

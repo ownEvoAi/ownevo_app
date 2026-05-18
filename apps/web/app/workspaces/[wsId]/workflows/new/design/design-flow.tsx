@@ -9,9 +9,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
+import type { AmbiguityFinding, NextDiscoveryQuestion } from '@/lib/api'
 import {
   type DiscoveryTranscriptEntry,
   generateWithDiscoveryAction,
+  loadDescriptionConflicts,
   loadNextQuestion,
   type NextQuestionState,
 } from './actions'
@@ -47,20 +49,70 @@ export function DesignFlow({
   const [transcript, setTranscript] = useState<DiscoveryTranscriptEntry[]>([])
   const [draft, setDraft] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
+  // Pre-generation ambiguity findings. The static discovery interview
+  // is the kernel's `next-question` walk over the prompt registry; once
+  // it returns done=true we run `find_description_conflicts` over the
+  // raw description and surface each finding as an additional question
+  // in the chat. Finding answers ride into `discovery_transcript`
+  // alongside the static answers; the kernel side never sees the
+  // synthetic indices.
+  const [ambiguityFindings, setAmbiguityFindings] = useState<AmbiguityFinding[]>([])
+  const [ambiguityIndex, setAmbiguityIndex] = useState(0)
+  const [ambiguityLoaded, setAmbiguityLoaded] = useState(false)
+  const [ambiguityError, setAmbiguityError] = useState<string | null>(null)
   const [isFetching, startFetch] = useTransition()
+  const [isLoadingFindings, startFindingsLoad] = useTransition()
   const [isGenerating, startGenerate] = useTransition()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Once the static discovery interview returns done=true, fire the
+  // pre-generation conflict scan exactly once. The scan reads the raw
+  // description; the operator's static answers do not change the
+  // description, so re-running on every transcript change is pointless.
+  useEffect(() => {
+    if (!questionState.done || ambiguityLoaded || isLoadingFindings) return
+    startFindingsLoad(async () => {
+      const resp = await loadDescriptionConflicts(description)
+      setAmbiguityFindings(resp.findings)
+      setAmbiguityError(resp.error)
+      setAmbiguityLoaded(true)
+    })
+  }, [questionState.done, ambiguityLoaded, isLoadingFindings, description])
+
+  // Total questions to surface in the chat = static count + findings
+  // loaded so far. Before the findings load we display only the static
+  // total so the progress bar does not jump around.
+  const staticTotal = questionState.totalQuestions
+  const totalQuestions = staticTotal + (ambiguityLoaded ? ambiguityFindings.length : 0)
+
+  // The next pending finding (if any) surfaced as a synthetic
+  // NextDiscoveryQuestion so the rest of the chat UI can render it
+  // through the existing path without special-casing.
+  const pendingFinding: NextDiscoveryQuestion | null =
+    questionState.done &&
+    ambiguityLoaded &&
+    ambiguityIndex < ambiguityFindings.length
+      ? findingToQuestion(
+          ambiguityFindings[ambiguityIndex],
+          ambiguityIndex,
+          staticTotal,
+        )
+      : null
+
+  const currentIsFinding = questionState.next === null && pendingFinding !== null
+  const displayedCurrent: NextDiscoveryQuestion | null =
+    questionState.next ?? pendingFinding
 
   // Keep input focused as the conversation advances so the operator can
   // type or hit Skip without mousing back to the field.
   useEffect(() => {
-    if (questionState.next) {
+    if (displayedCurrent) {
       inputRef.current?.focus()
     }
-  }, [questionState.next?.question_index])
+  }, [displayedCurrent?.question_index])
 
   const submitAnswer = (rawAnswer: string | null) => {
-    const current = questionState.next
+    const current = displayedCurrent
     if (!current) return
     const answer =
       rawAnswer === null
@@ -82,14 +134,31 @@ export function DesignFlow({
     setTranscript(nextTranscript)
     setDraft('')
 
+    if (currentIsFinding) {
+      // Finding answers are local-only — no kernel round-trip, no echo
+      // back into `prior_answers` (the synthetic indices would 400 the
+      // static `/next-question` endpoint). Just advance the local
+      // pointer; the answer rides into `discovery_transcript` on
+      // Generate.
+      setAmbiguityIndex(ambiguityIndex + 1)
+      return
+    }
+
     startFetch(async () => {
+      // Static-question answers are echoed back so the kernel can
+      // return the next not-yet-answered prompt. Only the static
+      // entries (kind != 'ambiguity' or question_index < staticTotal)
+      // are eligible — finding answers are local-only.
+      const priorAnswers = nextTranscript
+        .filter((t) => t.question_index < staticTotal)
+        .map((t) => ({
+          question_index: t.question_index,
+          answer: t.answer,
+        }))
       const resp = await loadNextQuestion({
         description,
         templateId,
-        priorAnswers: nextTranscript.map((t) => ({
-          question_index: t.question_index,
-          answer: t.answer,
-        })),
+        priorAnswers,
       })
       setQuestionState(resp)
     })
@@ -125,14 +194,18 @@ export function DesignFlow({
     })
   }
 
-  const current = questionState.next
-  const total = questionState.totalQuestions
+  const current = displayedCurrent
+  const total = totalQuestions
   // answered_count comes from the kernel and reflects the prior_answers
   // length. Use the local transcript so the right-pane progress jumps
   // immediately on submit, even before the next-question fetch resolves.
   const answered = transcript.length
   const percent = total > 0 ? Math.round((answered / total) * 100) : 0
   const draftIsEmpty = draft.trim().length === 0
+  const allFindingsAddressed =
+    ambiguityLoaded && ambiguityIndex >= ambiguityFindings.length
+  const discoveryDone = questionState.done && allFindingsAddressed
+  const composerBusy = isFetching || isLoadingFindings
 
   return (
     <div className="design-grid">
@@ -206,7 +279,21 @@ export function DesignFlow({
             </div>
           ) : null}
 
-          {questionState.done ? (
+          {questionState.done && !ambiguityLoaded && !ambiguityError ? (
+            <div className="chat-bubble chat-bubble-system">
+              Scanning the description for ambiguities…
+            </div>
+          ) : null}
+
+          {pendingFinding && ambiguityIndex === 0 ? (
+            <div className="chat-bubble chat-bubble-system">
+              I spotted {ambiguityFindings.length} ambiguity
+              {ambiguityFindings.length === 1 ? '' : 's'} in the
+              description. Let&rsquo;s resolve {ambiguityFindings.length === 1 ? 'it' : 'them'} before generating.
+            </div>
+          ) : null}
+
+          {discoveryDone ? (
             <div className="chat-bubble chat-bubble-system">
               Discovery complete. Review the answers on the right, then
               click <strong>Generate</strong>.
@@ -216,6 +303,12 @@ export function DesignFlow({
           {questionState.error ? (
             <div role="alert" className="api-banner">
               <strong>Discovery failed.</strong> {questionState.error}
+            </div>
+          ) : null}
+
+          {ambiguityError ? (
+            <div role="alert" className="api-banner">
+              <strong>Ambiguity scan failed.</strong> {ambiguityError}
             </div>
           ) : null}
         </div>
@@ -230,7 +323,7 @@ export function DesignFlow({
                     type="button"
                     className="chat-option-chip"
                     onClick={() => submitAnswer(opt)}
-                    disabled={isFetching}
+                    disabled={composerBusy}
                   >
                     {opt}
                   </button>
@@ -254,14 +347,14 @@ export function DesignFlow({
                   ? 'Or type your own answer…'
                   : 'Type your answer…'
               }
-              disabled={isFetching}
+              disabled={composerBusy}
             />
             <div className="chat-composer-actions">
               <button
                 type="button"
                 className="btn btn-secondary chat-skip"
                 onClick={() => submitAnswer(null)}
-                disabled={isFetching}
+                disabled={composerBusy}
               >
                 Skip
               </button>
@@ -269,10 +362,10 @@ export function DesignFlow({
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={isFetching || draftIsEmpty}
-                  aria-disabled={isFetching || draftIsEmpty}
+                  disabled={composerBusy || draftIsEmpty}
+                  aria-disabled={composerBusy || draftIsEmpty}
                 >
-                  {isFetching ? 'Loading…' : 'Send answer ›'}
+                  {composerBusy ? 'Loading…' : 'Send answer ›'}
                 </button>
                 <span className="kbd-hint">
                   <kbd>⌘</kbd>
@@ -335,22 +428,45 @@ export function DesignFlow({
           <button
             type="button"
             className="btn btn-primary design-generate"
-            disabled={!questionState.done || isGenerating}
-            aria-disabled={!questionState.done || isGenerating}
+            disabled={!discoveryDone || isGenerating}
+            aria-disabled={!discoveryDone || isGenerating}
             onClick={generate}
           >
             {isGenerating ? 'Generating spec — ~30s' : 'Generate ›'}
           </button>
         </div>
-        {!questionState.done ? (
+        {!discoveryDone ? (
           <p className="design-generate-hint">
-            Generate unlocks after the discovery interview finishes.
-            Skip remaining questions to unlock now.
+            {!questionState.done
+              ? 'Generate unlocks after the discovery interview finishes. Skip remaining questions to unlock now.'
+              : !ambiguityLoaded
+                ? 'Scanning the description for ambiguities before unlocking Generate.'
+                : 'Address the flagged ambiguities to unlock Generate. Skip any you cannot answer.'}
           </p>
         ) : null}
       </aside>
     </div>
   )
+}
+
+// Wraps a pre-generation AmbiguityFinding in the same NextDiscoveryQuestion
+// shape the chat panel already renders for static prompt-library questions.
+// `question_index` continues past the static range so the answer entry in
+// `discovery_transcript` carries a unique handle for the audit trail. The
+// finding's `summary` rides along as `rationale` so the operator sees the
+// "why I'm asking" line under the question.
+function findingToQuestion(
+  finding: AmbiguityFinding,
+  index: number,
+  staticTotal: number,
+): NextDiscoveryQuestion {
+  return {
+    question_index: staticTotal + index,
+    kind: 'ambiguity',
+    question: finding.suggested_question,
+    options: null,
+    rationale: finding.summary,
+  }
 }
 
 // Silence "unused import" if startTransition gets eliminated by a future
