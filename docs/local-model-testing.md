@@ -17,6 +17,109 @@ the loop, and vice versa. Treat them as separate qualifications.
 
 ---
 
+## Kernel LLM surfaces — protocols and env vars
+
+Three protocols are in play across the kernel. Each surface picks
+independently — there is no single gateway. Use this table before
+choosing a model and backend.
+
+**The three protocols:**
+
+1. **Anthropic `/v1/messages`** via `AsyncAnthropic` — cloud Anthropic, LMS Anthropic-compat, LiteLLM Anthropic proxy.
+2. **OpenAI `/v1/chat/completions`** via `AsyncOpenAI` — LMS OpenAI-compat, Ollama OpenAI-compat, vLLM, LiteLLM OpenAI proxy.
+3. **Ollama native `/api/chat`** via `OllamaChatClient` (`eval_runner/ollama_native.py`) — `AsyncOpenAI`-shaped duck-type that routes to Ollama's native endpoint. **The only reliable way to suppress qwen3-family thinking on Ollama** — `options.think=false` is silently stripped by the OpenAI-compat layer, which causes runaway thinking → `500 | 10m0s` timeouts.
+
+**Surface map:**
+
+| Surface | Source | Protocols supported | Model env var | Hardcoded fallback | Local-friendly? |
+|---|---|---|---|---|---|
+| NL-gen pipeline (4 forced-tool calls: spec / sim / metric / eval cases) | `api/routes/nl_gen.py` → `nl_gen/*_generator.py` | Anthropic only | `OWNEVO_NL_GEN_MODEL` | `claude-opus-4-7` | LMS Anthropic-compat. Ollama needs a LiteLLM proxy. |
+| NL-gen instruction proposer | `nl_gen/instruction_proposer.py` | Anthropic only | `OWNEVO_INSTRUCTION_PROPOSER_MODEL` | `claude-sonnet-4-6` | Same as above. |
+| NL-gen meta-eval judge | `nl_gen/meta_eval/judge.py` | Anthropic only | `OWNEVO_META_EVAL_MODEL` | `claude-opus-4-7` | Same as above. |
+| Agent solver (per-case classifier) | `eval_runner/agent_solver.py` | All three | `OWNEVO_AGENT_SOLVER_MODEL` | `claude-haiku-4-5-20251001` | Pass `AsyncAnthropic`, `AsyncOpenAI`, or `OllamaChatClient`. |
+| Improvement-loop driver | `middleware/claude_sdk/runner.py` (called from `scripts/run_improvement_loop.py`) | All three via `--api-format` + Ollama auto-routing | `OWNEVO_LOOP_MODEL` | `claude-opus-4-7` | The τ³-tested path. |
+| Clustering labeller | `clustering/default_impl.py` | Anthropic only | `OWNEVO_CLUSTER_LABEL_MODEL` | `claude-sonnet-4-6` | LMS Anthropic-compat. |
+| Clustering label judge | `clustering/label_eval/judge.py` | Anthropic only | `OWNEVO_CLUSTER_JUDGE_MODEL` | `claude-opus-4-7` | Same as above. |
+| LLM-judge approver | `approvers/llm_judge/judge.py` | Anthropic only | `OWNEVO_APPROVER_MODEL` | `claude-opus-4-7` | Same as above. |
+| Design agent (discovery + ambiguity) | `api/routes/design_agent*.py` | None — deterministic | — | — | No LLM calls. |
+
+For every Anthropic-only surface, the endpoint is configured globally
+via `ANTHROPIC_BASE_URL` (read by `api/_anthropic_client.py`). Set both
+together:
+
+```bash
+# Point all Anthropic-only surfaces at LMS:
+export ANTHROPIC_BASE_URL=http://192.168.1.50:1234
+export OWNEVO_NL_GEN_MODEL=qwen/qwen3.6-35b-a3b
+docker compose up -d --force-recreate kernel
+```
+
+Caller-passed `model=` arguments still win over both the env var and the
+hardcoded fallback. The override chain per surface is:
+
+```
+caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
+```
+
+### How to choose a model per surface
+
+**Default principle.** The hardcoded `DEFAULT_MODEL` in each generator module is the safest high-quality fallback — don't override it without a specific reason (cost, latency, local-LLM requirement, or an empirical signal that the default is failing). Cloud Anthropic (opus / sonnet / haiku) passes every NL-gen call on attempt 1 and is the documented baseline.
+
+**Three buckets of surfaces** — pick differently depending on which you're configuring:
+
+1. **Calibration anchors** (`cluster_judge`, `approver`, `meta_eval`). These fire 1-2× per iteration so cost is bounded. **Keep on the default Opus 4.7** unless you have a specific cost ceiling. Downgrading risks moving the calibration baseline — the W3 ≥0.7 agreement gate and the W5.2 ≥0.85 approval gate were measured against Opus.
+2. **High-volume per-case calls** (`agent_solver` — fires 25-50× per iteration on a typical suite). Haiku is the cheap default and works for single-tool classifiers; **upgrade to Sonnet 4.6 for multi-tool workflows** (3+ tools, multi-step reasoning) — the empirical lift is real (50% → 100% on the live test) and the cost delta is ~$0.15-0.25/iteration.
+3. **Quality-driven generators** (`nl_gen` 4 calls, `instruction_proposer`, `loop_driver`). Default Opus for safety. Drop to Sonnet on `nl_gen` if cost matters and the workflows are typical (cost saving ~$0.25/workflow). Loop driver stays on Opus per the claude-api skill ("the spine should stay on Opus 4.7").
+
+**What's verified to work (cloud):**
+
+| Model | Surfaces it clears | Notes |
+|---|---|---|
+| `claude-opus-4-7` | every surface | Quality-first default. The safe pick when in doubt. |
+| `claude-sonnet-4-6` | `nl_gen` (richer specs than Haiku), `agent_solver` (lifts multi-tool), `instruction_proposer` (default, cache-friendly), `cluster_label` (default) | The cost/quality sweet spot for everything except calibration anchors. |
+| `claude-haiku-4-5` | `agent_solver` (default for single-tool flows), simple `nl_gen` if you're feeling brave | Cheapest. See "what's not safe" below before using on NL-gen. |
+
+**What's NOT safe (empirical traps from the dogfooding diary):**
+
+- **Haiku on `nl_gen`.** Generates structurally valid output but trips downstream guards. Live-test 2026-05-18 hit the sim-render AST safety pass with `import math` inside `step_code` body — the system prompt explicitly forbids it, Haiku ignored, the renderer correctly rejected. The retry-on-`ValidationError` loop doesn't catch this because pydantic validation passes first; renderer errors fire after. Use Sonnet or Opus.
+- **`qwen3.5/3.6-*` family without the froggeric v13 chat template (local).** LMS's bundled template returns `"No user query found in messages"` on the retail evaluator's first message. The v13 template is API-agnostic; same fix applies to `/v1/messages` and `/v1/chat/completions`.
+- **Local models on strict-schema NL-gen.** `qwen/qwen3.6-35b-a3b` produces *structurally* valid tool inputs but consistently violates finer schema constraints (extra `entities[].provenance`, wrong type literals). The retry+normalize loop closes most of the gap (15 → 2 errors across 5 attempts in the 2026-05-18 live test), but two real schema violations remain — model-quality wall, not infrastructure. Use cloud Anthropic for the `nl_gen` surfaces when correctness matters; route local to the loop driver / agent solver where the improvement loop tolerates noisier baselines.
+- **Calibration anchors on cheaper models** without re-running the gate. The W3 Track B ≥0.7 agreement gate and W5.2 ≥0.85 approver gate were measured against Opus. If you drop `cluster_judge` or `approver` to Sonnet, re-run the gate eval (`make cluster-label-eval` / `make approver-eval`) to confirm the new model still clears.
+
+**Cost reference per iteration on a 25-case eval suite (rough):**
+
+| Configuration | NL-gen | Iteration | Total |
+|---|---|---|---|
+| All-Opus (safest default) | ~$0.30 | ~$2.20 | **~$2.50** |
+| Sonnet NL-gen + Sonnet agent_solver (recommended for demo) | ~$0.05 | ~$0.50 | **~$0.55** |
+| Sonnet NL-gen + Haiku agent_solver (simple flows) | ~$0.05 | ~$0.20 | **~$0.25** |
+| Sonnet NL-gen + qwen3.6-35b-a3b local (operator infra) | ~$0.05 | $0 (own GPU) | **~$0.05** |
+
+NL-gen is per-workflow (4 forced-tool calls), not per-iteration. So the NL-gen cost is amortized across all iterations of a workflow.
+
+### Cloud model picks per surface
+
+Verified empirically on a 6-tool retail-demand workflow (2026-05-18 live test):
+
+| Surface | Recommended | Why |
+|---|---|---|
+| `nl_gen` (spec/sim/metric/eval) | `claude-sonnet-4-6` | Sonnet generates a richer spec (6 tools vs 3 for Haiku) and clears the WorkflowSpec strict schema. Haiku produces structurally valid output but trips other guards (e.g. `import math` in sim `step_code`). Opus 4.7 is the safe quality-first default. |
+| `agent_solver` | **`claude-sonnet-4-6` for multi-tool workflows** | Haiku is fine for single-tool classifiers (cheap default) but on workflows with 3+ tools and multi-step reasoning, Haiku produces scattered, low-signal failures the proposer can't cluster. **Empirical: Haiku 0.500 val_score with `gate-blocked-no-improvement` → Sonnet 1.000 val_score** on the retail workflow. Cost delta ~$0.15-0.25/iteration. |
+| `instruction_proposer` | `claude-sonnet-4-6` (default) | 2-5 sentence write task. Sonnet's cache-hit rate matters more than peak quality. |
+| `cluster_judge`, `approver`, `meta_eval` | `claude-opus-4-7` (default) | Calibration anchors. Keep on Opus unless cost ceiling demands otherwise — these fire 1-2× per iteration so cost is bounded. |
+| `loop_driver` (improvement loop runner) | `claude-opus-4-7` (default cloud) or `qwen/qwen3.6-35b-a3b` (τ³-validated local) | Per the claude-api skill: ALWAYS default to Opus 4.7 for the loop spine. Local pick is the τ³ headline below. |
+
+### Local-model picks (current best)
+
+Authoritative source: [`../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md`](../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md) (private docs repo). Summary:
+
+- **Improvement-loop proposer (all-local headline):** `qwen/qwen3.6-35b-a3b` on LMS, Anthropic `/v1/messages`, froggeric v13 chat template, ctx=65536, LMS JIT off. τ³ retail val_score = **0.825**.
+- **NL-gen + meta-eval + clustering judge (Anthropic-only surfaces):** untested locally as of 2026-05; default Opus 4.7 is the safe pick. If you must run local, try the loop pick first — same protocol, same template requirements.
+- **Tool-forced single-stream codegen runner-up:** `qwen/qwen3-coder-30b` LMS (F5 multi-turn gold standard). Weaker on τ³ retail but the strongest on forced-tool codegen. Use as fallback if 35b-a3b stalls on NL-gen's 4 forced-tool calls.
+- **Avoid for Anthropic-format calls:** `qwen3.5/3.6-*` family without the froggeric v13 template — LMS's bundled template returns `"No user query found in messages"` on the retail evaluator's first message. The v13 template is API-agnostic; same fix applies to `/v1/messages` and `/v1/chat/completions`.
+
+---
+
 ## Why local models
 
 The improvement loop is the heart of ownEvo. A hosted frontier model

@@ -1,0 +1,55 @@
+"""Shared `AsyncAnthropic` builder honoring `ANTHROPIC_BASE_URL`.
+
+Every API route that needs an Anthropic client should call
+`build_async_anthropic(api_key)` rather than constructing `AsyncAnthropic`
+directly — that keeps the empty-base-URL workaround (see below) in one
+place.
+
+Empty-base-URL trap: docker-compose's `${VAR:-}` interpolation passes an
+unset env var through as an empty string, not as missing. The Anthropic
+SDK respects that empty `ANTHROPIC_BASE_URL` and fails with
+`UnsupportedProtocol("Request URL is missing an 'http://' or 'https://'")`.
+We wipe the empty value before reading so the SDK falls back to its
+default cloud endpoint.
+
+Pointing the kernel at a self-hosted endpoint:
+
+```bash
+export ANTHROPIC_BASE_URL=http://192.168.1.50:1234   # LMS Anthropic-compat
+docker compose up -d --force-recreate kernel
+```
+
+See `docs/local-model-testing.md` for the protocol map and which kernel
+surfaces can talk to which backends.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover — type-only import
+    from anthropic import AsyncAnthropic
+
+
+def build_async_anthropic(api_key: str) -> AsyncAnthropic:
+    """Return an `AsyncAnthropic` client, honoring `ANTHROPIC_BASE_URL`.
+
+    Args:
+        api_key: The API key for the Anthropic endpoint. Local backends
+            (LMS, LiteLLM proxies) usually accept any non-empty string.
+
+    The `anthropic` package is imported lazily so the module is safe to
+    import from the API package at process start under the kernel-core
+    install (no `[agent]` extra). Route handlers gate on `ANTHROPIC_API_KEY`
+    before calling this — if `anthropic` isn't installed the import below
+    raises `ModuleNotFoundError` with a clear message at call time.
+    """
+    from anthropic import AsyncAnthropic  # lazy: agent extra
+
+    if os.environ.get("ANTHROPIC_BASE_URL") == "":
+        os.environ.pop("ANTHROPIC_BASE_URL", None)  # safe under concurrent requests
+    base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+    if base_url:
+        return AsyncAnthropic(api_key=api_key, base_url=base_url)
+    return AsyncAnthropic(api_key=api_key)

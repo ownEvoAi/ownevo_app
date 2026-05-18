@@ -20,6 +20,7 @@ without pulling anthropic in.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 SCHEMA_VERSION = "0.1"
 """`0.1` until W6 closes; bumps to 1.0 with the schema-freeze ritual."""
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = os.environ.get("OWNEVO_INSTRUCTION_PROPOSER_MODEL") or "claude-sonnet-4-6"
 """Sonnet 4.6 by default — the proposer is a 2-5 sentence write task,
 opus is overkill. Sonnet's prompt-cache hit rate matters more here than
 raw quality (the orchestrator will call this once per cycle)."""
@@ -270,7 +271,7 @@ def _format_user_message(
 
 
 async def propose_instruction_edit(
-    client: "AsyncAnthropic",
+    client: AsyncAnthropic,
     *,
     spec: WorkflowSpec,
     metric: MetricDefinition,

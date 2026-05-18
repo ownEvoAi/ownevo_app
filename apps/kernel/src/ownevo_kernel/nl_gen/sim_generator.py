@@ -28,11 +28,18 @@ dep.
 
 from __future__ import annotations
 
-import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from ._validation_retry import (
+    DEFAULT_MAX_RETRIES,
+    NoToolUseSignal,
+    RetryExhaustedError,
+    call_with_validation_retry,
+    truncate_for_error,
+)
 from .sim_plan import ALLOWED_IMPORTS, SCHEMA_VERSION, SimulationPlan
 from .spec import WorkflowSpec
 from .workflow_spec_generator import NLGenError
@@ -41,7 +48,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = os.environ.get("OWNEVO_NL_GEN_MODEL") or "claude-opus-4-7"
 DEFAULT_MAX_TOKENS = 8_000
 
 TOOL_NAME = "emit_simulation_plan"
@@ -178,12 +185,35 @@ def _format_user_message(workflow_spec: WorkflowSpec) -> str:
     )
 
 
+def _normalize_payload(payload: Any) -> Any:
+    """Force-overwrite `schema_version` to the canonical literal.
+    See `workflow_spec_generator._normalize_payload` for rationale —
+    qwen3-family's `schema_version: "1.1"` training prior won't yield
+    to in-prompt directives. No-op for cloud models that already emit
+    the correct value."""
+    if isinstance(payload, dict) and "schema_version" in payload:
+        return {**payload, "schema_version": SCHEMA_VERSION}
+    return payload
+
+
+_RETRY_FEEDBACK = (
+    "Reminders from the system prompt:\n"
+    "- Stay within `ALLOWED_IMPORTS` for the sim module.\n"
+    "- Every entity in the spec's `environment.entities` must have a "
+    "matching generator in the plan.\n"
+    "- Hidden-state fields cited by `success_criterion` must be produced "
+    "by the simulation.\n"
+    "- Do not invent extra top-level fields; pydantic rejects unknown keys."
+)
+
+
 async def generate_simulation_plan(
     client: AsyncAnthropic,
     workflow_spec: WorkflowSpec,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> SimulationPlan:
     """Generate a typed SimulationPlan from a WorkflowSpec.
 
@@ -193,6 +223,8 @@ async def generate_simulation_plan(
         model: Anthropic model id. Default opus 4.7.
         max_tokens: Output cap. Default 8k — plans are smaller than specs
             (no UI block, no 8-tool surface).
+        max_retries: On `ValidationError`, retry up to this many times
+            with the pydantic error fed back as a `tool_result`. Default 4 (= 5 attempts total).
 
     Returns:
         A validated `SimulationPlan`. Render via
@@ -200,52 +232,39 @@ async def generate_simulation_plan(
 
     Raises:
         NoSimToolUseError: Claude stopped without calling the tool.
-        SimulationPlanValidationError: Claude called the tool but the input
+        SimulationPlanValidationError: All attempts produced inputs that
             failed `SimulationPlan.model_validate`.
     """
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[_TOOL_DEFINITION],
-        tool_choice={"type": "tool", "name": TOOL_NAME},
-        messages=[
-            {"role": "user", "content": _format_user_message(workflow_spec)}
-        ],
-    )
-
-    tool_blocks = [
-        b for b in msg.content
-        if getattr(b, "type", None) == "tool_use"
-        and getattr(b, "name", None) == TOOL_NAME
-    ]
-    if not tool_blocks:
-        text_blocks = [b for b in msg.content if getattr(b, "type", None) == "text"]
-        preview = (text_blocks[0].text if text_blocks else "")[:300]
-        raise NoSimToolUseError(
-            f"Model {model} did not call {TOOL_NAME} (stop_reason={msg.stop_reason!r})",
-            stop_reason=msg.stop_reason,
-            content_preview=preview,
-        )
-
-    raw_input = tool_blocks[0].input
-    if (
-        isinstance(raw_input, dict)
-        and "plan" in raw_input
-        and len(raw_input) == 1
-    ):
-        plan_payload = raw_input["plan"]
-    else:
-        plan_payload = raw_input
     try:
-        return SimulationPlan.model_validate(plan_payload)
-    except ValidationError as exc:
-        preview = json.dumps(raw_input)[:500]
+        plan, _raw = await call_with_validation_retry(
+            client=client,
+            model=model,
+            max_tokens=max_tokens,
+            system=SYSTEM_PROMPT,
+            tool_definition=_TOOL_DEFINITION,
+            tool_name=TOOL_NAME,
+            initial_user_message=_format_user_message(workflow_spec),
+            schema_class=SimulationPlan,
+            envelope_key="plan",
+            max_retries=max_retries,
+            extra_feedback=_RETRY_FEEDBACK,
+            normalize=_normalize_payload,
+        )
+        return plan
+    except NoToolUseSignal as exc:
+        raise NoSimToolUseError(
+            f"Model {model} did not call {TOOL_NAME} (stop_reason={exc.stop_reason!r})",
+            stop_reason=exc.stop_reason,
+            content_preview=exc.content_preview,
+        ) from exc
+    except RetryExhaustedError as exc:
+        preview = truncate_for_error(exc.raw_input)
         raise SimulationPlanValidationError(
-            f"Tool input failed SimulationPlan validation: {exc.error_count()} "
-            f"errors. Input preview: {preview}",
-            raw_input=raw_input,
-            pydantic_error=exc,
+            f"Tool input failed SimulationPlan validation after {exc.attempts} "
+            f"attempts: {exc.pydantic_error.error_count()} errors. "
+            f"Input preview: {preview}",
+            raw_input=exc.raw_input,
+            pydantic_error=exc.pydantic_error,
         ) from exc
 
 

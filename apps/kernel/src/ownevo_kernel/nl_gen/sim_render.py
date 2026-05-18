@@ -34,7 +34,7 @@ loudly here so iteration stays cheap.
 from __future__ import annotations
 
 import ast
-from typing import Iterable
+from collections.abc import Iterable
 
 from .sim_plan import ALLOWED_IMPORTS, SimulationPlan
 from .spec import WorkflowSpec

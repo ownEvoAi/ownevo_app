@@ -36,6 +36,7 @@ judge call itself is gated on the agent extra.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = os.environ.get("OWNEVO_APPROVER_MODEL") or "claude-opus-4-7"
 """Opus 4.7 by default — calibration anchor for the ≥0.85 W5.2 gate.
 The runner accepts a `model=` override so a sonnet or haiku run for
 diagnostic purposes is one flag away. Production callers (M5 + Tau3

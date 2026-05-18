@@ -196,7 +196,7 @@ class MetricDefinition(_Base):
     )
 
     @model_validator(mode="after")
-    def _bounds_ordered(self) -> "MetricDefinition":
+    def _bounds_ordered(self) -> MetricDefinition:
         if self.lower_bound >= self.upper_bound:
             raise ValueError(
                 f"lower_bound={self.lower_bound} must be strictly less than "
@@ -205,7 +205,7 @@ class MetricDefinition(_Base):
         return self
 
     @model_validator(mode="after")
-    def _target_in_bounds(self) -> "MetricDefinition":
+    def _target_in_bounds(self) -> MetricDefinition:
         if not (self.lower_bound <= self.target_value <= self.upper_bound):
             raise ValueError(
                 f"target_value={self.target_value} must lie inside "
