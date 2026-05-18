@@ -93,6 +93,10 @@ class AuditKind(StrEnum):
     SCHEMA_MIGRATION = "schema-migration"
     DEPLOYMENT_CREATED = "deployment-created"
     DEPLOYMENT_UPDATED = "deployment-updated"
+    # Design-agent track (PLAN 9.1.4). One row per discovery Q/A and one
+    # row carrying the AmbiguityReport at WorkflowSpec finalization time.
+    DESIGN_AGENT_NEGOTIATION = "design-agent-negotiation"
+    DESIGN_AGENT_AMBIGUITY = "design-agent-ambiguity"
 
 
 # ---------------------------------------------------------------------------

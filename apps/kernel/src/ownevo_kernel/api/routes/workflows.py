@@ -30,13 +30,13 @@ from ..models import (
     FailureClusterList,
     FailureClusterSummary,
     GenerateEvalCasesResponse,
-    TryItRequest,
-    TryItResponse,
     IterationCaseRow,
     IterationDetailFull,
     IterationList,
     IterationPoint,
     RunIterationResponse,
+    TryItRequest,
+    TryItResponse,
     WorkflowAnatomy,
     WorkflowDeleteResponse,
     WorkflowList,
@@ -132,7 +132,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         """
         SELECT id, description, mode::text AS mode, kind, spec,
                simulation_plan, metric_definition,
-               created_from_template
+               created_from_template, design_agent_log
         FROM workflows
         WHERE id = $1
         """,
@@ -154,6 +154,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
         metric_definition=decode_jsonb_obj(row["metric_definition"]),
         created_from_template=row["created_from_template"],
+        design_agent_log=decode_jsonb_obj(row["design_agent_log"]),
     )
 
 
@@ -1092,9 +1093,9 @@ async def try_workflow_one_case(
     import os
 
     from ...eval_runner.agent_solver import (
-        AgentSolverError,
         DEFAULT_MAX_TOKENS,
         DEFAULT_MODEL,
+        AgentSolverError,
     )
     from ...eval_runner.try_runner import (
         EvalCaseNotFoundError,
@@ -1154,7 +1155,7 @@ async def try_workflow_one_case(
                 ),
                 timeout=_TRY_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail=(

@@ -80,7 +80,10 @@ CREATE TYPE audit_kind AS ENUM (
     'meta-eval-result',
     'schema-migration',
     'deployment-created',
-    'deployment-updated'
+    'deployment-updated',
+    -- Added in migration 0012_design_agent_log.sql
+    'design-agent-negotiation',
+    'design-agent-ambiguity'
 );
 
 -- =============================================================================
