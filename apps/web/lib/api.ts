@@ -363,6 +363,63 @@ export interface GenerateEvalCasesResponse {
   test_count: number
 }
 
+// ─── Try-it (PLAN 8.5.2) ─────────────────────────────────────────────
+
+export interface TryItRequest {
+  eval_case_id?: string
+  free_form_input?: string
+  /** Optional model override. Defaults to the kernel's DEFAULT_MODEL
+   * (claude-haiku-4-5 today). Local LLM ids accepted; cost falls
+   * through to 0 for unknown models. */
+  model?: string
+}
+
+/** One AgentEvent on the wire — minimal shape the Try-it trace pair
+ * actually populates. Matches packages/trace-format/AgentEvent for the
+ * `tool_call_start` and `tool_call_result` variants. */
+export interface TryItTraceEvent {
+  type: 'tool_call_start' | 'tool_call_result' | string
+  event_id: string
+  trace_id: string
+  iteration_id: string | null
+  timestamp: string
+  call_id?: string
+  name?: string
+  args?: Record<string, unknown>
+  status?: 'ok' | 'error'
+  duration_ms?: number
+  output?: Record<string, unknown>
+  error?: string | null
+  error_class?: string | null
+}
+
+export interface TryItResponse {
+  case_id: string
+  expected_value: unknown
+  actual_value: unknown
+  rationale: string
+  passed: boolean
+  model: string
+  duration_ms: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  trace: TryItTraceEvent[]
+}
+
+export async function tryWorkflow(
+  workflowId: string,
+  body: TryItRequest,
+): Promise<TryItResponse> {
+  return jsonFetch<TryItResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/try`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
 export async function generateEvalCases(
   workflowId: string,
 ): Promise<GenerateEvalCasesResponse> {

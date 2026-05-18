@@ -117,6 +117,8 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
 
       <Steps step="review" />
 
+      <ReviewTabs wsId={wsId} wfId={wfId} active="review" />
+
       {description ? (
         <section className="source-quote">
           <div className="source-quote-label">From you</div>
@@ -530,6 +532,36 @@ function SectionShell({
       </div>
       {children}
     </section>
+  )
+}
+
+// Tabs between the parity review and the new Try-it surface (PLAN
+// 8.5.2). Two-tab nav lives just below the step indicator so the
+// reviewer can dry-run a case without leaving the review flow.
+function ReviewTabs({
+  wsId,
+  wfId,
+  active,
+}: {
+  wsId: string
+  wfId: string
+  active: 'review' | 'try-it'
+}) {
+  return (
+    <div className="tabs" style={{ marginBottom: 20 }}>
+      <Link
+        href={`/workspaces/${wsId}/workflows/new/review/${wfId}`}
+        className={`tab${active === 'review' ? ' active' : ''}`}
+      >
+        Review generated
+      </Link>
+      <Link
+        href={`/workspaces/${wsId}/workflows/new/review/${wfId}/try-it`}
+        className={`tab${active === 'try-it' ? ' active' : ''}`}
+      >
+        Try it
+      </Link>
+    </div>
   )
 }
 

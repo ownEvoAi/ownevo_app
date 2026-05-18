@@ -990,6 +990,189 @@
   margin-top: 6px;
 }
 
+/* ---------------------------------------------------------------------
+   Try-it surface (PLAN 8.5.2). Three-panel grid: input · trace · output.
+   --------------------------------------------------------------------- */
+
+.try-it-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.try-it-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.try-it-picker-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.try-it-picker-select {
+  flex: 1;
+  min-width: 240px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.try-it-empty {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 22px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.try-it-empty-inline {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-style: italic;
+  margin: 0;
+}
+
+.try-it-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 920px) {
+  .try-it-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.try-it-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+}
+.try-it-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0;
+}
+
+/* Definition-list inside the input + output panels. */
+.try-it-input-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.try-it-input-dl dt {
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+.try-it-input-dl dd {
+  margin: 0;
+  color: var(--text);
+}
+.try-it-input-dl code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.try-it-source {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.try-it-source em {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* Trace panel — ordered list of AgentEvents, each with a pill +
+   tool name + optional error block. */
+.try-it-trace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.try-it-trace-evt {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.try-it-trace-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.try-it-trace-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.try-it-trace-name {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.try-it-trace-error {
+  font-size: 11.5px;
+  color: var(--red);
+  background: var(--red-soft);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+/* Output panel header — pass/fail pill + duration + cost. */
+.try-it-result-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.try-it-result-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.try-it-rationale {
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.try-it-rationale strong {
+  color: var(--text);
+}
+
 /* Bottom action row */
 .gen-action-row {
   display: flex;

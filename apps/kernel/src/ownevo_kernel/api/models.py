@@ -363,6 +363,54 @@ class GenerateEvalCasesResponse(_Strict):
     test_count: int
 
 
+class TryItRequest(BaseModel):
+    """Body for `POST /api/workflows/{id}/try` (PLAN 8.5.2).
+
+    Exactly one of `eval_case_id` or `free_form_input` is accepted.
+    First-cut supports `eval_case_id` only; `free_form_input` returns
+    400 with a "not yet supported" message — the agent-solver path
+    requires a full `GeneratedEvalCase` with a sim trajectory, which
+    free-form text can't synthesise without inventing a synthetic case.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    eval_case_id: UUID | None = None
+    free_form_input: str | None = Field(default=None, max_length=4096)
+    model: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Optional model override. Defaults to DEFAULT_MODEL in "
+            "eval_runner.agent_solver (claude-haiku-4-5 today). Local "
+            "LLM ids accepted; cost estimate falls through to 0.0 for "
+            "unknown models."
+        ),
+    )
+
+
+class TryItResponse(_Strict):
+    """Response from `POST /api/workflows/{id}/try`.
+
+    Mirrors `eval_runner.try_runner.TryItResult`. `trace` is a minimal
+    `[tool_call_start, tool_call_result]` pair around the predict_one
+    call; structure matches `packages/trace-format/AgentEvent` so the
+    web's trace renderer can consume it unchanged.
+    """
+
+    case_id: str
+    expected_value: Any
+    actual_value: Any
+    rationale: str
+    passed: bool
+    model: str
+    duration_ms: int
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    trace: list[dict[str, Any]]
+
+
 class WorkflowAnatomy(_Strict):
     """Full workflow detail backing the W7 slice 11 (7.1.12) anatomy pane.
 
