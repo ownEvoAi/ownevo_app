@@ -10,6 +10,8 @@
 // state; the next render must reflect it). For a polish pass with
 // SSE streaming this swaps for revalidation tags.
 
+import { cache } from 'react'
+
 const API_URL = process.env.OWNEVO_KERNEL_API_URL ?? 'http://localhost:8000'
 
 export type ProposalState =
@@ -276,19 +278,29 @@ export interface DesignAgentLogEntry {
   question_index: number
   kind: DiscoveryQuestionKind
   question: string
-  /** `null` records a skipped question — the design agent still
-   *  surfaces the row in the audit trail with skipped=true so the
-   *  compliance read is "did the agent ASK about X?", not just
-   *  "did the operator ANSWER X?". */
   answer: string | null
+}
+
+export type AmbiguityFindingKind = 'inferred-artifact' | 'conflict'
+export type AmbiguitySeverity = 'low' | 'medium' | 'high'
+
+export interface AmbiguityFinding {
+  kind: AmbiguityFindingKind
+  severity: AmbiguitySeverity
+  location: string
+  summary: string
+  suggested_question: string
+}
+
+export interface AmbiguityReport {
+  workflow_spec_id: string
+  findings: AmbiguityFinding[]
+  high_severity_count: number
 }
 
 export interface DesignAgentLog {
   discovery_transcript: DesignAgentLogEntry[]
-  /** The ambiguity report is wired through in a later patch. Today it
-   *  always rides as `null`. Kept on the shape so the server contract
-   *  stays stable when the web side starts populating it. */
-  ambiguity_report: null
+  ambiguity_report: AmbiguityReport | null
 }
 
 export async function fetchNextDiscoveryQuestion(
@@ -719,15 +731,21 @@ export interface WorkflowAnatomy {
   /** Vertical-template id the workflow was created from; null for free-form
    * authoring. Matches an entry in `app/.../workflows/new/templates.ts`. */
   created_from_template: string | null
+  /** Design-agent discovery transcript + ambiguity report; null when the
+   * workflow was authored without running the discovery interview. */
+  design_agent_log: DesignAgentLog | null
 }
 
-export async function getWorkflowAnatomy(
+// cache() deduplicates calls with the same workflowId within one render pass.
+// Both the workflow layout and the audit page call this; only one kernel
+// request fires per page load.
+export const getWorkflowAnatomy = cache(async (
   workflowId: string,
-): Promise<WorkflowAnatomy> {
+): Promise<WorkflowAnatomy> => {
   return jsonFetch<WorkflowAnatomy>(
     `/api/workflows/${encodeURIComponent(workflowId)}`,
   )
-}
+})
 
 export async function getWorkflowIterations(
   workflowId: string,
