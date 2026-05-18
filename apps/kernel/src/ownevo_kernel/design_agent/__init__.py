@@ -15,17 +15,17 @@ This package ships in slices:
 """
 
 from .prompts import (
+    GENERIC_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
     DiscoveryQuestionKind,
-    GENERIC_DISCOVERY_QUESTIONS,
     get_discovery_questions,
     known_template_ids,
 )
 
 __all__ = [
+    "GENERIC_DISCOVERY_QUESTIONS",
     "DiscoveryQuestion",
     "DiscoveryQuestionKind",
-    "GENERIC_DISCOVERY_QUESTIONS",
     "get_discovery_questions",
     "known_template_ids",
 ]

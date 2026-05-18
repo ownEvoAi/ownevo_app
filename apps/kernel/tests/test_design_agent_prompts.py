@@ -15,7 +15,6 @@ the matching web UX will rely on:
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 from ownevo_kernel.design_agent.prompts import (
     DISCOVERY_QUESTION_KINDS,
     GENERIC_DISCOVERY_QUESTIONS,
@@ -143,7 +142,9 @@ def test_design_agent_prompts_all_exports_are_importable() -> None:
     import ownevo_kernel.design_agent.prompts as pkg
 
     for name in pkg.__all__:
-        assert hasattr(pkg, name), f"design_agent.prompts.__all__ lists {name!r} but it is not an attribute"
+        assert hasattr(pkg, name), (
+            f"design_agent.prompts.__all__ lists {name!r} but it is not an attribute"
+        )
 
 
 @pytest.mark.parametrize(
