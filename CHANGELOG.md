@@ -23,9 +23,19 @@ fresh `[Unreleased]` block above it.
 - `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper
 - `created_from_template` surfaced on `GET /api/workflows/{id}` and `PATCH /api/workflows/{id}` responses
 - Template attribution badge on the new-workflow review page when `created_from_template` is set
+- ⌘↵ / Ctrl-↵ keyboard shortcuts: submit Generate from the `/workflows/new` textarea, and Confirm from anywhere on the review page. `.kbd-hint` chip with `<kbd>` keys renders next to both CTAs
+- ETA spinner on the Generate button — "Generating spec — ~30s" while the kernel runs `generate_workflow_spec` (the constant is sourced from local dogfooding p50; replace with a rolling avg from `iterations.duration_ms` when available)
+- Auto-advance on the new-workflow review page: 10-second countdown opens the workflow detail page unless the reviewer presses any key, scrolls, or clicks. Countdown only ticks while the tab is visible (Cmd+click into a background tab no longer auto-navigates), and ⌘↵ inside an `input`/`textarea`/`contenteditable` doesn't fire the global Confirm shortcut. A single `role="status"` `aria-live="polite"` sr-only region announces mount / cancel / advance — the per-tick countdown is `aria-hidden` to avoid 10 sequential screen-reader announcements
+- Journey-preview line on `/workflows/new`: "What happens next: describe (~1 min) → review (~10 s) → run iteration #1 (~30–90 s) → failures cluster, the loop proposes an edit, you approve"
+- `apps/web/.dockerignore` keeps host `node_modules`, `.next`, `.git`, `.env*`, and logs out of the prod build context — fixes intermittent post-deploy 500s and "cannot replace directory" BuildKit failures caused by host artifacts overlaying the in-container `npm ci` result
 
 ### Changed
 - `POST /api/nl-gen/generate` accepts optional `template_id` field (kebab slug, validated server-side)
+- Try-it CTA on the new-workflow review page uses the same auto-advance `ConfirmButton` as the main review tab — countdown / ⌘↵ / kbd-hint behaviour is consistent across both funnel paths
+
+### Removed
+- Sample-fixture chip row ("Or try a fixture: Contract review / Credit risk / Demand prediction") on `/workflows/new` — overlapped with the vertical template cards above it (Credit risk × 2, etc.)
+- Orphaned web-side preview helpers in `apps/web/lib/api.ts`: `listPreviewWorkflows`, `getPreview`, `PreviewIndex`, `PreviewResponse`, `MetaEvalJudgment` and friends. The kernel `/api/nl-gen/preview*` surface is unchanged; only the unused TS wrappers were removed
 
 ## [0.8.0] — 2026-05-14
 

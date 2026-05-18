@@ -7,6 +7,7 @@ import {
   listWorkflowEvalCases,
   type WorkflowAnatomy,
 } from '@/lib/api'
+import { ConfirmButton } from '../confirm-button'
 import { ReviseButton } from '../revise-button'
 import { TryItForm } from './try-it-form'
 
@@ -77,13 +78,11 @@ export default async function TryItPage({ params }: PageProps) {
 
       <div className="gen-action-row">
         <ReviseButton wsId={wsId} wfId={wfId} />
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Link href={reviewHref} className="btn btn-secondary">
             ‹ Back to review
           </Link>
-          <Link href={continueHref} className="btn btn-primary">
-            Looks good · open workflow ›
-          </Link>
+          <ConfirmButton continueHref={continueHref} />
         </div>
       </div>
     </div>
