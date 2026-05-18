@@ -68,6 +68,11 @@ async def list_audit(
     so the UI can render "showing 200 of 412 entries" with a "load
     earlier" cue.
     """
+    # TODO: export_audit_log fetches all rows before Python-side filtering.
+    # At large log volumes this will OOM / timeout. Fix: push workflow_id
+    # and payload->>'workflow_id' predicates into SQL with an expression
+    # index on (payload->>'workflow_id'). Tracked for TODO-18 keyset
+    # pagination work.
     try:
         entries = await export_audit_log(conn, since_seq=since_seq, kind=kind)
     except (ValueError, asyncpg.exceptions.InvalidTextRepresentationError) as exc:

@@ -151,7 +151,7 @@ async def test_list_audit_workflow_id_matches_payload_workflow_id(
     "No audit entries for this workflow yet" even though the kernel
     had persisted them.
     """
-    workflow_id = "test-wf-payload-filter"
+    workflow_id = str(uuid4())
     # design-agent rows: NULL related_id, workflow id in payload.
     await _seed_entry(
         db,
@@ -181,8 +181,56 @@ async def test_list_audit_workflow_id_matches_payload_workflow_id(
     body = res.json()
     kinds = sorted(item["kind"] for item in body["items"])
     assert kinds == ["design-agent-ambiguity", "design-agent-negotiation"]
+    assert body["total"] == 2
+    assert body["truncated"] is False
     for item in body["items"]:
         assert item["payload"]["workflow_id"] == workflow_id
+
+
+async def test_list_audit_workflow_id_matches_related_id(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """`?workflow_id=` must surface rows whose related_id ties to a
+    failure_cluster anchored to that workflow.
+
+    Regression guard for the UNION ALL query in audit.py that resolves
+    workflow-affiliated related_ids through iterations / proposals /
+    failure_clusters.
+    """
+    wf_id = str(uuid4())
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) VALUES ($1, $2, '{}'::jsonb)",
+        wf_id,
+        f"Test workflow {wf_id}",
+    )
+    cluster_id = await db.fetchval(
+        "INSERT INTO failure_clusters (workflow_id, label, severity, cluster_size) "
+        "VALUES ($1, 'test label', 'low', 1) RETURNING id",
+        wf_id,
+    )
+    await _seed_entry(
+        db,
+        kind="cluster-created",
+        actor="system",
+        related_id=cluster_id,
+        payload={"note": "cluster anchor"},
+    )
+    # Decoy: unrelated workflow_id in payload, no related_id
+    await _seed_entry(
+        db,
+        kind="cluster-created",
+        actor="system",
+        related_id=None,
+        payload={"workflow_id": "other-wf"},
+    )
+
+    res = await api_client.get(f"/api/audit?workflow_id={wf_id}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 1
+    assert body["truncated"] is False
+    assert body["items"][0]["kind"] == "cluster-created"
+    assert body["items"][0]["related_id"] == str(cluster_id)
 
 
 # ---------------------------------------------------------------------------
