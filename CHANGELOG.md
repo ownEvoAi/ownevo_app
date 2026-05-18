@@ -17,6 +17,13 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-17
+
+Cold-start UX polish on the new-workflow funnel (templates → ⌘↵ → ETA
+spinner → auto-advance review), τ³ LLM judge (condition C), and a small
+batch of hardening fixes (`SkillValidationError` schema crash,
+`apps/web/.dockerignore` prod build).
+
 ### Added
 - **τ³ LLM judge (condition C).** `--llm-judge` flag on `run_tau3_loop.py` and `OWNEVO_TAU3_LLM_JUDGE=1` env var on `tau3_local_loop.sh`: every gate-passing proposal is sent to `claude-opus-4-7` before approval. Admitted → `approved-awaiting-deploy`; rejected → `rejected` with the judge's rationale in the audit trail. Judge endpoint is configurable (`--llm-judge-base-url` / `--llm-judge-model` / `--llm-judge-api-key`) so the judge can run against a local LMS endpoint without an Anthropic API key. Judge API failures fall back to `reject_proposal` with the error as rationale rather than aborting the loop series.
 - **`make tau3-replay`.** Reproduces the B-LOCAL winning config: 5 cycles of `qwen3.6-35b-a3b` LMS as proposer + task agent + user sim (`OWNEVO_TAU3_CYCLES` overrides the default of 5).
