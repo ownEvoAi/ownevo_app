@@ -27,16 +27,24 @@ from pydantic import BaseModel, ConfigDict, Field
 from ...design_agent.prompts import (
     DiscoveryQuestionKind,
     get_discovery_questions,
+    known_template_ids,
 )
 
 router = APIRouter(prefix="/api/design-agent", tags=["design-agent"])
 
 _DESCRIPTION_MAX_LEN = 4096
 _ANSWER_MAX_LEN = 2048
-# Each shipped template has 2 questions today; cap well above that so the
-# request stays bounded but a future template with more questions doesn't
-# need a code change here.
 _MAX_PRIOR_ANSWERS = 32
+# Guard: if any template grows beyond _MAX_PRIOR_ANSWERS questions, a
+# client can never complete that interview (the prior_answers list would
+# exceed max_length before all indices are covered). Catch at startup.
+assert all(
+    len(get_discovery_questions(tid)) <= _MAX_PRIOR_ANSWERS
+    for tid in known_template_ids()
+), (
+    f"_MAX_PRIOR_ANSWERS={_MAX_PRIOR_ANSWERS} is smaller than the largest "
+    "template's question count — raise the cap or reduce the template."
+)
 
 
 class PriorAnswer(BaseModel):
@@ -54,8 +62,8 @@ class PriorAnswer(BaseModel):
 class NextQuestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(min_length=1, max_length=_DESCRIPTION_MAX_LEN)
-    template_id: str | None = None
+    description: str = Field(min_length=50, max_length=_DESCRIPTION_MAX_LEN)
+    template_id: str | None = Field(default=None, max_length=64)
     prior_answers: list[PriorAnswer] = Field(
         default_factory=list,
         max_length=_MAX_PRIOR_ANSWERS,
@@ -84,7 +92,7 @@ class NextQuestionResponse(BaseModel):
 @router.post(
     "/next-question",
     response_model=NextQuestionResponse,
-    response_model_exclude_none=False,
+    response_model_exclude_none=True,
 )
 def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
     questions = get_discovery_questions(req.template_id)
@@ -94,7 +102,7 @@ def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
     for pa in req.prior_answers:
         if pa.question_index >= total:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"prior_answers.question_index={pa.question_index} is out "
                     f"of range for template_id={req.template_id!r} "

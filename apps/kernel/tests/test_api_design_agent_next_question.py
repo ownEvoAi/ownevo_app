@@ -92,9 +92,10 @@ async def test_walk_to_done_returns_done_true(client: httpx.AsyncClient) -> None
             "prior_answers": prior,
         },
     )
+    assert resp.status_code == 200
     body = resp.json()
     assert body["done"] is True
-    assert body["next_question"] is None
+    assert "next_question" not in body  # excluded by response_model_exclude_none=True
     assert body["answered_count"] == len(questions)
 
 
@@ -166,7 +167,7 @@ async def test_out_of_range_question_index_returns_422(
             "prior_answers": [{"question_index": total + 5, "answer": "x"}],
         },
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 400
     assert "out of range" in resp.json()["detail"]
 
 
@@ -227,3 +228,75 @@ async def test_answered_count_does_not_overflow_total(
     # The set-based dedup means we report 1 answered, not 2.
     assert body["answered_count"] == 1
     assert body["next_question"]["question_index"] == 1
+
+
+async def test_too_many_prior_answers_rejected(client: httpx.AsyncClient) -> None:
+    """prior_answers list exceeding _MAX_PRIOR_ANSWERS=32 should return 422."""
+    questions = get_discovery_questions(_RETAIL)
+    prior = [{"question_index": i % len(questions), "answer": "x"} for i in range(33)]
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={"description": _DESC, "template_id": _RETAIL, "prior_answers": prior},
+    )
+    assert resp.status_code == 422
+
+
+async def test_description_at_max_length_accepted(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={"description": "x" * 4096, "template_id": None, "prior_answers": []},
+    )
+    assert resp.status_code == 200
+
+
+async def test_description_over_max_length_rejected(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={"description": "x" * 4097, "template_id": None, "prior_answers": []},
+    )
+    assert resp.status_code == 422
+
+
+async def test_oversized_answer_rejected(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={
+            "description": _DESC,
+            "template_id": _RETAIL,
+            "prior_answers": [{"question_index": 0, "answer": "a" * 2049}],
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("template_id", [None, _RETAIL, "not-real"])
+async def test_out_of_range_index_returns_400_for_any_template(
+    client: httpx.AsyncClient, template_id: str | None
+) -> None:
+    total = len(get_discovery_questions(template_id))
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={
+            "description": _DESC,
+            "template_id": template_id,
+            "prior_answers": [{"question_index": total, "answer": "x"}],
+        },
+    )
+    assert resp.status_code == 400
+
+
+async def test_out_of_order_prior_answers_fills_gap_at_lowest_index(
+    client: httpx.AsyncClient,
+) -> None:
+    """Answering a later question first must not skip unanswered earlier ones."""
+    resp = await client.post(
+        "/api/design-agent/next-question",
+        json={
+            "description": _DESC,
+            "template_id": _RETAIL,
+            "prior_answers": [{"question_index": 1, "answer": "Slow-sell risk"}],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["next_question"]["question_index"] == 0
