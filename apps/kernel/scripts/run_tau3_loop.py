@@ -31,9 +31,11 @@ trivially passes (no prior eval suite, no best to beat); from run 2
 onward the gate enforces improvement. ``persist_gate_run`` reads
 ``MAX(best_ever_score_after)`` from the iterations table.
 
-LLM-judge approval gate (condition C) is **not** wired in this iteration
-— that's M9's follow-up scope. The loop here just runs autonomous
-(condition B), letting any gate-pass advance.
+LLM-judge approval gate (condition C) is wired via ``--llm-judge``.
+When engaged, every gate-passing proposal is sent to claude-opus-4-7
+on Anthropic cloud; admitted → ``approved-awaiting-deploy``, rejected →
+``rejected`` with the judge's rationale in the audit trail. Without
+``--llm-judge`` the loop runs autonomous (condition B).
 """
 
 from __future__ import annotations
@@ -59,7 +61,11 @@ if str(_KERNEL_ROOT) not in sys.path:
 from ownevo_kernel.benchmark.tau3 import (  # noqa: E402
     SandboxedTauBenchRunner,
 )
+from ownevo_kernel.approvals.service import approve_proposal, reject_proposal  # noqa: E402
+from ownevo_kernel.approvers.llm_judge.fixtures import LabeledApprovalCase  # noqa: E402
+from ownevo_kernel.approvers.llm_judge.judge import judge_proposal_explanation  # noqa: E402
 from ownevo_kernel.gate import persist_gate_run  # noqa: E402
+from ownevo_kernel.types import ApproverType  # noqa: E402
 from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
     KernelContext,
     run_agent_turn,
@@ -202,6 +208,10 @@ class CliArgs:
     ollama_num_ctx: int | None
     max_iterations: int
     seed_first: bool
+    llm_judge: bool
+    llm_judge_model: str
+    llm_judge_base_url: str | None
+    llm_judge_api_key: str
 
 
 def parse_args(argv: list[str]) -> CliArgs:
@@ -248,6 +258,33 @@ def parse_args(argv: list[str]) -> CliArgs:
                              "(write_skill / read_skill / analyze_failures).")
     parser.add_argument("--no-seed", action="store_false", dest="seed_first",
                         default=True)
+    parser.add_argument(
+        "--llm-judge",
+        action="store_true",
+        default=False,
+        help="Condition C: gate-passing proposals go through the LLM judge "
+             "before approval. Admitted → approved-awaiting-deploy; "
+             "rejected → rejected with rationale. rc=0 either way.",
+    )
+    parser.add_argument(
+        "--llm-judge-model",
+        default="claude-opus-4-7",
+        help="Model id for the LLM judge (default: claude-opus-4-7). "
+             "Override to a local model id when using --llm-judge-base-url.",
+    )
+    parser.add_argument(
+        "--llm-judge-base-url",
+        default=None,
+        help="Base URL for the judge's Anthropic-compat endpoint. "
+             "Default: Anthropic cloud (https://api.anthropic.com). "
+             "Set to e.g. http://192.168.1.50:1234 to use LMS as judge.",
+    )
+    parser.add_argument(
+        "--llm-judge-api-key",
+        default=None,
+        help="API key for the judge endpoint. Defaults to ANTHROPIC_API_KEY "
+             "env var. Use 'lm-studio' or any non-empty string for local endpoints.",
+    )
 
     ns = parser.parse_args(argv)
     base_url = ns.llm_base_url or (
@@ -272,6 +309,13 @@ def parse_args(argv: list[str]) -> CliArgs:
         ollama_num_ctx=ns.ollama_num_ctx,
         max_iterations=ns.max_iterations,
         seed_first=ns.seed_first,
+        llm_judge=ns.llm_judge,
+        llm_judge_model=ns.llm_judge_model,
+        llm_judge_base_url=ns.llm_judge_base_url,
+        llm_judge_api_key=(
+            ns.llm_judge_api_key
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        ),
     )
 
 
@@ -767,6 +811,81 @@ async def main_async(args: CliArgs) -> int:
             stderr_tail = (pr.raw_stderr or "")[-2000:]
             if stderr_tail:
                 print(f"  pipeline_stderr_tail={stderr_tail!r}")
+
+        if args.llm_judge and gr.decision.name == "PASS":
+            import anthropic as _anthropic  # noqa: PLC0415
+            # Default: Anthropic cloud (bypasses local ANTHROPIC_API_BASE).
+            # Override with --llm-judge-base-url for local LMS judge.
+            _judge_base_url = args.llm_judge_base_url or "https://api.anthropic.com"
+            _judge_client = _anthropic.AsyncAnthropic(
+                api_key=args.llm_judge_api_key,
+                base_url=_judge_base_url,
+            )
+            print(
+                f"judge-client: model={args.llm_judge_model} "
+                f"base_url={_judge_base_url}",
+            )
+            _plain_summary = (
+                proposal.diff_summary
+                or agent_result.final_text[:_MAX_SUMMARY_CHARS]
+                or f"agent-proposed change to {proposal.skill_id}"
+            )
+            _case = LabeledApprovalCase(
+                case_id=str(persisted.proposal.id),
+                proposal_summary=proposal.diff_summary or f"Updated {proposal.skill_id}",
+                cluster_name="tau3 retail task-completion failures",
+                metric_direction_expected="up",
+                explanation=_plain_summary,
+                ground_truth_verdict="admit",  # not used by judge; required by dataclass
+                bucket="structural",           # not used by judge; required by dataclass
+            )
+            try:
+                _judgment = await judge_proposal_explanation(
+                    _judge_client, _case, model=args.llm_judge_model,
+                )
+            except Exception as _judge_exc:
+                # Judge API failure (network, auth, malformed response) must not abort the
+                # loop series — tau3_local_loop.sh treats any non-zero rc as "stopping series".
+                # Safe fallback: reject so the proposal doesn't sit in gate-passed limbo.
+                print(
+                    f"judge: error — {_judge_exc!r}; rejecting proposal as safe fallback",
+                    file=sys.stderr,
+                )
+                await reject_proposal(
+                    conn,
+                    proposal_id=persisted.proposal.id,
+                    decided_by="llm-judge",
+                    approver_type=ApproverType.LLM_JUDGE,
+                    comment=f"judge error: {_judge_exc}",
+                )
+            else:
+                print(
+                    f"\njudge: verdict={_judgment.verdict} "
+                    f"rationale={_judgment.rationale!r}",
+                )
+                if _judgment.verdict == "admit":
+                    await approve_proposal(
+                        conn,
+                        proposal_id=persisted.proposal.id,
+                        decided_by="llm-judge",
+                        approver_type=ApproverType.LLM_JUDGE,
+                        comment=_judgment.rationale,
+                    )
+                    print("judge: proposal admitted → approved-awaiting-deploy")
+                else:
+                    await reject_proposal(
+                        conn,
+                        proposal_id=persisted.proposal.id,
+                        decided_by="llm-judge",
+                        approver_type=ApproverType.LLM_JUDGE,
+                        comment=_judgment.rationale,
+                    )
+                    print(
+                        "judge: proposal rejected — gate-blocked (val_score recorded, "
+                        "deploy blocked)",
+                        file=sys.stderr,
+                    )
+
         return 0
     finally:
         await conn.close()

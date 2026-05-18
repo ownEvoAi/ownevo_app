@@ -30,6 +30,11 @@
 #   OWNEVO_TAU3_LOGDIR  log directory (default <repo>/log/tau3_p2 — survives reboot)
 #   OWNEVO_TAU3_CYCLES  number of cycles (default 10)
 #   OWNEVO_TAU3_CONCURRENCY  override per-preset default (LMS=4, Ollama=2)
+#   OWNEVO_TAU3_LLM_JUDGE=1        enable condition C: gate-pass → LLM-judge
+#   OWNEVO_TAU3_JUDGE_MODEL         judge model id (default: claude-opus-4-7)
+#   OWNEVO_TAU3_JUDGE_BASE_URL      judge endpoint (default: Anthropic cloud)
+#                                   set to http://$OWNEVO_LLM_HOST:1234 to use LMS
+#   OWNEVO_TAU3_JUDGE_API_KEY       judge API key (default: ANTHROPIC_API_KEY env)
 #
 # Model-swap hooks (for proposer+task models that can't co-reside in VRAM):
 #   OWNEVO_TAU3_SWAP_PROPOSER       LMS id loaded for proposer phase (e.g. "qwen/qwen3-30b-a3b-2507")
@@ -191,6 +196,17 @@ for i in $(seq 1 "$N_CYCLES"); do
     log="$LOGDIR/${WORKFLOW_TAG}_p2_cycle${i}.log"
     echo "=== [$ts] $WORKFLOW_TAG P2 cycle $i/$N_CYCLES ===" | tee -a "$MASTER"
 
+    LLM_JUDGE_FLAGS=()
+    if [[ "${OWNEVO_TAU3_LLM_JUDGE:-0}" == "1" ]]; then
+        LLM_JUDGE_FLAGS+=(--llm-judge)
+        [[ -n "${OWNEVO_TAU3_JUDGE_MODEL:-}" ]] && \
+            LLM_JUDGE_FLAGS+=(--llm-judge-model "${OWNEVO_TAU3_JUDGE_MODEL}")
+        [[ -n "${OWNEVO_TAU3_JUDGE_BASE_URL:-}" ]] && \
+            LLM_JUDGE_FLAGS+=(--llm-judge-base-url "${OWNEVO_TAU3_JUDGE_BASE_URL}")
+        [[ -n "${OWNEVO_TAU3_JUDGE_API_KEY:-}" ]] && \
+            LLM_JUDGE_FLAGS+=(--llm-judge-api-key "${OWNEVO_TAU3_JUDGE_API_KEY}")
+    fi
+
     uv run --extra agent python scripts/run_tau3_loop.py \
         --workflow-id "$WORKFLOW_ID" \
         --api-format "$API_FORMAT" \
@@ -200,13 +216,16 @@ for i in $(seq 1 "$N_CYCLES"); do
         --task-user-model "$TASK_USER_MODEL" \
         --task-concurrency "$CONCURRENCY" \
         --task-timeout-seconds "$TASK_TIMEOUT" \
+        "${LLM_JUDGE_FLAGS[@]}" \
         > "$log" 2>&1
     rc=$?
 
     ts_end=$(date -u +%FT%TZ)
     val=$(grep -o 'val_score=[0-9.]*' "$log" | tail -1 | cut -d= -f2)
     decision=$(grep -o 'decision=[A-Z_]*' "$log" | tail -1 | cut -d= -f2)
-    echo "=== [$ts_end] cycle $i rc=$rc val_score=${val:-?} decision=${decision:-?}" \
+    judge=$(grep -o 'verdict=[a-z]*' "$log" | tail -1 | cut -d= -f2)
+    judge_str="${judge:+ judge=${judge}}"
+    echo "=== [$ts_end] cycle $i rc=$rc val_score=${val:-?} decision=${decision:-?}${judge_str}" \
         | tee -a "$MASTER"
 
     if [[ $rc -ne 0 ]]; then
