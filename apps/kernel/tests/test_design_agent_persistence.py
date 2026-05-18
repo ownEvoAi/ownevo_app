@@ -181,6 +181,17 @@ async def test_persists_actor_string(db: asyncpg.Connection) -> None:
     assert actor == "custom-actor"
 
 
+async def test_raises_if_workflow_id_missing(db: asyncpg.Connection) -> None:
+    """persist_design_agent_log must raise ValueError when workflow row not found."""
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="not found"):
+        await persist_design_agent_log(
+            db,
+            workflow_id="nonexistent-workflow-id",
+            log=DesignAgentLog(),
+        )
+
+
 async def test_default_actor_is_design_agent(db: asyncpg.Connection) -> None:
     wf_id = "design-agent-log-default-actor"
     await _seed_workflow(db, wf_id)

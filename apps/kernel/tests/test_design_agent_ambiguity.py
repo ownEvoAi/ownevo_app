@@ -82,6 +82,13 @@ def test_inferred_scan_walks_every_artifact_class() -> None:
     assert "reviewer" in locations
 
 
+def test_inferred_scan_ignores_artifact_with_null_provenance() -> None:
+    """provenance=None means NL-gen recorded no provenance at all.
+    The scan's `is not None` guard must not treat it as inferred."""
+    spec = _build_minimal_spec(provenance_kind=None, reviewer_kind=None)
+    assert find_inferred_artifacts(spec) == ()
+
+
 # ---------------------------------------------------------------------------
 # Pass B — description / metric conflict scan
 # ---------------------------------------------------------------------------
@@ -117,6 +124,51 @@ def test_benign_description_produces_no_conflicts() -> None:
         "Flag SKUs likely to need markdown. The category planner reviews flags weekly."
     )
     assert findings == ()
+
+
+def test_precision_only_does_not_flag_conflict() -> None:
+    """A description with only a precision ask (no recall ask) must not fire."""
+    findings = find_description_conflicts(
+        "Only flag confirmed markdown candidates. Zero false positives across all SKUs."
+    )
+    assert findings == (), (
+        "precision-only description should not produce a conflict; got: "
+        + str([f.summary for f in findings])
+    )
+
+
+def test_recall_only_does_not_flag_conflict() -> None:
+    """A description with only a recall ask (no precision ask) must not fire."""
+    findings = find_description_conflicts(
+        "Maximize recall — never miss a true markdown candidate."
+    )
+    assert findings == (), (
+        "recall-only description should not produce a conflict; got: "
+        + str([f.summary for f in findings])
+    )
+
+
+def test_find_description_conflicts_takes_only_description() -> None:
+    """Regression guard: metric_definition was removed as a dead parameter."""
+    import inspect
+    sig = inspect.signature(find_description_conflicts)
+    assert list(sig.parameters.keys()) == ["description"]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "The prompt must stay the same.",
+        "Never modify the agent.",
+        "Don't alter the model under any circumstances.",
+        "You must not touch the agent.",
+    ],
+)
+def test_no_change_patterns_canonical_phrasings(description: str) -> None:
+    findings = find_description_conflicts(description)
+    assert any(f.kind == "conflict" for f in findings), (
+        f"no-change description {description!r} did not produce a conflict finding"
+    )
 
 
 @pytest.mark.parametrize(
@@ -195,6 +247,23 @@ def test_analyze_workflow_combines_every_pass() -> None:
     )
 
 
+def test_analyze_workflow_returns_empty_report_for_clean_spec() -> None:
+    """Fully-derived spec + benign description + no metric → zero findings."""
+    spec = _build_minimal_spec(provenance_kind="derived")
+    report = analyze_workflow(
+        description=(
+            "Forecast weekly demand at SKU-store level for the next four weeks. "
+            "Flag SKUs likely to need markdown. The category planner reviews flags weekly."
+        ),
+        spec=spec,
+        metric_definition=None,
+    )
+    assert report.findings == (), (
+        f"expected no findings for a clean spec; got: {[f.summary for f in report.findings]}"
+    )
+    assert report.workflow_spec_id == spec.id
+
+
 def test_analyze_workflow_on_credit_risk_fixture_runs_clean() -> None:
     """The packaged credit-risk fixture is hand-authored to be
     self-consistent. Sanity check that the scan does not invent
@@ -240,18 +309,22 @@ def test_finding_round_trips_through_json() -> None:
 
 def _build_minimal_spec(
     *,
-    provenance_kind: str,
+    provenance_kind: str | None,
     reviewer_kind: str | None = None,
     direction: str = "maximize",
 ) -> WorkflowSpec:
     """Hand-rolled WorkflowSpec for unit-test scenarios.
 
     `provenance_kind` sets the kind for every non-reviewer artifact
-    (tool / persona / data source / env generator). `reviewer_kind`
-    independently sets the reviewer's provenance kind; `None` means no
-    provenance recorded for the reviewer.
+    (tool / persona / data source / env generator). `None` means no
+    provenance recorded (provenance=None on the artifact).
+    `reviewer_kind` independently sets the reviewer's provenance kind.
     """
-    prov = Provenance(kind=provenance_kind, source="domain pattern")  # type: ignore[arg-type]
+    prov = (
+        Provenance(kind=provenance_kind, source="domain pattern")  # type: ignore[arg-type]
+        if provenance_kind is not None
+        else None
+    )
     reviewer_prov = (
         Provenance(kind=reviewer_kind, source="domain pattern")  # type: ignore[arg-type]
         if reviewer_kind is not None

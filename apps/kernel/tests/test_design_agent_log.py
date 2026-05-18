@@ -150,3 +150,69 @@ def test_load_design_agent_log_handles_bytes() -> None:
     log = DesignAgentLog()
     parsed = load_design_agent_log(log.model_dump_json().encode("utf-8"))
     assert parsed == log
+
+
+def test_log_entry_rejects_oversized_question() -> None:
+    with pytest.raises(ValidationError):
+        DesignAgentLogEntry(question_index=0, kind="metric", question="x" * 4097)
+
+
+def test_log_entry_rejects_oversized_answer() -> None:
+    with pytest.raises(ValidationError):
+        DesignAgentLogEntry(
+            question_index=0, kind="metric", question="Q?", answer="a" * 4097
+        )
+
+
+def test_design_agent_log_rejects_transcript_over_max_items() -> None:
+    entries = tuple(
+        DesignAgentLogEntry(question_index=i, kind="metric", question="Q?")
+        for i in range(21)
+    )
+    with pytest.raises(ValidationError):
+        DesignAgentLog(discovery_transcript=entries)
+
+
+def test_ambiguity_report_high_severity_count_in_json() -> None:
+    """high_severity_count must appear in model_dump_json and be correct."""
+    report = AmbiguityReport(
+        workflow_spec_id="test",
+        findings=(
+            AmbiguityFinding(
+                kind="conflict",
+                severity="high",
+                location="description",
+                summary="x",
+                suggested_question="y?",
+            ),
+            AmbiguityFinding(
+                kind="conflict",
+                severity="medium",
+                location="description",
+                summary="z",
+                suggested_question="w?",
+            ),
+        ),
+    )
+    data = report.model_dump()
+    assert "high_severity_count" in data
+    assert data["high_severity_count"] == 1
+
+
+def test_ambiguity_report_high_severity_count_round_trips() -> None:
+    """Round-trip through JSON must preserve high_severity_count (model_validator fix)."""
+    report = AmbiguityReport(
+        workflow_spec_id="rt-test",
+        findings=(
+            AmbiguityFinding(
+                kind="inferred-artifact",
+                severity="high",
+                location="reviewer",
+                summary="x",
+                suggested_question="y?",
+            ),
+        ),
+    )
+    rt = AmbiguityReport.model_validate_json(report.model_dump_json())
+    assert rt.high_severity_count == 1
+    assert rt == report

@@ -26,13 +26,16 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..nl_gen.metric_def import MetricDefinition
 from ..nl_gen.spec import WorkflowSpec
 
 AmbiguityKind = Literal["inferred-artifact", "conflict"]
 AmbiguitySeverity = Literal["low", "medium", "high"]
+
+# Stable severity ordering for sort — high first.
+_SEVERITY_RANK: dict[AmbiguitySeverity, int] = {"high": 0, "medium": 1, "low": 2}
 
 
 class AmbiguityFinding(BaseModel):
@@ -72,10 +75,16 @@ class AmbiguityReport(BaseModel):
 
     workflow_spec_id: str = Field(min_length=1)
     findings: tuple[AmbiguityFinding, ...] = Field(default_factory=tuple)
+    high_severity_count: int = Field(default=0, init=False)
 
-    @property
-    def high_severity_count(self) -> int:
-        return sum(1 for f in self.findings if f.severity == "high")
+    @model_validator(mode="after")
+    def _compute_high_severity_count(self) -> "AmbiguityReport":
+        object.__setattr__(
+            self,
+            "high_severity_count",
+            sum(1 for f in self.findings if f.severity == "high"),
+        )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -214,9 +223,9 @@ def find_inferred_artifacts(spec: WorkflowSpec) -> tuple[AmbiguityFinding, ...]:
 # explicit trade-off.
 _HARD_RECALL_PATTERNS = (
     r"\bmax(imi[sz]e)?\s+recall\b",
-    r"\b(no|zero|0)\s+(missed|misses|misclassif|false\s+negatives)\b",
+    r"\b(no|zero|0)\s+(false\s+negatives|missed\s+(cases?|positives?|detections?|classifications?|events?))\b",
     r"\b(never\s+miss(es|ed)?\s+a)\b",
-    r"\bcatch\s+every\b",
+    r"\bcatch\s+every\s+(\w+\s+)?(case|fraud|default|incident|transaction|alert|event|miss|positives?|negatives?)\b",
 )
 
 # Phrasings that name a hard-precision ask: "do not bother the operator
@@ -224,14 +233,16 @@ _HARD_RECALL_PATTERNS = (
 _HARD_PRECISION_PATTERNS = (
     r"\bmax(imi[sz]e)?\s+precision\b",
     r"\b(no|zero|0)\s+(false\s+positives|false\s+alarms|wrong\s+flags)\b",
-    r"\bonly\s+flag\s+(real|true|confirmed)\b",
+    # Negative lookahead prevents matching "only flag real-time" (hyphenated compound).
+    r"\bonly\s+flag\s+(real|true|confirmed)(?!-)\b",
 )
 
 # "Don't change the model" vs "maximize the score" is the second canonical
 # contradiction — the loop's whole pitch is changing the model.
 _NO_CHANGE_PATTERNS = (
-    r"\b(do\s+not|don'?t|never)\s+(change|modify|alter|edit|touch)\s+the\s+(model|prompt|agent)\b",
-    r"\bmust\s+stay\s+the\s+same\b",
+    r"\b(do\s+not|don'?t|never|must\s+not)\s+(change|modify|alter|edit|touch)\s+the\s+(model|prompt|agent)\b",
+    # Anchor to model/prompt/agent to avoid firing on schema/format stability constraints.
+    r"\b(the\s+)?(model|prompt|agent|instructions?)\s+must\s+stay\s+the\s+same\b",
 )
 
 
@@ -245,7 +256,6 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> str | None:
 
 def find_description_conflicts(
     description: str,
-    metric_definition: MetricDefinition | None = None,
 ) -> tuple[AmbiguityFinding, ...]:
     """Run the rule-based conflict scan over the description text.
 
@@ -355,14 +365,10 @@ def analyze_workflow(
     """
     findings: list[AmbiguityFinding] = []
     findings.extend(find_inferred_artifacts(spec))
-    findings.extend(find_description_conflicts(description, metric_definition))
+    findings.extend(find_description_conflicts(description))
     findings.extend(find_metric_direction_conflicts(spec, metric_definition))
 
-    # Stable sort by severity (high → medium → low) so the UI shows the
-    # most actionable findings first. Within a severity bucket, preserve
-    # walk order from the passes.
-    severity_rank = {"high": 0, "medium": 1, "low": 2}
-    findings.sort(key=lambda f: severity_rank[f.severity])
+    findings.sort(key=lambda f: _SEVERITY_RANK[f.severity])
 
     return AmbiguityReport(
         workflow_spec_id=spec.id,
@@ -370,13 +376,3 @@ def analyze_workflow(
     )
 
 
-__all__ = [
-    "AmbiguityFinding",
-    "AmbiguityKind",
-    "AmbiguityReport",
-    "AmbiguitySeverity",
-    "analyze_workflow",
-    "find_description_conflicts",
-    "find_inferred_artifacts",
-    "find_metric_direction_conflicts",
-]

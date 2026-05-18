@@ -50,9 +50,10 @@ class DesignAgentLogEntry(BaseModel):
 
     question_index: int = Field(ge=0)
     kind: DiscoveryQuestionKind
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=4096)
     answer: str | None = Field(
         default=None,
+        max_length=4096,
         description=(
             "Operator's response. `null` means the operator skipped the "
             "question — the design agent records the skip so a future "
@@ -66,7 +67,10 @@ class DesignAgentLog(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    discovery_transcript: tuple[DesignAgentLogEntry, ...] = Field(default_factory=tuple)
+    discovery_transcript: tuple[DesignAgentLogEntry, ...] = Field(
+        default_factory=tuple,
+        max_length=20,
+    )
     ambiguity_report: AmbiguityReport | None = None
 
 
@@ -92,7 +96,7 @@ async def persist_design_agent_log(
     transaction that just INSERTed the workflows row. Atomicity of the
     workflow-row write + log writes is the caller's responsibility.
     """
-    await conn.execute(
+    status = await conn.execute(
         """
         UPDATE workflows
            SET design_agent_log = $1::jsonb
@@ -101,6 +105,8 @@ async def persist_design_agent_log(
         log.model_dump_json(),
         workflow_id,
     )
+    if status == "UPDATE 0":
+        raise ValueError(f"workflow {workflow_id!r} not found; design_agent_log not written")
 
     for entry in log.discovery_transcript:
         await append_audit_entry(
