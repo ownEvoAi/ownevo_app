@@ -137,6 +137,54 @@ async def test_list_audit_rejects_zero_limit(api_client: httpx.AsyncClient):
     assert res.status_code == 422
 
 
+async def test_list_audit_workflow_id_matches_payload_workflow_id(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """`?workflow_id=` must surface rows that carry the workflow id in
+    `payload.workflow_id` even when `related_id` is NULL.
+
+    Regression test: design-agent-negotiation / design-agent-ambiguity
+    rows (slice 9.1.4) write the workflow id into `payload` rather than
+    anchoring through iterations/proposals/clusters. Without this
+    branch in the filter the per-workflow Audit tab silently dropped
+    them, so the flat audit list below the transcript card showed
+    "No audit entries for this workflow yet" even though the kernel
+    had persisted them.
+    """
+    workflow_id = "test-wf-payload-filter"
+    # design-agent rows: NULL related_id, workflow id in payload.
+    await _seed_entry(
+        db,
+        kind="design-agent-negotiation",
+        actor="design-agent",
+        related_id=None,
+        payload={"workflow_id": workflow_id, "question_index": 0, "kind": "metric"},
+    )
+    await _seed_entry(
+        db,
+        kind="design-agent-ambiguity",
+        actor="design-agent",
+        related_id=None,
+        payload={"workflow_id": workflow_id, "findings": []},
+    )
+    # Decoy row for a different workflow — must not be returned.
+    await _seed_entry(
+        db,
+        kind="design-agent-negotiation",
+        actor="design-agent",
+        related_id=None,
+        payload={"workflow_id": "another-wf", "question_index": 0, "kind": "metric"},
+    )
+
+    res = await api_client.get(f"/api/audit?workflow_id={workflow_id}")
+    assert res.status_code == 200
+    body = res.json()
+    kinds = sorted(item["kind"] for item in body["items"])
+    assert kinds == ["design-agent-ambiguity", "design-agent-negotiation"]
+    for item in body["items"]:
+        assert item["payload"]["workflow_id"] == workflow_id
+
+
 # ---------------------------------------------------------------------------
 # POST /api/audit/verify
 # ---------------------------------------------------------------------------
