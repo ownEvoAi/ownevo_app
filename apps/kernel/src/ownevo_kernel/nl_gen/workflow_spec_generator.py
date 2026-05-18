@@ -208,7 +208,7 @@ async def generate_workflow_spec(
             the 3 fixtures we ship (~6-8k tokens of structured output).
         max_retries: On `ValidationError`, retry up to this many times,
             sending the pydantic errors back as a `tool_result` so the
-            model can correct. Default 2 (= 3 attempts total). Cloud
+            model can correct. Default 4 (= 5 attempts total). Cloud
             models pass on attempt 1; local models benefit from retries.
 
     Returns:

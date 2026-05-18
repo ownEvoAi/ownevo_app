@@ -208,7 +208,7 @@ async def test_invalid_tool_input_raises_validation_error():
         _ScriptedResponse(content=[_tool_use_block(TOOL_NAME, bad)])
     )
     with pytest.raises(SimulationPlanValidationError) as exc_info:
-        await generate_simulation_plan(client, spec)
+        await generate_simulation_plan(client, spec, max_retries=0)
     assert exc_info.value.raw_input == bad
     assert exc_info.value.pydantic_error.error_count() > 0
 
@@ -222,7 +222,7 @@ async def test_extra_field_in_tool_input_raises_validation_error():
         _ScriptedResponse(content=[_tool_use_block(TOOL_NAME, {"plan": payload})])
     )
     with pytest.raises(SimulationPlanValidationError):
-        await generate_simulation_plan(client, spec)
+        await generate_simulation_plan(client, spec, max_retries=0)
 
 
 # ---------------------------------------------------------------------------

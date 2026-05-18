@@ -48,7 +48,7 @@ def build_async_anthropic(api_key: str) -> AsyncAnthropic:
     from anthropic import AsyncAnthropic  # lazy: agent extra
 
     if os.environ.get("ANTHROPIC_BASE_URL") == "":
-        del os.environ["ANTHROPIC_BASE_URL"]
+        os.environ.pop("ANTHROPIC_BASE_URL", None)  # safe under concurrent requests
     base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
     if base_url:
         return AsyncAnthropic(api_key=api_key, base_url=base_url)

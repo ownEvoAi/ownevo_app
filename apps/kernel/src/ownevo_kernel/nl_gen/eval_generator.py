@@ -226,7 +226,7 @@ async def generate_eval_case_set(
         max_tokens: Output cap. Default 12k — case sets are larger than
             sim plans (10-30 structured cases each).
         max_retries: On `ValidationError`, retry up to this many times
-            with the pydantic error fed back as a `tool_result`. Default 2.
+            with the pydantic error fed back as a `tool_result`. Default 4 (= 5 attempts total).
 
     Returns:
         A validated `EvalCaseSet`. Persist via

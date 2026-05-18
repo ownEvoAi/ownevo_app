@@ -224,7 +224,7 @@ async def generate_simulation_plan(
         max_tokens: Output cap. Default 8k — plans are smaller than specs
             (no UI block, no 8-tool surface).
         max_retries: On `ValidationError`, retry up to this many times
-            with the pydantic error fed back as a `tool_result`. Default 2.
+            with the pydantic error fed back as a `tool_result`. Default 4 (= 5 attempts total).
 
     Returns:
         A validated `SimulationPlan`. Render via

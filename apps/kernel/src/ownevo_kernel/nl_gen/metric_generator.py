@@ -244,7 +244,7 @@ async def generate_metric_definition(
         max_tokens: Output cap. Default 4k — metric definitions are
             single structured objects.
         max_retries: On `ValidationError`, retry up to this many times
-            with the pydantic error fed back as a `tool_result`. Default 2.
+            with the pydantic error fed back as a `tool_result`. Default 4 (= 5 attempts total).
 
     Returns:
         A validated `MetricDefinition`. Compute scores via

@@ -10,8 +10,8 @@ The retry loop sends the pydantic `ValidationError` back as a
 `tool_result` with `is_error=True` so the model can see what went
 wrong and emit a corrected tool call. Each retry adds one round-trip;
 cloud models cost zero extra round-trips (first attempt succeeds), so
-the default of 2 retries is free for them and adds robustness for
-local-LLM operators.
+the default of 4 retries (5 attempts total) is free for them and adds
+robustness for local-LLM operators.
 
 Scope: only ValidationError is retried — `NoToolUseError` (model didn't
 call the tool at all) is a different failure mode and propagates after
@@ -41,7 +41,11 @@ on `qwen/qwen3.6-35b-a3b` against the WorkflowSpec schema, error count
 drops 15 → 7 → 2 across 3 attempts; the extra two retries close the
 remaining gap when the model is one or two corrections away. Per-attempt
 context grows ~5k tokens (assistant tool_use + user tool_result), so 5
-attempts on a 65k-ctx local model still leaves ~40k+ headroom."""
+attempts on a 65k-ctx local model still leaves ~40k+ headroom.
+
+Local-ctx note: WorkflowSpec tool_use blocks are ~16k tokens. For a
+65k-ctx model, 4 retries consume ~64k input tokens by the final attempt.
+Use max_retries=2 if you're consistently hitting context-length errors."""
 
 
 _MAX_REPORTED_ERRORS = 20
@@ -189,6 +193,9 @@ async def call_with_validation_retry(
         ValidationError: Final attempt still failed validation. The
             caller wraps this in its domain-specific `*ValidationError`.
     """
+    if max_retries < 0:
+        raise ValueError(f"max_retries must be >= 0, got {max_retries!r}")
+
     messages: list[dict[str, Any]] = [{"role": "user", "content": initial_user_message}]
     last_exc: ValidationError | None = None
     last_raw: Any = None
@@ -258,7 +265,11 @@ async def call_with_validation_retry(
                 },
             ]
 
-    assert last_exc is not None  # we only break out of the loop after a ValidationError
+    if last_exc is None:  # pragma: no cover — loop always sets last_exc before breaking
+        raise RuntimeError(
+            "retry loop exited without a ValidationError "
+            "— this is a bug in call_with_validation_retry"
+        )
     raise RetryExhaustedError(
         pydantic_error=last_exc,
         raw_input=last_raw,
