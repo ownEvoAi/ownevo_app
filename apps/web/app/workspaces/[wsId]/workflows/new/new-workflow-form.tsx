@@ -155,7 +155,7 @@ export function NewWorkflowForm({
         <a href={`/workspaces/${wsId}`} className="btn btn-secondary">
           &lsaquo; Cancel
         </a>
-        <div className="gen-action-secondary-group">
+        <div className="gen-action-primary">
           <button
             type="button"
             className="btn btn-secondary"
@@ -170,8 +170,6 @@ export function NewWorkflowForm({
           >
             Design with agent &rsaquo;
           </button>
-        </div>
-        <div className="gen-action-primary">
           <SubmitButton />
           <span className="kbd-hint">
             <kbd>⌘</kbd>

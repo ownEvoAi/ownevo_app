@@ -25,6 +25,14 @@ services:
     environment:
       OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # NL-gen model overrides for local dev. Empty/unset → per-generator
+      # DEFAULT_MODEL (claude-opus-4-7). Setting OWNEVO_NL_GEN_MODEL routes
+      # all four authoring-trio calls (spec / sim / metric / eval) to the
+      # chosen model. ANTHROPIC_BASE_URL points the AsyncAnthropic client
+      # at any /v1/messages-compatible endpoint (LM Studio, LiteLLM proxy,
+      # vLLM) for self-hosted runs.
+      OWNEVO_NL_GEN_MODEL: ${OWNEVO_NL_GEN_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
     ports:
       - "8000:8000"
     depends_on:
