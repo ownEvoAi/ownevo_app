@@ -1,0 +1,77 @@
+"""Schema + content tests for the design-agent prompt library (slice 1).
+
+Pins the contract that 9.1.2 (`POST /api/design-agent/next-question`) and
+the matching web UX will rely on:
+
+  * every known template has at least one `metric` and one `ambiguity`
+    question — together they make a 5-minute demo possible.
+  * the registry covers exactly the three vertical-template slugs that
+    web `templates.ts` ships today; adding a fourth template requires
+    updating both sides in the same change.
+  * the generic fallback fires for unknown / missing template ids.
+  * each question round-trips through pydantic (frozen schema).
+"""
+
+from __future__ import annotations
+
+import pytest
+from ownevo_kernel.design_agent.prompts import (
+    GENERIC_DISCOVERY_QUESTIONS,
+    DiscoveryQuestion,
+    get_discovery_questions,
+    known_template_ids,
+)
+
+EXPECTED_TEMPLATE_IDS = (
+    "clinical-trial-site-selection",
+    "credit-risk-recalibration",
+    "retail-demand-planning",
+)
+
+
+def test_registry_covers_the_three_vertical_templates() -> None:
+    assert known_template_ids() == EXPECTED_TEMPLATE_IDS
+
+
+@pytest.mark.parametrize("template_id", EXPECTED_TEMPLATE_IDS)
+def test_each_template_has_metric_and_ambiguity_question(template_id: str) -> None:
+    questions = get_discovery_questions(template_id)
+    kinds = {q.kind for q in questions}
+    assert "metric" in kinds, f"{template_id} missing metric question"
+    assert "ambiguity" in kinds, f"{template_id} missing ambiguity question"
+
+
+def test_generic_fallback_has_metric_and_ambiguity_question() -> None:
+    kinds = {q.kind for q in GENERIC_DISCOVERY_QUESTIONS}
+    assert {"metric", "ambiguity"} <= kinds
+
+
+@pytest.mark.parametrize(
+    "template_id",
+    [None, "unknown-template-slug", "retail-demand-PLANNING-typo"],
+)
+def test_unknown_or_missing_template_falls_back_to_generic(
+    template_id: str | None,
+) -> None:
+    assert get_discovery_questions(template_id) is GENERIC_DISCOVERY_QUESTIONS
+
+
+@pytest.mark.parametrize("template_id", EXPECTED_TEMPLATE_IDS)
+def test_questions_round_trip_through_pydantic(template_id: str) -> None:
+    for q in get_discovery_questions(template_id):
+        roundtripped = DiscoveryQuestion.model_validate_json(q.model_dump_json())
+        assert roundtripped == q
+
+
+@pytest.mark.parametrize("template_id", EXPECTED_TEMPLATE_IDS)
+def test_questions_have_non_empty_rationale(template_id: str) -> None:
+    """Rationale is the 'consultative, not generic intake' guard.
+
+    A question without a rationale tends to read like a form field, which
+    breaks the design-agent posture. Enforce that every shipped question
+    carries a one-sentence reason.
+    """
+    for q in get_discovery_questions(template_id):
+        assert q.rationale and q.rationale.strip(), (
+            f"{template_id} question has no rationale: {q.question!r}"
+        )
