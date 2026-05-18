@@ -9,11 +9,15 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import type { AmbiguityFinding, NextDiscoveryQuestion } from '@/lib/api'
+import {
+  fetchDescriptionConflicts,
+  KernelApiError,
+  type AmbiguityFinding,
+  type NextDiscoveryQuestion,
+} from '@/lib/api'
 import {
   type DiscoveryTranscriptEntry,
   generateWithDiscoveryAction,
-  loadDescriptionConflicts,
   loadNextQuestion,
   type NextQuestionState,
 } from './actions'
@@ -66,17 +70,31 @@ export function DesignFlow({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
   // Once the static discovery interview returns done=true, fire the
-  // pre-generation conflict scan exactly once. The scan reads the raw
-  // description; the operator's static answers do not change the
-  // description, so re-running on every transcript change is pointless.
+  // pre-generation conflict scan exactly once. Called directly (not via
+  // a server action) so the AbortController can cancel the in-flight
+  // fetch on cleanup — prevents double-POST in React Strict Mode.
   useEffect(() => {
     if (!questionState.done || ambiguityLoaded || isLoadingFindings) return
+    const controller = new AbortController()
     startFindingsLoad(async () => {
-      const resp = await loadDescriptionConflicts(description)
-      setAmbiguityFindings(resp.findings)
-      setAmbiguityError(resp.error)
+      try {
+        const resp = await fetchDescriptionConflicts(description, controller.signal)
+        setAmbiguityFindings(resp.findings)
+        setAmbiguityError(null)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        const errMsg =
+          err instanceof KernelApiError
+            ? `Kernel error (${err.status}): ${err.detail}`
+            : err instanceof Error
+              ? err.message
+              : String(err)
+        setAmbiguityFindings([])
+        setAmbiguityError(errMsg)
+      }
       setAmbiguityLoaded(true)
     })
+    return () => controller.abort()
   }, [questionState.done, ambiguityLoaded, isLoadingFindings, description])
 
   // Total questions to surface in the chat = static count + findings
@@ -140,15 +158,15 @@ export function DesignFlow({
       // static `/next-question` endpoint). Just advance the local
       // pointer; the answer rides into `discovery_transcript` on
       // Generate.
-      setAmbiguityIndex(ambiguityIndex + 1)
+      setAmbiguityIndex((prev) => prev + 1)
       return
     }
 
     startFetch(async () => {
       // Static-question answers are echoed back so the kernel can
-      // return the next not-yet-answered prompt. Only the static
-      // entries (kind != 'ambiguity' or question_index < staticTotal)
-      // are eligible — finding answers are local-only.
+      // return the next not-yet-answered prompt. Only entries with
+      // question_index < staticTotal are eligible — finding answers
+      // carry synthetic indices above that range and are local-only.
       const priorAnswers = nextTranscript
         .filter((t) => t.question_index < staticTotal)
         .map((t) => ({

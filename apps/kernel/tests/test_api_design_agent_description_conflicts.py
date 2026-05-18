@@ -14,7 +14,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
-from ownevo_kernel.api.routes.design_agent_ambiguity import router
+from ownevo_kernel.api.routes.design_agent_ambiguity import (
+    DescriptionConflictsResponse,
+    router,
+)
+from ownevo_kernel.design_agent.ambiguity import AmbiguityFinding
 
 
 @pytest.fixture
@@ -123,3 +127,44 @@ async def test_extra_field_rejected(client: httpx.AsyncClient) -> None:
         },
     )
     assert resp.status_code == 422
+
+
+async def test_description_at_max_length_accepted(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 4096-char upper bound is accepted without a 422."""
+    resp = await client.post(
+        "/api/design-agent/description-conflicts",
+        json={"description": "x" * 4096},
+    )
+    assert resp.status_code == 200
+
+
+async def test_description_over_max_length_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """One character over the 4096-char limit returns 422."""
+    resp = await client.post(
+        "/api/design-agent/description-conflicts",
+        json={"description": "x" * 4097},
+    )
+    assert resp.status_code == 422
+
+
+def test_description_conflicts_response_round_trips_through_json() -> None:
+    """DescriptionConflictsResponse with extra='forbid' and tuple findings
+    must survive model_dump_json → model_validate_json without raising.
+    Guards against the Pydantic 2.x tuple+extra=forbid serialisation edge
+    case logged in project learnings."""
+    finding = AmbiguityFinding(
+        kind="conflict",
+        severity="high",
+        location="description",
+        summary="test",
+        suggested_question="Which do you prefer?",
+    )
+    resp = DescriptionConflictsResponse(findings=(finding,))
+    rt = DescriptionConflictsResponse.model_validate(resp.model_dump())
+    assert rt == resp
+    rt2 = DescriptionConflictsResponse.model_validate_json(resp.model_dump_json())
+    assert rt2 == resp

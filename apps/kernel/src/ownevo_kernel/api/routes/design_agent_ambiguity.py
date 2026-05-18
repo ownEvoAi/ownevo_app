@@ -41,13 +41,14 @@ from ...nl_gen.spec import WorkflowSpec
 
 router = APIRouter(prefix="/api/design-agent", tags=["design-agent"])
 
+_DESCRIPTION_MIN_LEN = 50
 _DESCRIPTION_MAX_LEN = 4096
 
 
 class AmbiguityReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(min_length=50, max_length=_DESCRIPTION_MAX_LEN)
+    description: str = Field(min_length=_DESCRIPTION_MIN_LEN, max_length=_DESCRIPTION_MAX_LEN)
     spec: WorkflowSpec
     metric_definition: MetricDefinition | None = None
 
@@ -64,7 +65,7 @@ def ambiguity_report(req: AmbiguityReportRequest) -> AmbiguityReport:
 class DescriptionConflictsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(min_length=50, max_length=_DESCRIPTION_MAX_LEN)
+    description: str = Field(min_length=_DESCRIPTION_MIN_LEN, max_length=_DESCRIPTION_MAX_LEN)
 
 
 class DescriptionConflictsResponse(BaseModel):
@@ -81,7 +82,6 @@ class DescriptionConflictsResponse(BaseModel):
 @router.post(
     "/description-conflicts",
     response_model=DescriptionConflictsResponse,
-    response_model_exclude_none=True,
 )
 def description_conflicts(
     req: DescriptionConflictsRequest,
