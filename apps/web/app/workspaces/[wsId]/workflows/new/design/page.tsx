@@ -31,9 +31,10 @@ interface PageProps {
 //   centre — chat panel (the discovery interview)
 //   right  — in-progress transcript + Generate button
 //
-// 9.1.4 will mirror the transcript into `audit_entries` via a new
-// `design-agent-negotiation` kind; for now it lives inline in the
-// description so the review page sees it.
+// 9.1.4 shipped the kernel-side audit-chain mirror (`design-agent-negotiation`
+// kind, migration 0012). The web side (`generateWithDiscoveryAction`) does not
+// yet pass `design_agent_log` to the kernel — the JSONB column stays NULL and
+// audit entries are not written until that wire-up lands.
 export default async function DesignAgentPage({
   params,
   searchParams,
