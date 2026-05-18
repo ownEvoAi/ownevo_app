@@ -17,8 +17,13 @@ import {
 } from '@/lib/api'
 import { GenerateEvalCasesButton } from '../../../[wfId]/eval-cases/generate-button'
 import { ReviseButton } from './revise-button'
+import { getTemplate } from '../../templates'
 
 const EVAL_TABLE_PREVIEW_LIMIT = 8
+
+function templateNameFor(templateId: string): string {
+  return getTemplate(templateId)?.name ?? templateId
+}
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -122,7 +127,18 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
       {description ? (
         <section className="source-quote">
           <div className="source-quote-label">From you</div>
-          <p className="source-quote-body">&ldquo;{description}&rdquo;</p>
+          <div className="source-quote-col">
+            <p className="source-quote-body">&ldquo;{description}&rdquo;</p>
+            {anatomy.created_from_template ? (
+              <div className="source-quote-template">
+                Started from{' '}
+                <strong>
+                  {templateNameFor(anatomy.created_from_template)}
+                </strong>{' '}
+                template.
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
 

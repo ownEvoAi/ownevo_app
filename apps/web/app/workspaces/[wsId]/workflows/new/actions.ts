@@ -15,6 +15,8 @@ export async function generateWorkflowAction(
   const description = String(formData.get('description') ?? '').trim()
   const workflowIdInput = String(formData.get('workflow_id') ?? '').trim()
   const workflowId = workflowIdInput || undefined
+  const templateIdInput = String(formData.get('template_id') ?? '').trim()
+  const templateId = templateIdInput || undefined
 
   if (description.length < 50) {
     return {
@@ -24,7 +26,7 @@ export async function generateWorkflowAction(
 
   let result
   try {
-    result = await generateWorkflow(description, workflowId)
+    result = await generateWorkflow(description, workflowId, templateId)
   } catch (err) {
     if (err instanceof KernelApiError) {
       return { error: `Kernel error (${err.status}): ${err.detail}` }

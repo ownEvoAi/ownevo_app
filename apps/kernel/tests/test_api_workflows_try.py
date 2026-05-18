@@ -1,4 +1,4 @@
-"""Integration tests for `POST /api/workflows/{id}/try` (PLAN 8.5.2).
+"""Integration tests for `POST /api/workflows/{id}/try`.
 
 Mocks `anthropic.AsyncAnthropic.messages.create` with the same
 scripted-tool-use pattern used by `test_eval_runner_agent_solver.py`.
