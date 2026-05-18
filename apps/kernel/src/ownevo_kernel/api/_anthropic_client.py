@@ -26,8 +26,10 @@ surfaces can talk to which backends.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-from anthropic import AsyncAnthropic
+if TYPE_CHECKING:  # pragma: no cover — type-only import
+    from anthropic import AsyncAnthropic
 
 
 def build_async_anthropic(api_key: str) -> AsyncAnthropic:
@@ -36,7 +38,15 @@ def build_async_anthropic(api_key: str) -> AsyncAnthropic:
     Args:
         api_key: The API key for the Anthropic endpoint. Local backends
             (LMS, LiteLLM proxies) usually accept any non-empty string.
+
+    The `anthropic` package is imported lazily so the module is safe to
+    import from the API package at process start under the kernel-core
+    install (no `[agent]` extra). Route handlers gate on `ANTHROPIC_API_KEY`
+    before calling this — if `anthropic` isn't installed the import below
+    raises `ModuleNotFoundError` with a clear message at call time.
     """
+    from anthropic import AsyncAnthropic  # lazy: agent extra
+
     if os.environ.get("ANTHROPIC_BASE_URL") == "":
         del os.environ["ANTHROPIC_BASE_URL"]
     base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
