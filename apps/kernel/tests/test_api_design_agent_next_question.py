@@ -228,6 +228,7 @@ async def test_answered_count_does_not_overflow_total(
     # The set-based dedup means we report 1 answered, not 2.
     assert body["answered_count"] == 1
     assert body["next_question"]["question_index"] == 1
+<<<<<<< HEAD
 
 
 async def test_too_many_prior_answers_rejected(client: httpx.AsyncClient) -> None:
