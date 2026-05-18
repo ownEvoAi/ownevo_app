@@ -61,6 +61,18 @@ hardcoded fallback. The override chain per surface is:
 caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
 ```
 
+### Cloud model picks per surface
+
+Verified empirically on a 6-tool retail-demand workflow (2026-05-18 live test):
+
+| Surface | Recommended | Why |
+|---|---|---|
+| `nl_gen` (spec/sim/metric/eval) | `claude-sonnet-4-6` | Sonnet generates a richer spec (6 tools vs 3 for Haiku) and clears the WorkflowSpec strict schema. Haiku produces structurally valid output but trips other guards (e.g. `import math` in sim `step_code`). Opus 4.7 is the safe quality-first default. |
+| `agent_solver` | **`claude-sonnet-4-6` for multi-tool workflows** | Haiku is fine for single-tool classifiers (cheap default) but on workflows with 3+ tools and multi-step reasoning, Haiku produces scattered, low-signal failures the proposer can't cluster. **Empirical: Haiku 0.500 val_score with `gate-blocked-no-improvement` → Sonnet 1.000 val_score** on the retail workflow. Cost delta ~$0.15-0.25/iteration. |
+| `instruction_proposer` | `claude-sonnet-4-6` (default) | 2-5 sentence write task. Sonnet's cache-hit rate matters more than peak quality. |
+| `cluster_judge`, `approver`, `meta_eval` | `claude-opus-4-7` (default) | Calibration anchors. Keep on Opus unless cost ceiling demands otherwise — these fire 1-2× per iteration so cost is bounded. |
+| `loop_driver` (improvement loop runner) | `claude-opus-4-7` (default cloud) or `qwen/qwen3.6-35b-a3b` (τ³-validated local) | Per the claude-api skill: ALWAYS default to Opus 4.7 for the loop spine. Local pick is the τ³ headline below. |
+
 ### Local-model picks (current best)
 
 Authoritative source: [`../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md`](../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md) (private docs repo). Summary:
