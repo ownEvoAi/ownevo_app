@@ -1,20 +1,10 @@
 import Link from 'next/link'
-import { listPreviewWorkflows, type PreviewIndexEntry } from '@/lib/api'
 import { NewWorkflowForm } from './new-workflow-form'
 import { VERTICAL_TEMPLATES } from './templates'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
   searchParams: Promise<{ from?: string }>
-}
-
-// Friendly labels for the sample-fill chips. The kernel emits the
-// fixture ids verbatim; this map gives them a more readable name in
-// the UI without coupling the kernel to display copy.
-const SAMPLE_LABEL: Record<string, string> = {
-  'demand-prediction': 'Demand prediction',
-  'credit-risk': 'Credit risk',
-  'contract-review': 'Contract review',
 }
 
 // Live NL-gen flow — describe a workflow, hit Generate, the kernel
@@ -27,17 +17,6 @@ export default async function NewWorkflowPage({
   const { wsId } = await params
   const { from } = await searchParams
   const fromConnect = from === 'connect'
-
-  // Sample descriptions come from the kernel's NL-gen fixtures.
-  // Surfacing them here lets reviewers click-to-fill the textarea
-  // instead of typing a description from scratch.
-  let samples: PreviewIndexEntry[] = []
-  try {
-    samples = (await listPreviewWorkflows()).items
-  } catch {
-    // Form still works without samples — the kernel preview endpoint
-    // is read-only and doesn't gate the live gen path.
-  }
 
   return (
     <div className="preview-wrap">
@@ -76,15 +55,7 @@ export default async function NewWorkflowPage({
         the loop proposes an edit, you approve.
       </p>
 
-      <NewWorkflowForm
-        wsId={wsId}
-        templates={VERTICAL_TEMPLATES}
-        samples={samples.map((s) => ({
-          id: s.workflow_id,
-          label: SAMPLE_LABEL[s.workflow_id] ?? s.workflow_id,
-          description: s.description,
-        }))}
-      />
+      <NewWorkflowForm wsId={wsId} templates={VERTICAL_TEMPLATES} />
 
       <div className="gen-help">
         <h3 className="gen-help-title">What makes a good description?</h3>

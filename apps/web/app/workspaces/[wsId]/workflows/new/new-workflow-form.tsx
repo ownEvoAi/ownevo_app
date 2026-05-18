@@ -7,20 +7,12 @@ import type { VerticalTemplate } from './templates'
 
 const initialState: GenerateState = { error: null }
 
-export interface SampleDescription {
-  id: string
-  label: string
-  description: string
-}
-
 export function NewWorkflowForm({
   wsId,
   templates,
-  samples,
 }: {
   wsId: string
   templates: VerticalTemplate[]
-  samples: SampleDescription[]
 }) {
   const action = generateWorkflowAction.bind(null, wsId)
   const [state, formAction] = useActionState(action, initialState)
@@ -91,33 +83,6 @@ export function NewWorkflowForm({
           >
             Clear and start blank
           </button>
-        </div>
-      ) : samples.length > 0 ? (
-        <div className="sample-row">
-          <span className="sample-row-label">Or try a fixture:</span>
-          {samples.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="sample-chip"
-              onClick={() => {
-                setSelectedTemplateId(null)
-                setDescription(s.description)
-              }}
-              title={s.description}
-            >
-              {s.label}
-            </button>
-          ))}
-          {description.length > 0 ? (
-            <button
-              type="button"
-              className="sample-chip-clear"
-              onClick={clearTemplate}
-            >
-              Clear
-            </button>
-          ) : null}
         </div>
       ) : null}
 
