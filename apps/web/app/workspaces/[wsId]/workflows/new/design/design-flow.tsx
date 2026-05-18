@@ -73,14 +73,22 @@ export function DesignFlow({
   // pre-generation conflict scan exactly once. Called directly (not via
   // a server action) so the AbortController can cancel the in-flight
   // fetch on cleanup — prevents double-POST in React Strict Mode.
+  //
+  // `isLoadingFindings` intentionally NOT in deps: `startFindingsLoad`
+  // flips it on, which would re-fire the effect, abort the in-flight
+  // request, hit the AbortError early-return, and never set
+  // `ambiguityLoaded` — looping forever. The single-load guard is
+  // `ambiguityLoaded`, set inside the transition after the fetch
+  // resolves (success path) or after a non-abort error (failure path).
   useEffect(() => {
-    if (!questionState.done || ambiguityLoaded || isLoadingFindings) return
+    if (!questionState.done || ambiguityLoaded) return
     const controller = new AbortController()
     startFindingsLoad(async () => {
       try {
         const resp = await fetchDescriptionConflicts(description, controller.signal)
         setAmbiguityFindings(resp.findings)
         setAmbiguityError(null)
+        setAmbiguityLoaded(true)
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return
         const errMsg =
@@ -91,11 +99,12 @@ export function DesignFlow({
               : String(err)
         setAmbiguityFindings([])
         setAmbiguityError(errMsg)
+        setAmbiguityLoaded(true)
       }
-      setAmbiguityLoaded(true)
     })
     return () => controller.abort()
-  }, [questionState.done, ambiguityLoaded, isLoadingFindings, description])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionState.done, ambiguityLoaded, description])
 
   // Total questions to surface in the chat = static count + findings
   // loaded so far. Before the findings load we display only the static
@@ -152,7 +161,12 @@ export function DesignFlow({
     setTranscript(nextTranscript)
     setDraft('')
 
-    if (currentIsFinding) {
+    // Decide branch off the question's index, not a closure-derived bool
+    // (`currentIsFinding` could read a render-time stale value if the
+    // click fires across a re-render boundary). Finding questions carry
+    // synthetic indices >= staticTotal; static prompt-library questions
+    // sit at 0..staticTotal-1.
+    if (current.question_index >= staticTotal) {
       // Finding answers are local-only — no kernel round-trip, no echo
       // back into `prior_answers` (the synthetic indices would 400 the
       // static `/next-question` endpoint). Just advance the local

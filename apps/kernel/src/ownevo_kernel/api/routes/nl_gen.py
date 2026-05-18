@@ -254,9 +254,30 @@ async def generate_workflow(
 
     from anthropic import AsyncAnthropic
 
-    client = AsyncAnthropic(api_key=api_key)
+    # Optional overrides for cheaper / faster / self-hosted dev. The default
+    # is Anthropic cloud + the per-generator DEFAULT_MODEL (opus 4.7); these
+    # env vars let an operator point at sonnet, an LM Studio / LiteLLM proxy,
+    # or anything else that speaks /v1/messages without touching code.
+    #
+    # Defensive: docker-compose's `${VAR:-}` interpolation passes the env
+    # var through as an empty string when unset on the host, and the
+    # Anthropic SDK respects that empty `ANTHROPIC_BASE_URL` — producing
+    # `UnsupportedProtocol("Request URL is missing an 'http://' or 'https://'")`.
+    # Wipe it from the process env so the SDK falls back to its default.
+    if os.environ.get("ANTHROPIC_BASE_URL") == "":
+        del os.environ["ANTHROPIC_BASE_URL"]
+    base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+    nl_gen_model = os.environ.get("OWNEVO_NL_GEN_MODEL") or None
+    client = (
+        AsyncAnthropic(api_key=api_key, base_url=base_url)
+        if base_url
+        else AsyncAnthropic(api_key=api_key)
+    )
+    spec_kwargs: dict[str, str] = {"model": nl_gen_model} if nl_gen_model else {}
     try:
-        spec = await generate_workflow_spec(client, body.description)
+        spec = await generate_workflow_spec(
+            client, body.description, **spec_kwargs
+        )
     except NoToolUseError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -272,8 +293,10 @@ async def generate_workflow(
     # Generate them eagerly (2 more LLM calls, ~25-40s each) so the user
     # can run an iteration immediately without a second wait.
     try:
-        sim_plan = await generate_simulation_plan(client, spec)
-        metric_def = await generate_metric_definition(client, spec)
+        sim_plan = await generate_simulation_plan(client, spec, **spec_kwargs)
+        metric_def = await generate_metric_definition(
+            client, spec, **spec_kwargs
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
