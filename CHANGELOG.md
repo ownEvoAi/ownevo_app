@@ -17,6 +17,9 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Removed
+- **Dead `discovery_questions` field** on `apps/web/.../templates.ts`. The 8.5.1 vertical-template starters originally carried an inline `discovery_questions: VerticalDiscoveryQuestion[]` array per template — a dormant field reserved for the design agent. With the chat panel on `/workflows/new/design` now calling `POST /api/design-agent/next-question` directly, the kernel prompt library (`apps/kernel/src/ownevo_kernel/design_agent/prompts/`) is the single source of truth and the inline field was redundant. Dropped the field + the `VerticalDiscoveryQuestion` interface (no remaining consumers). Closes Track 9.1 — Design Agent at Authoring.
+
 ### Added
 - **Design-agent audit-chain integration** (`ownevo_kernel.design_agent.log`). The authoring-time discovery conversation + ambiguity report are now persisted alongside the WorkflowSpec at generation time. Two surfaces: (a) **`workflows.design_agent_log`** — JSONB column added by migration `0012_design_agent_log.sql` carrying the full transcript + AmbiguityReport; (b) **audit-chain mirror** — one hash-chained `audit_entries` row per discovery Q/A (kind `design-agent-negotiation`) plus one for the ambiguity report (kind `design-agent-ambiguity`). Skipped questions write rows with `answer=null` + `skipped=true` so the audit trail records every question that was offered, not only the answered ones. `POST /api/nl-gen/generate` accepts an optional `design_agent_log` field on the request body (backward-compatible — old clients omit it); the workflow row INSERT + log write happen in a single transaction so partial writes aren't possible. `GET /api/workflows/{id}` surfaces `design_agent_log` so the per-workflow Audit tab can render the conversation chronologically alongside the matching audit-entry rows.
 - **`AuditKind.DESIGN_AGENT_NEGOTIATION` + `AuditKind.DESIGN_AGENT_AMBIGUITY`** — two new audit-kind enum values mirroring the SQL `audit_kind` enum. Locked verbatim in `migrations/0001_substrate.sql` + the Python `types.py` enum, with `0012_design_agent_log.sql` carrying the `ALTER TYPE ... ADD VALUE` for existing databases.
@@ -39,7 +42,7 @@ batch of hardening fixes (`SkillValidationError` schema crash,
 - **`make tau3-replay`.** Reproduces the B-LOCAL winning config: 5 cycles of `qwen3.6-35b-a3b` LMS as proposer + task agent + user sim (`OWNEVO_TAU3_CYCLES` overrides the default of 5).
 - Vertical template starters on `/workflows/new`: retail demand planning, credit risk recalibration, clinical trial site selection — one-click card prefills the description textarea and tags the workflow
 - `workflows.created_from_template` column (migration 0011): records which template a workflow started from, with a kebab-slug CHECK constraint
-- `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper
+- `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper (`VerticalDiscoveryQuestion` subsequently removed in [Unreleased])
 - `created_from_template` surfaced on `GET /api/workflows/{id}` and `PATCH /api/workflows/{id}` responses
 - Template attribution badge on the new-workflow review page when `created_from_template` is set
 - ⌘↵ / Ctrl-↵ keyboard shortcuts: submit Generate from the `/workflows/new` textarea, and Confirm from anywhere on the review page. `.kbd-hint` chip with `<kbd>` keys renders next to both CTAs

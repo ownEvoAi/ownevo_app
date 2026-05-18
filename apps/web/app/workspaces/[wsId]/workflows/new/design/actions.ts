@@ -94,8 +94,13 @@ export interface GenerateWithDiscoveryState {
 
 // Stitch the discovery transcript onto the description before handing
 // off to the existing NL-gen pipeline. The transcript becomes part of
-// the spec's input record — the design-agent log column (slice 9.1.4)
-// will mirror this into `audit_entries` once the migration ships.
+// the spec's input record.
+//
+// TODO: pass the structured transcript as `design_agent_log` to the
+// kernel (9.1.4 shipped the kernel side — migration 0012, the optional
+// `design_agent_log` field on POST /api/nl-gen/generate). Until this
+// is wired up, `workflows.design_agent_log` stays NULL and the
+// audit-chain entries for this conversation are not written.
 export async function generateWithDiscoveryAction(
   input: GenerateWithDiscoveryInput,
 ): Promise<GenerateWithDiscoveryState> {

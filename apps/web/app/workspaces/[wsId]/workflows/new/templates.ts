@@ -4,9 +4,12 @@
  * Three buyer-persona one-click starters. Picking a card prefills the
  * description textarea and tags the workflow with `template_id` — the
  * kernel persists that as `workflows.created_from_template` for analytics.
- * The `discovery_questions` field is dormant: a future design agent will
- * surface those questions on the review page so the operator can negotiate
- * metric trade-offs and description ambiguity before the loop spends tokens.
+ *
+ * The design-agent discovery questions per template live kernel-side in
+ * `apps/kernel/src/ownevo_kernel/design_agent/prompts/`. The chat panel
+ * on `/workflows/new/design` fetches them via `POST /api/design-agent/
+ * next-question` keyed on the template `id`, so the per-template prompt
+ * set has a single source of truth.
  */
 export interface VerticalTemplate {
   id: string
@@ -21,21 +24,6 @@ export interface VerticalTemplate {
   suggested_tools: string[]
   /** Suggested personas the simulator would model. */
   suggested_personas: string[]
-  /** Questions the design agent (Theme 1.1) will ask on review.
-   *  Each question targets a known ambiguity (metric trade-off or
-   *  ambiguity choice) that NL-gen otherwise has to guess. */
-  discovery_questions: VerticalDiscoveryQuestion[]
-}
-
-export interface VerticalDiscoveryQuestion {
-  /** Coarse bucket so the UI can colour-code the prompt:
-   *   'metric'     — pick between two competing objectives
-   *   'ambiguity'  — what counts as 'flag-worthy' baseline */
-  kind: 'metric' | 'ambiguity'
-  question: string
-  /** Optional 2–3 short choices the user can pick from. The design
-   *  agent will render them as chips; free-form answer always allowed. */
-  options?: string[]
 }
 
 export const VERTICAL_TEMPLATES: VerticalTemplate[] = [
@@ -59,21 +47,6 @@ export const VERTICAL_TEMPLATES: VerticalTemplate[] = [
       'flag_markdown_risk',
     ],
     suggested_personas: ['category-planner', 'store-manager'],
-    discovery_questions: [
-      {
-        kind: 'metric',
-        question:
-          'When the forecast is uncertain, should the agent lean toward ' +
-          'avoiding overstock (markdown cost) or avoiding stockouts (lost sales)?',
-        options: ['Avoid overstock', 'Avoid stockouts', 'Balanced'],
-      },
-      {
-        kind: 'ambiguity',
-        question:
-          'A SKU is "flag-worthy" when projected sell-through is below what ' +
-          'threshold? (e.g. <60% by week 6 = flag for markdown review)',
-      },
-    ],
   },
   {
     id: 'credit-risk-recalibration',
@@ -95,26 +68,6 @@ export const VERTICAL_TEMPLATES: VerticalTemplate[] = [
       'propose_pd_adjustment',
     ],
     suggested_personas: ['credit-modeler', 'cro-reviewer'],
-    discovery_questions: [
-      {
-        kind: 'metric',
-        question:
-          'Should the recalibration prioritize through-the-cycle stability ' +
-          '(slower to react, fewer false alarms) or point-in-time responsiveness ' +
-          '(faster to flag emerging drift)?',
-        options: [
-          'Through-the-cycle',
-          'Point-in-time',
-          'Hybrid (TTC base + PIT overlay)',
-        ],
-      },
-      {
-        kind: 'ambiguity',
-        question:
-          'What drift threshold (vs. baseline PD) counts as "needs ' +
-          'recalibration"? (e.g. >25bps gap between predicted and realized = flag)',
-      },
-    ],
   },
   {
     id: 'clinical-trial-site-selection',
@@ -138,25 +91,6 @@ export const VERTICAL_TEMPLATES: VerticalTemplate[] = [
       'rank_shortlist',
     ],
     suggested_personas: ['clinical-ops-lead', 'site-investigator'],
-    discovery_questions: [
-      {
-        kind: 'metric',
-        question:
-          'When ranking sites, should recruitment speed or patient ' +
-          'demographic diversity carry more weight?',
-        options: [
-          'Speed first',
-          'Diversity first',
-          'Equal weight',
-        ],
-      },
-      {
-        kind: 'ambiguity',
-        question:
-          'A site is "under-recruiting" when monthly enrollment falls below ' +
-          'what fraction of the protocol target? (e.g. <70% for two consecutive months)',
-      },
-    ],
   },
 ]
 
