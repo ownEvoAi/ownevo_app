@@ -18,6 +18,8 @@ fresh `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- **τ³ LLM judge (condition C).** `--llm-judge` flag on `run_tau3_loop.py` and `OWNEVO_TAU3_LLM_JUDGE=1` env var on `tau3_local_loop.sh`: every gate-passing proposal is sent to `claude-opus-4-7` before approval. Admitted → `approved-awaiting-deploy`; rejected → `rejected` with the judge's rationale in the audit trail. Judge endpoint is configurable (`--llm-judge-base-url` / `--llm-judge-model` / `--llm-judge-api-key`) so the judge can run against a local LMS endpoint without an Anthropic API key. Judge API failures fall back to `reject_proposal` with the error as rationale rather than aborting the loop series.
+- **`make tau3-replay`.** Reproduces the B-LOCAL winning config: 5 cycles of `qwen3.6-35b-a3b` LMS as proposer + task agent + user sim (`OWNEVO_TAU3_CYCLES` overrides the default of 5).
 - Vertical template starters on `/workflows/new`: retail demand planning, credit risk recalibration, clinical trial site selection — one-click card prefills the description textarea and tags the workflow
 - `workflows.created_from_template` column (migration 0011): records which template a workflow started from, with a kebab-slug CHECK constraint
 - `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper
@@ -36,6 +38,9 @@ fresh `[Unreleased]` block above it.
 ### Removed
 - Sample-fixture chip row ("Or try a fixture: Contract review / Credit risk / Demand prediction") on `/workflows/new` — overlapped with the vertical template cards above it (Credit risk × 2, etc.)
 - Orphaned web-side preview helpers in `apps/web/lib/api.ts`: `listPreviewWorkflows`, `getPreview`, `PreviewIndex`, `PreviewResponse`, `MetaEvalJudgment` and friends. The kernel `/api/nl-gen/preview*` surface is unchanged; only the unused TS wrappers were removed
+
+### Fixed
+- **`write_skill` validation errors no longer crash trace collection.** `_dispatch_write_skill` was emitting `error_class="SkillValidationError"`, which is not a valid value per SPEC.md D3 (only `"Timeout"/"OOM"/"Crash"` are legal for sandbox errors). Pydantic rejected the value and raised `ValidationError`, crashing the trace collector on any iteration where skill validation failed. Set to `error_class=None` — logical validation failures are not sandbox errors. Side effect: the runner's `short_circuit_on_sandbox_error` gate no longer fires on validation failures, so the agent can now retry after a bad `write_skill` call rather than having the turn aborted.
 
 ## [0.8.0] — 2026-05-14
 

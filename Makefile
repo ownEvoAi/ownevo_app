@@ -4,7 +4,7 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop \
+.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop tau3-replay \
         api web-dev web-build seed-approval-demo seed-demo seed-demo-with-iter \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -33,6 +33,7 @@ help:
 	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
 	@printf '  tau3-ingest         backfill iterations from tau2 results.json files; --no-db for dry-run (P1.5/M8)\n'
 	@printf '  tau3-loop           one improvement-loop iteration on τ³-retail (loop agent + gate) (P1.5/M9)\n'
+	@printf '  tau3-replay         reproduce B-LOCAL winning config: 5 cycles, qwen3.6-35b-a3b LMS all-3-roles\n'
 	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
 	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
 	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
@@ -234,6 +235,18 @@ tau3-ingest:
 TAU3_LOOP_ARGS ?=
 tau3-loop:
 	cd apps/kernel && uv run --extra agent python scripts/run_tau3_loop.py $(TAU3_LOOP_ARGS)
+
+# τ³ B-LOCAL reproduction: winning local config from ownevo_docs/mvp-execution/tau3-results-2026-Q3.md.
+# Runs 5 cycles of qwen3.6-35b-a3b LMS as proposer + task agent + user sim.
+# Requires: OWNEVO_LLM_HOST pointing at LM Studio with qwen3.6-35b-a3b loaded at
+# ctx=65536 with froggeric v13 template; Postgres up; sandbox image built.
+# Override OWNEVO_TAU3_CYCLES (default 5) or TAU3_LOOP_ARGS to adjust.
+TAU3_REPLAY_CYCLES ?= 5
+tau3-replay:
+	OWNEVO_TAU3_CYCLES=$(TAU3_REPLAY_CYCLES) \
+	bash apps/kernel/scripts/tau3_local_loop.sh \
+	    "qwen/qwen3.6-35b-a3b" lms-anthropic "replay_b_local" anthropic \
+	    "anthropic/qwen/qwen3.6-35b-a3b" "anthropic/qwen/qwen3.6-35b-a3b"
 
 m5-bootstrap-loop:
 	cd apps/kernel && uv run python scripts/run_improvement_loop.py $(LOOP_ARGS)
