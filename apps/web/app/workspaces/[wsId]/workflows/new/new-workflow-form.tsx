@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useActionState, useRef, useState, type KeyboardEvent } from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
@@ -14,6 +15,7 @@ export function NewWorkflowForm({
   wsId: string
   templates: VerticalTemplate[]
 }) {
+  const router = useRouter()
   const action = generateWorkflowAction.bind(null, wsId)
   const [state, formAction] = useActionState(action, initialState)
   const [description, setDescription] = useState('')
@@ -21,6 +23,18 @@ export function NewWorkflowForm({
     null,
   )
   const formRef = useRef<HTMLFormElement | null>(null)
+
+  const runDiscovery = () => {
+    const qs = new URLSearchParams()
+    if (selectedTemplateId) qs.set('template_id', selectedTemplateId)
+    if (description.trim()) qs.set('description', description.trim())
+    router.push(
+      `/workspaces/${wsId}/workflows/new/design${
+        qs.toString() ? `?${qs}` : ''
+      }`,
+    )
+  }
+  const canRunDiscovery = description.trim().length >= 50
 
   const pickTemplate = (t: VerticalTemplate) => {
     setSelectedTemplateId(t.id)
@@ -141,6 +155,22 @@ export function NewWorkflowForm({
         <a href={`/workspaces/${wsId}`} className="btn btn-secondary">
           &lsaquo; Cancel
         </a>
+        <div className="gen-action-secondary-group">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={runDiscovery}
+            disabled={!canRunDiscovery}
+            aria-disabled={!canRunDiscovery}
+            title={
+              canRunDiscovery
+                ? 'Run a 1–2 minute discovery interview before generating'
+                : 'Write a description (50+ characters) first'
+            }
+          >
+            Design with agent &rsaquo;
+          </button>
+        </div>
         <div className="gen-action-primary">
           <SubmitButton />
           <span className="kbd-hint">

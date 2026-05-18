@@ -236,6 +236,50 @@ export async function generateWorkflow(
   })
 }
 
+// ---- Design-agent discovery (Track 9.1) ---------------------------------
+
+export type DiscoveryQuestionKind =
+  | 'metric'
+  | 'ambiguity'
+  | 'trigger'
+  | 'surface'
+  | 'premise'
+
+export interface NextDiscoveryQuestion {
+  question_index: number
+  kind: DiscoveryQuestionKind
+  question: string
+  options: string[] | null
+  rationale: string | null
+}
+
+export interface PriorDiscoveryAnswer {
+  question_index: number
+  answer: string | null
+}
+
+export interface NextDiscoveryQuestionResponse {
+  next_question: NextDiscoveryQuestion | null
+  done: boolean
+  total_questions: number
+  answered_count: number
+}
+
+export async function fetchNextDiscoveryQuestion(
+  description: string,
+  templateId: string | null,
+  priorAnswers: PriorDiscoveryAnswer[],
+): Promise<NextDiscoveryQuestionResponse> {
+  return jsonFetch<NextDiscoveryQuestionResponse>('/api/design-agent/next-question', {
+    method: 'POST',
+    body: JSON.stringify({
+      description,
+      template_id: templateId,
+      prior_answers: priorAnswers,
+    }),
+  })
+}
+
 export interface EvalCaseProvenance {
   /** 'derived' = verbatim user-flagged miss; 'inferred' = named pattern. */
   kind: string
