@@ -42,7 +42,7 @@ batch of hardening fixes (`SkillValidationError` schema crash,
 - **`make tau3-replay`.** Reproduces the B-LOCAL winning config: 5 cycles of `qwen3.6-35b-a3b` LMS as proposer + task agent + user sim (`OWNEVO_TAU3_CYCLES` overrides the default of 5).
 - Vertical template starters on `/workflows/new`: retail demand planning, credit risk recalibration, clinical trial site selection — one-click card prefills the description textarea and tags the workflow
 - `workflows.created_from_template` column (migration 0011): records which template a workflow started from, with a kebab-slug CHECK constraint
-- `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper
+- `VerticalTemplate` / `VerticalDiscoveryQuestion` TypeScript interfaces in `templates.ts`; `getTemplate(id)` helper (`VerticalDiscoveryQuestion` subsequently removed in [Unreleased])
 - `created_from_template` surfaced on `GET /api/workflows/{id}` and `PATCH /api/workflows/{id}` responses
 - Template attribution badge on the new-workflow review page when `created_from_template` is set
 - ⌘↵ / Ctrl-↵ keyboard shortcuts: submit Generate from the `/workflows/new` textarea, and Confirm from anywhere on the review page. `.kbd-hint` chip with `<kbd>` keys renders next to both CTAs
