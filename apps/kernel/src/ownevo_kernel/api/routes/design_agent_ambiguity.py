@@ -32,12 +32,12 @@ _DESCRIPTION_MAX_LEN = 4096
 class AmbiguityReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(min_length=50, max_length=_DESCRIPTION_MAX_LEN)
+    description: str = Field(min_length=1, max_length=_DESCRIPTION_MAX_LEN)
     spec: WorkflowSpec
     metric_definition: MetricDefinition | None = None
 
 
-@router.post("/ambiguity-report", response_model=AmbiguityReport, response_model_exclude_none=True)
+@router.post("/ambiguity-report", response_model=AmbiguityReport)
 def ambiguity_report(req: AmbiguityReportRequest) -> AmbiguityReport:
     return analyze_workflow(
         description=req.description,
