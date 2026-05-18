@@ -10,6 +10,8 @@
 // state; the next render must reflect it). For a polish pass with
 // SSE streaming this swaps for revalidation tags.
 
+import { cache } from 'react'
+
 const API_URL = process.env.OWNEVO_KERNEL_API_URL ?? 'http://localhost:8000'
 
 export type ProposalState =
@@ -731,16 +733,19 @@ export interface WorkflowAnatomy {
   created_from_template: string | null
   /** Design-agent discovery transcript + ambiguity report; null when the
    * workflow was authored without running the discovery interview. */
-  design_agent_log?: DesignAgentLog | null
+  design_agent_log: DesignAgentLog | null
 }
 
-export async function getWorkflowAnatomy(
+// cache() deduplicates calls with the same workflowId within one render pass.
+// Both the workflow layout and the audit page call this; only one kernel
+// request fires per page load.
+export const getWorkflowAnatomy = cache(async (
   workflowId: string,
-): Promise<WorkflowAnatomy> {
+): Promise<WorkflowAnatomy> => {
   return jsonFetch<WorkflowAnatomy>(
     `/api/workflows/${encodeURIComponent(workflowId)}`,
   )
-}
+})
 
 export async function getWorkflowIterations(
   workflowId: string,

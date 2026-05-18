@@ -60,15 +60,19 @@ export default async function WorkflowAuditPage({ params }: PageProps) {
   let designAgentLog: DesignAgentLog | null = null
   let apiError: { title: string; detail: string } | null = null
 
-  try {
-    const [auditList, anatomy] = await Promise.all([
-      listAudit({ workflowId: wfId, limit: 200 }),
-      getWorkflowAnatomy(wfId),
-    ])
-    audit = auditList
-    designAgentLog = anatomy.design_agent_log ?? null
-  } catch (err) {
-    apiError = kernelError(err)
+  // Run both fetches in parallel; let each fail independently so a transient
+  // anatomy error doesn't blank the audit trail (and vice versa).
+  const [auditResult, anatomyResult] = await Promise.allSettled([
+    listAudit({ workflowId: wfId, limit: 200 }),
+    getWorkflowAnatomy(wfId),
+  ])
+  if (auditResult.status === 'fulfilled') {
+    audit = auditResult.value
+  } else {
+    apiError = kernelError(auditResult.reason)
+  }
+  if (anatomyResult.status === 'fulfilled') {
+    designAgentLog = anatomyResult.value.design_agent_log
   }
 
   return (
@@ -259,6 +263,7 @@ function TranscriptRow({ entry }: { entry: DesignAgentLogEntry }) {
           color: skipped ? 'var(--text-muted)' : 'var(--text)',
           fontStyle: skipped ? 'italic' : 'normal',
           whiteSpace: 'pre-wrap',
+          overflowWrap: 'break-word',
         }}
       >
         → {skipped ? 'skipped' : entry.answer}
@@ -291,8 +296,8 @@ function AmbiguityFindingsCard({ report }: { report: AmbiguityReport }) {
           : ''}
       </p>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {report.findings.map((finding, i) => (
-          <AmbiguityFindingRow key={i} finding={finding} />
+        {report.findings.map((finding) => (
+          <AmbiguityFindingRow key={`${finding.kind}:${finding.location}`} finding={finding} />
         ))}
       </ul>
     </div>
