@@ -155,7 +155,7 @@ async def test_null_template_id_uses_generic(client: httpx.AsyncClient) -> None:
     assert body["total_questions"] == len(GENERIC_DISCOVERY_QUESTIONS)
 
 
-async def test_out_of_range_question_index_returns_422(
+async def test_out_of_range_question_index_returns_400(
     client: httpx.AsyncClient,
 ) -> None:
     total = len(get_discovery_questions(_RETAIL))
