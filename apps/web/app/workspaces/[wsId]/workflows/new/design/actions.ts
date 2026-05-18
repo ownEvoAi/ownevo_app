@@ -20,7 +20,7 @@ const _DISCOVERY_KINDS: ReadonlySet<DiscoveryQuestionKind> = new Set([
   'surface',
   'premise',
 ])
-const _MAX_TRANSCRIPT_ENTRIES = 32
+const _MAX_TRANSCRIPT_ENTRIES = 20 // kernel enforces max_length=20 on discovery_transcript
 const _MAX_ANSWER_LEN = 2048
 
 export interface NextQuestionInput {
@@ -141,9 +141,10 @@ export async function generateWithDiscoveryAction(
 }
 
 // Build the wire-shape DesignAgentLog from the client-side transcript.
-// Returns null when the operator skipped every question — no need to
-// send an empty log; the column stays NULL on the workflow row, which
-// is what the kernel expects.
+// Returns null when no questions were shown (empty transcript) — the
+// column stays NULL on the workflow row. Skipped questions (answer=null)
+// still produce entries so the audit trail shows which questions were
+// offered but declined.
 function buildDesignAgentLog(
   transcript: DiscoveryTranscriptEntry[],
 ): DesignAgentLog | null {
