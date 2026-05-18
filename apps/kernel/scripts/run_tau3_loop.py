@@ -839,35 +839,52 @@ async def main_async(args: CliArgs) -> int:
                 ground_truth_verdict="admit",  # not used by judge; required by dataclass
                 bucket="structural",           # not used by judge; required by dataclass
             )
-            _judgment = await judge_proposal_explanation(
-                _judge_client, _case, model=args.llm_judge_model,
-            )
-            print(
-                f"\njudge: verdict={_judgment.verdict} "
-                f"rationale={_judgment.rationale!r}",
-            )
-            if _judgment.verdict == "admit":
-                await approve_proposal(
-                    conn,
-                    proposal_id=persisted.proposal.id,
-                    decided_by="llm-judge",
-                    approver_type=ApproverType.LLM_JUDGE,
-                    comment=_judgment.rationale,
+            try:
+                _judgment = await judge_proposal_explanation(
+                    _judge_client, _case, model=args.llm_judge_model,
                 )
-                print("judge: proposal admitted → approved-awaiting-deploy")
-            else:
+            except Exception as _judge_exc:
+                # Judge API failure (network, auth, malformed response) must not abort the
+                # loop series — tau3_local_loop.sh treats any non-zero rc as "stopping series".
+                # Safe fallback: reject so the proposal doesn't sit in gate-passed limbo.
+                print(
+                    f"judge: error — {_judge_exc!r}; rejecting proposal as safe fallback",
+                    file=sys.stderr,
+                )
                 await reject_proposal(
                     conn,
                     proposal_id=persisted.proposal.id,
                     decided_by="llm-judge",
                     approver_type=ApproverType.LLM_JUDGE,
-                    comment=_judgment.rationale,
+                    comment=f"judge error: {_judge_exc}",
                 )
+            else:
                 print(
-                    "judge: proposal rejected — gate-blocked (val_score recorded, "
-                    "deploy blocked)",
-                    file=sys.stderr,
+                    f"\njudge: verdict={_judgment.verdict} "
+                    f"rationale={_judgment.rationale!r}",
                 )
+                if _judgment.verdict == "admit":
+                    await approve_proposal(
+                        conn,
+                        proposal_id=persisted.proposal.id,
+                        decided_by="llm-judge",
+                        approver_type=ApproverType.LLM_JUDGE,
+                        comment=_judgment.rationale,
+                    )
+                    print("judge: proposal admitted → approved-awaiting-deploy")
+                else:
+                    await reject_proposal(
+                        conn,
+                        proposal_id=persisted.proposal.id,
+                        decided_by="llm-judge",
+                        approver_type=ApproverType.LLM_JUDGE,
+                        comment=_judgment.rationale,
+                    )
+                    print(
+                        "judge: proposal rejected — gate-blocked (val_score recorded, "
+                        "deploy blocked)",
+                        file=sys.stderr,
+                    )
 
         return 0
     finally:
