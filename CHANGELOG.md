@@ -17,6 +17,8 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-05-18
+
 ### Added
 - **One-shot deploy bootstrap** (`scripts/fly_bootstrap.sh`, `make fly-bootstrap`). Walks all 11 Fly.io provisioning steps — Postgres cluster, pgvector hint, kernel + web app creation, secrets staging, Postgres attach + `OWNEVO_DATABASE_URL` rename, kernel deploy (migrations via `release_command`), web deploy, optional seed, smoke test, custom-domain instructions. Idempotent: each Fly resource is checked before creation. `--no-seed` and `--dry-run` flags supported; `BOOTSTRAP_ARGS` Makefile variable threads flags through cleanly.
 - **`scripts/setup.sh` / `make setup`** — fresh-machine install: detects + installs uv / node (brew on macOS, advisory on Linux), runs `uv sync` + `npm install`, bootstraps `.env` from `.env.example` with `chmod 600`.
