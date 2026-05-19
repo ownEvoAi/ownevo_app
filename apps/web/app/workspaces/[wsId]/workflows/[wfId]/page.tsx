@@ -21,6 +21,7 @@ import { ConversationView } from '@/app/components/primitives/conversation-view'
 import { KanbanBoard } from '@/app/components/primitives/kanban-board'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
+import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolvePrimitives } from '@/lib/primitive-data-resolver'
@@ -165,6 +166,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
             if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
             if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
             if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
+            if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
             return null
           })}
           {unresolvedTypes.length > 0 ? (

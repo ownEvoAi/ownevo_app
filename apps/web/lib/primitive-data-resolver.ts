@@ -24,6 +24,7 @@ import type {
   KanbanData,
   MetricCardDatum,
   ScheduleData,
+  SideBySideData,
   TableData,
   TimeSeriesData,
 } from '@/app/components/primitives/types'
@@ -43,6 +44,7 @@ export type ResolvedPrimitive =
   | { kind: 'KanbanBoard'; data: KanbanData }
   | { kind: 'ScheduleGrid'; data: ScheduleData }
   | { kind: 'ConversationView'; data: ConversationData }
+  | { kind: 'SideBySideView'; data: SideBySideData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -103,6 +105,8 @@ function resolveOne(
       return resolveScheduleGrid(inputs)
     case 'ConversationView':
       return resolveConversationView(inputs)
+    case 'SideBySideView':
+      return resolveSideBySideView(inputs)
     default:
       return {
         kind: 'empty',
@@ -402,6 +406,23 @@ function resolveConversationView(_inputs: ResolverInputs): ResolvedPrimitive {
     primitiveType: 'ConversationView',
     reason:
       'Agent does not emit a threaded transcript payload yet — needs a workflow-specific output_schema carrying user/agent turns + tool calls + citations.',
+  }
+}
+
+
+function resolveSideBySideView(_inputs: ResolverInputs): ResolvedPrimitive {
+  // SideBySideView wants a {left, right} pair of titled bodies with
+  // optional inline highlight spans — used for contract redlines
+  // (mock 10) and any "current vs proposed" comparison. The agent's
+  // submit_case_output carries a single rationale, not a paired
+  // before/after with span-based diff highlights. Real data lands
+  // when the agent emits a proposal-shaped payload (PLAN 8.4.9
+  // follow-up).
+  return {
+    kind: 'empty',
+    primitiveType: 'SideBySideView',
+    reason:
+      'Agent does not emit a before/after pair payload yet — needs a workflow-specific output_schema carrying {left, right} titled bodies with highlight spans.',
   }
 }
 
