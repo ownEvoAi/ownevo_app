@@ -13,6 +13,7 @@ import {
   type ProposalSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
+import { relativeTime } from '@/lib/format'
 import { AlertList } from '@/app/components/primitives/alert-list'
 import { ConversationView } from '@/app/components/primitives/conversation-view'
 import { DocumentReader } from '@/app/components/primitives/document-reader'
@@ -138,20 +139,45 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
   const hasInputs =
     dataSources.length > 0 || envGenerators.length > 0 || tools.length > 0
 
+  // "Has the agent produced any domain-shaped output the operator can
+  // actually see?" — drives the status banner. Doesn't track live
+  // triggers (no live-trigger plumbing yet); reflects only whether the
+  // latest iteration produced a payload primitive the resolver can
+  // render.
+  const hasProduction =
+    (caseOutputs?.items ?? []).some(
+      (it) =>
+        it.output_payload != null &&
+        typeof it.output_payload === 'object' &&
+        Object.keys(it.output_payload).length > 0,
+    )
+  const latestRunAt =
+    iterations.length > 0 ? iterations[iterations.length - 1].ended_at : null
+
   return (
     <>
       <section className="operate-status">
         <div className="operate-status-pill">
-          <span className="operate-status-dot idle" />
-          <strong>Awaiting first production run</strong>
+          <span
+            className={`operate-status-dot ${hasProduction ? 'live' : 'idle'}`}
+          />
+          <strong>
+            {hasProduction
+              ? 'Latest output captured'
+              : 'Awaiting first production run'}
+          </strong>
           <span style={{ color: 'var(--text-muted)' }}>
-            · live trigger + execution capture not wired yet
+            {hasProduction
+              ? '· from the agent on the latest iteration; live trigger pending'
+              : '· live trigger + execution capture not wired yet'}
           </span>
         </div>
         <div className="operate-status-cells">
           <div className="operate-status-cell">
-            <div className="operate-status-label">Last production run</div>
-            <div className="operate-status-value">—</div>
+            <div className="operate-status-label">Latest agent run</div>
+            <div className="operate-status-value">
+              {latestRunAt ? relativeTime(latestRunAt) : '—'}
+            </div>
           </div>
           <div className="operate-status-cell">
             <div className="operate-status-label">Pending review</div>

@@ -70,9 +70,12 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from .token_budget import TokenBudget
 
 
-DEFAULT_MODEL = os.environ.get("OWNEVO_AGENT_SOLVER_MODEL") or "claude-haiku-4-5-20251001"
-DEFAULT_MAX_TOKENS = 1_000
-"""Bool + one-line rationale fits in <500 tokens; 1k is the cap."""
+DEFAULT_MODEL = os.environ.get("OWNEVO_AGENT_SOLVER_MODEL") or "claude-sonnet-4-6"
+DEFAULT_MAX_TOKENS = 4_000
+"""Bool + one-line rationale fits in <500 tokens; the Operate-tab
+`output_payload_json` (multi-primitive shape: metrics + time_series +
+table + alerts + kanban + ...) eats 1.5-3k tokens — a 1k cap forces
+the model to silently drop the payload to fit, so we budget for it."""
 DEFAULT_MAX_TOKENS_OPENAI = 8_000
 """Higher cap for OpenAI-compat path: reasoning/thinking models emit a
 long preamble before committing the tool call; 1k hits the wall too early."""
@@ -82,8 +85,13 @@ REDACTED_TOKEN = "<REDACTED>"
 
 TOOL_NAME = "predict_label"
 TOOL_DESCRIPTION = (
-    "Emit a single bool prediction for the redacted label field at the "
-    "target step, plus a one-line plain-English rationale. Call this "
+    "Emit (a) a single bool prediction `value` for the redacted label "
+    "field at the target step, (b) a one-line plain-English "
+    "`rationale`, and (c) an `output_payload_json` string carrying a "
+    "JSON object whose keys match the Operate-tab payload block in "
+    "the user message (forecast curves, redline pairs, recommendation "
+    "rows, etc., shaped from the trajectory + workflow description). "
+    "Always set `output_payload_json` to at least `'{}'`. Call this "
     "tool exactly once."
 )
 TOOL_INPUT_SCHEMA: dict[str, Any] = {
@@ -104,8 +112,23 @@ TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "the audit trail next to the score."
             ),
         },
+        "output_payload_json": {
+            "type": "string",
+            "description": (
+                "JSON-encoded domain-shaped output for the Operate UI: a "
+                "single JSON object whose keys are listed in the user "
+                "message's `Operate-tab payload` block (e.g. "
+                "`{\"time_series\": {...}, \"table\": {...}, \"alerts\": "
+                "[...]}`). MUST be a valid JSON string, NOT a Python "
+                "dict — start with '{' and end with '}'. Always include; "
+                "pass `'{}'` only when the user message does NOT list an "
+                "Operate-tab payload block. The gate scores only on "
+                "`value`; this surfaces in the Operate tab."
+            ),
+            "minLength": 2,
+        },
     },
-    "required": ["value", "rationale"],
+    "required": ["value", "rationale", "output_payload_json"],
 }
 
 SYSTEM_PROMPT = (
@@ -122,13 +145,27 @@ SYSTEM_PROMPT = (
     f"{REDACTED_TOKEN!r}; every other field on the target event is the "
     "visible state at decision time.\n\n"
     "Rules:\n"
-    "1. Call `predict_label` exactly once with `value: bool` and "
-    "`rationale: str` (one short sentence).\n"
+    "1. Call `predict_label` exactly once with THREE fields:\n"
+    "   a. `value`: bool — the prediction.\n"
+    "   b. `rationale`: str — one short sentence.\n"
+    "   c. `output_payload_json`: a JSON-encoded string (starts with "
+    "`{`, ends with `}`). When the user message includes an `Operate-"
+    "tab payload` block, fill the JSON with EVERY key listed there "
+    "(e.g. `time_series`, `table`, `alerts`) populated with workflow-"
+    "shaped content the operator would see in production (a 7+ point "
+    "forecast for demand workflows; a redline pair for review "
+    "workflows; recommendation rows for risk workflows). When there's "
+    "no block, pass `\"{}\"`. The eval gate scores only on `value`, "
+    "but `output_payload_json` is ALWAYS required.\n"
     "2. Use the past trajectory + the visible state at the target step. "
     "The hidden label was computed deterministically from earlier state, "
     "so there IS a learnable rule — your job is to find it.\n"
-    "3. Do not invent fields the trajectory doesn't show. The trajectory "
-    "is the entire context; the workflow description is framing.\n"
+    "3. Do not invent fields the trajectory doesn't show for the bool "
+    "prediction. The trajectory is the entire context for `value`; the "
+    "workflow description is framing. For `output_payload_json`, you "
+    "may extrapolate from the trajectory + workflow description to "
+    "produce the kind of artifact a domain expert would expect to "
+    "see — that extrapolation is the entire point of the Operate view.\n"
     "4. Read the gate-metric framing block and let it shape your tie-"
     "breaker on borderline cases. A `recall`-gated workflow penalizes "
     "False Negatives heavily — predict True under uncertainty when the "
@@ -198,13 +235,18 @@ class AgentPrediction:
     `case_id` ties the prediction back to the source case; `value` is
     the bool the agent emitted; `rationale` is the one-line audit-trail
     explanation; `model` records which model produced this for
-    cross-run comparability.
+    cross-run comparability. `output_payload` is the optional
+    domain-shaped artifact the agent emits when the workflow's Operate
+    UI declares primitives that need richer-than-bool content (forecast
+    curves, redline pairs, recommendation tables). None when the agent
+    didn't emit one — Operate falls back to its empty state.
     """
 
     case_id: str
     value: bool
     rationale: str
     model: str
+    output_payload: dict[str, Any] | None = None
 
 
 
@@ -323,6 +365,141 @@ def _format_tools_for_context(spec: WorkflowSpec) -> str:
     return "\n".join(lines)
 
 
+# Per-primitive payload key + canonical shape. The web Operate resolver
+# looks up `output_payload[key]` for each primitive declared on the
+# spec's Operate tab; agreement here is what makes the round-trip work.
+# Shapes are intentionally thin — enough for the renderer to populate
+# the primitive, not enough to bloat the agent's tool call budget.
+_PRIMITIVE_PAYLOAD_GUIDE: dict[str, tuple[str, str]] = {
+    "MetricCards": (
+        "metrics",
+        '[{ "label": str, "value": str | number, "delta_pct"?: number }, ...] '
+        "— headline numbers the operator sees first. 2–4 items.",
+    ),
+    "TimeSeriesChart": (
+        "time_series",
+        '{ "title"?: str, "series": [{ "name": str, "points": '
+        '[{ "t": str, "value": number }, ...] }], "y_format"?: '
+        '"number" | "percent" | "currency" } — for forecasts, the '
+        '"t" key is an ISO date or step label; the "value" is the '
+        "predicted quantity.",
+    ),
+    "TableView": (
+        "table",
+        '{ "title"?: str, "columns": [{ "key": str, "label": str }, ...], '
+        '"rows": [{ ...column keys... }] } — one row per recommendation '
+        "or per affected entity (account, SKU, ticket). Pick columns "
+        "an operator would scan to make the call.",
+    ),
+    "AlertList": (
+        "alerts",
+        '[{ "severity": "low" | "medium" | "high", "title": str, '
+        '"meta"?: str }, ...] — things the operator should look at '
+        "RIGHT NOW. Cap at 3–5.",
+    ),
+    "KanbanBoard": (
+        "kanban",
+        '{ "columns": [{ "key": str, "label": str }, ...], '
+        '"cards": [{ "column_key": str, "title": str, "body"?: str, '
+        '"meta"?: str }, ...] } — work-items grouped by state.',
+    ),
+    "ScheduleGrid": (
+        "schedule",
+        '{ "row_labels": [str, ...], "col_labels": [str, ...], '
+        '"cells": [{ "row": str, "col": str, "value": number, '
+        '"target"?: number }, ...] } — staffing or capacity grid.',
+    ),
+    "ConversationView": (
+        "conversation",
+        '{ "turns": [{ "role": "user" | "agent" | "tool", '
+        '"text": str, "ts"?: str }, ...] } — threaded exchange '
+        "with the customer or counter-party.",
+    ),
+    "SideBySideView": (
+        "side_by_side",
+        '{ "left": { "title": str, "body": str }, "right": '
+        '{ "title": str, "body": str } } — for redlines, left is '
+        'the original clause, right is the proposed change.',
+    ),
+    "DocumentReader": (
+        "document",
+        '{ "blocks": [{ "type": "heading" | "paragraph" | "clause", '
+        '"text": str, "id"?: str }, ...], "annotations"?: '
+        '[{ "block_id": str, "text": str, "kind"?: "issue" | "note" '
+        '| "suggest" }, ...] } — structured doc + margin notes.',
+    ),
+}
+
+
+def _operate_primitives(spec: WorkflowSpec) -> list[str]:
+    """Pick the operate-tab primitive types declared on the spec.
+
+    Mirrors the web resolver's tab-fallback: look for a tab literally
+    named "operate" (case-insensitive), else the second tab, else the
+    first. Returns the distinct primitive type names; empty if the
+    spec has no UI plan.
+    """
+    ui = getattr(spec, "ui", None)
+    if ui is None:
+        return []
+    tabs = list(getattr(ui, "tabs", None) or [])
+    if not tabs:
+        return []
+    operate_tab = next(
+        (t for t in tabs if (getattr(t, "name", "") or "").lower() == "operate"),
+        None,
+    )
+    if operate_tab is None:
+        operate_tab = tabs[1] if len(tabs) >= 2 else tabs[0]
+    primitives = list(getattr(operate_tab, "primitives", None) or [])
+    seen: list[str] = []
+    for p in primitives:
+        ptype = getattr(p, "type", None)
+        if isinstance(ptype, str) and ptype in _PRIMITIVE_PAYLOAD_GUIDE and ptype not in seen:
+            seen.append(ptype)
+    return seen
+
+
+def _format_output_payload_guidance(spec: WorkflowSpec) -> str | None:
+    """Per-workflow `output_payload` shape, derived from the spec's UI.
+
+    Returns None when the spec declares no renderable primitives on its
+    Operate tab — the agent then omits `output_payload` and the Operate
+    UI stays in its honest empty state.
+
+    The block tells the agent which keys it should fill on
+    `output_payload` and what shape each key expects. The agent emits
+    workflow-correct content; the resolver renders it through the
+    matching web primitive.
+    """
+    types = _operate_primitives(spec)
+    if not types:
+        return None
+    lines: list[str] = []
+    for ptype in types:
+        key, shape = _PRIMITIVE_PAYLOAD_GUIDE[ptype]
+        lines.append(f"- `{key}` ({ptype}): {shape}")
+    bullets = "\n".join(lines)
+    return (
+        "## Operate-tab payload (REQUIRED — pass `output_payload_json`)\n"
+        "On the same `predict_label` tool call, set "
+        "`output_payload_json` to a JSON-encoded string (i.e. a string "
+        "starting with `{` and ending with `}`) carrying the keys "
+        "listed below, each populated with real domain content the "
+        "agent acting in production would have produced (forecast "
+        "curves with real numbers, redline pairs with real clause "
+        "text, recommendation rows with real account/SKU/case ids, "
+        "etc.). Extrapolate confidently from the trajectory + workflow "
+        "description — do not hand back empty arrays or placeholders. "
+        "The eval gate still scores only on `value`; this string is "
+        "what makes the Operate view useful.\n\n"
+        f"{bullets}\n\n"
+        "Example wrapper (replace the inner keys with what's listed "
+        "above):\n"
+        '`output_payload_json`: `\'{ "metrics": [...], "alerts": [...] }\'`'
+    )
+
+
 def _format_user_message(
     spec: WorkflowSpec,
     case: GeneratedEvalCase,
@@ -364,16 +541,33 @@ def _format_user_message(
             "## Workflow-specific guidance (refined from prior-cycle failures)\n"
             f"{per_workflow_instruction.strip()}"
         )
+    payload_guidance = _format_output_payload_guidance(spec)
+    if payload_guidance is not None:
+        parts.append(payload_guidance)
     parts.append(
         f"## Event trajectory through step {case.target_step_index}\n"
         f"(target event has `{case.target_label_field}` redacted)\n"
         f"```json\n{trajectory_json}\n```"
     )
-    parts.append(
-        "## Decision\n"
+    decision_lines = [
+        "## Decision",
         f"Predict the redacted value of `{case.target_label_field}` at "
-        f"step {case.target_step_index}. Call `predict_label` exactly once."
-    )
+        f"step {case.target_step_index}. Call `predict_label` exactly once with:",
+        "- `value`: bool",
+        "- `rationale`: one short sentence",
+    ]
+    if payload_guidance is not None:
+        decision_lines.append(
+            "- `output_payload_json`: JSON-encoded string filling the "
+            "keys from the `Operate-tab payload` block above (REQUIRED — "
+            "do not omit, do not pass `\"{}\"`)."
+        )
+    else:
+        decision_lines.append(
+            "- `output_payload_json`: `\"{}\"` (no Operate primitives "
+            "declared for this workflow)."
+        )
+    parts.append("\n".join(decision_lines))
     return "\n\n".join(parts)
 
 
@@ -400,6 +594,29 @@ def _build_openai_tool_definition() -> dict[str, Any]:
 
 _TOOL_DEFINITION = _build_tool_definition()
 _OPENAI_TOOL_DEFINITION = _build_openai_tool_definition()
+
+
+def _decode_payload(raw: Any) -> dict[str, Any] | None:
+    """Coerce the agent's `output_payload_json` field into a dict.
+
+    The schema asks for a JSON-encoded string. Anthropic-side
+    serialization sometimes returns an object literal (a dict) instead;
+    accept either. Anything that doesn't decode to a non-empty dict
+    falls back to None so the case row still writes without an
+    Operate-tab payload.
+    """
+    if isinstance(raw, dict):
+        return raw if raw else None
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s or s == "{}":
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) and parsed else None
 
 
 def _validate_prediction_input(
@@ -432,6 +649,21 @@ def _validate_prediction_input(
             f"non-empty string; got {rationale!r}",
             raw_input=raw_input,
         )
+    # output_payload_json is a JSON-encoded string. Decoded by the
+    # extractor; we just sanity-check the type here so a wrong shape
+    # doesn't blow up later. Empty / non-string / non-JSON values are
+    # tolerated — they fall back to None payload, the iteration still
+    # records the bool. Anthropic occasionally returns object types
+    # here instead of stringified JSON (rare, but seen in practice);
+    # those land as a dict downstream.
+    if "output_payload_json" in raw_input:
+        v = raw_input["output_payload_json"]
+        if v is not None and not isinstance(v, (str, dict)):
+            raise PredictToolValidationError(
+                f"case {case_id!r}: predict_label `output_payload_json` "
+                f"must be a string or object; got {type(v).__name__}",
+                raw_input=raw_input,
+            )
 
 
 def _extract_prediction(
@@ -454,11 +686,13 @@ def _extract_prediction(
         )
     raw_input = tool_blocks[0].input
     _validate_prediction_input(raw_input, case_id=case_id)
+    payload = _decode_payload(raw_input.get("output_payload_json"))
     return AgentPrediction(
         case_id=case_id,
         value=raw_input["value"],
         rationale=raw_input["rationale"],
         model=model,
+        output_payload=payload,
     )
 
 
@@ -498,11 +732,13 @@ def _extract_prediction_openai(
             raw_input=args,
         ) from exc
     _validate_prediction_input(raw_input, case_id=case_id)
+    payload = _decode_payload(raw_input.get("output_payload_json"))
     return AgentPrediction(
         case_id=case_id,
         value=raw_input["value"],
         rationale=raw_input["rationale"],
         model=model,
+        output_payload=payload,
     )
 
 
@@ -702,6 +938,7 @@ async def solve_with_agent(
                 actual_value=pred.value,
                 expected_value=case.expected_value,
                 rationale=pred.rationale,
+                output_payload=pred.output_payload,
             )
             for pred, case in zip(predictions, case_set.cases)
         ]
@@ -717,6 +954,7 @@ async def solve_with_agent(
                 actual_value=prediction.value,
                 expected_value=case.expected_value,
                 rationale=prediction.rationale,
+                output_payload=prediction.output_payload,
             )
         )
     return results

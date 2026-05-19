@@ -117,26 +117,13 @@ function resolveOne(
   primitive: { type: string; [key: string]: unknown },
   inputs: ResolverInputs,
 ): ResolvedPrimitive {
-  // Operate context = production execution. Iteration-meta and
-  // eval-prediction primitives are improvement-loop diagnostics, not
-  // production output, so they short-circuit to empty here. A future
-  // production-output payload will land its own resolver branch and
-  // populate Operate honestly.
+  // Operate context = production execution. Read the agent's
+  // domain-shaped `output_payload` from each case-output row and
+  // render the matching primitive. Empty payloads fall through to a
+  // primitive-specific empty state explaining what the agent would
+  // have produced.
   if (inputs.context === 'operate') {
-    if (
-      primitive.type === 'MetricCards' ||
-      primitive.type === 'TimeSeriesChart' ||
-      primitive.type === 'TableView' ||
-      primitive.type === 'AlertList' ||
-      primitive.type === 'KanbanBoard'
-    ) {
-      return {
-        kind: 'empty',
-        primitiveType: primitive.type,
-        reason:
-          'Production runs will land here once the workflow is triggered against live data. Eval-suite predictions stay on Overview.',
-      }
-    }
+    return resolveFromPayload(primitive, inputs)
   }
   switch (primitive.type) {
     case 'MetricCards':
@@ -525,4 +512,503 @@ function resolveTimeSeries(inputs: ResolverInputs): ResolvedPrimitive {
   }
 
   return { kind: 'TimeSeriesChart', data }
+}
+
+
+// =============================================================================
+// Operate-context resolvers — render `output_payload` the agent emitted via
+// predict_label's optional output_payload field. The shapes the agent fills
+// match `_PRIMITIVE_PAYLOAD_GUIDE` in apps/kernel/.../eval_runner/agent_solver.py;
+// agreement between that table and the readers below is what makes this round
+// trip work. Each reader is defensive: if the agent emits a slightly different
+// shape we keep the page rendering rather than throwing.
+// =============================================================================
+
+const PAYLOAD_KEY_BY_PRIMITIVE: Record<string, string> = {
+  MetricCards: 'metrics',
+  TimeSeriesChart: 'time_series',
+  TableView: 'table',
+  AlertList: 'alerts',
+  KanbanBoard: 'kanban',
+  ScheduleGrid: 'schedule',
+  ConversationView: 'conversation',
+  SideBySideView: 'side_by_side',
+  DocumentReader: 'document',
+}
+
+function resolveFromPayload(
+  primitive: { type: string; [key: string]: unknown },
+  inputs: ResolverInputs,
+): ResolvedPrimitive {
+  const key = PAYLOAD_KEY_BY_PRIMITIVE[primitive.type]
+  if (!key) {
+    return {
+      kind: 'empty',
+      primitiveType: primitive.type,
+      reason: 'Operate renderer not implemented for this primitive type yet.',
+    }
+  }
+  const co = inputs.caseOutputs
+  if (!co || co.items.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: primitive.type,
+      reason:
+        'No production run captured yet. Output renders here once the agent emits an output_payload for at least one case.',
+    }
+  }
+  // Cases the agent annotated with a payload for THIS primitive. Empty
+  // means the agent skipped this primitive for every case — show why
+  // rather than rendering an empty primitive that looks broken.
+  const carriers = co.items
+    .map((it) => ({ caseId: it.case_id, value: pickPayloadKey(it.output_payload, key) }))
+    .filter((c): c is { caseId: string | null; value: unknown } => c.value !== undefined)
+  if (carriers.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: primitive.type,
+      reason: `Agent did not emit \`${key}\` in output_payload for any case on the latest iteration.`,
+    }
+  }
+  switch (primitive.type) {
+    case 'MetricCards':
+      return payloadToMetricCards(carriers)
+    case 'TimeSeriesChart':
+      return payloadToTimeSeries(carriers)
+    case 'TableView':
+      return payloadToTableView(carriers, co.iteration_index)
+    case 'AlertList':
+      return payloadToAlertList(carriers)
+    case 'KanbanBoard':
+      return payloadToKanban(carriers)
+    case 'ScheduleGrid':
+      return payloadToScheduleGrid(carriers)
+    case 'ConversationView':
+      return payloadToConversation(carriers)
+    case 'SideBySideView':
+      return payloadToSideBySide(carriers)
+    case 'DocumentReader':
+      return payloadToDocument(carriers)
+    default:
+      return {
+        kind: 'empty',
+        primitiveType: primitive.type,
+        reason: 'Operate renderer not implemented for this primitive type yet.',
+      }
+  }
+}
+
+function pickPayloadKey(
+  payload: Record<string, unknown> | null | undefined,
+  key: string,
+): unknown | undefined {
+  if (!payload) return undefined
+  const v = payload[key]
+  if (v === undefined || v === null) return undefined
+  // Empty arrays / empty objects don't carry useful content for the
+  // operator, treat them as "agent emitted nothing here".
+  if (Array.isArray(v) && v.length === 0) return undefined
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0) {
+    return undefined
+  }
+  return v
+}
+
+type Carrier = { caseId: string | null; value: unknown }
+
+function asObject(v: unknown): Record<string, unknown> | null {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null
+}
+
+function asArrayOfObjects(v: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(v)) return []
+  return v.filter(
+    (e): e is Record<string, unknown> =>
+      e !== null && typeof e === 'object' && !Array.isArray(e),
+  )
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+
+function asNumber(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+function payloadToMetricCards(carriers: Carrier[]): ResolvedPrimitive {
+  // MetricCards take a small fixed set of headline numbers. Pick the
+  // first case that emitted metrics — aggregating across cases would
+  // mean averaging metrics across different recommendations, which is
+  // domain-specific and rarely meaningful.
+  const first = carriers[0]
+  const items = asArrayOfObjects(first.value)
+  const data: MetricCardDatum[] = items.slice(0, 4).map((m) => {
+    const value = m.value
+    const label = asString(m.label) ?? 'Metric'
+    const deltaPct = asNumber(m.delta_pct)
+    return {
+      label,
+      value:
+        typeof value === 'number' || typeof value === 'string' ? value : '—',
+      delta:
+        deltaPct !== undefined
+          ? {
+              value: `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`,
+              direction: deltaPct > 0 ? 'up' : deltaPct < 0 ? 'down' : 'flat',
+              scope: '',
+            }
+          : undefined,
+    }
+  })
+  if (data.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'MetricCards',
+      reason: 'Agent emitted `metrics` but with no usable items.',
+    }
+  }
+  return { kind: 'MetricCards', data }
+}
+
+function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
+  // Each case may emit its own forecast curve (e.g. one per SKU). Show
+  // the first case's curve and label with the case_id. Future: pick up
+  // to N cases as additional series.
+  const first = carriers[0]
+  const obj = asObject(first.value)
+  if (!obj) {
+    return {
+      kind: 'empty',
+      primitiveType: 'TimeSeriesChart',
+      reason: 'Agent emitted `time_series` but it was not an object.',
+    }
+  }
+  const series = asArrayOfObjects(obj.series).map((s) => ({
+    name: asString(s.name) ?? 'series',
+    points: asArrayOfObjects(s.points)
+      .map((p) => {
+        const t = asString(p.t)
+        const value = asNumber(p.value)
+        return t !== undefined && value !== undefined ? { t, value } : null
+      })
+      .filter((p): p is { t: string; value: number } => p !== null),
+  }))
+  if (series.length === 0 || series.every((s) => s.points.length === 0)) {
+    return {
+      kind: 'empty',
+      primitiveType: 'TimeSeriesChart',
+      reason: 'Agent emitted `time_series` but with no usable points.',
+    }
+  }
+  const yFormat = asString(obj.y_format)
+  const data: TimeSeriesData = {
+    title: asString(obj.title) ?? 'Forecast',
+    subtitle: first.caseId ? `case ${first.caseId}` : undefined,
+    series,
+    y_format:
+      yFormat === 'percent' || yFormat === 'currency' || yFormat === 'number'
+        ? yFormat
+        : 'number',
+  }
+  return { kind: 'TimeSeriesChart', data }
+}
+
+function payloadToTableView(
+  carriers: Carrier[],
+  iterationIndex: number | null,
+): ResolvedPrimitive {
+  // Aggregate rows from every case that emitted a table. Use the first
+  // table's columns as the canonical schema — extra keys in later rows
+  // are kept on the row dict (TableView shows declared columns only).
+  let columns: TableColumn[] = []
+  const rows: TableData['rows'] = []
+  for (const c of carriers) {
+    const obj = asObject(c.value)
+    if (!obj) continue
+    if (columns.length === 0) {
+      columns = asArrayOfObjects(obj.columns).map((col) => ({
+        key: asString(col.key) ?? 'col',
+        label: asString(col.label) ?? '',
+      }))
+    }
+    for (const row of asArrayOfObjects(obj.rows)) {
+      rows.push(row)
+    }
+  }
+  if (columns.length === 0 || rows.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'TableView',
+      reason: 'Agent emitted `table` but with no usable columns/rows.',
+    }
+  }
+  const data: TableData = {
+    title: 'Agent recommendations',
+    summary: `${rows.length} row${rows.length === 1 ? '' : 's'}${
+      iterationIndex !== null ? ` · iteration #${iterationIndex}` : ''
+    }`,
+    columns,
+    rows,
+  }
+  return { kind: 'TableView', data }
+}
+
+function payloadToAlertList(carriers: Carrier[]): ResolvedPrimitive {
+  // Concatenate alerts across cases. Cap at 8 so the list stays
+  // scannable — operator drills into the table for the full set.
+  const data: AlertItem[] = []
+  for (const c of carriers) {
+    for (const a of asArrayOfObjects(c.value)) {
+      const severity = asString(a.severity)
+      const title = asString(a.title)
+      if (!title) continue
+      data.push({
+        severity:
+          severity === 'high' || severity === 'medium' || severity === 'low'
+            ? severity
+            : 'medium',
+        title,
+        meta: asString(a.meta) ?? '',
+      })
+      if (data.length >= 8) break
+    }
+    if (data.length >= 8) break
+  }
+  if (data.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'AlertList',
+      reason: 'Agent emitted `alerts` but with no usable items.',
+    }
+  }
+  return { kind: 'AlertList', data }
+}
+
+function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
+  // Use the first case's column definitions; aggregate cards from
+  // every case. Cards with column_key that doesn't match a column get
+  // dropped (mismatched schema would render an orphan column).
+  const first = asObject(carriers[0].value)
+  if (!first) {
+    return {
+      kind: 'empty',
+      primitiveType: 'KanbanBoard',
+      reason: 'Agent emitted `kanban` but it was not an object.',
+    }
+  }
+  const columnDefs = asArrayOfObjects(first.columns).map((c) => ({
+    key: asString(c.key) ?? '',
+    label: asString(c.label) ?? '',
+  }))
+  const colKeys = new Set(columnDefs.map((c) => c.key).filter((k) => k))
+  const cards: KanbanData['cards'] = []
+  for (const c of carriers) {
+    const obj = asObject(c.value)
+    if (!obj) continue
+    asArrayOfObjects(obj.cards).forEach((card, i) => {
+      const columnKey = asString(card.column_key)
+      const title = asString(card.title)
+      if (!columnKey || !colKeys.has(columnKey) || !title) return
+      cards.push({
+        id: `${c.caseId ?? 'c'}-${i}`,
+        column_key: columnKey,
+        title,
+        body: asString(card.body) ?? '',
+        meta: asString(card.meta) ?? '',
+      })
+    })
+  }
+  if (columnDefs.length === 0 || cards.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'KanbanBoard',
+      reason: 'Agent emitted `kanban` but with no usable columns/cards.',
+    }
+  }
+  const counts = cards.reduce<Record<string, number>>((acc, c) => {
+    acc[c.column_key] = (acc[c.column_key] ?? 0) + 1
+    return acc
+  }, {})
+  const data: KanbanData = {
+    columns: columnDefs.map((c) => ({ ...c, count: counts[c.key] ?? 0 })),
+    cards,
+  }
+  return { kind: 'KanbanBoard', data }
+}
+
+function payloadToScheduleGrid(carriers: Carrier[]): ResolvedPrimitive {
+  // Single case's schedule (rows × cols × cells). Aggregating across
+  // cases would silently merge different staffing weeks.
+  const obj = asObject(carriers[0].value)
+  if (!obj) {
+    return {
+      kind: 'empty',
+      primitiveType: 'ScheduleGrid',
+      reason: 'Agent emitted `schedule` but it was not an object.',
+    }
+  }
+  const rowLabels = Array.isArray(obj.row_labels)
+    ? (obj.row_labels.filter((v) => typeof v === 'string') as string[])
+    : []
+  const colLabels = Array.isArray(obj.col_labels)
+    ? (obj.col_labels.filter((v) => typeof v === 'string') as string[])
+    : []
+  const cellsRaw = asArrayOfObjects(obj.cells)
+  if (rowLabels.length === 0 || colLabels.length === 0 || cellsRaw.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'ScheduleGrid',
+      reason: 'Agent emitted `schedule` but it was missing rows/cols/cells.',
+    }
+  }
+  const data: ScheduleData = {
+    rows: rowLabels.map((label) => ({ key: label, label })),
+    cols: colLabels.map((label) => ({ key: label, label })),
+    cells: cellsRaw
+      .map((c): ScheduleCellDef | null => {
+        const row = asString(c.row)
+        const col = asString(c.col)
+        const value = c.value
+        if (!row || !col || (typeof value !== 'number' && typeof value !== 'string')) {
+          return null
+        }
+        const target = c.target
+        const numericValue = typeof value === 'number' ? value : Number(value)
+        const numericTarget = typeof target === 'number' ? target : Number(target)
+        const status: ScheduleCellStatus =
+          Number.isFinite(numericTarget) && Number.isFinite(numericValue)
+            ? numericValue < numericTarget
+              ? 'warn'
+              : 'ok'
+            : 'ok'
+        const cell: ScheduleCellDef = { row_key: row, col_key: col, value, status }
+        if (typeof target === 'number' || typeof target === 'string') {
+          cell.target = target
+        }
+        return cell
+      })
+      .filter((c): c is ScheduleCellDef => c !== null),
+  }
+  return { kind: 'ScheduleGrid', data }
+}
+
+type ScheduleCellDef = ScheduleData['cells'][number]
+type ScheduleCellStatus = ScheduleCellDef['status']
+type TableColumn = TableData['columns'][number]
+
+function payloadToConversation(carriers: Carrier[]): ResolvedPrimitive {
+  // Threaded transcript — first case only.
+  const obj = asObject(carriers[0].value)
+  if (!obj) {
+    return {
+      kind: 'empty',
+      primitiveType: 'ConversationView',
+      reason: 'Agent emitted `conversation` but it was not an object.',
+    }
+  }
+  type Msg = ConversationData['messages'][number]
+  const messages: Msg[] = asArrayOfObjects(obj.turns)
+    .map((t): Msg | null => {
+      const role = asString(t.role)
+      const text = asString(t.text)
+      if (!text) return null
+      const r: Msg['role'] = role === 'user' || role === 'system' ? role : 'agent'
+      const msg: Msg = { role: r, text }
+      const ts = asString(t.ts)
+      if (ts !== undefined) msg.ts = ts
+      return msg
+    })
+    .filter((m): m is Msg => m !== null)
+  if (messages.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'ConversationView',
+      reason: 'Agent emitted `conversation` but with no usable turns.',
+    }
+  }
+  return { kind: 'ConversationView', data: { messages } }
+}
+
+function payloadToSideBySide(carriers: Carrier[]): ResolvedPrimitive {
+  // Pick the first carrier that has both left+right populated. Falls
+  // back to whatever the first non-empty case emits, even if one side
+  // is missing (we synthesise the other side as a placeholder).
+  for (const c of carriers) {
+    const obj = asObject(c.value)
+    if (!obj) continue
+    const left = asObject(obj.left)
+    const right = asObject(obj.right)
+    const leftTitle = asString(left?.title) ?? 'Original'
+    const leftBody = asString(left?.body) ?? ''
+    const rightTitle = asString(right?.title) ?? 'Proposed'
+    const rightBody = asString(right?.body) ?? ''
+    if (leftBody || rightBody) {
+      return {
+        kind: 'SideBySideView',
+        data: {
+          left: { title: leftTitle, body: leftBody, format: 'text' },
+          right: { title: rightTitle, body: rightBody, format: 'text' },
+        },
+      }
+    }
+  }
+  return {
+    kind: 'empty',
+    primitiveType: 'SideBySideView',
+    reason: 'Agent emitted `side_by_side` but with no usable left/right bodies.',
+  }
+}
+
+function payloadToDocument(carriers: Carrier[]): ResolvedPrimitive {
+  const obj = asObject(carriers[0].value)
+  if (!obj) {
+    return {
+      kind: 'empty',
+      primitiveType: 'DocumentReader',
+      reason: 'Agent emitted `document` but it was not an object.',
+    }
+  }
+  const blocks: DocumentData['blocks'] = asArrayOfObjects(obj.blocks)
+    .map((b) => {
+      const text = asString(b.text)
+      if (!text) return null
+      const t = asString(b.type)
+      const kind: DocumentData['blocks'][number]['kind'] =
+        t === 'heading' ? 'heading' : t === 'clause' ? 'clause' : 'para'
+      return { kind, text }
+    })
+    .filter((b): b is DocumentData['blocks'][number] => b !== null)
+  type Ann = DocumentData['annotations'][number]
+  const annotations: Ann[] = asArrayOfObjects(obj.annotations)
+    .map((a, i): Ann | null => {
+      const text = asString(a.text)
+      if (!text) return null
+      const kind = asString(a.kind)
+      const sev: Ann['severity'] =
+        kind === 'issue' ? 'high' : kind === 'suggest' ? 'medium' : 'low'
+      const ann: Ann = {
+        id: `a-${i}`,
+        severity: sev,
+        title: kind ?? 'note',
+        body: text,
+      }
+      const blockId = asString(a.block_id)
+      if (blockId !== undefined) ann.span_id = blockId
+      return ann
+    })
+    .filter((a): a is Ann => a !== null)
+  if (blocks.length === 0) {
+    return {
+      kind: 'empty',
+      primitiveType: 'DocumentReader',
+      reason: 'Agent emitted `document` but with no usable blocks.',
+    }
+  }
+  return {
+    kind: 'DocumentReader',
+    data: { blocks, annotations },
+  }
 }

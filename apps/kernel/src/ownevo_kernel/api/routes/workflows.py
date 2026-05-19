@@ -645,6 +645,7 @@ async def list_workflow_case_outputs(
         SELECT
             ico.eval_case_id,
             ico.output_json,
+            ico.output_payload,
             ico.passed,
             ico.created_at,
             ec.input        AS input,
@@ -680,6 +681,7 @@ async def list_workflow_case_outputs(
             is_test_fold=bool(r["is_test_fold"]),
             created_at=r["created_at"],
             trace_id=r["trace_id"],
+            output_payload=decode_jsonb_obj(r["output_payload"]),
         )
         for r in rows
     ]

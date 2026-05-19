@@ -761,20 +761,36 @@ async def _persist_case_outputs(
             "rationale": outcome.rationale,
             "is_test_fold": bool(outcome.is_test_fold),
         }
+        # Domain-shaped artifact for the Operate tab. Kept in its own
+        # column rather than nested inside output_json so:
+        #   * the gate-frame fields above stay schema-stable for the
+        #     eval-prediction TableView on Overview,
+        #   * the Operate resolver can do a tight `output_payload IS NOT
+        #     NULL` check without scanning JSONB,
+        #   * NULL clearly means "agent didn't emit one" instead of
+        #     fighting with `output_json` keys that happen to be missing.
+        payload_clean: dict[str, Any] | None = None
+        if outcome.output_payload is not None:
+            payload_clean = _json_safe(outcome.output_payload)
+            if not isinstance(payload_clean, dict) or not payload_clean:
+                payload_clean = None
+        payload_arg = json.dumps(payload_clean) if payload_clean else None
         await conn.execute(
             """
             INSERT INTO iteration_case_outputs (
-                iteration_id, eval_case_id, output_json, passed
+                iteration_id, eval_case_id, output_json, passed, output_payload
             )
-            VALUES ($1, $2, $3::jsonb, $4)
+            VALUES ($1, $2, $3::jsonb, $4, $5::jsonb)
             ON CONFLICT (iteration_id, eval_case_id) DO UPDATE
                 SET output_json = EXCLUDED.output_json,
-                    passed = EXCLUDED.passed
+                    passed = EXCLUDED.passed,
+                    output_payload = EXCLUDED.output_payload
             """,
             iteration_id,
             eval_case_uuid,
             json.dumps(output_json),
             bool(outcome.passed),
+            payload_arg,
         )
 
 

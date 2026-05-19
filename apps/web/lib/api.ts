@@ -399,6 +399,11 @@ export interface CaseOutputRow {
   is_test_fold: boolean
   created_at: string
   trace_id: string | null
+  // Domain-shaped output the agent emitted for this case (forecast
+  // curve, redline pair, recommendation table). Null when the agent
+  // didn't emit one. The Operate-tab resolver reads this and dispatches
+  // to the workflow's declared primitives.
+  output_payload: Record<string, unknown> | null
 }
 
 export interface CaseOutputList {
