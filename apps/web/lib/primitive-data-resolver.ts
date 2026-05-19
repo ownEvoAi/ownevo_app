@@ -1,22 +1,29 @@
 // Layer-D resolver (PLAN row 8.4.6).
 //
-// Maps spec-declared `WorkflowSpec.ui.tabs[0].primitives[]` entries to
-// real runtime data derived from the workflow's iteration history. No
-// hand-curated mocks, no hard-coded fallbacks — what the agent has
-// actually produced gets surfaced; everything else stays an empty state.
+// Maps spec-declared `WorkflowSpec.ui.tabs[].primitives[]` entries to
+// real runtime data derived from the workflow's iteration history +
+// per-case agent outputs. No hand-curated mocks, no hard-coded
+// fallbacks — what the agent has actually produced gets surfaced;
+// everything else returns a primitive-specific `empty` reason that
+// the page renders as a "Coming soon" callout.
 //
-// What we DO derive:
-//   * MetricCards    — iteration count, latest val_score, eval-case
-//                      totals, proposal counts.
+// Iteration-derived (always populated when ≥1 iteration exists):
+//   * MetricCards     — iteration count, latest val_score, lift vs
+//                       baseline, pending-proposal count.
 //   * TimeSeriesChart — the lift curve (val_score over iteration_index).
 //
-// What we DON'T derive (returns null — UI renders an empty placeholder):
-//   * TableView / AlertList / KanbanBoard / ScheduleGrid /
-//     ConversationView / SideBySideView / DocumentReader.
-//   These need richer agent output (per-row predictions, audit-derived
-//   alerts, etc.) that the current NL-gen iteration loop doesn't emit.
-//   Plumbing them is future work — when the agent's per-case output
-//   gets structured beyond `bool prediction`.
+// Case-output-derived (PLAN 8.4.10, populated when caseOutputs ≠ null):
+//   * TableView       — per-case prediction table, failed-first.
+//   * AlertList       — failed cases as high-severity alerts.
+//   * KanbanBoard     — cases columned by outcome × fold (failed-test /
+//                       failed-train / passed).
+//
+// Empty-only (await PLAN 8.4.9 follow-up: workflow-specific
+// `output_schema` extension so the agent can emit these shapes):
+//   * ScheduleGrid     — day × shift staffing matrix.
+//   * ConversationView — threaded transcript with tool calls + citations.
+//   * SideBySideView   — paired before/after bodies with diff highlights.
+//   * DocumentReader   — structured doc blocks + margin annotations.
 
 import type {
   AlertItem,
