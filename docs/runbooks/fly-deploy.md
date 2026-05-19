@@ -3,7 +3,22 @@
 Live demo at `demo.ownevo.ai`. Three services: Postgres (Fly managed),
 kernel API (`ownevo-kernel`), web (`ownevo-web`).
 
-Estimated first-run time: **~2 hours**.
+Estimated first-run time: **~30 min** with `make fly-bootstrap`, **~2 hours** following these steps by hand.
+
+---
+
+## TL;DR — one-shot
+
+```bash
+make doctor          # preflight: tools, .env, fly auth
+make fly-bootstrap   # walks every step below interactively
+make fly-smoke       # verify
+```
+
+The bootstrap is idempotent — re-run after a partial failure and it skips
+what's already done. The manual steps below are the source of truth for
+anything bootstrap doesn't cover (custom region, multiple environments,
+debugging a failed step).
 
 ---
 

@@ -53,16 +53,18 @@ Detailed system tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ## Quick start
 
 ```bash
-ANTHROPIC_API_KEY=sk-... make dev-up        # build + start postgres + kernel + web
+./scripts/setup.sh                          # one-shot: uv + node + .env from .env.example
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env # add your Anthropic key
+make dev-up                                 # build + start postgres + kernel + web
 make seed-demo-with-iter                    # seed two workflows + run one iteration
 ```
 
 - Kernel API: <http://localhost:8000/api/health>
 - Web app: <http://localhost:3000/workspaces/acme>
 
-`make dev-down` to stop. Local-dev without Docker: `make api` + `make web-dev` (Postgres separate).
+`make dev-down` to stop. `make smoke` to verify the stack. `make doctor` to preflight before deploying. `make help` for the common targets, `make help-all` for everything.
 
-Full deployment options — local, Docker Compose, Fly.io: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Full deployment options — local, Docker Compose, Fly.io: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). One-shot Fly.io deploy: `make fly-bootstrap`.
 
 ## Repo layout
 
