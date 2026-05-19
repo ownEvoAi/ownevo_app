@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # One-shot first-time Fly.io deploy.
 #
-# Walks the docs/runbooks/fly-deploy.md steps interactively:
-#   1.  Provision Fly Postgres (`ownevo-pg`)
-#   2.  Enable pgvector
-#   3.  Create kernel + web apps (`ownevo-kernel`, `ownevo-web`)
-#   4.  Set kernel secrets (ANTHROPIC_API_KEY, CORS allowlist)
-#   5.  Attach Postgres to kernel + rename DATABASE_URL → OWNEVO_DATABASE_URL
-#   6.  Deploy kernel (migrations run via release_command)
-#   7.  Create web app + set secrets
-#   8.  Deploy web
-#   9.  Seed demo data (optional)
-#  10.  Smoke test
-#  11.  Print custom-domain instructions
+# Steps:
+#   1.  Provision Fly Postgres (`ownevo-pg`, custom pgvector image)
+#   2.  Create kernel app (`ownevo-kernel`)
+#   3.  Set kernel secrets (ANTHROPIC_API_KEY, CORS allowlist)
+#   4.  Stage OWNEVO_DATABASE_URL on the kernel app
+#   5.  Deploy kernel (migrations run via release_command)
+#   6.  Create web app + set secrets
+#   7.  Deploy web
+#   8.  Seed demo data (optional)
+#   9.  Smoke test
+#  10.  Print custom-domain instructions
 #
 # Idempotent — checks each resource before creating. Safe to re-run
 # after a partial failure.
@@ -22,7 +21,7 @@
 #   ./scripts/fly_bootstrap.sh --no-seed  # skip the seed step
 #   ./scripts/fly_bootstrap.sh --dry-run  # print what would happen, do nothing
 
-set -uo pipefail
+set -euo pipefail
 
 if [ -t 1 ]; then
   C_OK="\033[32m"; C_WARN="\033[33m"; C_ERR="\033[31m"; C_DIM="\033[2m"; C_RESET="\033[0m"
@@ -98,40 +97,65 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 # --------------------------------------------------------------------------
-# Step 1 — Postgres
+# Step 1 — Postgres (custom pgvector image, see infra/postgres-pgvector/)
 # --------------------------------------------------------------------------
+# Why custom: Fly's `flyctl postgres create` provisions
+# `flyio/postgres-flex:17.2` which does NOT ship pgvector. We deploy the
+# upstream `pgvector/pgvector:pg17` image directly — same image as
+# docker-compose, no extension-install dance. See
+# `infra/postgres-pgvector/README.md` for the trade-offs (no Fly-managed
+# backups; single-machine; image bumps manual).
 
-step "Step 1 — Postgres ($PG_APP)"
+step "Step 1 — Postgres ($PG_APP, custom pgvector image)"
+
+# Password cache file (gitignored). Used to reconstruct OWNEVO_DATABASE_URL
+# on script re-run since flyctl can't read secret values back.
+PG_PASSWORD_CACHE="$REPO_ROOT/.fly-pg-password"
 
 if flyctl apps list 2>/dev/null | grep -qE "^$PG_APP\b"; then
-  ok "Postgres app '$PG_APP' already exists"
+  ok "Postgres app '$PG_APP' already exists — skipping create/deploy"
+  if [ -f "$PG_PASSWORD_CACHE" ] && [ "$DRY_RUN" = "0" ]; then
+    PG_PASSWORD=$(cat "$PG_PASSWORD_CACHE")
+    ok "Postgres password loaded from $PG_PASSWORD_CACHE"
+  else
+    PG_PASSWORD=""
+    warn "Postgres password not in cache; OWNEVO_DATABASE_URL must already be set on $KERNEL_APP or rebuilt manually"
+  fi
 else
-  warn "Creating Postgres cluster — this takes ~2 min and prints a connection string. SAVE IT."
-  run flyctl postgres create \
-    --name "$PG_APP" \
-    --region "$REGION" \
-    --vm-size shared-cpu-1x \
-    --volume-size 1 \
-    --initial-cluster-size 1
+  if [ "$DRY_RUN" = "1" ]; then
+    PG_PASSWORD="<generated>"
+    say "${C_DIM}\$ flyctl apps create $PG_APP${C_RESET}"
+    say "${C_DIM}\$ flyctl volumes create ownevo_pg_data --app $PG_APP --size 1 --region $REGION${C_RESET}"
+    say "${C_DIM}\$ flyctl secrets set POSTGRES_PASSWORD=*** --app $PG_APP${C_RESET}"
+    say "${C_DIM}\$ (cd infra/postgres-pgvector && flyctl deploy --remote-only -a $PG_APP)${C_RESET}"
+  else
+    PG_PASSWORD=$(openssl rand -hex 16)
+    # Persist immediately so a mid-step failure doesn't lose the password.
+    # umask 0177 ensures the file is created 0600 without a TOCTOU window.
+    (umask 0177; printf '%s' "$PG_PASSWORD" > "$PG_PASSWORD_CACHE") \
+      || { err "Failed to write password cache ($PG_PASSWORD_CACHE) — cannot continue"; exit 2; }
+    ok "Generated Postgres password (cached at $PG_PASSWORD_CACHE)"
+
+    say "${C_DIM}\$ flyctl apps create $PG_APP${C_RESET}"
+    flyctl apps create "$PG_APP"
+
+    say "${C_DIM}\$ flyctl volumes create ownevo_pg_data --app $PG_APP --size 1 --region $REGION --yes${C_RESET}"
+    flyctl volumes create ownevo_pg_data --app "$PG_APP" --size 1 --region "$REGION" --yes
+
+    say "${C_DIM}\$ flyctl secrets set POSTGRES_PASSWORD=*** --app $PG_APP${C_RESET}"
+    flyctl secrets set POSTGRES_PASSWORD="$PG_PASSWORD" --app "$PG_APP"
+
+    say "${C_DIM}\$ (cd infra/postgres-pgvector && flyctl deploy --remote-only -a $PG_APP)${C_RESET}"
+    (cd infra/postgres-pgvector && flyctl deploy --remote-only -a "$PG_APP")
+  fi
+  ok "Postgres deployed"
 fi
 
 # --------------------------------------------------------------------------
-# Step 2 — pgvector
+# Step 2 — Kernel app
 # --------------------------------------------------------------------------
 
-step "Step 2 — Enable pgvector on $PG_APP"
-
-warn "Run this in another terminal if needed:"
-say  "${C_DIM}    flyctl postgres connect -a $PG_APP${C_RESET}"
-say  "${C_DIM}    > CREATE EXTENSION IF NOT EXISTS vector;${C_RESET}"
-say  "${C_DIM}    > \\q${C_RESET}"
-say  "Continuing — re-run this script if pgvector wasn't enabled and the kernel deploy fails."
-
-# --------------------------------------------------------------------------
-# Step 3 — Kernel app
-# --------------------------------------------------------------------------
-
-step "Step 3 — Kernel app ($KERNEL_APP)"
+step "Step 2 — Kernel app ($KERNEL_APP)"
 
 if flyctl apps list 2>/dev/null | grep -qE "^$KERNEL_APP\b"; then
   ok "Kernel app '$KERNEL_APP' already exists"
@@ -140,10 +164,10 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Step 4 — Kernel secrets
+# Step 3 — Kernel secrets
 # --------------------------------------------------------------------------
 
-step "Step 4 — Kernel secrets"
+step "Step 3 — Kernel secrets"
 
 # Use stdin import so the API key never appears in the process argument list or terminal.
 if [ "$DRY_RUN" = "1" ]; then
@@ -157,57 +181,45 @@ fi
 ok "Anthropic key + CORS origins staged on $KERNEL_APP"
 
 # --------------------------------------------------------------------------
-# Step 5 — Attach Postgres + rename DATABASE_URL → OWNEVO_DATABASE_URL
+# Step 4 — Stage OWNEVO_DATABASE_URL on the kernel app
 # --------------------------------------------------------------------------
-# flyctl postgres attach sets DATABASE_URL on the app; the kernel reads
-# OWNEVO_DATABASE_URL (db.py:26). We capture the attach output (which prints
-# the connection string), then stage it under the name the kernel expects.
+# Custom Postgres image — no `flyctl postgres attach` step. We compose the
+# connection string from the password generated in Step 1 and the well-known
+# .internal hostname (Fly's WireGuard 6PN DNS).
 
-step "Step 5 — Attach $PG_APP to $KERNEL_APP"
+step "Step 4 — OWNEVO_DATABASE_URL on $KERNEL_APP"
 
 if flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "OWNEVO_DATABASE_URL"; then
   ok "OWNEVO_DATABASE_URL already set on $KERNEL_APP"
-elif flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "DATABASE_URL"; then
-  # Partial run: postgres was attached (sets DATABASE_URL) but OWNEVO_DATABASE_URL
-  # was never staged. We can't read secret values via flyctl; operator must set manually.
-  err "DATABASE_URL found on $KERNEL_APP but OWNEVO_DATABASE_URL is missing."
-  say  "Set it with the connection string from 'flyctl postgres create' output:"
-  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
+elif [ -z "${PG_PASSWORD:-}" ]; then
+  err "Postgres password unknown and OWNEVO_DATABASE_URL not set on $KERNEL_APP."
+  say  "Either destroy $PG_APP and re-run (clean slate), or set the secret manually:"
+  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=postgres://ownevo:<pw>@$PG_APP.internal:5432/ownevo${C_RESET}"
   exit 2
 else
+  DB_URL="postgres://ownevo:${PG_PASSWORD}@${PG_APP}.internal:5432/ownevo"
   if [ "$DRY_RUN" = "1" ]; then
-    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
     say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
   else
-    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
-    attach_out=$(flyctl postgres attach "$PG_APP" -a "$KERNEL_APP" 2>&1)
-    printf '%s\n' "$attach_out"
-    db_url=$(printf '%s\n' "$attach_out" | grep -oE 'postgres://[^ ]+' | head -1)
-    if [ -n "$db_url" ]; then
-      say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
-      printf 'OWNEVO_DATABASE_URL=%s\n' "$db_url" \
-        | flyctl secrets import -a "$KERNEL_APP" --stage
-      ok "OWNEVO_DATABASE_URL staged on $KERNEL_APP"
-    else
-      err "Could not extract connection URL from attach output — set it manually:"
-      say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
-      exit 2
-    fi
+    say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
+    printf 'OWNEVO_DATABASE_URL=%s\n' "$DB_URL" \
+      | flyctl secrets import -a "$KERNEL_APP" --stage
   fi
+  ok "OWNEVO_DATABASE_URL staged on $KERNEL_APP"
 fi
 
 # --------------------------------------------------------------------------
-# Step 6 — Deploy kernel
+# Step 5 — Deploy kernel
 # --------------------------------------------------------------------------
 
-step "Step 6 — Deploy kernel (release_command runs migrations)"
+step "Step 5 — Deploy kernel (release_command runs migrations)"
 run flyctl deploy --config fly.toml --remote-only -a "$KERNEL_APP"
 
 # --------------------------------------------------------------------------
-# Step 7 — Web app + secrets
+# Step 6 — Web app + secrets
 # --------------------------------------------------------------------------
 
-step "Step 7 — Web app ($WEB_APP)"
+step "Step 6 — Web app ($WEB_APP)"
 
 if flyctl apps list 2>/dev/null | grep -qE "^$WEB_APP\b"; then
   ok "Web app '$WEB_APP' already exists"
@@ -220,29 +232,40 @@ run flyctl secrets set -a "$WEB_APP" \
   --stage
 
 # --------------------------------------------------------------------------
-# Step 8 — Deploy web
+# Step 7 — Deploy web
 # --------------------------------------------------------------------------
+# Must `cd apps/web` first: `flyctl deploy --config <path>` uses cwd as the
+# build context, not the directory containing the config file. Without the
+# `cd`, the remote builder uploads the repo root and `COPY package*.json ./`
+# in the web Dockerfile finds only (nonexistent) root-level lockfile, so
+# `npm ci` fails with "no package-lock.json". Tracked upstream as
+# https://github.com/superfly/flyctl/issues/752 (still open as of 2026).
 
-step "Step 8 — Deploy web"
-run flyctl deploy --config apps/web/fly.toml --remote-only -a "$WEB_APP"
+step "Step 7 — Deploy web"
+if [ "$DRY_RUN" = "1" ]; then
+  say "${C_DIM}\$ (cd apps/web && flyctl deploy --remote-only -a $WEB_APP)${C_RESET}"
+else
+  say "${C_DIM}\$ (cd apps/web && flyctl deploy --remote-only -a $WEB_APP)${C_RESET}"
+  (cd apps/web && flyctl deploy --remote-only -a "$WEB_APP")
+fi
 
 # --------------------------------------------------------------------------
 # Step 9 — Seed (optional, costs ~$0.30)
 # --------------------------------------------------------------------------
 
 if [ "$SEED" = "1" ]; then
-  step "Step 9 — Seed demo data (~3 min, costs ~\$0.30 in Anthropic credits)"
+  step "Step 8 — Seed demo data (~3 min, costs ~\$0.30 in Anthropic credits)"
   run flyctl ssh console -a "$KERNEL_APP" -C \
     "uv run --package ownevo-kernel --extra api --extra agent python apps/kernel/scripts/seed_demo.py --with-iterations"
 else
-  step "Step 9 — Skipped (--no-seed); run 'make fly-seed' later"
+  step "Step 8 — Skipped (--no-seed); run 'make fly-seed' later"
 fi
 
 # --------------------------------------------------------------------------
-# Step 10 — Smoke + DNS instructions
+# Step 9 — Smoke + DNS instructions
 # --------------------------------------------------------------------------
 
-step "Step 10 — Smoke"
+step "Step 9 — Smoke"
 if [ "$DRY_RUN" = "0" ]; then
   ./scripts/smoke.sh "https://$KERNEL_APP.fly.dev" --web "https://$WEB_APP.fly.dev" || true
 fi

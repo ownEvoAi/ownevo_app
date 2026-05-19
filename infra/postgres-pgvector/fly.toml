@@ -1,0 +1,56 @@
+# Custom Postgres-with-pgvector for the Fly demo deploy.
+#
+# Why custom: Fly's unmanaged `flyctl postgres create` provisions
+# `flyio/postgres-flex:17.2` which does NOT ship pgvector. Migration
+# `0001_substrate.sql` does `CREATE EXTENSION IF NOT EXISTS vector;`
+# and fails on that image. Fly's Managed Postgres (MPG) does ship
+# pgvector but enabling it requires a Fly-dashboard step that's
+# awkward to script.
+#
+# Instead we run the same `pgvector/pgvector:pg17` image we use in
+# docker-compose. Single-machine, no replication, no Fly-managed
+# backup tooling — fine for the demo. To restore from data loss,
+# `make fly-seed` re-seeds in ~3 min.
+#
+# Provisioning (one-shot, done by scripts/fly_bootstrap.sh):
+#   flyctl apps create ownevo-pg
+#   flyctl volumes create ownevo_pg_data --app ownevo-pg --size 1 --region sjc
+#   flyctl secrets set POSTGRES_PASSWORD=$(openssl rand -hex 16) --app ownevo-pg
+#   (cd infra/postgres-pgvector && flyctl deploy --remote-only -a ownevo-pg)
+#
+# Other apps connect via Fly's internal DNS — no public exposure:
+#   OWNEVO_DATABASE_URL=postgres://ownevo:$POSTGRES_PASSWORD@ownevo-pg.internal:5432/ownevo
+
+app = "ownevo-pg"
+primary_region = "sjc"
+
+[build]
+  # Pin to a specific digest in a follow-up once we settle on a release cadence.
+  image = "pgvector/pgvector:pg17"
+
+[env]
+  POSTGRES_USER = "ownevo"
+  POSTGRES_DB   = "ownevo"
+  PGDATA        = "/var/lib/postgresql/data/pgdata"
+  # POSTGRES_PASSWORD comes from `flyctl secrets set`.
+
+[mounts]
+  source      = "ownevo_pg_data"
+  destination = "/var/lib/postgresql/data"
+
+# No [[services]] block: Fly Proxy public listeners are not needed.
+# Other apps connect over the 6PN WireGuard mesh via ownevo-pg.internal:5432.
+# Omitting [[services]] keeps Postgres off Fly's edge proxy entirely.
+
+[[checks]]
+  name         = "pg-tcp"
+  type         = "tcp"
+  port         = 5432
+  interval     = "15s"
+  timeout      = "2s"
+  grace_period = "30s"
+
+[[vm]]
+  cpu_kind  = "shared"
+  cpus      = 1
+  memory_mb = 512
