@@ -55,15 +55,18 @@ export default async function DesignAgentPage({
 
   // Pre-fetch question #0 so the chat panel doesn't flash an empty state
   // on first paint. Subsequent questions load client-side via the server
-  // action. The 5-second timeout prevents a slow or down kernel from
-  // blocking the page indefinitely; the client chat panel retries on load.
+  // action. The LLM interviewer runs Sonnet 4.6 which is ~6-12s end to
+  // end; budget 25s so a normal call lands before SSR returns. The
+  // client side retries with no timeout when the SSR pre-fetch errors
+  // out (slow kernel / Anthropic hiccup), so users never see a stuck
+  // blank panel.
   const initialQuestion =
     description.length > 0
       ? await loadNextQuestion({
           description,
           templateId,
           priorAnswers: [],
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(25000),
         })
       : EMPTY_QUESTION_STATE
 
