@@ -20,6 +20,7 @@
 
 import type {
   AlertItem,
+  ConversationData,
   KanbanData,
   MetricCardDatum,
   ScheduleData,
@@ -41,6 +42,7 @@ export type ResolvedPrimitive =
   | { kind: 'AlertList'; data: AlertItem[] }
   | { kind: 'KanbanBoard'; data: KanbanData }
   | { kind: 'ScheduleGrid'; data: ScheduleData }
+  | { kind: 'ConversationView'; data: ConversationData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -99,6 +101,8 @@ function resolveOne(
       return resolveKanbanBoard(inputs)
     case 'ScheduleGrid':
       return resolveScheduleGrid(inputs)
+    case 'ConversationView':
+      return resolveConversationView(inputs)
     default:
       return {
         kind: 'empty',
@@ -380,6 +384,24 @@ function resolveScheduleGrid(_inputs: ResolverInputs): ResolvedPrimitive {
     primitiveType: 'ScheduleGrid',
     reason:
       'Agent does not emit a schedule (rows × cols × cells) payload yet — needs a workflow-specific output_schema beyond bool predictions.',
+  }
+}
+
+
+function resolveConversationView(_inputs: ResolverInputs): ResolvedPrimitive {
+  // ConversationView wants a threaded transcript (role / text / ts /
+  // citations) — see mock 09 (customer support). The agent emits a
+  // single per-case rationale today, not a multi-turn dialogue, and
+  // doesn't carry tool-call traces in submit_case_output. Synthesising
+  // a fake transcript from the rationale would mislead the operator
+  // (mock 09 shows real user↔agent turns + tool calls + citations);
+  // stay honest until a transcript-shaped agent payload lands (PLAN
+  // 8.4.9 follow-up).
+  return {
+    kind: 'empty',
+    primitiveType: 'ConversationView',
+    reason:
+      'Agent does not emit a threaded transcript payload yet — needs a workflow-specific output_schema carrying user/agent turns + tool calls + citations.',
   }
 }
 

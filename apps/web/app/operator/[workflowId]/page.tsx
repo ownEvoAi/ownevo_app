@@ -17,6 +17,7 @@ import {
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 import { AlertList } from '@/app/components/primitives/alert-list'
+import { ConversationView } from '@/app/components/primitives/conversation-view'
 import { KanbanBoard } from '@/app/components/primitives/kanban-board'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
 import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
@@ -209,6 +210,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
               if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
               if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
               if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
+              if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
               return null
             })}
           </section>
