@@ -77,13 +77,23 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
     )
   }
 
-  // Find the "Operate" tab in the spec UI plan. Spec tabs vary by
-  // workflow (`Overview` / `Operate` / `Investigate` / etc.); we look
-  // for "operate" by name and fall back to the SECOND tab (most specs
-  // put Overview at index 0, the operate-shaped view at index 1).
+  // Find the operate-view tab in the spec UI plan. NL-gen names tabs
+  // per workflow (`Portfolio` / `Forecast` / `Review queue` / etc.)
+  // rather than literally "Operate", so we look up by name first then
+  // fall back gracefully:
+  //   1. tab named exactly "operate" (mock-shaped specs)
+  //   2. the second tab if the spec has ≥2 (Overview-at-0 + Operate-at-1)
+  //   3. the first tab if there's only one (single-tab specs share
+  //      primitives between Overview and Operate — the chrome differs,
+  //      not the primitive set)
+  //   4. nothing when zero tabs are declared
+  // Matches the operator route's fallback (`resolvePrimitives` reads
+  // tabs[0]), so /operate and /operator/[wf] stay in sync.
   const tabs = spec?.ui?.tabs ?? []
   const operateTab =
-    tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
+    tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ??
+    tabs[1] ??
+    tabs[0]
 
   const primitives = operateTab
     ? resolveTabPrimitives(
