@@ -143,7 +143,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
             href={`/workspaces/${wsId}/workflows/${workflowId}`}
             style={{ color: 'var(--accent)' }}
           >
-            Open the AgentOS view ↗
+            Open the owner view ↗
           </Link>{' '}
           to see eval cases, failures, proposals, and the lift curve.
         </div>
