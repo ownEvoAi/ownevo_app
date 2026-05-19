@@ -42,7 +42,8 @@ Done end-to-end by `scripts/fly_bootstrap.sh`. Manual version:
 ```bash
 flyctl apps create ownevo-pg
 flyctl volumes create ownevo_pg_data --app ownevo-pg --size 1 --region sjc
-flyctl secrets set POSTGRES_PASSWORD=$(openssl rand -hex 16) --app ownevo-pg
+PG_PASS=$(openssl rand -hex 16)
+flyctl secrets set POSTGRES_PASSWORD="$PG_PASS" --app ownevo-pg
 (cd infra/postgres-pgvector && flyctl deploy --remote-only -a ownevo-pg)
 ```
 

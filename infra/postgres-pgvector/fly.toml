@@ -38,23 +38,17 @@ primary_region = "sjc"
   source      = "ownevo_pg_data"
   destination = "/var/lib/postgresql/data"
 
-[[services]]
-  internal_port = 5432
-  protocol      = "tcp"
+# No [[services]] block: Fly Proxy public listeners are not needed.
+# Other apps connect over the 6PN WireGuard mesh via ownevo-pg.internal:5432.
+# Omitting [[services]] keeps Postgres off Fly's edge proxy entirely.
 
-  # Postgres is stateful — don't auto-stop. Auto-start is fine because
-  # Fly will boot the machine on first connection.
-  auto_stop_machines   = "off"
-  auto_start_machines  = true
-  min_machines_running = 1
-
-  [[services.ports]]
-    port = 5432
-
-  [[services.tcp_checks]]
-    interval      = "15s"
-    timeout       = "2s"
-    grace_period  = "30s"
+[[checks]]
+  name         = "pg-tcp"
+  type         = "tcp"
+  port         = 5432
+  interval     = "15s"
+  timeout      = "2s"
+  grace_period = "30s"
 
 [[vm]]
   cpu_kind  = "shared"
