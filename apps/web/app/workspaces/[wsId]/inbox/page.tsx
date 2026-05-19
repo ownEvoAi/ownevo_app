@@ -33,13 +33,13 @@ function parseFilter(raw: string | undefined): Filter {
 }
 
 export default async function WorkspaceInboxPage({ params, searchParams }: PageProps) {
-  // wsId is intentionally unread — D4 single-tenant means the kernel
-  // ignores the slug. The param exists for URL stability and so the
-  // workspace layout's nav can highlight the current workspace.
-  await params
+  // wsId is unread by the kernel (D4 single-tenant) but IS used for
+  // URL construction so filter-chip links stay scoped to the workspace
+  // the user is already on.
+  const { wsId } = await params
   const sp = await searchParams
   const filter = parseFilter(sp.filter)
-  const root = '/workspaces/acme/inbox'
+  const root = `/workspaces/${wsId}/inbox`
 
   let pendingData, regressionData, recentData
   try {
@@ -70,7 +70,11 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
   const pending = pendingData.items
   const regression = regressionData.items
   const decided = recentData.items.filter(
-    (p) => p.state !== 'gate-passed' && p.state !== 'in-gate' && p.state !== 'gate-failed',
+    (p) =>
+      p.state !== 'pending' &&
+      p.state !== 'gate-passed' &&
+      p.state !== 'in-gate' &&
+      p.state !== 'gate-failed',
   )
   const totalCount = recentData.total
 
@@ -97,6 +101,7 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
             key={c.key}
             href={c.key === 'all' ? root : `${root}?filter=${c.key}`}
             className={`filter-chip${filter === c.key ? ' active' : ''}`}
+            aria-current={filter === c.key ? 'true' : undefined}
           >
             {c.label}
             <span className="count">{c.count}</span>

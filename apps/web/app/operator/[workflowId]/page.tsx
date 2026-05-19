@@ -41,12 +41,10 @@ interface PageProps {
 // What's wired today: the Operate spec's primitives (MetricCards,
 // TimeSeriesChart) plus a recent-runs table.
 //
-// What's NOT wired (would land when per-case structured output is
-// captured, PLAN row 8.4.6 layer-D resolver expansion): the
-// SKU/account/case-level recommendation table the mocks show. Each
-// agent recommendation row needs the agent to emit structured output
-// per case beyond the bool prediction the iteration runner sees today.
-// We surface the gap as a callout instead of mocking the rows.
+// Layer-D primitives (PLAN 8.4.10): TableView / AlertList / KanbanBoard
+// are wired to per-case output. ScheduleGrid / ConversationView /
+// SideBySideView / DocumentReader are wired but return `empty` until
+// per-workflow output_schema support lands (PLAN 8.4.9 follow-up).
 export default async function OperatorPage({ params, searchParams }: PageProps) {
   const { workflowId } = await params
   const { ws } = await searchParams
