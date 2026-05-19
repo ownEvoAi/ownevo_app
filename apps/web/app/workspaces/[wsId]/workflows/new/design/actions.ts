@@ -169,6 +169,15 @@ function buildDesignAgentLog(
     kind: (t.kind as DiscoveryQuestionKind) ?? 'ambiguity',
     question: t.question,
     answer: t.answer,
+    // New fields (slice 3): downstream NL-gen generators read these
+    // to shape their output. `dimension` is the canonical identifier
+    // (one of 7); `chosen_option` is the verbatim option label the
+    // operator picked from the decision brief (when applicable).
+    dimension: (t.dimension as
+      | import('@/lib/api').DesignDimension
+      | undefined
+      | null) ?? null,
+    chosen_option: t.chosen_option ?? null,
   }))
 
   return {

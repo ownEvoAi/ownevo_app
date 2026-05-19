@@ -301,16 +301,20 @@ export interface NextDiscoveryQuestionResponse {
   answered_count: number
 }
 
-// PLAN 9.1.4 — structured persistence of the authoring-time discovery
-// conversation. Mirrors the kernel `DesignAgentLog` pydantic shape so
-// the web layer can post it as the structured `design_agent_log` field
-// on POST /api/nl-gen/generate. Server persists to the JSONB column +
-// mirrors per-entry rows into `audit_entries`.
+// Structured persistence of the authoring-time discovery conversation.
+// Mirrors the kernel `DesignAgentLog` pydantic shape so the web layer
+// can post it as the structured `design_agent_log` field on POST
+// /api/nl-gen/generate. Server persists to the JSONB column + mirrors
+// per-entry rows into `audit_entries`. The four new optional fields
+// (dimension, chosen_option) feed `nl_gen.design_brief_context` so
+// each generator reads the dimensions it can actually encode.
 export interface DesignAgentLogEntry {
   question_index: number
   kind: DiscoveryQuestionKind
   question: string
   answer: string | null
+  dimension?: DesignDimension | null
+  chosen_option?: string | null
 }
 
 export type AmbiguityFindingKind = 'inferred-artifact' | 'conflict'
