@@ -12,6 +12,10 @@ Three deployment paths are supported:
 
 ## Prerequisites
 
+The fastest path: `./scripts/setup.sh` from the repo root. It detects what's installed, installs missing pieces (uv, node via brew on macOS), runs `uv sync` + `npm install`, and bootstraps `.env`. Idempotent — safe to re-run.
+
+Manual install:
+
 | Dependency | Required for | Install |
 |---|---|---|
 | Python 3.12+ | All kernel work | `brew install python` |
@@ -19,6 +23,8 @@ Three deployment paths are supported:
 | `uv` | Python package management | `brew install uv` |
 | Docker Desktop | Local compose + sandbox | [docker.com](https://www.docker.com/products/docker-desktop/) |
 | `flyctl` | Fly.io deploy only | `brew install flyctl` |
+
+Before deploying, run `make doctor` — it verifies tool versions, `.env` contents, `fly auth whoami`, and the sandbox image build, and exits non-zero if anything is missing.
 
 ---
 
@@ -126,13 +132,25 @@ make seed-demo-with-iter
 
 ## Fly.io (production demo)
 
-The live demo at `demo.ownevo.ai` runs three Fly.io services: a managed Postgres instance, `ownevo-kernel` (kernel API), and `ownevo-web` (Next.js). The full step-by-step first-run guide is in [`runbooks/fly-deploy.md`](runbooks/fly-deploy.md).
+The live demo at `demo.ownevo.ai` runs three Fly.io services: a managed Postgres instance, `ownevo-kernel` (kernel API), and `ownevo-web` (Next.js).
+
+### First-time deploy
+
+```bash
+make doctor          # preflight: tools, .env, fly auth
+make fly-bootstrap   # interactive — walks the 8 runbook steps
+```
+
+`fly-bootstrap` is idempotent. It checks each Fly resource before creating, prompts only where the runbook needs input, and finishes with a `make fly-smoke` call so you know the URL is alive. Pass `BOOTSTRAP_ARGS=--no-seed` to skip the (paid, ~$0.30) seed step, or `BOOTSTRAP_ARGS=--dry-run` to preview without executing.
+
+If you'd rather walk the 8 steps by hand, the runbook is at [`runbooks/fly-deploy.md`](runbooks/fly-deploy.md).
 
 ### TL;DR for subsequent deploys
 
 ```bash
 # Deploy both services in sequence (kernel first — migrations may run):
 make fly-deploy-kernel && make fly-deploy-web
+make fly-smoke   # verify
 ```
 
 The kernel's `release_command` in `fly.toml` runs `migrate.py` before traffic cuts over. New migrations are picked up automatically.
