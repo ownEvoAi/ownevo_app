@@ -21,6 +21,7 @@
 import type {
   AlertItem,
   ConversationData,
+  DocumentData,
   KanbanData,
   MetricCardDatum,
   ScheduleData,
@@ -45,6 +46,7 @@ export type ResolvedPrimitive =
   | { kind: 'ScheduleGrid'; data: ScheduleData }
   | { kind: 'ConversationView'; data: ConversationData }
   | { kind: 'SideBySideView'; data: SideBySideData }
+  | { kind: 'DocumentReader'; data: DocumentData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -107,6 +109,8 @@ function resolveOne(
       return resolveConversationView(inputs)
     case 'SideBySideView':
       return resolveSideBySideView(inputs)
+    case 'DocumentReader':
+      return resolveDocumentReader(inputs)
     default:
       return {
         kind: 'empty',
@@ -423,6 +427,22 @@ function resolveSideBySideView(_inputs: ResolverInputs): ResolvedPrimitive {
     primitiveType: 'SideBySideView',
     reason:
       'Agent does not emit a before/after pair payload yet — needs a workflow-specific output_schema carrying {left, right} titled bodies with highlight spans.',
+  }
+}
+
+
+function resolveDocumentReader(_inputs: ResolverInputs): ResolvedPrimitive {
+  // DocumentReader wants a structured document — heading / paragraph /
+  // clause blocks with optional inline spans + a parallel list of
+  // margin annotations keyed back to spans (mock 10, contract review).
+  // No path through submit_case_output produces that today; the agent
+  // emits at most a rationale string. Real data lands when the agent
+  // emits a document-shaped payload (PLAN 8.4.9 follow-up).
+  return {
+    kind: 'empty',
+    primitiveType: 'DocumentReader',
+    reason:
+      'Agent does not emit a structured document payload yet — needs a workflow-specific output_schema carrying typed blocks + margin annotations.',
   }
 }
 
