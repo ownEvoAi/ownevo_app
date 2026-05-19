@@ -1,8 +1,9 @@
 """Demo seed — inserts sample workflows so the workspace UI has something to show.
 
-PLAN row 8.4.2 (extended). Writes `credit-risk` and `contract-review` as
+Writes `credit-risk`, `contract-review`, and `demand-prediction` as
 real workflow rows using the existing NL-gen fixtures (CREDIT_RISK_SPEC,
-CONTRACT_REVIEW_SPEC) plus their hand-authored descriptions. Without
+CONTRACT_REVIEW_SPEC, DEMAND_PREDICTION_SPEC) plus their hand-authored
+descriptions. Without
 `--with-iterations`, no agent runs — the seed mimics a customer's first
 five minutes (description + spec + eval cases, no iterations yet).
 
@@ -107,6 +108,11 @@ async def seed_demo(
         CREDIT_RISK_METRIC,
         CREDIT_RISK_SIM_PLAN,
         CREDIT_RISK_SPEC,
+        DEMAND_PREDICTION_DESCRIPTION,
+        DEMAND_PREDICTION_EVAL_CASE_SET,
+        DEMAND_PREDICTION_METRIC,
+        DEMAND_PREDICTION_SIM_PLAN,
+        DEMAND_PREDICTION_SPEC,
     )
 
     bundles = [
@@ -125,6 +131,14 @@ async def seed_demo(
             CONTRACT_REVIEW_SIM_PLAN,
             CONTRACT_REVIEW_METRIC,
             CONTRACT_REVIEW_EVAL_CASE_SET,
+        ),
+        (
+            "demand-prediction",
+            DEMAND_PREDICTION_DESCRIPTION,
+            DEMAND_PREDICTION_SPEC,
+            DEMAND_PREDICTION_SIM_PLAN,
+            DEMAND_PREDICTION_METRIC,
+            DEMAND_PREDICTION_EVAL_CASE_SET,
         ),
     ]
 
