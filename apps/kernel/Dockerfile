@@ -16,6 +16,11 @@ COPY apps/kernel/ apps/kernel/
 RUN uv sync --package ownevo-kernel --extra api --extra agent --no-dev --frozen
 
 EXPOSE 8000
+# Dual-stack bind via apps/kernel/scripts/boot.py. uvicorn's `--host`
+# accepts a single address; on Fly's Linux machines `--host ::` listens
+# IPv6-only and `--host 0.0.0.0` listens IPv4-only — neither covers both
+# paths we need (Fly Proxy reaches the machine over IPv4; other Fly apps
+# reach `<app>.internal` over IPv6). boot.py opens one AF_INET and one
+# AF_INET6 socket (V6ONLY=1) and hands both to uvicorn.
 CMD ["uv", "run", "--package", "ownevo-kernel", "--extra", "api", "--extra", "agent", \
-     "uvicorn", "ownevo_kernel.api.app:app", \
-     "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+     "python", "apps/kernel/scripts/boot.py"]

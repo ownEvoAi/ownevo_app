@@ -32,28 +32,50 @@ flyctl orgs list             # confirm you're in the right org
 
 ---
 
-## Step 1 — Provision Fly Postgres
+## Step 1 — Provision Postgres (custom pgvector image)
+
+We **do not** use `flyctl postgres create`. That command provisions
+`flyio/postgres-flex:17.2`, which does not ship pgvector. Migration
+`0001_substrate.sql` does `CREATE EXTENSION IF NOT EXISTS vector;`
+and the deploy fails with `extension "vector" is not available`.
+
+Instead we deploy the upstream `pgvector/pgvector:pg17` image directly
+— same image as `docker-compose.yml`. See `infra/postgres-pgvector/`
+(`fly.toml` + `README.md`) for the per-app config and trade-offs.
 
 ```bash
-flyctl postgres create \
-  --name ownevo-pg \
-  --region sjc \
-  --vm-size shared-cpu-1x \
-  --volume-size 1 \
-  --initial-cluster-size 1
+# Create the app, volume, and password secret.
+flyctl apps create ownevo-pg
+flyctl volumes create ownevo_pg_data --app ownevo-pg --size 1 --region sjc --yes
+PG_PASSWORD=$(openssl rand -hex 16)
+flyctl secrets set POSTGRES_PASSWORD="$PG_PASSWORD" --app ownevo-pg
 
-# Save the connection string printed at the end — you'll need it in Step 3.
-# Looks like: postgres://ownevo_pg:PASSWORD@ownevo-pg.internal:5432/ownevo_pg
+# Save the password locally — needed to construct OWNEVO_DATABASE_URL.
+# (make fly-bootstrap caches it at .fly-pg-password, gitignored.)
+echo "$PG_PASSWORD" > .fly-pg-password
+chmod 600 .fly-pg-password
+
+# Deploy the image (~2 min).
+(cd infra/postgres-pgvector && flyctl deploy --remote-only -a ownevo-pg)
 ```
 
-Enable pgvector (Fly Postgres ships the extension; just activate it):
+The connection string the kernel will use:
 
-```bash
-flyctl postgres connect -a ownevo-pg
-# inside psql:
-CREATE EXTENSION IF NOT EXISTS vector;
-\q
 ```
+OWNEVO_DATABASE_URL=postgres://ownevo:$PG_PASSWORD@ownevo-pg.internal:5432/ownevo
+```
+
+(`ownevo-pg.internal` is Fly's internal DNS for the app, reachable from
+any other Fly app in the same org. No public exposure of Postgres.)
+
+Trade-offs vs the (broken) `flyctl postgres create` path:
+
+- No Fly-managed backups. Snapshots happen at the volume level only.
+  `make fly-seed` reconstructs the demo data in ~3 min if needed.
+- Single machine, no replication. Demo doesn't need HA.
+- Image bumps are manual (edit the tag in `infra/postgres-pgvector/fly.toml`).
+
+`pgvector` is already loaded by the image — no `CREATE EXTENSION` step.
 
 ---
 
@@ -70,26 +92,17 @@ flyctl apps create ownevo-kernel --org personal
 
 ```bash
 flyctl secrets set -a ownevo-kernel \
-  OWNEVO_DATABASE_URL="postgres://ownevo_pg:PASSWORD@ownevo-pg.internal:5432/ownevo_pg" \
+  OWNEVO_DATABASE_URL="postgres://ownevo:$(cat .fly-pg-password)@ownevo-pg.internal:5432/ownevo" \
   ANTHROPIC_API_KEY="sk-ant-..." \
   OWNEVO_CORS_ORIGINS="https://ownevo-web.fly.dev,https://demo.ownevo.ai"
 ```
 
-Replace `PASSWORD` with the value from Step 1.
+`.fly-pg-password` was written in Step 1. The kernel reads the secret as
+`OWNEVO_DATABASE_URL` (`db.py:26`).
 
 ---
 
-## Step 4 — Attach Postgres to the kernel app (for private networking)
-
-```bash
-flyctl postgres attach ownevo-pg -a ownevo-kernel
-# This also sets DATABASE_URL on the app — you can use that instead of
-# the manual OWNEVO_DATABASE_URL above if you rename it in the kernel.
-```
-
----
-
-## Step 5 — Deploy the kernel (runs migrations automatically)
+## Step 4 — Deploy the kernel (runs migrations automatically)
 
 ```bash
 make fly-deploy-kernel
@@ -108,7 +121,7 @@ curl https://ownevo-kernel.fly.dev/api/health
 
 ---
 
-## Step 6 — Create and deploy the web app
+## Step 5 — Create and deploy the web app
 
 ```bash
 flyctl apps create ownevo-web --org personal
@@ -117,7 +130,15 @@ flyctl secrets set -a ownevo-web \
   OWNEVO_KERNEL_API_URL="http://ownevo-kernel.internal:8000"
 
 make fly-deploy-web
-# Equivalent: flyctl deploy --config apps/web/fly.toml --remote-only
+# Equivalent: cd apps/web && flyctl deploy --remote-only
+#
+# IMPORTANT — must `cd apps/web` before flyctl deploy. With
+# `flyctl deploy --config apps/web/fly.toml` from the repo root,
+# flyctl resolves the build context against cwd (repo root), so the
+# remote builder uploads the wrong tree and `COPY package*.json ./`
+# can't find `apps/web/package-lock.json`. The `cd` makes the build
+# context match the Dockerfile's expectations.
+# Tracked at https://github.com/superfly/flyctl/issues/752.
 ```
 
 Verify at `https://ownevo-web.fly.dev` — you should see the workspace UI
@@ -125,7 +146,7 @@ with a "Kernel API not reachable" banner (expected — no data yet).
 
 ---
 
-## Step 7 — Seed demo data
+## Step 6 — Seed demo data
 
 ```bash
 make fly-seed
@@ -138,7 +159,7 @@ window — lift chart should show data, Failures tab should show clusters.
 
 ---
 
-## Step 8 — Custom domain
+## Step 7 — Custom domain
 
 ```bash
 flyctl certs add demo.ownevo.ai -a ownevo-web

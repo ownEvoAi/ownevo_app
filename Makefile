@@ -477,8 +477,13 @@ fly-deploy-kernel:
 	flyctl deploy --config fly.toml --remote-only
 
 # Deploy Next.js web app to Fly.io.
+# Must cd into apps/web because flyctl resolves the build context against
+# cwd, not the fly.toml's directory — without the cd, the remote builder
+# uploads the repo root as context and `COPY package*.json ./` in the web
+# Dockerfile fails to find the lockfile.
+# See https://github.com/superfly/flyctl/issues/752.
 fly-deploy-web:
-	flyctl deploy --config apps/web/fly.toml --remote-only
+	cd apps/web && flyctl deploy --remote-only
 
 # Seed the live demo DB (requires ANTHROPIC_API_KEY set as a Fly secret).
 fly-seed:

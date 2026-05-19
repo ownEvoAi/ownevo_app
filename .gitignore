@@ -30,6 +30,9 @@ out/
 .env.local
 .env.*.local
 
+# Fly bootstrap-generated Postgres password cache
+.fly-pg-password
+
 # OS
 .DS_Store
 Thumbs.db
