@@ -1,31 +1,18 @@
 import Link from 'next/link'
 import {
   getWorkflowAnatomy,
-  getWorkflowCaseOutputs,
   getWorkflowIterations,
   getWorkflowSkills,
   kernelError,
   KernelApiError,
-  listProposals,
   listWorkflowEvalCases,
-  type CaseOutputList,
   type EvalCaseSummary,
   type IterationPoint,
-  type ProposalSummary,
   type SkillSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
-import { AlertList } from '@/app/components/primitives/alert-list'
-import { ConversationView } from '@/app/components/primitives/conversation-view'
-import { DocumentReader } from '@/app/components/primitives/document-reader'
-import { KanbanBoard } from '@/app/components/primitives/kanban-board'
-import { MetricCards } from '@/app/components/primitives/metric-cards'
-import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
-import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
-import { TableView } from '@/app/components/primitives/table-view'
-import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
-import { resolvePrimitives } from '@/lib/primitive-data-resolver'
+import { LiftChart } from '../../lift-chart'
 import { GenerateEvalCasesButton } from './eval-cases/generate-button'
 import { RunIterationButton } from './run-iteration-button'
 
@@ -36,28 +23,30 @@ interface PageProps {
 export default async function WorkflowOverviewPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
+  // Overview is meta-only: it describes the workflow + tracks the
+  // improvement loop's state. Live execution data (inputs flowing in,
+  // outputs the agent produces) belongs on the Operate tab — that's
+  // where the spec's `ui.tabs[].primitives` render. Overview shows:
+  //   * a "next step" card driving the user toward the loop's next gate
+  //   * the lift curve (val_score across iterations) — improvement-meta
+  //   * the iteration list — improvement history
+  //   * AgentAnatomy — what the agent CAN do (skills + tools + topology)
   let skills: SkillSummary[] = []
   let spec: WorkflowSpecShape | null = null
   let evalCases: EvalCaseSummary[] = []
   let iterations: IterationPoint[] = []
-  let proposals: ProposalSummary[] = []
-  let caseOutputs: CaseOutputList | null = null
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList, evalList, iterList, propList, coList] = await Promise.all([
+    const [anatomy, skillList, evalList, iterList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
       listWorkflowEvalCases(wfId),
       getWorkflowIterations(wfId),
-      listProposals({ workflow_id: wfId, limit: 100 }),
-      getWorkflowCaseOutputs(wfId).catch(() => null),
     ])
     spec = anatomy.spec
     skills = skillList.items
     evalCases = evalList.items
     iterations = iterList.items
-    proposals = propList.items
-    caseOutputs = coList
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -65,10 +54,6 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       apiError = kernelError(err)
     }
   }
-
-  const resolvedPrimitives = !apiError
-    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
-    : []
 
   const hasEvalCases = evalCases.length > 0
   const iterationCount = iterations.length
@@ -82,14 +67,6 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
   if (hasEvalCases) {
     stage = iterationCount > 0 ? 'iterating' : 'has-evals-no-iter'
   }
-
-  // Resolved primitives the layer-D resolver actually has data for vs. the
-  // ones it can't bind. Split here so we can render the resolved bundle
-  // separately from a single collapsed "unresolved primitives" note.
-  const resolved = resolvedPrimitives.filter((p) => p.kind !== 'empty')
-  const unresolvedTypes = resolvedPrimitives
-    .filter((p): p is Extract<typeof resolvedPrimitives[number], { kind: 'empty' }> => p.kind === 'empty')
-    .map((p) => p.primitiveType)
 
   return (
     <>
@@ -156,28 +133,12 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {!apiError && iterations.length > 0 && resolved.length > 0 ? (
-        <section className="overview-primitives">
-          {resolved.map((p, i) => {
-            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
-            if (p.kind === 'TimeSeriesChart')
-              return <TimeSeriesChart key={i} data={p.data} />
-            if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
-            if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
-            if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
-            if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
-            if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
-            if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
-            if (p.kind === 'DocumentReader') return <DocumentReader key={i} data={p.data} />
-            return null
-          })}
-          {unresolvedTypes.length > 0 ? (
-            <p className="overview-primitives-unresolved">
-              Spec also declares{' '}
-              <strong>{unresolvedTypes.join(', ')}</strong> — those primitives
-              need richer per-case agent output than the current loop emits.
-            </p>
-          ) : null}
+      {!apiError && iterations.length > 0 ? (
+        <section style={{ marginTop: 20, marginBottom: 24 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Improvement curve
+          </h2>
+          <LiftChart points={iterations} workflowId={wfId} />
         </section>
       ) : null}
 
