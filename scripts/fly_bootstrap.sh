@@ -98,34 +98,58 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 # --------------------------------------------------------------------------
-# Step 1 — Postgres
+# Step 1 — Postgres (custom pgvector image, see infra/postgres-pgvector/)
 # --------------------------------------------------------------------------
+# Why custom: Fly's `flyctl postgres create` provisions
+# `flyio/postgres-flex:17.2` which does NOT ship pgvector. We deploy the
+# upstream `pgvector/pgvector:pg17` image directly — same image as
+# docker-compose, no extension-install dance. See
+# `infra/postgres-pgvector/README.md` for the trade-offs (no Fly-managed
+# backups; single-machine; image bumps manual).
 
-step "Step 1 — Postgres ($PG_APP)"
+step "Step 1 — Postgres ($PG_APP, custom pgvector image)"
+
+# Password cache file (gitignored). Used to reconstruct OWNEVO_DATABASE_URL
+# on script re-run since flyctl can't read secret values back.
+PG_PASSWORD_CACHE="$REPO_ROOT/.fly-pg-password"
 
 if flyctl apps list 2>/dev/null | grep -qE "^$PG_APP\b"; then
-  ok "Postgres app '$PG_APP' already exists"
+  ok "Postgres app '$PG_APP' already exists — skipping create/deploy"
+  if [ -f "$PG_PASSWORD_CACHE" ] && [ "$DRY_RUN" = "0" ]; then
+    PG_PASSWORD=$(cat "$PG_PASSWORD_CACHE")
+    ok "Postgres password loaded from $PG_PASSWORD_CACHE"
+  else
+    PG_PASSWORD=""
+    warn "Postgres password not in cache; OWNEVO_DATABASE_URL must already be set on $KERNEL_APP or rebuilt manually"
+  fi
 else
-  warn "Creating Postgres cluster — this takes ~2 min and prints a connection string. SAVE IT."
-  run flyctl postgres create \
-    --name "$PG_APP" \
-    --region "$REGION" \
-    --vm-size shared-cpu-1x \
-    --volume-size 1 \
-    --initial-cluster-size 1
+  if [ "$DRY_RUN" = "1" ]; then
+    PG_PASSWORD="<generated>"
+    say "${C_DIM}\$ flyctl apps create $PG_APP${C_RESET}"
+    say "${C_DIM}\$ flyctl volumes create ownevo_pg_data --app $PG_APP --size 1 --region $REGION${C_RESET}"
+    say "${C_DIM}\$ flyctl secrets set POSTGRES_PASSWORD=*** --app $PG_APP${C_RESET}"
+    say "${C_DIM}\$ (cd infra/postgres-pgvector && flyctl deploy --remote-only -a $PG_APP)${C_RESET}"
+  else
+    PG_PASSWORD=$(openssl rand -hex 16)
+    # Persist immediately so a mid-step failure doesn't lose the password.
+    printf '%s' "$PG_PASSWORD" > "$PG_PASSWORD_CACHE"
+    chmod 600 "$PG_PASSWORD_CACHE"
+    ok "Generated Postgres password (cached at $PG_PASSWORD_CACHE)"
+
+    say "${C_DIM}\$ flyctl apps create $PG_APP${C_RESET}"
+    flyctl apps create "$PG_APP"
+
+    say "${C_DIM}\$ flyctl volumes create ownevo_pg_data --app $PG_APP --size 1 --region $REGION --yes${C_RESET}"
+    flyctl volumes create ownevo_pg_data --app "$PG_APP" --size 1 --region "$REGION" --yes
+
+    say "${C_DIM}\$ flyctl secrets set POSTGRES_PASSWORD=*** --app $PG_APP${C_RESET}"
+    flyctl secrets set POSTGRES_PASSWORD="$PG_PASSWORD" --app "$PG_APP"
+
+    say "${C_DIM}\$ (cd infra/postgres-pgvector && flyctl deploy --remote-only -a $PG_APP)${C_RESET}"
+    (cd infra/postgres-pgvector && flyctl deploy --remote-only -a "$PG_APP")
+  fi
+  ok "Postgres deployed"
 fi
-
-# --------------------------------------------------------------------------
-# Step 2 — pgvector
-# --------------------------------------------------------------------------
-
-step "Step 2 — Enable pgvector on $PG_APP"
-
-warn "Run this in another terminal if needed:"
-say  "${C_DIM}    flyctl postgres connect -a $PG_APP${C_RESET}"
-say  "${C_DIM}    > CREATE EXTENSION IF NOT EXISTS vector;${C_RESET}"
-say  "${C_DIM}    > \\q${C_RESET}"
-say  "Continuing — re-run this script if pgvector wasn't enabled and the kernel deploy fails."
 
 # --------------------------------------------------------------------------
 # Step 3 — Kernel app
@@ -157,43 +181,31 @@ fi
 ok "Anthropic key + CORS origins staged on $KERNEL_APP"
 
 # --------------------------------------------------------------------------
-# Step 5 — Attach Postgres + rename DATABASE_URL → OWNEVO_DATABASE_URL
+# Step 5 — Stage OWNEVO_DATABASE_URL on the kernel app
 # --------------------------------------------------------------------------
-# flyctl postgres attach sets DATABASE_URL on the app; the kernel reads
-# OWNEVO_DATABASE_URL (db.py:26). We capture the attach output (which prints
-# the connection string), then stage it under the name the kernel expects.
+# Custom Postgres image — no `flyctl postgres attach` step. We compose the
+# connection string from the password generated in Step 1 and the well-known
+# .flycast hostname.
 
-step "Step 5 — Attach $PG_APP to $KERNEL_APP"
+step "Step 5 — OWNEVO_DATABASE_URL on $KERNEL_APP"
 
 if flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "OWNEVO_DATABASE_URL"; then
   ok "OWNEVO_DATABASE_URL already set on $KERNEL_APP"
-elif flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "DATABASE_URL"; then
-  # Partial run: postgres was attached (sets DATABASE_URL) but OWNEVO_DATABASE_URL
-  # was never staged. We can't read secret values via flyctl; operator must set manually.
-  err "DATABASE_URL found on $KERNEL_APP but OWNEVO_DATABASE_URL is missing."
-  say  "Set it with the connection string from 'flyctl postgres create' output:"
-  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
+elif [ -z "${PG_PASSWORD:-}" ]; then
+  err "Postgres password unknown and OWNEVO_DATABASE_URL not set on $KERNEL_APP."
+  say  "Either destroy $PG_APP and re-run (clean slate), or set the secret manually:"
+  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=postgres://ownevo:<pw>@$PG_APP.flycast:5432/ownevo${C_RESET}"
   exit 2
 else
+  DB_URL="postgres://ownevo:${PG_PASSWORD}@${PG_APP}.flycast:5432/ownevo"
   if [ "$DRY_RUN" = "1" ]; then
-    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
     say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
   else
-    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
-    attach_out=$(flyctl postgres attach "$PG_APP" -a "$KERNEL_APP" 2>&1)
-    printf '%s\n' "$attach_out"
-    db_url=$(printf '%s\n' "$attach_out" | grep -oE 'postgres://[^ ]+' | head -1)
-    if [ -n "$db_url" ]; then
-      say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
-      printf 'OWNEVO_DATABASE_URL=%s\n' "$db_url" \
-        | flyctl secrets import -a "$KERNEL_APP" --stage
-      ok "OWNEVO_DATABASE_URL staged on $KERNEL_APP"
-    else
-      err "Could not extract connection URL from attach output — set it manually:"
-      say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
-      exit 2
-    fi
+    say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
+    printf 'OWNEVO_DATABASE_URL=%s\n' "$DB_URL" \
+      | flyctl secrets import -a "$KERNEL_APP" --stage
   fi
+  ok "OWNEVO_DATABASE_URL staged on $KERNEL_APP"
 fi
 
 # --------------------------------------------------------------------------
@@ -222,9 +234,20 @@ run flyctl secrets set -a "$WEB_APP" \
 # --------------------------------------------------------------------------
 # Step 8 — Deploy web
 # --------------------------------------------------------------------------
+# Must `cd apps/web` first: `flyctl deploy --config <path>` uses cwd as the
+# build context, not the directory containing the config file. Without the
+# `cd`, the remote builder uploads the repo root and `COPY package*.json ./`
+# in the web Dockerfile finds only (nonexistent) root-level lockfile, so
+# `npm ci` fails with "no package-lock.json". Tracked upstream as
+# https://github.com/superfly/flyctl/issues/752 (still open as of 2026).
 
 step "Step 8 — Deploy web"
-run flyctl deploy --config apps/web/fly.toml --remote-only -a "$WEB_APP"
+if [ "$DRY_RUN" = "1" ]; then
+  say "${C_DIM}\$ (cd apps/web && flyctl deploy --remote-only -a $WEB_APP)${C_RESET}"
+else
+  say "${C_DIM}\$ (cd apps/web && flyctl deploy --remote-only -a $WEB_APP)${C_RESET}"
+  (cd apps/web && flyctl deploy --remote-only -a "$WEB_APP")
+fi
 
 # --------------------------------------------------------------------------
 # Step 9 — Seed (optional, costs ~$0.30)
