@@ -4,7 +4,8 @@
 # delegates to a Python script under `apps/kernel/scripts/` so the bulk
 # of the logic stays Python-side and testable.
 
-.PHONY: help test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop tau3-replay \
+.PHONY: help help-all setup doctor smoke fly-smoke fly-bootstrap \
+        test lint m5-baseline m5-baseline-no-db sandbox-image-m5 sandbox-image-tau3 tau3-register tau3-baseline tau3-ingest tau3-loop tau3-replay \
         api web-dev web-build seed-approval-demo seed-demo seed-demo-with-iter \
         seed-m5-baseline m5-bootstrap-loop eval-replay nl-gen-smoketest \
         meta-eval m5-cluster-failures cluster-label-eval \
@@ -13,89 +14,131 @@
         dev-up dev-down dev-logs dev-ps \
         fly-migrate fly-deploy-kernel fly-deploy-web fly-seed fly-logs fly-ssh
 
+# The default help shows the common everyday targets. `make help-all`
+# dumps every target including dogfooding + benchmark internals.
 help:
-	@printf 'targets:\n'
-	@printf '  test                run the full kernel + trace-format test suite\n'
-	@printf '  lint                ruff over the workspace\n'
-	@printf '  m5-baseline         run the Day-1 M5 baseline (W2.6); records to DB if\n'
-	@printf '                      OWNEVO_DATABASE_URL is set\n'
-	@printf '  m5-baseline-no-db   same, but skip DB writes even when the URL is set\n'
-	@printf '  sandbox-image-m5    build the M5 sandbox Docker image (W2.6 #11c)\n'
-	@printf '  sandbox-image-tau3  build the τ³ sandbox Docker image (P1.5 / M2a)\n'
-	@printf '  api                 run the kernel REST API (uvicorn) on :8000 (W2.5)\n'
-	@printf '  web-dev             run the Next.js dev server on :3000 (W2.5)\n'
-	@printf '  web-build           production build of the Next.js app (W2.5)\n'
-	@printf '  seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
-	@printf '  seed-demo           seed credit-risk + contract-review workflows (8.4.2)\n'
-	@printf '  seed-demo-with-iter same, plus run one iteration each so operator pages populate\n'
-	@printf '  seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills (BL.1)\n'
-	@printf '  tau3-register       bootstrap seed — τ³-retail workflow + baseline skill + eval cases (P1.5/M5)\n'
-	@printf '  tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6); records iterations row (P1.5/M6)\n'
-	@printf '  tau3-ingest         backfill iterations from tau2 results.json files; --no-db for dry-run (P1.5/M8)\n'
-	@printf '  tau3-loop           one improvement-loop iteration on τ³-retail (loop agent + gate) (P1.5/M9)\n'
-	@printf '  tau3-replay         reproduce B-LOCAL winning config: 5 cycles, qwen3.6-35b-a3b LMS all-3-roles\n'
-	@printf '  m5-bootstrap-loop   one round of the BL.3 improvement loop (LM Studio default)\n'
-	@printf '  eval-replay         A4.3: replay an NL-gen workflow and emit metric score\n'
-	@printf '                      WORKFLOW={demand-prediction|credit-risk|contract-review|all}\n'
-	@printf '  nl-gen-smoketest    A4.4 quality gate: live NL-gen + agent solver per case\n'
-	@printf '                      WORKFLOW=...; SMOKE_ARGS supports --from-fixtures /\n'
-	@printf '                      --max-cases / --model / --include-outcomes / --pretty.\n'
-	@printf '                      W5.5: --meta-eval-gate runs the meta-eval judge after\n'
-	@printf '                      NL-gen and gates the agent solver on overall=good\n'
-	@printf '                      (--meta-eval-min-aggregate-score / --meta-eval-model).\n'
-	@printf '  meta-eval           A4.6 NL-gen quality judge over the 10-pair eval set\n'
-	@printf '  m5-cluster-failures B3.1+B3.2+B3.3: top-k worst M5 series → cluster →\n'
-	@printf '                      eval-cases (CLUSTER_ARGS=...; default uses stub embedder\n'
-	@printf '                      and clusterer; pass --real for ST + UMAP + HDBSCAN +\n'
-	@printf '                      Anthropic)\n'
-	@printf '  cluster-label-eval  B3.5: judge labeler vs hand-labeled fixtures; reports\n'
-	@printf '                      agreement (LABEL_EVAL_ARGS=... pass flags; default sonnet\n'
-	@printf '                      judge + haiku labeler; --require-agreement for gate)\n'
-	@printf '  llm-judge-approver-eval  W5.2: LLM-judge stub approver vs 30 hand-labeled\n'
-	@printf '                      (proposal, explanation) pairs; reports judge-vs-human\n'
-	@printf '                      agreement + per-bucket slicing\n'
-	@printf '                      (LLM_JUDGE_APPROVER_ARGS=... pass flags; default opus 4.7\n'
-	@printf '                      judge; --require-agreement 0.85 for the W5.2 gate)\n'
-	@printf '  nl-gen-cluster-failures  W5.3: drive NL-gen fixtures through a stub agent →\n'
-	@printf '                      cluster failures (NL_GEN_CLUSTER_ARGS=... pass flags;\n'
-	@printf '                      --strategy controls failure pattern; --real flips to live\n'
-	@printf '                      Anthropic; --require-clusters N gates)\n'
-	@printf '  m5-replay-7day      W5.4: 7-cycle synthetic M5 replay — climbing lift curve,\n'
-	@printf '                      audit log + eval-set growth (REPLAY_ARGS=...; --reset for\n'
-	@printf '                      clean re-runs; --require-climbing / --require-audit-entries\n'
-	@printf '                      / --require-eval-growth gate)\n'
-	@printf '  nl-gen-demo-loop    W6 (row 6.1): NL-gen end-to-end demo loop — agent solver\n'
-	@printf '                      → cluster failures → propose instruction edit → cycle\n'
-	@printf '                      (DEMO_LOOP_ARGS=...; --workflow / --cycles / --pretty /\n'
-	@printf '                      --include-instructions / --require-climbing /\n'
-	@printf '                      --require-lift / --require-meets-target gates;\n'
-	@printf '                      requires ANTHROPIC_API_KEY)\n'
-	@printf '  m5-replay-30day     W6 (TODO-8): 30-day M5 replay across parallel conditions\n'
-	@printf '                      A=frozen / C=loop autonomous / D=loop gated\n'
-	@printf '                      (REPLAY_30_ARGS=...; --conditions a,c,d --max-iterations N\n'
-	@printf '                      --halt-on-error / --reset / --require-lift gate)\n'
-	@printf '  m5-replay-bootstrap one-shot: create DB + apply migrations + seed workflows\n'
-	@printf '                      for `make m5-replay-30day` (REPLAY_BOOTSTRAP_ARGS=...;\n'
-	@printf '                      --workflow-prefix --conditions --skill-version v1|v2)\n'
-	@printf '  dev-up              build + start all services via docker compose (postgres +\n'
-	@printf '                      kernel API + web) in detached mode\n'
-	@printf '  dev-down            stop and remove all compose services\n'
-	@printf '  dev-logs            tail logs from all compose services\n'
-	@printf '  dev-ps              show status of all compose services\n'
-	@printf '\nenv:\n'
-	@printf '  OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
-	@printf '  OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
-	@printf '  OWNEVO_M5_SANDBOX      set to 1 to run baseline through LocalDockerSandbox\n'
-	@printf '  OWNEVO_KERNEL_API_URL  override the kernel URL the web app talks to\n'
-	@printf '  OWNEVO_LLM_BASE_URL    Anthropic-compat LLM base URL (default LM Studio)\n'
-	@printf '  OWNEVO_LLM_MODEL       LLM model id (default qwen/qwen3-coder-30b)\n'
-	@printf '  OWNEVO_LLM_API_KEY     LLM API key (ignored by local backends)\n'
+	@printf 'ownEvo — common targets. Run `make help-all` for the full list.\n'
+	@printf '\n  ${BOLD}Getting started${RESET}\n'
+	@printf '    setup               one-shot fresh-machine install (uv + node + .env)\n'
+	@printf '    doctor              preflight checks (tools, .env, fly auth)\n'
+	@printf '\n  ${BOLD}Local stack${RESET}\n'
+	@printf '    dev-up              start postgres + kernel + web via docker compose\n'
+	@printf '    dev-down            stop and remove all compose services\n'
+	@printf '    dev-logs            tail logs from all compose services\n'
+	@printf '    api                 run kernel API directly (uvicorn :8000, no docker)\n'
+	@printf '    web-dev             run Next.js dev server directly (:3000, no docker)\n'
+	@printf '\n  ${BOLD}Seed${RESET}\n'
+	@printf '    seed-demo           seed credit-risk + contract-review workflows\n'
+	@printf '    seed-demo-with-iter same, plus run one iteration (costs ~$$0.30)\n'
+	@printf '\n  ${BOLD}Verify${RESET}\n'
+	@printf '    test                run the full test suite\n'
+	@printf '    lint                ruff over the workspace\n'
+	@printf '    smoke               smoke-test localhost (health + workflows + audit)\n'
+	@printf '\n  ${BOLD}Fly.io deploy${RESET}\n'
+	@printf '    fly-bootstrap       one-shot first-time deploy (interactive)\n'
+	@printf '    fly-deploy-kernel   deploy the kernel app\n'
+	@printf '    fly-deploy-web      deploy the web app\n'
+	@printf '    fly-seed            run seed_demo.py inside the kernel container\n'
+	@printf '    fly-smoke           smoke-test the live demo (health + workflows + web)\n'
+	@printf '    fly-logs            tail logs from both apps\n'
+	@printf '    fly-ssh             open a shell on the kernel machine\n'
+	@printf '\n  ${BOLD}Docs${RESET}\n'
+	@printf '    docs/DEPLOYMENT.md         full deployment guide\n'
+	@printf '    docs/runbooks/fly-deploy.md first-time Fly.io step-by-step\n'
+
+help-all: help
+	@printf '\n  ${BOLD}Benchmarks (M5)${RESET}\n'
+	@printf '    m5-baseline         run the Day-1 M5 baseline\n'
+	@printf '    m5-baseline-no-db   same, but skip DB writes\n'
+	@printf '    m5-bootstrap-loop   one round of the BL.3 improvement loop\n'
+	@printf '    m5-cluster-failures top-k worst M5 series → cluster → eval-cases\n'
+	@printf '    m5-replay-7day      7-cycle synthetic M5 replay (W5.4)\n'
+	@printf '    m5-replay-30day     30-day M5 replay across parallel conditions\n'
+	@printf '    m5-replay-bootstrap one-shot DB + migrations + seed for m5-replay-30day\n'
+	@printf '    seed-m5-baseline    bootstrap seed — workflow row + 6 baseline skills\n'
+	@printf '\n  ${BOLD}Benchmarks (τ³)${RESET}\n'
+	@printf '    tau3-register       bootstrap seed — τ³-retail workflow + cases\n'
+	@printf '    tau3-baseline       run Day-1 τ³ baseline (sandboxed Sonnet 4.6)\n'
+	@printf '    tau3-ingest         backfill iterations from tau2 results.json files\n'
+	@printf '    tau3-loop           one improvement-loop iteration on τ³-retail\n'
+	@printf '    tau3-replay         reproduce B-LOCAL config — qwen3.6-35b-a3b LMS\n'
+	@printf '\n  ${BOLD}Sandbox images${RESET}\n'
+	@printf '    sandbox-image-m5    build the M5 sandbox Docker image\n'
+	@printf '    sandbox-image-tau3  build the τ³ sandbox Docker image\n'
+	@printf '\n  ${BOLD}NL-gen / quality gates${RESET}\n'
+	@printf '    nl-gen-smoketest        A4.4 quality gate: live NL-gen + agent solver\n'
+	@printf '    nl-gen-demo-loop        W6 (row 6.1): NL-gen end-to-end demo loop\n'
+	@printf '    nl-gen-cluster-failures W5.3: drive fixtures through stub agent → cluster\n'
+	@printf '    meta-eval               A4.6: NL-gen quality judge over the 10-pair set\n'
+	@printf '    eval-replay             A4.3: replay an NL-gen workflow + emit metric\n'
+	@printf '    cluster-label-eval      B3.5: judge labeler vs hand-labeled fixtures\n'
+	@printf '    llm-judge-approver-eval W5.2: LLM-judge stub approver eval\n'
+	@printf '\n  ${BOLD}Operator tools${RESET}\n'
+	@printf '    revert-skill        re-point skills.head_version_id; SKILL=<id> TO_VERSION=<n> REASON="..."\n'
+	@printf '    seed-approval-demo  insert one gate-passed proposal for manual UI test\n'
+	@printf '    web-build           production build of the Next.js app\n'
+	@printf '    fly-migrate         run pending migrations on the live Fly Postgres\n'
+	@printf '    dev-ps              show status of all compose services\n'
+	@printf '\n  ${BOLD}Env${RESET}\n'
+	@printf '    OWNEVO_M5_DIR          path to M5 CSVs (default ./data/m5)\n'
+	@printf '    OWNEVO_DATABASE_URL    postgres URL; required for api / seed targets\n'
+	@printf '    OWNEVO_M5_SANDBOX      set to 1 to run baseline through LocalDockerSandbox\n'
+	@printf '    OWNEVO_KERNEL_API_URL  override the kernel URL the web app talks to\n'
+	@printf '    OWNEVO_LLM_BASE_URL    Anthropic-compat LLM base URL (default LM Studio)\n'
+	@printf '    OWNEVO_LLM_MODEL       LLM model id (default qwen/qwen3-coder-30b)\n'
+	@printf '    OWNEVO_LLM_API_KEY     LLM API key (ignored by local backends)\n'
+
+BOLD = \033[1m
+RESET = \033[0m
 
 test:
 	uv run pytest
 
 lint:
 	uv run ruff check .
+
+# ----------------------------------------------------------------------------
+# Onboarding + preflight + smoke
+# ----------------------------------------------------------------------------
+
+# One-shot fresh-machine install (idempotent). brew + uv + node + npm i +
+# uv sync + sandbox dirs + .env bootstrap.
+setup:
+	./scripts/setup.sh
+
+# Preflight checks before deploying or running the stack.
+#   make doctor          # all checks (default)
+#   make doctor MODE=dev # just dev-stack checks (no flyctl)
+#   make doctor MODE=deploy # just deploy-track checks
+MODE ?= all
+doctor:
+	./scripts/doctor.sh --$(MODE)
+
+# Smoke-test a running kernel. Defaults to localhost:8000; override via
+# SMOKE_URL for a remote target.
+#   make smoke
+#   make smoke SMOKE_URL=https://ownevo-kernel.fly.dev
+SMOKE_URL ?= http://localhost:8000
+smoke:
+	./scripts/smoke.sh $(SMOKE_URL)
+
+# Smoke-test the live Fly demo (kernel + web).
+fly-smoke:
+	./scripts/smoke.sh https://ownevo-kernel.fly.dev --web https://ownevo-web.fly.dev
+
+# ----------------------------------------------------------------------------
+# Fly.io — one-shot first-time bootstrap
+# ----------------------------------------------------------------------------
+
+# Walks the 8 steps of docs/runbooks/fly-deploy.md interactively. Pass
+# --no-seed to skip the (paid) demo seed; --dry-run to preview commands
+# without running them.
+#   make fly-bootstrap
+#   make fly-bootstrap BOOTSTRAP_ARGS=--no-seed
+#   make fly-bootstrap BOOTSTRAP_ARGS=--dry-run
+BOOTSTRAP_ARGS ?=
+fly-bootstrap:
+	./scripts/fly_bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # ----------------------------------------------------------------------------
 # M5 (W2.6)
