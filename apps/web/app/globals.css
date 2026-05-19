@@ -3892,6 +3892,47 @@ a.anatomy-row-name:hover {
   margin: 0;
 }
 
+/* Design-agent attribution callout — surfaces the operator's
+   discovery answers at the top of each review section. Renders only
+   when the workflow was authored through /workflows/new/design AND
+   at least one answer targeted this section's dimensions. */
+.design-attribution {
+  background: var(--accent-muted, rgba(59, 130, 246, 0.06));
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.design-attribution-header {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.design-attribution-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.design-attribution-list li {
+  font-size: 12.5px;
+}
+.design-attribution-dim {
+  font-weight: 600;
+  color: var(--text);
+}
+.design-attribution-answer {
+  color: var(--text-2);
+}
+
 /* Activity feed — workspace-wide audit rendered as user-friendly rows. */
 .activity-empty {
   background: var(--bg);
