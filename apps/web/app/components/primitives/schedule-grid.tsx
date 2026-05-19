@@ -1,4 +1,5 @@
 import type { ScheduleData } from './types'
+import { CaseCaption } from './case-caption'
 
 interface Props {
   data: ScheduleData
@@ -97,6 +98,9 @@ export function ScheduleGrid({ data }: Props) {
             cellMap={cellMap}
           />
         ))}
+      </div>
+      <div style={{ padding: '6px 12px' }}>
+        <CaseCaption caption={data.caption} />
       </div>
     </div>
   )

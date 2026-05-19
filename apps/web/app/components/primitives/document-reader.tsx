@@ -1,4 +1,5 @@
 import type { DocBlock, DocumentData } from './types'
+import { CaseCaption } from './case-caption'
 
 interface Props {
   data: DocumentData
@@ -59,6 +60,7 @@ function renderBlock(b: DocBlock, idx: number): React.ReactNode {
 
 export function DocumentReader({ data }: Props) {
   return (
+    <div>
     <div className="doc-reader">
       <div className="doc-body">
         {data.section_label ? (
@@ -104,6 +106,8 @@ export function DocumentReader({ data }: Props) {
           </div>
         ))}
       </div>
+    </div>
+    <CaseCaption caption={data.caption} />
     </div>
   )
 }

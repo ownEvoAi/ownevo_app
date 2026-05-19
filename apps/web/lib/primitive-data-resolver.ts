@@ -560,9 +560,20 @@ function resolveFromPayload(
   // Cases the agent annotated with a payload for THIS primitive. Empty
   // means the agent skipped this primitive for every case — show why
   // rather than rendering an empty primitive that looks broken.
+  // `caseHref` is the per-case trace detail link; the operator clicks
+  // any rendered card / row / alert to inspect the agent's full
+  // reasoning chain for that case.
+  const wsId = inputs.wsId
   const carriers = co.items
-    .map((it) => ({ caseId: it.case_id, value: pickPayloadKey(it.output_payload, key) }))
-    .filter((c): c is { caseId: string | null; value: unknown } => c.value !== undefined)
+    .map((it) => ({
+      caseId: it.case_id,
+      caseHref:
+        wsId && it.trace_id
+          ? `/workspaces/${wsId}/traces/${it.trace_id}`
+          : null,
+      value: pickPayloadKey(it.output_payload, key),
+    }))
+    .filter((c): c is Carrier => c.value !== undefined)
   if (carriers.length === 0) {
     return {
       kind: 'empty',
@@ -614,7 +625,20 @@ function pickPayloadKey(
   return v
 }
 
-type Carrier = { caseId: string | null; value: unknown }
+type Carrier = {
+  caseId: string | null
+  caseHref: string | null
+  value: unknown
+}
+
+// Caption attached to single-instance primitives (TimeSeriesChart,
+// SideBySideView, etc.) so the operator can click into the case the
+// payload came from. Multi-row primitives (TableView / AlertList /
+// KanbanBoard) embed the link per row/item instead.
+function caseCaption(c: Carrier): { text: string; href: string } | null {
+  if (!c.caseHref || !c.caseId) return null
+  return { text: `Source: case ${c.caseId} →`, href: c.caseHref }
+}
 
 function asObject(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -713,6 +737,8 @@ function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
         ? yFormat
         : 'number',
   }
+  const cap = caseCaption(first)
+  if (cap) data.caption = cap
   return { kind: 'TimeSeriesChart', data }
 }
 
@@ -723,8 +749,12 @@ function payloadToTableView(
   // Aggregate rows from every case that emitted a table. Use the first
   // table's columns as the canonical schema — extra keys in later rows
   // are kept on the row dict (TableView shows declared columns only).
+  // Append a synthetic "Source" column linking to the per-case trace
+  // so the operator can drill into the agent's full reasoning chain
+  // for any row.
   let columns: TableColumn[] = []
   const rows: TableData['rows'] = []
+  let anyHref = false
   for (const c of carriers) {
     const obj = asObject(c.value)
     if (!obj) continue
@@ -735,7 +765,13 @@ function payloadToTableView(
       }))
     }
     for (const row of asArrayOfObjects(obj.rows)) {
-      rows.push(row)
+      const enriched: TableData['rows'][number] = { ...row }
+      if (c.caseHref) {
+        enriched._case_id = c.caseId ?? ''
+        enriched._case_href = c.caseHref
+        anyHref = true
+      }
+      rows.push(enriched)
     }
   }
   if (columns.length === 0 || rows.length === 0) {
@@ -745,11 +781,18 @@ function payloadToTableView(
       reason: 'Agent emitted `table` but with no usable columns/rows.',
     }
   }
+  if (anyHref) {
+    columns.push({
+      key: '_case_id',
+      label: 'Source case',
+      link_key: '_case_href',
+    })
+  }
   const data: TableData = {
     title: 'Agent recommendations',
     summary: `${rows.length} row${rows.length === 1 ? '' : 's'}${
       iterationIndex !== null ? ` · iteration #${iterationIndex}` : ''
-    }`,
+    } · click a row's source case for the full agent reasoning trace`,
     columns,
     rows,
   }
@@ -759,20 +802,24 @@ function payloadToTableView(
 function payloadToAlertList(carriers: Carrier[]): ResolvedPrimitive {
   // Concatenate alerts across cases. Cap at 8 so the list stays
   // scannable — operator drills into the table for the full set.
+  // Each alert carries its case's trace URL via `action_url` so the
+  // operator can jump straight to the source.
   const data: AlertItem[] = []
   for (const c of carriers) {
     for (const a of asArrayOfObjects(c.value)) {
       const severity = asString(a.severity)
       const title = asString(a.title)
       if (!title) continue
-      data.push({
+      const item: AlertItem = {
         severity:
           severity === 'high' || severity === 'medium' || severity === 'low'
             ? severity
             : 'medium',
         title,
         meta: asString(a.meta) ?? '',
-      })
+      }
+      if (c.caseHref) item.action_url = c.caseHref
+      data.push(item)
       if (data.length >= 8) break
     }
     if (data.length >= 8) break
@@ -812,13 +859,15 @@ function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
       const columnKey = asString(card.column_key)
       const title = asString(card.title)
       if (!columnKey || !colKeys.has(columnKey) || !title) return
-      cards.push({
+      const built: KanbanData['cards'][number] = {
         id: `${c.caseId ?? 'c'}-${i}`,
         column_key: columnKey,
         title,
         body: asString(card.body) ?? '',
         meta: asString(card.meta) ?? '',
-      })
+      }
+      if (c.caseHref) built.href = c.caseHref
+      cards.push(built)
     })
   }
   if (columnDefs.length === 0 || cards.length === 0) {
@@ -892,6 +941,8 @@ function payloadToScheduleGrid(carriers: Carrier[]): ResolvedPrimitive {
       })
       .filter((c): c is ScheduleCellDef => c !== null),
   }
+  const cap = caseCaption(carriers[0])
+  if (cap) data.caption = cap
   return { kind: 'ScheduleGrid', data }
 }
 
@@ -929,7 +980,10 @@ function payloadToConversation(carriers: Carrier[]): ResolvedPrimitive {
       reason: 'Agent emitted `conversation` but with no usable turns.',
     }
   }
-  return { kind: 'ConversationView', data: { messages } }
+  const data: ConversationData = { messages }
+  const cap = caseCaption(carriers[0])
+  if (cap) data.caption = cap
+  return { kind: 'ConversationView', data }
 }
 
 function payloadToSideBySide(carriers: Carrier[]): ResolvedPrimitive {
@@ -946,13 +1000,13 @@ function payloadToSideBySide(carriers: Carrier[]): ResolvedPrimitive {
     const rightTitle = asString(right?.title) ?? 'Proposed'
     const rightBody = asString(right?.body) ?? ''
     if (leftBody || rightBody) {
-      return {
-        kind: 'SideBySideView',
-        data: {
-          left: { title: leftTitle, body: leftBody, format: 'text' },
-          right: { title: rightTitle, body: rightBody, format: 'text' },
-        },
+      const data: SideBySideData = {
+        left: { title: leftTitle, body: leftBody, format: 'text' },
+        right: { title: rightTitle, body: rightBody, format: 'text' },
       }
+      const cap = caseCaption(c)
+      if (cap) data.caption = cap
+      return { kind: 'SideBySideView', data }
     }
   }
   return {
@@ -1007,8 +1061,8 @@ function payloadToDocument(carriers: Carrier[]): ResolvedPrimitive {
       reason: 'Agent emitted `document` but with no usable blocks.',
     }
   }
-  return {
-    kind: 'DocumentReader',
-    data: { blocks, annotations },
-  }
+  const data: DocumentData = { blocks, annotations }
+  const cap = caseCaption(carriers[0])
+  if (cap) data.caption = cap
+  return { kind: 'DocumentReader', data }
 }
