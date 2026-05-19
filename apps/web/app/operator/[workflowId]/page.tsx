@@ -90,12 +90,22 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
   const tabs = spec?.ui?.tabs ?? []
   const operateTab =
     tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
+  // Operator persona view = production execution. Pass `context:
+  // 'operate'` so iteration-meta + eval-prediction primitives stay
+  // empty here; the operator is reviewing what the agent has produced
+  // for real, not how it scored against the eval suite.
+  const resolverInputs = {
+    spec,
+    iterations,
+    evalCases,
+    proposals,
+    caseOutputs,
+    wsId,
+    context: 'operate' as const,
+  }
   const primitives = operateTab
-    ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals, caseOutputs, wsId },
-        operateTab.name ?? 'operate',
-      ) ?? []
-    : resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
+    ? resolveTabPrimitives(resolverInputs, operateTab.name ?? 'operate') ?? []
+    : resolvePrimitives(resolverInputs)
 
   const resolved = primitives.filter((p) => p.kind !== 'empty')
   const unresolvedTypes = primitives

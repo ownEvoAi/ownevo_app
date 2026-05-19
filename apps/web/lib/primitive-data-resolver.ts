@@ -1,25 +1,33 @@
-// Layer-D resolver (PLAN row 8.4.6).
+// Layer-D resolver.
 //
 // Maps spec-declared `WorkflowSpec.ui.tabs[].primitives[]` entries to
-// real runtime data derived from the workflow's iteration history +
-// per-case agent outputs. No hand-curated mocks, no hard-coded
-// fallbacks — what the agent has actually produced gets surfaced;
-// everything else returns a primitive-specific `empty` reason that
-// the page renders as a "Coming soon" callout.
+// real runtime data. Two render contexts, intentionally separated:
 //
-// Iteration-derived (always populated when ≥1 iteration exists):
+//   context: 'overview' — improvement-loop meta. Iteration count,
+//     val_score curve, per-case eval predictions (the diagnostic view
+//     of what the agent is getting right/wrong against the eval suite).
+//
+//   context: 'operate'  — production execution. What the agent is
+//     producing for real (triggered by schedules / events) against
+//     live data. Eval predictions are NOT production output, so the
+//     case-output-derived primitives (TableView/AlertList/KanbanBoard)
+//     return empty in this context until a production-output payload
+//     exists. Iteration-meta primitives (MetricCards/TimeSeriesChart)
+//     stay empty too — that's loop telemetry, not execution.
+//
+// Iteration-derived (overview only, populated when ≥1 iteration exists):
 //   * MetricCards     — iteration count, latest val_score, lift vs
 //                       baseline, pending-proposal count.
 //   * TimeSeriesChart — the lift curve (val_score over iteration_index).
 //
-// Case-output-derived (PLAN 8.4.10, populated when caseOutputs ≠ null):
+// Case-output-derived (overview only, populated when caseOutputs ≠ null):
 //   * TableView       — per-case prediction table, failed-first.
 //   * AlertList       — failed cases as high-severity alerts.
 //   * KanbanBoard     — cases columned by outcome × fold (failed-test /
 //                       failed-train / passed).
 //
-// Empty-only (await PLAN 8.4.9 follow-up: workflow-specific
-// `output_schema` extension so the agent can emit these shapes):
+// Empty-only (no agent payload shaped like these yet — needs a
+// workflow-specific output_schema extension):
 //   * ScheduleGrid     — day × shift staffing matrix.
 //   * ConversationView — threaded transcript with tool calls + citations.
 //   * SideBySideView   — paired before/after bodies with diff highlights.
@@ -56,20 +64,30 @@ export type ResolvedPrimitive =
   | { kind: 'DocumentReader'; data: DocumentData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
+export type ResolverContext = 'overview' | 'operate'
+
 export interface ResolverInputs {
   spec: WorkflowSpecShape | null
   iterations: IterationPoint[]
   evalCases: EvalCaseSummary[]
   proposals: ProposalSummary[]
-  // PLAN 8.4.10 (Phase B) — when present, TableView resolves to a
-  // per-case table built from the latest iteration's structured agent
-  // output. Null / empty falls back to the "Coming soon" empty state.
+  // When present, TableView/AlertList/KanbanBoard resolve to per-case
+  // data built from the latest iteration's structured agent output.
+  // Null / empty falls back to the "Coming soon" empty state.
+  // NOTE: these are eval-suite predictions (improvement-loop
+  // diagnostics), NOT production execution output — `context: 'operate'`
+  // suppresses them. See the header comment.
   caseOutputs?: CaseOutputList | null
   // Workspace slug — used to build per-trace links in the TableView's
   // case_id column. Optional: when missing, the column renders as
   // plain text (no link). D4 single-tenant means this is cosmetic in
   // URLs today; the param exists for url stability.
   wsId?: string
+  // Render context. 'overview' (default) populates iteration-meta +
+  // eval-prediction primitives. 'operate' keeps them empty so the
+  // production-execution view doesn't masquerade loop diagnostics as
+  // live output.
+  context?: ResolverContext
 }
 
 export function resolvePrimitives(inputs: ResolverInputs): ResolvedPrimitive[] {
@@ -99,6 +117,27 @@ function resolveOne(
   primitive: { type: string; [key: string]: unknown },
   inputs: ResolverInputs,
 ): ResolvedPrimitive {
+  // Operate context = production execution. Iteration-meta and
+  // eval-prediction primitives are improvement-loop diagnostics, not
+  // production output, so they short-circuit to empty here. A future
+  // production-output payload will land its own resolver branch and
+  // populate Operate honestly.
+  if (inputs.context === 'operate') {
+    if (
+      primitive.type === 'MetricCards' ||
+      primitive.type === 'TimeSeriesChart' ||
+      primitive.type === 'TableView' ||
+      primitive.type === 'AlertList' ||
+      primitive.type === 'KanbanBoard'
+    ) {
+      return {
+        kind: 'empty',
+        primitiveType: primitive.type,
+        reason:
+          'Production runs will land here once the workflow is triggered against live data. Eval-suite predictions stay on Overview.',
+      }
+    }
+  }
   switch (primitive.type) {
     case 'MetricCards':
       return resolveMetricCards(inputs)
