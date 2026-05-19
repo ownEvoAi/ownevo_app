@@ -4272,6 +4272,18 @@ a.anatomy-row-name:hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* The LLM interviewer always names one recommended option per
+   question; the chip gets an accent ring so the operator's eye lands
+   on the default choice. Hover state stays the same so non-recommended
+   chips still feel clickable. */
+.chat-option-chip-recommended {
+  border-color: var(--accent);
+  background: var(--accent-muted, var(--card));
+  color: var(--accent);
+}
+.chat-option-chip-recommended:hover {
+  background: var(--card);
+}
 .chat-input {
   width: 100%;
   resize: vertical;

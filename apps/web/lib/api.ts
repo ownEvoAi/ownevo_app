@@ -249,17 +249,49 @@ export type DiscoveryQuestionKind =
   | 'surface'
   | 'premise'
 
+// The seven design-shaping dimensions the LLM interviewer covers.
+// Mirrors `DesignDimension` in apps/kernel/.../design_agent/dimensions.py.
+export type DesignDimension =
+  | 'goal_and_scope'
+  | 'trigger_and_cadence'
+  | 'data_sources_and_connectors'
+  | 'success_metric'
+  | 'eval_seed_cases'
+  | 'operate_ui_primitives'
+  | 'reviewer_role'
+
+export interface DiscoveryOption {
+  label: string
+  pro: string
+  con: string
+}
+
 export interface NextDiscoveryQuestion {
-  question_index: number
-  kind: DiscoveryQuestionKind
+  dimension: DesignDimension
+  source: 'llm' | 'fallback'
   question: string
-  options: string[] | null
-  rationale: string | null
+  eli: string
+  stakes: string
+  options: DiscoveryOption[]
+  recommendation_index: number
+  rationale: string
+  // Legacy fields retained for compatibility with the existing
+  // fallback-path renderer.
+  question_index?: number
+  kind?: DiscoveryQuestionKind | null
 }
 
 export interface PriorDiscoveryAnswer {
-  question_index: number
-  answer: string | null
+  // New shape: dimension-scoped answer carrying the chosen option +
+  // optional elaboration. Legacy `question_index` + `answer` are still
+  // accepted by the kernel for back-compat.
+  dimension?: DesignDimension | null
+  question?: string
+  chosen_option?: string | null
+  free_text?: string | null
+  // Legacy fields (kept until the web client fully migrates).
+  question_index?: number | null
+  answer?: string | null
 }
 
 export interface NextDiscoveryQuestionResponse {

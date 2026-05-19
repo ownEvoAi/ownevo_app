@@ -76,10 +76,17 @@ export async function loadNextQuestion(
 }
 
 export interface DiscoveryTranscriptEntry {
-  question_index: number
-  kind: string
+  // Local-only stable identifier — auto-increment per entry so the LLM
+  // path (which doesn't return a positional index) can still build a
+  // unique key for React + audit trail. Falls back to legacy
+  // `question_index` semantics when the kernel returns it.
+  entry_index: number
+  question_index?: number | null
+  dimension?: string | null
+  kind?: string | null
   question: string
   answer: string | null
+  chosen_option?: string | null
 }
 
 export interface GenerateWithDiscoveryInput {
@@ -150,9 +157,16 @@ function buildDesignAgentLog(
 ): DesignAgentLog | null {
   if (transcript.length === 0) return null
 
-  const entries: DesignAgentLogEntry[] = transcript.map((t) => ({
-    question_index: t.question_index,
-    kind: t.kind as DiscoveryQuestionKind,
+  const entries: DesignAgentLogEntry[] = transcript.map((t, i) => ({
+    // The audit-log shape requires a positional question_index. LLM-
+    // path entries don't carry one, so synthesise from the local
+    // entry_index (stable per-session order); fallback-path entries
+    // pass theirs through.
+    question_index:
+      typeof t.question_index === 'number'
+        ? t.question_index
+        : t.entry_index ?? i,
+    kind: (t.kind as DiscoveryQuestionKind) ?? 'ambiguity',
     question: t.question,
     answer: t.answer,
   }))
