@@ -22,6 +22,7 @@ import type {
   AlertItem,
   KanbanData,
   MetricCardDatum,
+  ScheduleData,
   TableData,
   TimeSeriesData,
 } from '@/app/components/primitives/types'
@@ -39,6 +40,7 @@ export type ResolvedPrimitive =
   | { kind: 'TableView'; data: TableData }
   | { kind: 'AlertList'; data: AlertItem[] }
   | { kind: 'KanbanBoard'; data: KanbanData }
+  | { kind: 'ScheduleGrid'; data: ScheduleData }
   | { kind: 'empty'; primitiveType: string; reason: string }
 
 export interface ResolverInputs {
@@ -95,6 +97,8 @@ function resolveOne(
       return resolveAlertList(inputs)
     case 'KanbanBoard':
       return resolveKanbanBoard(inputs)
+    case 'ScheduleGrid':
+      return resolveScheduleGrid(inputs)
     default:
       return {
         kind: 'empty',
@@ -361,6 +365,22 @@ function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
     cards,
   }
   return { kind: 'KanbanBoard', data }
+}
+
+
+function resolveScheduleGrid(_inputs: ResolverInputs): ResolvedPrimitive {
+  // ScheduleGrid wants a day × shift staffing matrix (e.g. labour
+  // management's 7-day × 3-shift target/actual grid). The agent's
+  // `submit_case_output` shape today carries `{predicted, expected,
+  // rationale}` — no row/col keys, no per-cell value+target. Until a
+  // schedule-shaped agent payload lands (PLAN 8.4.9 follow-up: per-
+  // workflow `output_schema` extension), this stays an honest empty.
+  return {
+    kind: 'empty',
+    primitiveType: 'ScheduleGrid',
+    reason:
+      'Agent does not emit a schedule (rows × cols × cells) payload yet — needs a workflow-specific output_schema beyond bool predictions.',
+  }
 }
 
 
