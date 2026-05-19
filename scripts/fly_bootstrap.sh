@@ -185,7 +185,7 @@ ok "Anthropic key + CORS origins staged on $KERNEL_APP"
 # --------------------------------------------------------------------------
 # Custom Postgres image — no `flyctl postgres attach` step. We compose the
 # connection string from the password generated in Step 1 and the well-known
-# .flycast hostname.
+# .internal hostname (Fly's WireGuard 6PN DNS).
 
 step "Step 5 — OWNEVO_DATABASE_URL on $KERNEL_APP"
 
@@ -194,10 +194,10 @@ if flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "OWNEVO_DATABASE_
 elif [ -z "${PG_PASSWORD:-}" ]; then
   err "Postgres password unknown and OWNEVO_DATABASE_URL not set on $KERNEL_APP."
   say  "Either destroy $PG_APP and re-run (clean slate), or set the secret manually:"
-  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=postgres://ownevo:<pw>@$PG_APP.flycast:5432/ownevo${C_RESET}"
+  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=postgres://ownevo:<pw>@$PG_APP.internal:5432/ownevo${C_RESET}"
   exit 2
 else
-  DB_URL="postgres://ownevo:${PG_PASSWORD}@${PG_APP}.flycast:5432/ownevo"
+  DB_URL="postgres://ownevo:${PG_PASSWORD}@${PG_APP}.internal:5432/ownevo"
   if [ "$DRY_RUN" = "1" ]; then
     say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
   else

@@ -51,7 +51,7 @@ flyctl secrets set POSTGRES_PASSWORD=$(openssl rand -hex 16) --app ownevo-pg
 Internal-network DNS, no public exposure:
 
 ```
-OWNEVO_DATABASE_URL=postgres://ownevo:$POSTGRES_PASSWORD@ownevo-pg.flycast:5432/ownevo
+OWNEVO_DATABASE_URL=postgres://ownevo:$POSTGRES_PASSWORD@ownevo-pg.internal:5432/ownevo
 ```
 
 Set on the kernel app via `flyctl secrets set -a ownevo-kernel`. The

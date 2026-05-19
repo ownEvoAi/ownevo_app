@@ -62,10 +62,10 @@ chmod 600 .fly-pg-password
 The connection string the kernel will use:
 
 ```
-OWNEVO_DATABASE_URL=postgres://ownevo:$PG_PASSWORD@ownevo-pg.flycast:5432/ownevo
+OWNEVO_DATABASE_URL=postgres://ownevo:$PG_PASSWORD@ownevo-pg.internal:5432/ownevo
 ```
 
-(`ownevo-pg.flycast` is Fly's internal DNS for the app, reachable from
+(`ownevo-pg.internal` is Fly's internal DNS for the app, reachable from
 any other Fly app in the same org. No public exposure of Postgres.)
 
 Trade-offs vs the (broken) `flyctl postgres create` path:
@@ -92,7 +92,7 @@ flyctl apps create ownevo-kernel --org personal
 
 ```bash
 flyctl secrets set -a ownevo-kernel \
-  OWNEVO_DATABASE_URL="postgres://ownevo:$(cat .fly-pg-password)@ownevo-pg.flycast:5432/ownevo" \
+  OWNEVO_DATABASE_URL="postgres://ownevo:$(cat .fly-pg-password)@ownevo-pg.internal:5432/ownevo" \
   ANTHROPIC_API_KEY="sk-ant-..." \
   OWNEVO_CORS_ORIGINS="https://ownevo-web.fly.dev,https://demo.ownevo.ai"
 ```

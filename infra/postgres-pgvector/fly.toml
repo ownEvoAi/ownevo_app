@@ -19,7 +19,7 @@
 #   (cd infra/postgres-pgvector && flyctl deploy --remote-only -a ownevo-pg)
 #
 # Other apps connect via Fly's internal DNS — no public exposure:
-#   OWNEVO_DATABASE_URL=postgres://ownevo:$POSTGRES_PASSWORD@ownevo-pg.flycast:5432/ownevo
+#   OWNEVO_DATABASE_URL=postgres://ownevo:$POSTGRES_PASSWORD@ownevo-pg.internal:5432/ownevo
 
 app = "ownevo-pg"
 primary_region = "sjc"
