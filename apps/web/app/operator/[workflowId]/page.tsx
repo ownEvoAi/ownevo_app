@@ -48,7 +48,9 @@ interface PageProps {
 export default async function OperatorPage({ params, searchParams }: PageProps) {
   const { workflowId } = await params
   const { ws } = await searchParams
-  const wsId = ws || 'acme'
+  // Validate wsId before interpolating into hrefs — an unvalidated ?ws=../../x
+  // would path-traverse to /x/workflows/... via browser normalization.
+  const wsId = /^[\w-]+$/.test(ws ?? '') ? ws! : 'acme'
 
   let spec: WorkflowSpecShape | null = null
   let description: string | null = null

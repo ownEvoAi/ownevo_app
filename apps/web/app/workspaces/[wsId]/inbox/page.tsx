@@ -15,9 +15,12 @@ interface PageProps {
 // Filters (mock parity, minus Escalations):
 //   * all          — pending review + recently decided (default)
 //   * proposals    — only proposals awaiting review (state=gate-passed)
-//   * regression   — only gate-failed proposals (regression-blocked,
-//                    no-improvement, or sandbox-error all collapse to
-//                    `gate-failed` in the kernel)
+//   * sandbox      — only gate-failed proposals (state=gate-failed =
+//                    infrastructure failures: Timeout / OOM / Crash).
+//                    NOTE: regression-blocked and no-improvement proposals
+//                    go to `rejected`, not `gate-failed`. A dedicated
+//                    regression filter requires gate_decision on
+//                    ProposalSummary (PLAN 8.4.x follow-up).
 //
 // Mock also shows "Escalations" chip — those are human-decision-needed
 // events from agent runs (e.g. support-09: "refund $5,200 exceeds
@@ -25,10 +28,10 @@ interface PageProps {
 // be a separate `escalations` table fed by a `human_decision_required`
 // AgentEvent. Filter intentionally omitted until that lands.
 
-type Filter = 'all' | 'proposals' | 'regression'
+type Filter = 'all' | 'proposals' | 'sandbox'
 
 function parseFilter(raw: string | undefined): Filter {
-  if (raw === 'proposals' || raw === 'regression') return raw
+  if (raw === 'proposals' || raw === 'sandbox') return raw
   return 'all'
 }
 
@@ -41,11 +44,10 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
   const filter = parseFilter(sp.filter)
   const root = `/workspaces/${wsId}/inbox`
 
-  let pendingData, regressionData, recentData
+  let pendingData, recentData
   try {
-    ;[pendingData, regressionData, recentData] = await Promise.all([
+    ;[pendingData, recentData] = await Promise.all([
       listProposals({ state: 'gate-passed', limit: 200 }),
-      listProposals({ state: 'gate-failed', limit: 200 }),
       listProposals({ limit: 50 }),
     ])
   } catch (err) {
@@ -67,8 +69,22 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
     )
   }
 
+  // Sandbox-errors fetch is kept separate so a transient gate-runner 500
+  // degrades the sandbox chip to 0 rather than blacking out the whole inbox.
+  // fetch full list only when sandbox tab is active; limit=1 otherwise gives
+  // the chip badge count without transferring 200 full proposal objects.
+  let regressionData = { items: [] as ProposalSummary[], total: 0 }
+  try {
+    regressionData = await listProposals({
+      state: 'gate-failed',
+      limit: filter === 'sandbox' ? 200 : 1,
+    })
+  } catch {
+    // sandbox badge stays 0; rest of the inbox renders normally
+  }
+
   const pending = pendingData.items
-  const regression = regressionData.items
+  const sandboxErrors = regressionData.items
   const decided = recentData.items.filter(
     (p) =>
       p.state !== 'pending' &&
@@ -81,7 +97,7 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
   const chips: Array<{ key: Filter; label: string; count: number }> = [
     { key: 'all', label: 'All', count: totalCount },
     { key: 'proposals', label: 'Proposals', count: pendingData.total },
-    { key: 'regression', label: 'Regression alerts', count: regressionData.total },
+    { key: 'sandbox', label: 'Sandbox errors', count: regressionData.total },
   ]
 
   return (
@@ -90,7 +106,7 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
         <div>
           <h1 className="page-title">Inbox</h1>
           <p className="page-subtitle">
-            {pendingData.total} pending · {totalCount} total · refreshed just now
+            {pendingData.total} pending · {totalCount} in system · refreshed just now
           </p>
         </div>
       </header>
@@ -152,14 +168,14 @@ export default async function WorkspaceInboxPage({ params, searchParams }: PageP
         </>
       )}
 
-      {filter === 'regression' && (
+      {filter === 'sandbox' && (
         <>
-          <h2 className="section-title">Regression-blocked</h2>
-          {regression.length === 0 ? (
-            <EmptyState message="No proposals blocked by the regression gate." />
+          <h2 className="section-title">Sandbox errors</h2>
+          {sandboxErrors.length === 0 ? (
+            <EmptyState message="No sandbox-error proposals in the queue." />
           ) : (
             <div className="inbox">
-              {regression.map((p) => (
+              {sandboxErrors.map((p) => (
                 <ProposalRow key={p.id} proposal={p} />
               ))}
             </div>
