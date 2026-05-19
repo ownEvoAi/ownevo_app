@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/smoke.sh                              # default: localhost:8000
-#   ./scripts/smoke.sh https://demo.ownevo.ai/api   # against a remote URL
+#   ./scripts/smoke.sh https://demo.ownevo.ai        # against a remote URL
 #   ./scripts/smoke.sh --web https://demo.ownevo.ai # also smoke the web app
 #
 # Exit codes:

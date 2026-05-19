@@ -88,8 +88,8 @@ help-all: help
 	@printf '    OWNEVO_LLM_MODEL       LLM model id (default qwen/qwen3-coder-30b)\n'
 	@printf '    OWNEVO_LLM_API_KEY     LLM API key (ignored by local backends)\n'
 
-BOLD = \033[1m
-RESET = \033[0m
+BOLD  := $(shell [ -t 1 ] && printf '\033[1m' || true)
+RESET := $(shell [ -t 1 ] && printf '\033[0m' || true)
 
 test:
 	uv run pytest

@@ -2,16 +2,17 @@
 # One-shot first-time Fly.io deploy.
 #
 # Walks the docs/runbooks/fly-deploy.md steps interactively:
-#   1. Provision Fly Postgres (`ownevo-pg`)
-#   2. Enable pgvector
-#   3. Create kernel + web apps (`ownevo-kernel`, `ownevo-web`)
-#   4. Set kernel secrets (ANTHROPIC_API_KEY, CORS allowlist)
-#   5. Attach Postgres to kernel
-#   6. Deploy kernel (migrations run via release_command)
-#   7. Set web secrets
-#   8. Deploy web
-#   9. Seed demo data (optional)
-#  10. Print custom-domain instructions
+#   1.  Provision Fly Postgres (`ownevo-pg`)
+#   2.  Enable pgvector
+#   3.  Create kernel + web apps (`ownevo-kernel`, `ownevo-web`)
+#   4.  Set kernel secrets (ANTHROPIC_API_KEY, CORS allowlist)
+#   5.  Attach Postgres to kernel + rename DATABASE_URL → OWNEVO_DATABASE_URL
+#   6.  Deploy kernel (migrations run via release_command)
+#   7.  Create web app + set secrets
+#   8.  Deploy web
+#   9.  Seed demo data (optional)
+#  10.  Smoke test
+#  11.  Print custom-domain instructions
 #
 # Idempotent — checks each resource before creating. Safe to re-run
 # after a partial failure.
@@ -144,23 +145,55 @@ fi
 
 step "Step 4 — Kernel secrets"
 
-run flyctl secrets set -a "$KERNEL_APP" \
-  ANTHROPIC_API_KEY="$ANTHROPIC_KEY" \
-  OWNEVO_CORS_ORIGINS="https://$WEB_APP.fly.dev,https://demo.ownevo.ai" \
-  --stage
-
+# Use stdin import so the API key never appears in the process argument list or terminal.
+if [ "$DRY_RUN" = "1" ]; then
+  say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (ANTHROPIC_API_KEY=*** OWNEVO_CORS_ORIGINS=...)${C_RESET}"
+else
+  say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (ANTHROPIC_API_KEY=*** OWNEVO_CORS_ORIGINS=...)${C_RESET}"
+  printf 'ANTHROPIC_API_KEY=%s\nOWNEVO_CORS_ORIGINS=https://%s.fly.dev,https://demo.ownevo.ai\n' \
+    "$ANTHROPIC_KEY" "$WEB_APP" \
+    | flyctl secrets import -a "$KERNEL_APP" --stage
+fi
 ok "Anthropic key + CORS origins staged on $KERNEL_APP"
 
 # --------------------------------------------------------------------------
-# Step 5 — Attach Postgres
+# Step 5 — Attach Postgres + rename DATABASE_URL → OWNEVO_DATABASE_URL
 # --------------------------------------------------------------------------
+# flyctl postgres attach sets DATABASE_URL on the app; the kernel reads
+# OWNEVO_DATABASE_URL (db.py:26). We capture the attach output (which prints
+# the connection string), then stage it under the name the kernel expects.
 
 step "Step 5 — Attach $PG_APP to $KERNEL_APP"
 
-if flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qE "DATABASE_URL"; then
-  ok "DATABASE_URL already set on $KERNEL_APP (Postgres attached)"
+if flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "OWNEVO_DATABASE_URL"; then
+  ok "OWNEVO_DATABASE_URL already set on $KERNEL_APP"
+elif flyctl secrets list -a "$KERNEL_APP" 2>/dev/null | grep -qF "DATABASE_URL"; then
+  # Partial run: postgres was attached (sets DATABASE_URL) but OWNEVO_DATABASE_URL
+  # was never staged. We can't read secret values via flyctl; operator must set manually.
+  err "DATABASE_URL found on $KERNEL_APP but OWNEVO_DATABASE_URL is missing."
+  say  "Set it with the connection string from 'flyctl postgres create' output:"
+  say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
+  exit 2
 else
-  run flyctl postgres attach "$PG_APP" -a "$KERNEL_APP"
+  if [ "$DRY_RUN" = "1" ]; then
+    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
+    say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
+  else
+    say "${C_DIM}\$ flyctl postgres attach $PG_APP -a $KERNEL_APP${C_RESET}"
+    attach_out=$(flyctl postgres attach "$PG_APP" -a "$KERNEL_APP" 2>&1)
+    printf '%s\n' "$attach_out"
+    db_url=$(printf '%s\n' "$attach_out" | grep -oE 'postgres://[^ ]+' | head -1)
+    if [ -n "$db_url" ]; then
+      say "${C_DIM}\$ flyctl secrets import -a $KERNEL_APP --stage  (OWNEVO_DATABASE_URL=***)${C_RESET}"
+      printf 'OWNEVO_DATABASE_URL=%s\n' "$db_url" \
+        | flyctl secrets import -a "$KERNEL_APP" --stage
+      ok "OWNEVO_DATABASE_URL staged on $KERNEL_APP"
+    else
+      err "Could not extract connection URL from attach output — set it manually:"
+      say  "${C_DIM}    flyctl secrets set -a $KERNEL_APP OWNEVO_DATABASE_URL=<postgres://...>${C_RESET}"
+      exit 2
+    fi
+  fi
 fi
 
 # --------------------------------------------------------------------------

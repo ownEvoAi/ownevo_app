@@ -150,6 +150,7 @@ if [ -f .env ]; then
   ok ".env already exists — leaving it alone"
 else
   cp .env.example .env
+  chmod 600 .env
   ok "copied .env.example → .env (edit it to add ANTHROPIC_API_KEY)"
 fi
 

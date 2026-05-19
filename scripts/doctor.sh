@@ -30,9 +30,9 @@ PASS=0
 FAIL=0
 WARN=0
 
-ok()   { printf "%b ✓ %s\n" "$C_OK$C_RESET" "$1";   PASS=$((PASS+1)); }
-warn() { printf "%b ! %s\n" "$C_WARN$C_RESET" "$1"; WARN=$((WARN+1)); }
-err()  { printf "%b ✗ %s\n" "$C_ERR$C_RESET" "$1";  FAIL=$((FAIL+1)); }
+ok()   { printf "%b ✓ %s%b\n" "$C_OK" "$1" "$C_RESET";   PASS=$((PASS+1)); }
+warn() { printf "%b ! %s%b\n" "$C_WARN" "$1" "$C_RESET"; WARN=$((WARN+1)); }
+err()  { printf "%b ✗ %s%b\n" "$C_ERR" "$1" "$C_RESET";  FAIL=$((FAIL+1)); }
 step() { printf "\n%b── %s ──%b\n" "$C_DIM" "$1" "$C_RESET"; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
