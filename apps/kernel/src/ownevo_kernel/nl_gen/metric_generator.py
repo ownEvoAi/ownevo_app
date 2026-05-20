@@ -234,6 +234,7 @@ async def generate_metric_definition(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    design_brief_block: str | None = None,
 ) -> MetricDefinition:
     """Generate a typed MetricDefinition from a WorkflowSpec.
 
@@ -258,6 +259,9 @@ async def generate_metric_definition(
             disagrees with `workflow_spec.success_criterion.direction`,
             or its `workflow_spec_id` doesn't match `workflow_spec.id`.
     """
+    user_message = _format_user_message(workflow_spec)
+    if design_brief_block:
+        user_message = f"{user_message}\n\n{design_brief_block}"
     try:
         definition, _raw = await call_with_validation_retry(
             client=client,
@@ -266,7 +270,7 @@ async def generate_metric_definition(
             system=SYSTEM_PROMPT,
             tool_definition=_TOOL_DEFINITION,
             tool_name=TOOL_NAME,
-            initial_user_message=_format_user_message(workflow_spec),
+            initial_user_message=user_message,
             schema_class=MetricDefinition,
             envelope_key="metric_definition",
             max_retries=max_retries,

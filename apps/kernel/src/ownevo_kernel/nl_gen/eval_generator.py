@@ -214,6 +214,7 @@ async def generate_eval_case_set(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    design_brief_block: str | None = None,
 ) -> EvalCaseSet:
     """Generate a typed EvalCaseSet from a WorkflowSpec + SimulationPlan.
 
@@ -245,6 +246,9 @@ async def generate_eval_case_set(
             f"workflow_spec.id={workflow_spec.id!r}"
         )
 
+    user_message = _format_user_message(workflow_spec, simulation_plan)
+    if design_brief_block:
+        user_message = f"{user_message}\n\n{design_brief_block}"
     try:
         case_set, _raw = await call_with_validation_retry(
             client=client,
@@ -253,7 +257,7 @@ async def generate_eval_case_set(
             system=SYSTEM_PROMPT,
             tool_definition=_TOOL_DEFINITION,
             tool_name=TOOL_NAME,
-            initial_user_message=_format_user_message(workflow_spec, simulation_plan),
+            initial_user_message=user_message,
             schema_class=EvalCaseSet,
             envelope_key="eval_case_set",
             max_retries=max_retries,

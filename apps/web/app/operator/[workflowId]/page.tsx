@@ -17,8 +17,12 @@ import {
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 import { AlertList } from '@/app/components/primitives/alert-list'
+import { ConversationView } from '@/app/components/primitives/conversation-view'
+import { DocumentReader } from '@/app/components/primitives/document-reader'
 import { KanbanBoard } from '@/app/components/primitives/kanban-board'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
+import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolveTabPrimitives, resolvePrimitives } from '@/lib/primitive-data-resolver'
@@ -37,16 +41,16 @@ interface PageProps {
 // What's wired today: the Operate spec's primitives (MetricCards,
 // TimeSeriesChart) plus a recent-runs table.
 //
-// What's NOT wired (would land when per-case structured output is
-// captured, PLAN row 8.4.6 layer-D resolver expansion): the
-// SKU/account/case-level recommendation table the mocks show. Each
-// agent recommendation row needs the agent to emit structured output
-// per case beyond the bool prediction the iteration runner sees today.
-// We surface the gap as a callout instead of mocking the rows.
+// Layer-D primitives (PLAN 8.4.10): TableView / AlertList / KanbanBoard
+// are wired to per-case output. ScheduleGrid / ConversationView /
+// SideBySideView / DocumentReader are wired but return `empty` until
+// per-workflow output_schema support lands (PLAN 8.4.9 follow-up).
 export default async function OperatorPage({ params, searchParams }: PageProps) {
   const { workflowId } = await params
   const { ws } = await searchParams
-  const wsId = ws || 'acme'
+  // Validate wsId before interpolating into hrefs — an unvalidated ?ws=../../x
+  // would path-traverse to /x/workflows/... via browser normalization.
+  const wsId = /^[\w-]+$/.test(ws ?? '') ? ws! : 'acme'
 
   let spec: WorkflowSpecShape | null = null
   let description: string | null = null
@@ -86,12 +90,22 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
   const tabs = spec?.ui?.tabs ?? []
   const operateTab =
     tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
+  // Operator persona view = production execution. Pass `context:
+  // 'operate'` so iteration-meta + eval-prediction primitives stay
+  // empty here; the operator is reviewing what the agent has produced
+  // for real, not how it scored against the eval suite.
+  const resolverInputs = {
+    spec,
+    iterations,
+    evalCases,
+    proposals,
+    caseOutputs,
+    wsId,
+    context: 'operate' as const,
+  }
   const primitives = operateTab
-    ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals, caseOutputs, wsId },
-        operateTab.name ?? 'operate',
-      ) ?? []
-    : resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
+    ? resolveTabPrimitives(resolverInputs, operateTab.name ?? 'operate') ?? []
+    : resolvePrimitives(resolverInputs)
 
   const resolved = primitives.filter((p) => p.kind !== 'empty')
   const unresolvedTypes = primitives
@@ -143,7 +157,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
             href={`/workspaces/${wsId}/workflows/${workflowId}`}
             style={{ color: 'var(--accent)' }}
           >
-            Open the AgentOS view ↗
+            Open the owner view ↗
           </Link>{' '}
           to see eval cases, failures, proposals, and the lift curve.
         </div>
@@ -207,6 +221,10 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
               if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
               if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
               if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
+              if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
+              if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
+              if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
+              if (p.kind === 'DocumentReader') return <DocumentReader key={i} data={p.data} />
               return null
             })}
           </section>

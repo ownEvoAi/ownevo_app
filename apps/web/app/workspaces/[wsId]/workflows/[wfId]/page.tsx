@@ -1,27 +1,18 @@
 import Link from 'next/link'
 import {
   getWorkflowAnatomy,
-  getWorkflowCaseOutputs,
   getWorkflowIterations,
   getWorkflowSkills,
   kernelError,
   KernelApiError,
-  listProposals,
   listWorkflowEvalCases,
-  type CaseOutputList,
   type EvalCaseSummary,
   type IterationPoint,
-  type ProposalSummary,
   type SkillSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
-import { AlertList } from '@/app/components/primitives/alert-list'
-import { KanbanBoard } from '@/app/components/primitives/kanban-board'
-import { MetricCards } from '@/app/components/primitives/metric-cards'
-import { TableView } from '@/app/components/primitives/table-view'
-import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
-import { resolvePrimitives } from '@/lib/primitive-data-resolver'
+import { LiftChart } from '../../lift-chart'
 import { GenerateEvalCasesButton } from './eval-cases/generate-button'
 import { RunIterationButton } from './run-iteration-button'
 
@@ -32,28 +23,32 @@ interface PageProps {
 export default async function WorkflowOverviewPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
+  // Overview is meta-only: it describes the workflow + tracks the
+  // improvement loop's state. Live execution data (inputs flowing in,
+  // outputs the agent produces) belongs on the Operate tab — that's
+  // where the spec's `ui.tabs[].primitives` render. Overview shows:
+  //   * a "next step" card driving the user toward the loop's next gate
+  //   * the lift curve (val_score across iterations) — improvement-meta
+  //   * the iteration list — improvement history
+  //   * AgentAnatomy — what the agent CAN do (skills + tools + topology)
   let skills: SkillSummary[] = []
   let spec: WorkflowSpecShape | null = null
+  let description: string = ''
   let evalCases: EvalCaseSummary[] = []
   let iterations: IterationPoint[] = []
-  let proposals: ProposalSummary[] = []
-  let caseOutputs: CaseOutputList | null = null
   let apiError: { title: string; detail: string } | null = null
   try {
-    const [anatomy, skillList, evalList, iterList, propList, coList] = await Promise.all([
+    const [anatomy, skillList, evalList, iterList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
       listWorkflowEvalCases(wfId),
       getWorkflowIterations(wfId),
-      listProposals({ workflow_id: wfId, limit: 100 }),
-      getWorkflowCaseOutputs(wfId).catch(() => null),
     ])
     spec = anatomy.spec
+    description = anatomy.description ?? ''
     skills = skillList.items
     evalCases = evalList.items
     iterations = iterList.items
-    proposals = propList.items
-    caseOutputs = coList
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
@@ -61,10 +56,6 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       apiError = kernelError(err)
     }
   }
-
-  const resolvedPrimitives = !apiError
-    ? resolvePrimitives({ spec, iterations, evalCases, proposals, caseOutputs, wsId })
-    : []
 
   const hasEvalCases = evalCases.length > 0
   const iterationCount = iterations.length
@@ -79,14 +70,6 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
     stage = iterationCount > 0 ? 'iterating' : 'has-evals-no-iter'
   }
 
-  // Resolved primitives the layer-D resolver actually has data for vs. the
-  // ones it can't bind. Split here so we can render the resolved bundle
-  // separately from a single collapsed "unresolved primitives" note.
-  const resolved = resolvedPrimitives.filter((p) => p.kind !== 'empty')
-  const unresolvedTypes = resolvedPrimitives
-    .filter((p): p is Extract<typeof resolvedPrimitives[number], { kind: 'empty' }> => p.kind === 'empty')
-    .map((p) => p.primitiveType)
-
   return (
     <>
       {apiError && (
@@ -94,6 +77,10 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
           <strong>{apiError.title}</strong> {apiError.detail}
         </div>
       )}
+
+      {!apiError && description ? (
+        <WorkflowDescription description={description} />
+      ) : null}
 
       {!apiError ? (
         <section className="overview-next-step">
@@ -152,24 +139,12 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {!apiError && iterations.length > 0 && resolved.length > 0 ? (
-        <section className="overview-primitives">
-          {resolved.map((p, i) => {
-            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
-            if (p.kind === 'TimeSeriesChart')
-              return <TimeSeriesChart key={i} data={p.data} />
-            if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
-            if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
-            if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
-            return null
-          })}
-          {unresolvedTypes.length > 0 ? (
-            <p className="overview-primitives-unresolved">
-              Spec also declares{' '}
-              <strong>{unresolvedTypes.join(', ')}</strong> — those primitives
-              need richer per-case agent output than the current loop emits.
-            </p>
-          ) : null}
+      {!apiError && iterations.length > 0 ? (
+        <section style={{ marginTop: 20, marginBottom: 24 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Improvement curve
+          </h2>
+          <LiftChart points={iterations} workflowId={wfId} />
         </section>
       ) : null}
 
@@ -262,4 +237,71 @@ function stateClass(state: string): string {
   if (state === 'gate-blocked-regression') return 'regression'
   if (state === 'sandbox-error') return 'error'
   return 'other'
+}
+
+// The full NL description the user wrote when creating the workflow.
+// First paragraph (the goal statement) renders always; remaining
+// paragraphs (data sources / reviewer / past misses) collapse into a
+// <details> so the Overview page stays scannable. Visible only on
+// hover-tooltip elsewhere, so this is the canonical "what does this
+// workflow do" surface.
+function WorkflowDescription({ description }: { description: string }) {
+  const paragraphs = description
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+  if (paragraphs.length === 0) return null
+  const [first, ...rest] = paragraphs
+  return (
+    <section
+      style={{
+        background: 'var(--bg)',
+        border: '1px solid var(--border)',
+        borderLeft: '3px solid var(--accent)',
+        borderRadius: 8,
+        padding: '14px 18px',
+        marginBottom: 16,
+      }}
+    >
+      <p
+        style={{
+          fontSize: 14,
+          lineHeight: 1.6,
+          color: 'var(--text-2)',
+          margin: 0,
+        }}
+      >
+        {first}
+      </p>
+      {rest.length > 0 ? (
+        <details style={{ marginTop: 10 }}>
+          <summary
+            style={{
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--text-muted)',
+              userSelect: 'none',
+            }}
+          >
+            More context ({rest.length} more paragraph{rest.length === 1 ? '' : 's'})
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            {rest.map((p, i) => (
+              <p
+                key={i}
+                style={{
+                  fontSize: 13.5,
+                  lineHeight: 1.6,
+                  color: 'var(--text-3)',
+                  margin: i === 0 ? 0 : '10px 0 0',
+                }}
+              >
+                {p}
+              </p>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  )
 }

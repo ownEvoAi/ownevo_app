@@ -64,6 +64,12 @@ class ReplayResult:
     `rationale` is the agent's per-case explanation (populated by
     `run_with_agent`; None when the replay was deterministic via the
     sim path because there's no agent to explain a sim's output).
+
+    `output_payload` is the agent's domain-shaped artifact (forecast
+    curve, redline pair, recommendation table, etc.) — surfaces on the
+    Operate tab so a domain expert can see what the agent would have
+    produced for real. None when no agent was involved (sim replay) or
+    the agent chose not to emit one.
     """
 
     case_id: str
@@ -71,6 +77,7 @@ class ReplayResult:
     actual_value: Any
     expected_value: Any
     rationale: str | None = None
+    output_payload: dict[str, Any] | None = None
 
 
 def _bool_label_fields(plan: SimulationPlan) -> dict[str, EventField]:

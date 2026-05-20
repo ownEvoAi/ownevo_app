@@ -36,6 +36,15 @@ export interface TimeSeriesAnnotation {
   label: string
 }
 
+// Click-through footer the Operate-context resolver attaches so a
+// domain expert can jump from any single-source primitive into the
+// underlying agent trace. Optional everywhere — Overview primitives
+// don't set it.
+export interface PrimitiveCaseCaption {
+  text: string
+  href: string
+}
+
 export interface TimeSeriesData {
   title?: string
   subtitle?: string
@@ -44,6 +53,7 @@ export interface TimeSeriesData {
   baseline_label?: string
   annotations?: TimeSeriesAnnotation[]
   y_format?: 'percent' | 'number' | 'currency'
+  caption?: PrimitiveCaseCaption
 }
 
 export interface TableColumn {
@@ -94,6 +104,8 @@ export interface KanbanCardDef {
   body: string
   meta: string
   tags?: Array<{ label: string; tone?: 'amber' | 'green' | 'red' | 'outline' }>
+  // When set, the whole card wraps in a link to the per-case trace.
+  href?: string
 }
 
 export interface KanbanData {
@@ -128,6 +140,7 @@ export interface ScheduleData {
   rows: ScheduleRowDef[]
   cols: ScheduleColDef[]
   cells: ScheduleCellDef[]
+  caption?: PrimitiveCaseCaption
 }
 
 export interface ConvoCitation {
@@ -147,6 +160,7 @@ export interface ConvoMessage {
 
 export interface ConversationData {
   messages: ConvoMessage[]
+  caption?: PrimitiveCaseCaption
 }
 
 export type SidePanelHighlight = 'added' | 'removed' | 'unchanged'
@@ -163,6 +177,7 @@ export interface SidePanel {
 export interface SideBySideData {
   left: SidePanel
   right: SidePanel
+  caption?: PrimitiveCaseCaption
 }
 
 export interface DocSpan {
@@ -190,4 +205,5 @@ export interface DocumentData {
   section_label?: string
   blocks: DocBlock[]
   annotations: DocAnnotation[]
+  caption?: PrimitiveCaseCaption
 }

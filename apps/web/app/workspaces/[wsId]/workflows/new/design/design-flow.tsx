@@ -3,6 +3,7 @@
 import {
   startTransition,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -39,6 +40,84 @@ const KIND_LABEL: Record<string, string> = {
   premise: 'Premise',
   surface: 'Surface',
   trigger: 'Trigger',
+}
+
+// Dimension labels for the LLM path — the question carries `dimension`
+// instead of `kind`. Falls through to a humanised kebab id when an
+// unknown dimension shows up (e.g. a kernel rollout adds a new one
+// before the web build catches up).
+const DIMENSION_LABEL: Record<string, string> = {
+  goal_and_scope: 'Goal & scope',
+  trigger_and_cadence: 'Trigger & cadence',
+  data_sources_and_connectors: 'Data sources',
+  success_metric: 'Success metric',
+  eval_seed_cases: 'Eval seed cases',
+  operate_ui_primitives: 'Operate UI',
+  reviewer_role: 'Reviewer',
+}
+
+function humaniseLabel(slug: string | null | undefined): string {
+  if (!slug) return ''
+  return slug
+    .split(/[_-]/)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ')
+}
+
+function questionKindLabel(q: NextDiscoveryQuestion): string {
+  if (q.kind && KIND_LABEL[q.kind]) return KIND_LABEL[q.kind]
+  return (
+    DIMENSION_LABEL[q.dimension] || humaniseLabel(q.dimension) || 'Question'
+  )
+}
+
+// Render order matches `DIMENSION_SPECS` in the kernel — earlier
+// dimensions inform later ones (goal → trigger → connectors → metric →
+// eval → UI → reviewer), so the strip reads left-to-right as the
+// natural sequence even if the LLM jumps around.
+const DIMENSION_ORDER: ReadonlyArray<keyof typeof DIMENSION_LABEL> = [
+  'goal_and_scope',
+  'trigger_and_cadence',
+  'data_sources_and_connectors',
+  'success_metric',
+  'eval_seed_cases',
+  'operate_ui_primitives',
+  'reviewer_role',
+]
+
+function DimensionStrip({
+  covered,
+  currentDimension,
+}: {
+  covered: Set<string>
+  currentDimension: string | null
+}) {
+  return (
+    <div
+      className="dimension-strip"
+      role="list"
+      aria-label="Discovery coverage"
+    >
+      {DIMENSION_ORDER.map((key) => {
+        const state =
+          covered.has(key)
+            ? 'done'
+            : currentDimension === key
+              ? 'current'
+              : 'pending'
+        return (
+          <span
+            key={key}
+            className="dimension-chip"
+            data-state={state}
+            role="listitem"
+          >
+            {DIMENSION_LABEL[key]}
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 export function DesignFlow({
@@ -80,6 +159,30 @@ export function DesignFlow({
   // `ambiguityLoaded` — looping forever. The single-load guard is
   // `ambiguityLoaded`, set inside the transition after the fetch
   // resolves (success path) or after a non-abort error (failure path).
+  // Client-side retry for the initial question. The page's
+  // server-side pre-fetch has a 5s timeout so the page never blocks
+  // indefinitely on a slow kernel; the LLM-driven interviewer
+  // commonly takes 6-12s, longer than the SSR budget. When the
+  // initial state has no question + no error path, fire the fetch
+  // again from the client without the timeout cap. Runs once per
+  // page load thanks to the empty deps + the `tried.current` guard.
+  const initialRetryTried = useRef(false)
+  useEffect(() => {
+    if (initialRetryTried.current) return
+    if (questionState.loaded && (questionState.next || questionState.done)) {
+      return
+    }
+    initialRetryTried.current = true
+    startFetch(async () => {
+      const resp = await loadNextQuestion({
+        description,
+        templateId,
+        priorAnswers: [],
+      })
+      setQuestionState(resp)
+    })
+  }, [questionState.loaded, questionState.next, questionState.done, description, templateId])
+
   useEffect(() => {
     if (!questionState.done || ambiguityLoaded) return
     const controller = new AbortController()
@@ -148,25 +251,32 @@ export function DesignFlow({
           ? null
           : rawAnswer.trim()
 
+    // Detect ambiguity-finding questions by index range: kernel-side
+    // LLM-driven questions don't carry a question_index (it's optional/
+    // 0); ambiguity findings synthesised client-side use question_index
+    // >= staticTotal. The fallback (legacy) path uses 0..staticTotal-1.
+    const qIdx = current.question_index ?? null
+    const isAmbiguityFinding =
+      qIdx !== null && qIdx >= staticTotal
+
+    const entryIndex = transcript.length
     const nextTranscript: DiscoveryTranscriptEntry[] = [
       ...transcript,
       {
-        question_index: current.question_index,
-        kind: current.kind,
+        entry_index: entryIndex,
+        question_index: qIdx,
+        dimension: current.dimension ?? null,
+        kind: current.kind ?? null,
         question: current.question,
         answer,
+        chosen_option: answer,
       },
     ]
 
     setTranscript(nextTranscript)
     setDraft('')
 
-    // Decide branch off the question's index, not a closure-derived bool
-    // (`currentIsFinding` could read a render-time stale value if the
-    // click fires across a re-render boundary). Finding questions carry
-    // synthetic indices >= staticTotal; static prompt-library questions
-    // sit at 0..staticTotal-1.
-    if (current.question_index >= staticTotal) {
+    if (isAmbiguityFinding) {
       // Finding answers are local-only — no kernel round-trip, no echo
       // back into `prior_answers` (the synthetic indices would 400 the
       // static `/next-question` endpoint). Just advance the local
@@ -177,14 +287,24 @@ export function DesignFlow({
     }
 
     startFetch(async () => {
-      // Static-question answers are echoed back so the kernel can
-      // return the next not-yet-answered prompt. Only entries with
-      // question_index < staticTotal are eligible — finding answers
-      // carry synthetic indices above that range and are local-only.
+      // Echo every non-finding answer back to the kernel. The LLM path
+      // uses `dimension` for coverage tracking; the fallback path uses
+      // `question_index`. We pass both so either backend works.
       const priorAnswers = nextTranscript
-        .filter((t) => t.question_index < staticTotal)
+        .filter(
+          (t) =>
+            t.question_index === null ||
+            t.question_index === undefined ||
+            t.question_index < staticTotal,
+        )
         .map((t) => ({
-          question_index: t.question_index,
+          dimension: (t.dimension ?? null) as
+            | import('@/lib/api').DesignDimension
+            | null,
+          question: t.question,
+          chosen_option: t.chosen_option ?? null,
+          free_text: t.answer,
+          question_index: t.question_index ?? null,
           answer: t.answer,
         }))
       const resp = await loadNextQuestion({
@@ -227,6 +347,13 @@ export function DesignFlow({
   }
 
   const current = displayedCurrent
+  const coveredDimensions = useMemo(() => {
+    const s = new Set<string>()
+    for (const t of transcript) {
+      if (t.dimension) s.add(t.dimension)
+    }
+    return s
+  }, [transcript])
   const total = totalQuestions
   // answered_count comes from the kernel and reflects the prior_answers
   // length. Use the local transcript so the right-pane progress jumps
@@ -266,146 +393,224 @@ export function DesignFlow({
         </div>
       </aside>
 
-      {/* Centre pane — the chat panel. */}
-      <section className="design-pane design-pane-centre" aria-label="Discovery chat">
+      {/* Centre pane — decision-brief panel. */}
+      <section className="design-pane design-pane-centre" aria-label="Discovery interview">
         <h2 className="design-pane-title">Discovery</h2>
-        <div
-          className="chat-history"
-          role="log"
-          aria-live="polite"
-          aria-relevant="additions"
-        >
-          {transcript.map((entry, i) => (
-            <div className="chat-pair" key={`${entry.question_index}-${i}`}>
-              <div className="chat-bubble chat-bubble-agent">
-                <div className="chat-bubble-kind" data-kind={entry.kind}>
-                  {KIND_LABEL[entry.kind] ?? entry.kind}
-                </div>
-                <div className="chat-bubble-text">{entry.question}</div>
-              </div>
-              <div
-                className={`chat-bubble chat-bubble-user${
-                  entry.answer === null ? ' chat-bubble-skipped' : ''
-                }`}
-              >
-                <div className="chat-bubble-text">
-                  {entry.answer ?? 'Skipped'}
-                </div>
-              </div>
-            </div>
-          ))}
 
-          {current ? (
-            <div className="chat-pair chat-pair-current">
-              <div className="chat-bubble chat-bubble-agent">
-                <div className="chat-bubble-kind" data-kind={current.kind}>
-                  {KIND_LABEL[current.kind] ?? current.kind}
-                </div>
-                <div className="chat-bubble-text">{current.question}</div>
-                {current.rationale ? (
-                  <div className="chat-bubble-rationale">
-                    Why I&rsquo;m asking: {current.rationale}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
+        {/* Dimension coverage strip: shows the seven design-shaping
+            dimensions and which ones the interview has touched. Each
+            chip flips done → current → pending based on the transcript
+            + the current question's dimension. */}
+        <DimensionStrip
+          covered={coveredDimensions}
+          currentDimension={current?.dimension ?? null}
+        />
 
-          {questionState.done && !ambiguityLoaded && !ambiguityError ? (
-            <div className="chat-bubble chat-bubble-system">
-              Scanning the description for ambiguities…
-            </div>
-          ) : null}
+        {/* Past Q&A as compact one-liners (replaces big chat bubbles). */}
+        {transcript.length > 0 ? (
+          <ul className="past-qa-list" aria-label="Previous answers">
+            {transcript.map((entry, i) => {
+              const dimLabel =
+                (entry.dimension && DIMENSION_LABEL[entry.dimension]) ||
+                (entry.kind && KIND_LABEL[entry.kind]) ||
+                humaniseLabel(entry.dimension ?? entry.kind ?? '') ||
+                'Question'
+              return (
+                <li
+                  key={`${entry.entry_index ?? i}`}
+                  className="past-qa-item"
+                  title={entry.question}
+                >
+                  <span className="past-qa-dimension">{dimLabel}</span>
+                  <span className="past-qa-answer">
+                    {entry.answer ?? <em>Skipped</em>}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
 
-          {pendingFinding && ambiguityIndex === 0 ? (
-            <div className="chat-bubble chat-bubble-system">
-              I spotted {ambiguityFindings.length} ambiguity
-              {ambiguityFindings.length === 1 ? '' : 's'} in the
-              description. Let&rsquo;s resolve {ambiguityFindings.length === 1 ? 'it' : 'them'} before generating.
-            </div>
-          ) : null}
-
-          {discoveryDone ? (
-            <div className="chat-bubble chat-bubble-system">
-              Discovery complete. Review the answers on the right, then
-              click <strong>Generate</strong>.
-            </div>
-          ) : null}
-
-          {questionState.error ? (
-            <div role="alert" className="api-banner">
-              <strong>Discovery failed.</strong> {questionState.error}
-            </div>
-          ) : null}
-
-          {ambiguityError ? (
-            <div role="alert" className="api-banner">
-              <strong>Ambiguity scan failed.</strong> {ambiguityError}
-            </div>
-          ) : null}
-        </div>
-
+        {/* Current question — full decision brief. */}
         {current ? (
-          <form className="chat-composer" onSubmit={onSubmit}>
-            {current.options && current.options.length > 0 ? (
-              <div className="chat-options" role="group" aria-label="Answer options">
-                {current.options.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    className="chat-option-chip"
-                    onClick={() => submitAnswer(opt)}
-                    disabled={composerBusy}
-                  >
-                    {opt}
-                  </button>
-                ))}
+          <article
+            className="decision-brief"
+            aria-live="polite"
+            aria-label={`Question: ${questionKindLabel(current)}`}
+          >
+            <header className="decision-brief-header">
+              <span className="decision-brief-dimension">
+                {questionKindLabel(current)}
+              </span>
+              <span
+                className="decision-brief-source"
+                data-source={current.source}
+              >
+                {current.source === 'llm'
+                  ? '· generated by design agent'
+                  : '· template fallback'}
+              </span>
+            </header>
+
+            <div className="decision-brief-question">{current.question}</div>
+
+            {current.eli ? (
+              <p className="decision-brief-eli">{current.eli}</p>
+            ) : null}
+
+            {current.stakes ? (
+              <div className="decision-brief-stakes">
+                <span className="decision-brief-stakes-label">Stakes</span>
+                {current.stakes}
               </div>
             ) : null}
-            <label className="sr-only" htmlFor="discovery-answer">
-              Your answer
-            </label>
-            <textarea
-              id="discovery-answer"
-              ref={inputRef}
-              className="chat-input"
-              rows={2}
-              maxLength={2048}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onTextareaKeyDown}
-              placeholder={
-                current.options && current.options.length > 0
-                  ? 'Or type your own answer…'
-                  : 'Type your answer…'
-              }
-              disabled={composerBusy}
-            />
-            <div className="chat-composer-actions">
-              <button
-                type="button"
-                className="btn btn-secondary chat-skip"
-                onClick={() => submitAnswer(null)}
-                disabled={composerBusy}
+
+            {current.options && current.options.length > 0 ? (
+              <div
+                className="option-cards"
+                role="group"
+                aria-label="Answer options"
               >
-                Skip
-              </button>
-              <div className="gen-action-primary">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={composerBusy || draftIsEmpty}
-                  aria-disabled={composerBusy || draftIsEmpty}
-                >
-                  {composerBusy ? 'Loading…' : 'Send answer ›'}
-                </button>
-                <span className="kbd-hint">
-                  <kbd>⌘</kbd>
-                  <kbd>↵</kbd> to send
-                </span>
+                {current.options.map((opt, i) => {
+                  const isRecommended = i === current.recommendation_index
+                  return (
+                    <button
+                      key={`${opt.label}-${i}`}
+                      type="button"
+                      className={`option-card${
+                        isRecommended ? ' option-card-recommended' : ''
+                      }`}
+                      onClick={() => submitAnswer(opt.label)}
+                      disabled={composerBusy}
+                    >
+                      <div className="option-card-header">
+                        <span className="option-card-label">{opt.label}</span>
+                        {isRecommended ? (
+                          <span className="option-card-badge">
+                            Recommended
+                          </span>
+                        ) : null}
+                      </div>
+                      {(opt.pro || opt.con) &&
+                      !(
+                        opt.pro === '(see rationale)' &&
+                        opt.con === '(tradeoff not surfaced in fallback mode)'
+                      ) ? (
+                        <div className="option-card-prose">
+                          {opt.pro ? (
+                            <div className="option-card-pro">
+                              <span>{opt.pro}</span>
+                            </div>
+                          ) : null}
+                          {opt.con ? (
+                            <div className="option-card-con">
+                              <span>{opt.con}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </button>
+                  )
+                })}
               </div>
-            </div>
-          </form>
+            ) : null}
+
+            {current.rationale ? (
+              <div className="decision-brief-rationale">
+                <strong>
+                  Why{' '}
+                  {current.options[current.recommendation_index]?.label
+                    ? `"${current.options[current.recommendation_index].label}"`
+                    : 'this'}{' '}
+                  is the recommendation:
+                </strong>{' '}
+                {current.rationale}
+              </div>
+            ) : null}
+
+            <form
+              className="chat-composer"
+              onSubmit={onSubmit}
+              style={{ marginTop: 16 }}
+            >
+              <label className="sr-only" htmlFor="discovery-answer">
+                Your answer
+              </label>
+              <textarea
+                id="discovery-answer"
+                ref={inputRef}
+                className="chat-input"
+                rows={2}
+                maxLength={2048}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onTextareaKeyDown}
+                placeholder={
+                  current.options && current.options.length > 0
+                    ? 'Or type a custom answer…'
+                    : 'Type your answer…'
+                }
+                disabled={composerBusy}
+              />
+              <div className="chat-composer-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary chat-skip"
+                  onClick={() => submitAnswer(null)}
+                  disabled={composerBusy}
+                >
+                  Skip
+                </button>
+                <div className="gen-action-primary">
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={composerBusy || draftIsEmpty}
+                    aria-disabled={composerBusy || draftIsEmpty}
+                  >
+                    {composerBusy ? 'Loading…' : 'Send answer ›'}
+                  </button>
+                  <span className="kbd-hint">
+                    <kbd>⌘</kbd>
+                    <kbd>↵</kbd> to send
+                  </span>
+                </div>
+              </div>
+            </form>
+          </article>
+        ) : null}
+
+        {questionState.done && !ambiguityLoaded && !ambiguityError ? (
+          <div className="chat-bubble chat-bubble-system">
+            Scanning the description for ambiguities…
+          </div>
+        ) : null}
+
+        {pendingFinding && ambiguityIndex === 0 ? (
+          <div className="chat-bubble chat-bubble-system">
+            I spotted {ambiguityFindings.length} ambiguity
+            {ambiguityFindings.length === 1 ? '' : 's'} in the description.
+            Let&rsquo;s resolve {ambiguityFindings.length === 1 ? 'it' : 'them'} before generating.
+          </div>
+        ) : null}
+
+        {discoveryDone ? (
+          <div className="chat-bubble chat-bubble-system">
+            Discovery complete. Review the answers on the right, then
+            click <strong>Generate</strong>.
+          </div>
+        ) : null}
+
+        {questionState.error ? (
+          <div role="alert" className="api-banner">
+            <strong>Discovery failed.</strong> {questionState.error}
+          </div>
+        ) : null}
+
+        {ambiguityError ? (
+          <div role="alert" className="api-banner">
+            <strong>Ambiguity scan failed.</strong> {ambiguityError}
+          </div>
         ) : null}
       </section>
 
@@ -431,23 +636,30 @@ export function DesignFlow({
               No answers yet.
             </li>
           ) : null}
-          {transcript.map((t, i) => (
-            <li
-              key={`${t.question_index}-${i}`}
-              className="design-transcript-item"
-            >
-              <span
-                className="design-transcript-kind"
-                data-kind={t.kind}
-                aria-hidden
+          {transcript.map((t, i) => {
+            const label =
+              (t.kind && KIND_LABEL[t.kind]) ||
+              (t.dimension && DIMENSION_LABEL[t.dimension]) ||
+              humaniseLabel(t.dimension) ||
+              'Question'
+            return (
+              <li
+                key={`${t.entry_index ?? i}`}
+                className="design-transcript-item"
               >
-                {KIND_LABEL[t.kind] ?? t.kind}
-              </span>
-              <span className="design-transcript-answer">
-                {t.answer ?? <em>Skipped</em>}
-              </span>
-            </li>
-          ))}
+                <span
+                  className="design-transcript-kind"
+                  data-kind={t.kind ?? t.dimension ?? 'question'}
+                  aria-hidden
+                >
+                  {label}
+                </span>
+                <span className="design-transcript-answer">
+                  {t.answer ?? <em>Skipped</em>}
+                </span>
+              </li>
+            )
+          })}
         </ol>
 
         {generateError ? (
@@ -495,8 +707,14 @@ function findingToQuestion(
   return {
     question_index: staticTotal + index,
     kind: 'ambiguity',
+    dimension: 'goal_and_scope',
+    source: 'fallback',
     question: finding.suggested_question,
-    options: null,
+    eli: finding.summary,
+    stakes:
+      'Leaving the ambiguity unresolved makes the generated eval cases guess at the operator\'s intent.',
+    options: [],
+    recommendation_index: 0,
     rationale: finding.summary,
   }
 }

@@ -4,27 +4,49 @@ import { formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
+  searchParams: Promise<{ filter?: string }>
 }
 
 // Workspace-shell Inbox. Visual target:
-// www/preview/s26-rk7p3/02-inbox.html — same workspace switcher,
-// Activity / Workflows / Library nav, Inbox marked active.
+// www/preview/s26-rk7p3/02-inbox.html — workspace switcher,
+// Activity / Workflows / Library nav, Inbox marked active, filter
+// chips driving the list view.
 //
-// Same data shape as the legacy inbox at /(legacy)/inbox: surfaces
-// every gate-passed proposal (the only state where Approve/Reject is
-// legal per docs/STATE_MACHINES.md) plus recently decided history.
-// Proposal-detail still lives at /proposals/[id] under the legacy
-// route group; W8.1.1 migrates that into the workspace shell.
+// Filters (mock parity, minus Escalations):
+//   * all          — pending review + recently decided (default)
+//   * proposals    — only proposals awaiting review (state=gate-passed)
+//   * sandbox      — only gate-failed proposals (state=gate-failed =
+//                    infrastructure failures: Timeout / OOM / Crash).
+//                    NOTE: regression-blocked and no-improvement proposals
+//                    go to `rejected`, not `gate-failed`. A dedicated
+//                    regression filter requires gate_decision on
+//                    ProposalSummary (PLAN 8.4.x follow-up).
+//
+// Mock also shows "Escalations" chip — those are human-decision-needed
+// events from agent runs (e.g. support-09: "refund $5,200 exceeds
+// agent autonomous limit"). No kernel concept for that today; it would
+// be a separate `escalations` table fed by a `human_decision_required`
+// AgentEvent. Filter intentionally omitted until that lands.
 
-export default async function WorkspaceInboxPage({ params }: PageProps) {
-  // wsId is intentionally unread — D4 single-tenant means the kernel
-  // ignores the slug. The param exists for URL stability and so the
-  // workspace layout's nav can highlight the current workspace.
-  await params
+type Filter = 'all' | 'proposals' | 'sandbox'
 
-  let pendingData, allData
+function parseFilter(raw: string | undefined): Filter {
+  if (raw === 'proposals' || raw === 'sandbox') return raw
+  return 'all'
+}
+
+export default async function WorkspaceInboxPage({ params, searchParams }: PageProps) {
+  // wsId is unread by the kernel (D4 single-tenant) but IS used for
+  // URL construction so filter-chip links stay scoped to the workspace
+  // the user is already on.
+  const { wsId } = await params
+  const sp = await searchParams
+  const filter = parseFilter(sp.filter)
+  const root = `/workspaces/${wsId}/inbox`
+
+  let pendingData, recentData
   try {
-    ;[pendingData, allData] = await Promise.all([
+    ;[pendingData, recentData] = await Promise.all([
       listProposals({ state: 'gate-passed', limit: 200 }),
       listProposals({ limit: 50 }),
     ])
@@ -47,10 +69,36 @@ export default async function WorkspaceInboxPage({ params }: PageProps) {
     )
   }
 
+  // Sandbox-errors fetch is kept separate so a transient gate-runner 500
+  // degrades the sandbox chip to 0 rather than blacking out the whole inbox.
+  // fetch full list only when sandbox tab is active; limit=1 otherwise gives
+  // the chip badge count without transferring 200 full proposal objects.
+  let regressionData = { items: [] as ProposalSummary[], total: 0 }
+  try {
+    regressionData = await listProposals({
+      state: 'gate-failed',
+      limit: filter === 'sandbox' ? 200 : 1,
+    })
+  } catch {
+    // sandbox badge stays 0; rest of the inbox renders normally
+  }
+
   const pending = pendingData.items
-  const decided = allData.items.filter(
-    (p) => p.state !== 'gate-passed' && p.state !== 'in-gate',
+  const sandboxErrors = regressionData.items
+  const decided = recentData.items.filter(
+    (p) =>
+      p.state !== 'pending' &&
+      p.state !== 'gate-passed' &&
+      p.state !== 'in-gate' &&
+      p.state !== 'gate-failed',
   )
+  const totalCount = recentData.total
+
+  const chips: Array<{ key: Filter; label: string; count: number }> = [
+    { key: 'all', label: 'All', count: totalCount },
+    { key: 'proposals', label: 'Proposals', count: pendingData.total },
+    { key: 'sandbox', label: 'Sandbox errors', count: regressionData.total },
+  ]
 
   return (
     <>
@@ -58,41 +106,80 @@ export default async function WorkspaceInboxPage({ params }: PageProps) {
         <div>
           <h1 className="page-title">Inbox</h1>
           <p className="page-subtitle">
-            {pendingData.total} pending · {allData.total} total · refreshed just now
+            {pendingData.total} pending · {totalCount} in system · refreshed just now
           </p>
         </div>
       </header>
 
       <div className="filters">
-        <button className="filter-chip active" type="button">
-          Pending<span className="count">{pendingData.total}</span>
-        </button>
-        <button className="filter-chip" type="button">
-          All<span className="count">{allData.total}</span>
-        </button>
+        {chips.map((c) => (
+          <Link
+            key={c.key}
+            href={c.key === 'all' ? root : `${root}?filter=${c.key}`}
+            className={`filter-chip${filter === c.key ? ' active' : ''}`}
+            aria-current={filter === c.key ? 'true' : undefined}
+          >
+            {c.label}
+            <span className="count">{c.count}</span>
+          </Link>
+        ))}
       </div>
 
-      <h2 className="section-title">Awaiting review</h2>
-      {pending.length === 0 ? (
-        <EmptyState message="No proposals waiting on a decision." />
-      ) : (
-        <div className="inbox">
-          {pending.map((p) => (
-            <ProposalRow key={p.id} proposal={p} primary />
-          ))}
-        </div>
+      {filter === 'all' && (
+        <>
+          <h2 className="section-title">Awaiting review</h2>
+          {pending.length === 0 ? (
+            <EmptyState message="No proposals waiting on a decision." />
+          ) : (
+            <div className="inbox">
+              {pending.map((p) => (
+                <ProposalRow key={p.id} proposal={p} primary />
+              ))}
+            </div>
+          )}
+
+          {decided.length > 0 && (
+            <>
+              <h2 className="section-title" style={{ marginTop: 24 }}>
+                Recently decided
+              </h2>
+              <div className="inbox">
+                {decided.map((p) => (
+                  <ProposalRow key={p.id} proposal={p} />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
 
-      {decided.length > 0 && (
+      {filter === 'proposals' && (
         <>
-          <h2 className="section-title" style={{ marginTop: 24 }}>
-            Recently decided
-          </h2>
-          <div className="inbox">
-            {decided.map((p) => (
-              <ProposalRow key={p.id} proposal={p} />
-            ))}
-          </div>
+          <h2 className="section-title">Awaiting review</h2>
+          {pending.length === 0 ? (
+            <EmptyState message="No proposals waiting on a decision." />
+          ) : (
+            <div className="inbox">
+              {pending.map((p) => (
+                <ProposalRow key={p.id} proposal={p} primary />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {filter === 'sandbox' && (
+        <>
+          <h2 className="section-title">Sandbox errors</h2>
+          {sandboxErrors.length === 0 ? (
+            <EmptyState message="No sandbox-error proposals in the queue." />
+          ) : (
+            <div className="inbox">
+              {sandboxErrors.map((p) => (
+                <ProposalRow key={p.id} proposal={p} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </>

@@ -21,6 +21,12 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...design_agent.log import DesignAgentLog, persist_design_agent_log
+from ...nl_gen.design_brief_context import (
+    METRIC_DIMENSIONS,
+    SIM_PLAN_DIMENSIONS,
+    SPEC_DIMENSIONS,
+    format_dimensions_block,
+)
 from ...nl_gen.fixtures import (
     DESCRIPTIONS,
     EVAL_CASE_SET_FIXTURES,
@@ -259,9 +265,23 @@ async def generate_workflow(
     client = build_async_anthropic(api_key)
     nl_gen_model = os.environ.get("OWNEVO_NL_GEN_MODEL") or None
     spec_kwargs: dict[str, str] = {"model": nl_gen_model} if nl_gen_model else {}
+
+    # Slice the persisted design-agent transcript per generator. Each
+    # generator reads only the dimensions it can encode (spec gets
+    # goal/connectors/UI/reviewer, sim_plan gets goal/trigger, metric
+    # gets goal/metric). Empty subsets → None → generator skips the
+    # block entirely. See `nl_gen/design_brief_context.py` for the
+    # canonical assignments.
+    spec_brief = format_dimensions_block(body.design_agent_log, SPEC_DIMENSIONS)
+    sim_brief = format_dimensions_block(body.design_agent_log, SIM_PLAN_DIMENSIONS)
+    metric_brief = format_dimensions_block(body.design_agent_log, METRIC_DIMENSIONS)
+
     try:
         spec = await generate_workflow_spec(
-            client, body.description, **spec_kwargs
+            client,
+            body.description,
+            design_brief_block=spec_brief,
+            **spec_kwargs,
         )
     except NoToolUseError as exc:
         raise HTTPException(
@@ -278,9 +298,11 @@ async def generate_workflow(
     # Generate them eagerly (2 more LLM calls, ~25-40s each) so the user
     # can run an iteration immediately without a second wait.
     try:
-        sim_plan = await generate_simulation_plan(client, spec, **spec_kwargs)
+        sim_plan = await generate_simulation_plan(
+            client, spec, design_brief_block=sim_brief, **spec_kwargs
+        )
         metric_def = await generate_metric_definition(
-            client, spec, **spec_kwargs
+            client, spec, design_brief_block=metric_brief, **spec_kwargs
         )
     except Exception as exc:
         raise HTTPException(

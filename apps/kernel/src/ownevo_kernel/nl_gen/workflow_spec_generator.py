@@ -197,6 +197,7 @@ async def generate_workflow_spec(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    design_brief_block: str | None = None,
 ) -> WorkflowSpec:
     """Generate a typed WorkflowSpec from a plain-English description.
 
@@ -210,6 +211,12 @@ async def generate_workflow_spec(
             sending the pydantic errors back as a `tool_result` so the
             model can correct. Default 4 (= 5 attempts total). Cloud
             models pass on attempt 1; local models benefit from retries.
+        design_brief_block: Pre-formatted design-agent answers block
+            (from `design_brief_context.format_dimensions_block(...,
+            SPEC_DIMENSIONS)`). When set, appended to the user message
+            so the model treats the answers as hard constraints when
+            shaping spec.tools, spec.environment.data_sources,
+            spec.ui.tabs[].primitives, and spec.reviewer.
 
     Returns:
         A validated `WorkflowSpec`.
@@ -219,6 +226,9 @@ async def generate_workflow_spec(
         WorkflowSpecValidationError: All attempts produced tool inputs
             that failed `WorkflowSpec.model_validate`.
     """
+    user_message = description
+    if design_brief_block:
+        user_message = f"{description}\n\n{design_brief_block}"
     try:
         spec, _raw = await call_with_validation_retry(
             client=client,
@@ -227,7 +237,7 @@ async def generate_workflow_spec(
             system=SYSTEM_PROMPT,
             tool_definition=_TOOL_DEFINITION,
             tool_name=TOOL_NAME,
-            initial_user_message=description,
+            initial_user_message=user_message,
             schema_class=WorkflowSpec,
             envelope_key="spec",
             max_retries=max_retries,

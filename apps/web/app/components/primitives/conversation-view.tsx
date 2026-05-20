@@ -1,4 +1,5 @@
 import type { ConversationData, ConvoMessage } from './types'
+import { CaseCaption } from './case-caption'
 
 interface Props {
   data: ConversationData
@@ -19,6 +20,7 @@ function authorLabel(m: ConvoMessage): string {
 
 export function ConversationView({ data }: Props) {
   return (
+    <div>
     <div className="convo">
       {data.messages.map((m, i) => (
         <div className={`convo-msg ${m.role}`} key={i}>
@@ -47,6 +49,8 @@ export function ConversationView({ data }: Props) {
           </div>
         </div>
       ))}
+    </div>
+    <CaseCaption caption={data.caption} />
     </div>
   )
 }
