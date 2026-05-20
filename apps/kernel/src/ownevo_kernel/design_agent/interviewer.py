@@ -26,7 +26,6 @@ hardcoded fallback is sync but wrapped in the same async function.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -419,31 +418,3 @@ __all__ = [
 ]
 
 
-# Cosmetic — kept out of __all__: a small string sample for tests /
-# logging that doesn't depend on the LLM.
-def render_brief_for_debug(brief: QuestionBrief) -> str:
-    lines = [
-        f"[{brief.dimension}] {brief.question}",
-        f"  ELI: {brief.eli}",
-        f"  Stakes: {brief.stakes}",
-    ]
-    for i, opt in enumerate(brief.options):
-        marker = "►" if i == brief.recommendation_index else " "
-        lines.append(f"  {marker} {i}. {opt.label}")
-        lines.append(f"      ✅ {opt.pro}")
-        lines.append(f"      ❌ {opt.con}")
-    lines.append(f"  Rationale: {brief.rationale}")
-    return "\n".join(lines)
-
-
-def _payload_to_dict(payload: Any) -> dict[str, Any]:
-    """Test helper: coerce a plausible JSON-ish input to a dict.
-
-    Real Anthropic SDK already returns a dict for tool input; tests that
-    pass a JSON string get coerced here for ergonomic call sites.
-    """
-    if isinstance(payload, dict):
-        return payload
-    if isinstance(payload, str):
-        return json.loads(payload)
-    raise TypeError(f"expected dict or JSON string, got {type(payload).__name__}")

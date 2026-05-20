@@ -40,10 +40,11 @@ from ...design_agent import (
     DIMENSION_SPECS,
     DesignDimension,
     InterviewerError,
-    PriorAnswer as InterviewerPriorAnswer,
     QuestionBrief,
     pick_next_question,
-    spec_for,
+)
+from ...design_agent import (
+    PriorAnswer as InterviewerPriorAnswer,
 )
 from ...design_agent.prompts import (
     DiscoveryQuestion,
@@ -155,6 +156,9 @@ class NextDiscoveryQuestion(BaseModel):
         description="Legacy positional handle for fallback-path answers.",
     )
     kind: DiscoveryQuestionKind | None = Field(default=None)
+    # Transitional: flat label list for web builds that expect string[].
+    # Remove after the web client migrates to `options[].label`.
+    options_labels: list[str] = Field(default_factory=list)
 
 
 class NextQuestionResponse(BaseModel):
@@ -164,6 +168,19 @@ class NextQuestionResponse(BaseModel):
     done: bool
     total_questions: int
     answered_count: int
+
+
+# Reverse mapping: dimension → nearest legacy kind, so LLM-path responses
+# always carry `kind` even though the LLM doesn't know about the legacy enum.
+_DIM_TO_KIND: dict[str, DiscoveryQuestionKind] = {
+    "goal_and_scope": "ambiguity",
+    "trigger_and_cadence": "trigger",
+    "data_sources_and_connectors": "premise",
+    "success_metric": "metric",
+    "eval_seed_cases": "premise",
+    "operate_ui_primitives": "surface",
+    "reviewer_role": "premise",
+}
 
 
 def _legacy_kind_to_dimension(kind: DiscoveryQuestionKind) -> DesignDimension:
@@ -223,6 +240,7 @@ def _fallback_question_to_brief(
             "usual recovery."
         ),
         options=options,
+        options_labels=list(options_raw),
         recommendation_index=0,
         rationale=(
             q.rationale
@@ -263,13 +281,14 @@ def _llm_brief_to_response(brief: QuestionBrief) -> NextDiscoveryQuestion:
         options=[
             OptionOut(label=o.label, pro=o.pro, con=o.con) for o in brief.options
         ],
+        options_labels=[o.label for o in brief.options],
         recommendation_index=brief.recommendation_index,
         rationale=brief.rationale,
         # The LLM path is stateless w.r.t. positional indices — keep 0
         # so old web clients that key off question_index don't crash.
         # The dimension field is what carries identity in the new path.
         question_index=0,
-        kind=None,
+        kind=_DIM_TO_KIND.get(brief.dimension, "premise"),
     )
 
 

@@ -21,6 +21,12 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...design_agent.log import DesignAgentLog, persist_design_agent_log
+from ...nl_gen.design_brief_context import (
+    METRIC_DIMENSIONS,
+    SIM_PLAN_DIMENSIONS,
+    SPEC_DIMENSIONS,
+    format_dimensions_block,
+)
 from ...nl_gen.fixtures import (
     DESCRIPTIONS,
     EVAL_CASE_SET_FIXTURES,
@@ -266,13 +272,6 @@ async def generate_workflow(
     # gets goal/metric). Empty subsets → None → generator skips the
     # block entirely. See `nl_gen/design_brief_context.py` for the
     # canonical assignments.
-    from ...nl_gen.design_brief_context import (
-        METRIC_DIMENSIONS,
-        SIM_PLAN_DIMENSIONS,
-        SPEC_DIMENSIONS,
-        format_dimensions_block,
-    )
-
     spec_brief = format_dimensions_block(body.design_agent_log, SPEC_DIMENSIONS)
     sim_brief = format_dimensions_block(body.design_agent_log, SIM_PLAN_DIMENSIONS)
     metric_brief = format_dimensions_block(body.design_agent_log, METRIC_DIMENSIONS)

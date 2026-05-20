@@ -18,6 +18,17 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
+from ...design_agent.log import load_design_agent_log
+from ...nl_gen.design_brief_context import (
+    EVAL_CASE_DIMENSIONS,
+    METRIC_DIMENSIONS,
+    SIM_PLAN_DIMENSIONS,
+    format_dimensions_block,
+)
+from ...nl_gen.eval_generator import generate_eval_case_set
+from ...nl_gen.eval_persistence import persist_eval_case_set
+from ...nl_gen.metric_generator import generate_metric_definition
+from ...nl_gen.sim_generator import generate_simulation_plan
 from .._anthropic_client import build_async_anthropic
 from ..deps import ConnDep, DemoModeCheck, PoolDep
 from ..jsonb import decode_jsonb_obj
@@ -819,19 +830,7 @@ async def generate_workflow_eval_cases(
     """
     import os
 
-    from ...design_agent.log import load_design_agent_log
-    from ...nl_gen.design_brief_context import (
-        EVAL_CASE_DIMENSIONS,
-        METRIC_DIMENSIONS,
-        SIM_PLAN_DIMENSIONS,
-        format_dimensions_block,
-    )
-    from ...nl_gen.eval_generator import generate_eval_case_set
-    from ...nl_gen.eval_persistence import persist_eval_case_set
-    from ...nl_gen.metric_generator import generate_metric_definition
-    from ...nl_gen.sim_generator import generate_simulation_plan
     from ...nl_gen.spec import WorkflowSpec
-    from ..jsonb import decode_jsonb_obj
 
     row = await conn.fetchrow(
         """

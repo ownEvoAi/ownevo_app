@@ -31,9 +31,9 @@ import { getTemplate } from '../../templates'
 const SIM_DIMENSIONS: readonly DesignDimension[] = [
   'goal_and_scope',
   'trigger_and_cadence',
-  'data_sources_and_connectors',
 ]
 const EVAL_DIMENSIONS: readonly DesignDimension[] = [
+  'goal_and_scope',
   'eval_seed_cases',
   'success_metric',
 ]

@@ -26,13 +26,8 @@ Back-compat:
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING
-
 from ..design_agent.dimensions import DESIGN_DIMENSIONS, DesignDimension, spec_for
 from ..design_agent.log import DesignAgentLog, DesignAgentLogEntry
-
-if TYPE_CHECKING:
-    pass
 
 
 # Best-effort mapping for legacy entries that only carry the older

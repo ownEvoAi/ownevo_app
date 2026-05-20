@@ -273,6 +273,9 @@ export interface NextDiscoveryQuestion {
   eli: string
   stakes: string
   options: DiscoveryOption[]
+  // Transitional: flat label list for code that expected string[].
+  // Remove once all consumers use options[].label.
+  options_labels?: string[]
   recommendation_index: number
   rationale: string
   // Legacy fields retained for compatibility with the existing

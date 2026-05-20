@@ -3,6 +3,7 @@
 import {
   startTransition,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -346,12 +347,13 @@ export function DesignFlow({
   }
 
   const current = displayedCurrent
-  // Set of dimensions the operator has answered at least one question
-  // for. Drives the coverage strip up top.
-  const coveredDimensions = new Set<string>()
-  for (const t of transcript) {
-    if (t.dimension) coveredDimensions.add(t.dimension)
-  }
+  const coveredDimensions = useMemo(() => {
+    const s = new Set<string>()
+    for (const t of transcript) {
+      if (t.dimension) s.add(t.dimension)
+    }
+    return s
+  }, [transcript])
   const total = totalQuestions
   // answered_count comes from the kernel and reflects the prior_answers
   // length. Use the local transcript so the right-pane progress jumps
