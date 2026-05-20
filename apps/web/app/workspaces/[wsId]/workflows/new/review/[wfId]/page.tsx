@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import {
   type AgentToolSpec,
   type DataSourceSpec,
+  type DesignAgentLog,
+  type DesignDimension,
   type EnvGeneratorSpec,
   type EvalCaseSummary,
   getWorkflowAnatomy,
@@ -17,8 +19,26 @@ import {
 } from '@/lib/api'
 import { GenerateEvalCasesButton } from '../../../[wfId]/eval-cases/generate-button'
 import { ConfirmButton } from './confirm-button'
+import { DesignAttribution } from './design-attribution'
 import { ReviseButton } from './revise-button'
 import { getTemplate } from '../../templates'
+
+// Per-section dimension subsets — mirror the kernel-side constants in
+// `nl_gen.design_brief_context`. Each section's callout shows only
+// the design-agent answers that shaped its generated content; an
+// operator who answered "Recall-first" sees that quote on the Metric
+// card, not on the Simulator card.
+const SIM_DIMENSIONS: readonly DesignDimension[] = [
+  'goal_and_scope',
+  'trigger_and_cadence',
+]
+const EVAL_DIMENSIONS: readonly DesignDimension[] = [
+  'goal_and_scope',
+  'eval_seed_cases',
+  'success_metric',
+]
+const METRIC_DIMS: readonly DesignDimension[] = ['success_metric']
+const UI_DIMENSIONS: readonly DesignDimension[] = ['operate_ui_primitives']
 
 const EVAL_TABLE_PREVIEW_LIMIT = 8
 
@@ -92,6 +112,7 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
   const primitives = spec.ui?.tabs?.[0]?.primitives ?? []
   const metricDef = anatomy.metric_definition ?? null
   const simPlan = anatomy.simulation_plan ?? null
+  const designLog: DesignAgentLog | null = anatomy.design_agent_log ?? null
 
   // Aux skill count used in the meta line under the page header.
   const skillCount = skills.length
@@ -149,16 +170,23 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
         personas={personas}
         envGenerators={envGenerators}
         dataSources={dataSources}
+        designLog={designLog}
       />
 
-      <EvalCasesSection cases={evalCases} wsId={wsId} wfId={wfId} />
+      <EvalCasesSection
+        cases={evalCases}
+        wsId={wsId}
+        wfId={wfId}
+        designLog={designLog}
+      />
 
-      <MetricSection metric={metricDef} />
+      <MetricSection metric={metricDef} designLog={designLog} />
 
       <PrimitivesSection
         primitives={primitives}
         operateHref={operateHref}
         skillCount={skillCount}
+        designLog={designLog}
       />
 
       <div className="gen-action-row">
@@ -194,8 +222,9 @@ function SimulatorSection(props: {
   personas: PersonaSpec[]
   envGenerators: EnvGeneratorSpec[]
   dataSources: DataSourceSpec[]
+  designLog: DesignAgentLog | null
 }) {
-  const { meta, tools, personas, envGenerators, dataSources } = props
+  const { meta, tools, personas, envGenerators, dataSources, designLog } = props
   const empty =
     tools.length === 0 &&
     personas.length === 0 &&
@@ -203,6 +232,7 @@ function SimulatorSection(props: {
     dataSources.length === 0
   return (
     <SectionShell title="Simulator" meta={meta}>
+      <DesignAttribution log={designLog} dimensions={SIM_DIMENSIONS} />
       {empty ? (
         <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           The simulator hasn&apos;t been generated yet — Revise to edit
@@ -317,15 +347,18 @@ function EvalCasesSection({
   cases,
   wsId,
   wfId,
+  designLog,
 }: {
   cases: EvalCaseSummary[]
   wsId: string
   wfId: string
+  designLog: DesignAgentLog | null
 }) {
   const total = cases.length
   if (total === 0) {
     return (
       <SectionShell title="Eval cases" meta="0 generated">
+        <DesignAttribution log={designLog} dimensions={EVAL_DIMENSIONS} />
         <div className="review-eval-empty">
           <p>
             No eval cases generated yet. The improvement loop needs them
@@ -353,6 +386,7 @@ function EvalCasesSection({
 
   return (
     <SectionShell title={`Eval cases · ${total} generated`} meta={meta}>
+      <DesignAttribution log={designLog} dimensions={EVAL_DIMENSIONS} />
       <div className="eval-table">
         <div className="eval-row head">
           <div>#</div>
@@ -428,10 +462,17 @@ function CategoryPill({ category }: { category: string | null }) {
 }
 
 // ─── Section 3: Success metric ───────────────────────────────────
-function MetricSection({ metric }: { metric: MetricDefinitionShape | null }) {
+function MetricSection({
+  metric,
+  designLog,
+}: {
+  metric: MetricDefinitionShape | null
+  designLog: DesignAgentLog | null
+}) {
   if (!metric) {
     return (
       <SectionShell title="Success metric" meta="not generated yet">
+        <DesignAttribution log={designLog} dimensions={METRIC_DIMS} />
         <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           The success metric is generated alongside eval cases. Run the
           first iteration to trigger generation lazily, or Revise to
@@ -443,6 +484,7 @@ function MetricSection({ metric }: { metric: MetricDefinitionShape | null }) {
   const meta = [metric.family, metric.direction].filter(Boolean).join(' · ')
   return (
     <SectionShell title="Success metric" meta={meta}>
+      <DesignAttribution log={designLog} dimensions={METRIC_DIMS} />
       <div className="metric-def">
         <div>
           <span className="key">metric:</span> {metric.name ?? '(unnamed)'}
@@ -474,10 +516,12 @@ function PrimitivesSection({
   primitives,
   operateHref,
   skillCount,
+  designLog,
 }: {
   primitives: unknown[]
   operateHref: string
   skillCount: number
+  designLog: DesignAgentLog | null
 }) {
   const items = primitives
     .map((p) => {
@@ -500,6 +544,7 @@ function PrimitivesSection({
         </Link>
       }
     >
+      <DesignAttribution log={designLog} dimensions={UI_DIMENSIONS} />
       {items.length === 0 ? (
         <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           NL-gen didn&apos;t pick any UI primitives for this workflow.

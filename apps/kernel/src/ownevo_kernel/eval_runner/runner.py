@@ -65,7 +65,10 @@ class EvalCaseOutcome:
     """One row in the eval report. Mirrors `ReplayResult` plus a
     `is_test_fold` carry-through so the gate can split train/test
     without re-joining against the source case set. `rationale` carries
-    the agent's explanation through to the trace (TODO-6 layer-D)."""
+    the agent's explanation through to the trace; `output_payload`
+    carries the domain-shaped artifact (forecast curve, redline pair,
+    etc.) through to `iteration_case_outputs.output_payload` so the
+    Operate UI can render it."""
 
     case_id: str
     expected_value: bool
@@ -73,6 +76,7 @@ class EvalCaseOutcome:
     passed: bool
     is_test_fold: bool
     rationale: str | None = None
+    output_payload: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,7 @@ def _outcome_for(result: ReplayResult, *, is_test_fold: bool) -> EvalCaseOutcome
         passed=result.passed,
         is_test_fold=is_test_fold,
         rationale=result.rationale,
+        output_payload=result.output_payload,
     )
 
 

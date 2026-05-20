@@ -1,4 +1,5 @@
 import type { TimeSeriesData } from './types'
+import { CaseCaption } from './case-caption'
 
 interface Props {
   data: TimeSeriesData
@@ -183,6 +184,7 @@ export function TimeSeriesChart({ data }: Props) {
           </span>
         ) : null}
       </div>
+      <CaseCaption caption={data.caption} />
     </div>
   )
 }

@@ -105,9 +105,10 @@ def test_tool_input_schema_shape():
     s = TOOL_INPUT_SCHEMA
     assert s["type"] == "object"
     assert s["additionalProperties"] is False
-    assert set(s["required"]) == {"value", "rationale"}
+    assert set(s["required"]) == {"value", "rationale", "output_payload_json"}
     assert s["properties"]["value"]["type"] == "boolean"
     assert s["properties"]["rationale"]["type"] == "string"
+    assert s["properties"]["output_payload_json"]["type"] == "string"
 
 
 def test_system_prompt_pins_load_bearing_rules():

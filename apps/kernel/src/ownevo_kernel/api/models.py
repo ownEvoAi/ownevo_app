@@ -561,6 +561,12 @@ class CaseOutputRow(_Strict):
     # event-stream inspector. NULL only when the persistence path
     # raced or the case_id didn't resolve cleanly.
     trace_id: UUID | None = None
+    # Domain-shaped output the agent emitted for this case (forecast
+    # curve, redline pair, recommendation table, etc.). Operate-tab
+    # renderer reads this and dispatches to the workflow-declared
+    # primitives. NULL when the agent didn't emit one — Operate falls
+    # back to its "no production output captured yet" empty state.
+    output_payload: dict[str, Any] | None = None
 
 
 class CaseOutputList(_Strict):

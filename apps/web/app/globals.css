@@ -2223,6 +2223,64 @@
   font-weight: 500;
 }
 
+/* Operate tab Inputs section — spec-derived triggers / data sources / tools. */
+.operate-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.operate-input-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+}
+.operate-input-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.operate-input-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.operate-input-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.operate-input-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.operate-input-list li {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.operate-input-name {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-2, rgba(127, 127, 127, 0.08));
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.operate-input-desc {
+  color: var(--text-muted);
+}
+
 /* Connect-existing-agent on-ramp. Mock parity: s26-rk7p3/24/25/26. */
 .entry-strip {
   display: grid;
@@ -3834,6 +3892,47 @@ a.anatomy-row-name:hover {
   margin: 0;
 }
 
+/* Design-agent attribution callout — surfaces the operator's
+   discovery answers at the top of each review section. Renders only
+   when the workflow was authored through /workflows/new/design AND
+   at least one answer targeted this section's dimensions. */
+.design-attribution {
+  background: var(--accent-muted, rgba(59, 130, 246, 0.06));
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.design-attribution-header {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.design-attribution-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.design-attribution-list li {
+  font-size: 12.5px;
+}
+.design-attribution-dim {
+  font-weight: 600;
+  color: var(--text);
+}
+.design-attribution-answer {
+  color: var(--text-2);
+}
+
 /* Activity feed — workspace-wide audit rendered as user-friendly rows. */
 .activity-empty {
   background: var(--bg);
@@ -4214,6 +4313,18 @@ a.anatomy-row-name:hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* The LLM interviewer always names one recommended option per
+   question; the chip gets an accent ring so the operator's eye lands
+   on the default choice. Hover state stays the same so non-recommended
+   chips still feel clickable. */
+.chat-option-chip-recommended {
+  border-color: var(--accent);
+  background: var(--accent-muted, var(--card));
+  color: var(--accent);
+}
+.chat-option-chip-recommended:hover {
+  background: var(--card);
+}
 .chat-input {
   width: 100%;
   resize: vertical;
@@ -4238,6 +4349,257 @@ a.anatomy-row-name:hover {
 }
 .chat-skip {
   flex: 0 0 auto;
+}
+
+/* --- Decision-brief surface ---
+   Slice 2 polish: the LLM interview presents the current question as a
+   structured brief rather than a chat bubble. Mirrors the gstack
+   /office-hours decision-brief shape so the domain expert sees ELI +
+   stakes + recommendation + per-option pros/cons without hover.
+   Falls back gracefully — when the kernel returns no eli/stakes (legacy
+   ambiguity findings) the empty sections collapse to nothing. */
+.decision-brief {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px 18px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+}
+.decision-brief-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.decision-brief-dimension {
+  background: var(--accent-muted, rgba(59, 130, 246, 0.12));
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+}
+.decision-brief-source {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.decision-brief-source[data-source='llm'] {
+  color: var(--green);
+}
+.decision-brief-question {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+  margin-bottom: 10px;
+  letter-spacing: -0.005em;
+}
+.decision-brief-eli {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+.decision-brief-stakes {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  background: var(--amber-soft, rgba(245, 158, 11, 0.08));
+  border-left: 3px solid var(--amber, #f59e0b);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+.decision-brief-stakes-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--amber, #f59e0b);
+  margin-right: 6px;
+}
+.decision-brief-rationale {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  background: var(--accent-muted, rgba(59, 130, 246, 0.06));
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-top: 14px;
+}
+.decision-brief-rationale strong {
+  color: var(--accent);
+}
+
+/* Option cards — replace chip-row with full cards showing label +
+   pro + con. Click selects + submits the option. The recommended
+   card has an accent border so the operator's eye lands there first. */
+.option-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.option-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.option-card:hover {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.option-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.option-card-recommended {
+  border-color: var(--accent);
+  background: var(--accent-muted, rgba(59, 130, 246, 0.05));
+}
+.option-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.option-card-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.option-card-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.option-card-prose {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.option-card-pro,
+.option-card-con {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 6px;
+}
+.option-card-pro::before {
+  content: '✓';
+  color: var(--green, #10b981);
+  font-weight: 700;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.option-card-con::before {
+  content: '✗';
+  color: var(--red, #ef4444);
+  font-weight: 700;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* Dimension coverage strip — sits at the top of the centre pane so
+   the operator sees how far through the seven dimensions the
+   interview is. Each chip flips from `pending` → `current` → `done`.
+   Click is intentionally not wired (you can't skip ahead; the kernel
+   picks the next dimension). */
+.dimension-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.dimension-chip {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card, var(--bg));
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dimension-chip[data-state='done'] {
+  border-color: var(--green, #10b981);
+  background: var(--green-soft, rgba(16, 185, 129, 0.08));
+  color: var(--green, #10b981);
+}
+.dimension-chip[data-state='done']::before {
+  content: '✓';
+  font-weight: 700;
+}
+.dimension-chip[data-state='current'] {
+  border-color: var(--accent);
+  background: var(--accent-muted, rgba(59, 130, 246, 0.12));
+  color: var(--accent);
+  font-weight: 600;
+}
+.dimension-chip[data-state='current']::before {
+  content: '●';
+  font-size: 8px;
+}
+
+/* Past Q&A — compact one-liners replacing the bubble pairs once the
+   conversation moves past a question. */
+.past-qa-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.past-qa-item {
+  display: grid;
+  grid-template-columns: minmax(0, 120px) 1fr;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface, var(--card));
+}
+.past-qa-dimension {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.past-qa-answer {
+  color: var(--text);
+}
+.past-qa-answer em {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* --- right pane: transcript + Generate --- */

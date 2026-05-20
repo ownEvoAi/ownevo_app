@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..audit.writer import append_audit_entry
 from ..types import AuditKind
 from .ambiguity import AmbiguityReport
+from .dimensions import DesignDimension
 from .prompts._types import DiscoveryQuestionKind
 
 if TYPE_CHECKING:
@@ -44,7 +45,23 @@ filter or color-code by author."""
 
 
 class DesignAgentLogEntry(BaseModel):
-    """One question + answer pair from the discovery conversation."""
+    """One question + answer pair from the discovery conversation.
+
+    The LLM-driven interviewer (Sept 2026) routes its output through
+    seven `DesignDimension`s, each of which downstream NL-gen
+    generators read to shape the WorkflowSpec / SimulationPlan /
+    MetricDefinition / EvalCaseSet they emit. The pre-LLM hardcoded
+    walker only knew about five `DiscoveryQuestionKind`s. Both shapes
+    are persisted side-by-side: `dimension` is the new canonical
+    identifier (used by `nl_gen.design_brief_context`), `kind` stays
+    around so the existing audit-tab and skill-detail UI keeps reading
+    its color-coded chip.
+
+    `chosen_option` carries the option the operator clicked (verbatim
+    label from the LLM-emitted brief, or a hardcoded option label from
+    the fallback path). `answer` is the operator's typed elaboration —
+    these can both be set; the generators concatenate them.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -58,6 +75,25 @@ class DesignAgentLogEntry(BaseModel):
             "Operator's response. `null` means the operator skipped the "
             "question — the design agent records the skip so a future "
             "reader can see that the question was offered but declined."
+        ),
+    )
+    # New fields (back-compat: persisted JSONB rows from before the LLM
+    # interviewer carry only kind+question+answer; these stay None).
+    dimension: DesignDimension | None = Field(
+        default=None,
+        description=(
+            "Which DesignDimension this Q/A covers. Drives downstream "
+            "NL-gen generator targeting — generators read only the "
+            "dimensions they care about. None for legacy entries."
+        ),
+    )
+    chosen_option: str | None = Field(
+        default=None,
+        max_length=4096,
+        description=(
+            "Verbatim label of the option the operator picked, when the "
+            "question carried options. Distinct from `answer` (which is "
+            "the operator's free-text elaboration)."
         ),
     )
 
@@ -118,9 +154,11 @@ async def persist_design_agent_log(
                 "workflow_id": workflow_id,
                 "question_index": entry.question_index,
                 "kind": entry.kind,
+                "dimension": entry.dimension,
                 "question": entry.question,
                 "answer": entry.answer,
-                "skipped": entry.answer is None,
+                "chosen_option": entry.chosen_option,
+                "skipped": entry.answer is None and entry.chosen_option is None,
             },
         )
 

@@ -18,6 +18,17 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
+from ...design_agent.log import load_design_agent_log
+from ...nl_gen.design_brief_context import (
+    EVAL_CASE_DIMENSIONS,
+    METRIC_DIMENSIONS,
+    SIM_PLAN_DIMENSIONS,
+    format_dimensions_block,
+)
+from ...nl_gen.eval_generator import generate_eval_case_set
+from ...nl_gen.eval_persistence import persist_eval_case_set
+from ...nl_gen.metric_generator import generate_metric_definition
+from ...nl_gen.sim_generator import generate_simulation_plan
 from .._anthropic_client import build_async_anthropic
 from ..deps import ConnDep, DemoModeCheck, PoolDep
 from ..jsonb import decode_jsonb_obj
@@ -645,6 +656,7 @@ async def list_workflow_case_outputs(
         SELECT
             ico.eval_case_id,
             ico.output_json,
+            ico.output_payload,
             ico.passed,
             ico.created_at,
             ec.input        AS input,
@@ -680,6 +692,7 @@ async def list_workflow_case_outputs(
             is_test_fold=bool(r["is_test_fold"]),
             created_at=r["created_at"],
             trace_id=r["trace_id"],
+            output_payload=decode_jsonb_obj(r["output_payload"]),
         )
         for r in rows
     ]
@@ -817,16 +830,11 @@ async def generate_workflow_eval_cases(
     """
     import os
 
-    from ...nl_gen.eval_generator import generate_eval_case_set
-    from ...nl_gen.eval_persistence import persist_eval_case_set
-    from ...nl_gen.metric_generator import generate_metric_definition
-    from ...nl_gen.sim_generator import generate_simulation_plan
     from ...nl_gen.spec import WorkflowSpec
-    from ..jsonb import decode_jsonb_obj
 
     row = await conn.fetchrow(
         """
-        SELECT id, spec,
+        SELECT id, spec, design_agent_log,
                simulation_plan IS NOT NULL    AS has_sim_plan,
                metric_definition IS NOT NULL  AS has_metric
         FROM workflows
@@ -863,16 +871,30 @@ async def generate_workflow_eval_cases(
         )
 
     client = build_async_anthropic(api_key)
+    # Reuse the persisted design-agent transcript from /nl-gen/generate
+    # (when the operator ran the discovery interview) so eval cases
+    # honour the seed-case nominations + metric direction the operator
+    # already committed to. NULL when discovery was skipped.
+    design_log = load_design_agent_log(row["design_agent_log"])
+    sim_brief = format_dimensions_block(design_log, SIM_PLAN_DIMENSIONS)
+    eval_brief = format_dimensions_block(design_log, EVAL_CASE_DIMENSIONS)
+    metric_brief = format_dimensions_block(design_log, METRIC_DIMENSIONS)
     try:
-        sim_plan = await generate_simulation_plan(client, workflow_spec)
-        case_set = await generate_eval_case_set(client, workflow_spec, sim_plan)
+        sim_plan = await generate_simulation_plan(
+            client, workflow_spec, design_brief_block=sim_brief
+        )
+        case_set = await generate_eval_case_set(
+            client, workflow_spec, sim_plan, design_brief_block=eval_brief
+        )
         # Backfill metric_definition too when the workflow was created
         # without one — historical rows (PR #85-era nl-gen) sometimes
         # landed with simulation_plan/metric_definition NULL and the
         # iteration runner refuses to run without both.
         metric_def = None
         if not row["has_metric"]:
-            metric_def = await generate_metric_definition(client, workflow_spec)
+            metric_def = await generate_metric_definition(
+                client, workflow_spec, design_brief_block=metric_brief
+            )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

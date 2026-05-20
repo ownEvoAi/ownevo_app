@@ -249,17 +249,52 @@ export type DiscoveryQuestionKind =
   | 'surface'
   | 'premise'
 
+// The seven design-shaping dimensions the LLM interviewer covers.
+// Mirrors `DesignDimension` in apps/kernel/.../design_agent/dimensions.py.
+export type DesignDimension =
+  | 'goal_and_scope'
+  | 'trigger_and_cadence'
+  | 'data_sources_and_connectors'
+  | 'success_metric'
+  | 'eval_seed_cases'
+  | 'operate_ui_primitives'
+  | 'reviewer_role'
+
+export interface DiscoveryOption {
+  label: string
+  pro: string
+  con: string
+}
+
 export interface NextDiscoveryQuestion {
-  question_index: number
-  kind: DiscoveryQuestionKind
+  dimension: DesignDimension
+  source: 'llm' | 'fallback'
   question: string
-  options: string[] | null
-  rationale: string | null
+  eli: string
+  stakes: string
+  options: DiscoveryOption[]
+  // Transitional: flat label list for code that expected string[].
+  // Remove once all consumers use options[].label.
+  options_labels?: string[]
+  recommendation_index: number
+  rationale: string
+  // Legacy fields retained for compatibility with the existing
+  // fallback-path renderer.
+  question_index?: number
+  kind?: DiscoveryQuestionKind | null
 }
 
 export interface PriorDiscoveryAnswer {
-  question_index: number
-  answer: string | null
+  // New shape: dimension-scoped answer carrying the chosen option +
+  // optional elaboration. Legacy `question_index` + `answer` are still
+  // accepted by the kernel for back-compat.
+  dimension?: DesignDimension | null
+  question?: string
+  chosen_option?: string | null
+  free_text?: string | null
+  // Legacy fields (kept until the web client fully migrates).
+  question_index?: number | null
+  answer?: string | null
 }
 
 export interface NextDiscoveryQuestionResponse {
@@ -269,16 +304,20 @@ export interface NextDiscoveryQuestionResponse {
   answered_count: number
 }
 
-// PLAN 9.1.4 — structured persistence of the authoring-time discovery
-// conversation. Mirrors the kernel `DesignAgentLog` pydantic shape so
-// the web layer can post it as the structured `design_agent_log` field
-// on POST /api/nl-gen/generate. Server persists to the JSONB column +
-// mirrors per-entry rows into `audit_entries`.
+// Structured persistence of the authoring-time discovery conversation.
+// Mirrors the kernel `DesignAgentLog` pydantic shape so the web layer
+// can post it as the structured `design_agent_log` field on POST
+// /api/nl-gen/generate. Server persists to the JSONB column + mirrors
+// per-entry rows into `audit_entries`. The four new optional fields
+// (dimension, chosen_option) feed `nl_gen.design_brief_context` so
+// each generator reads the dimensions it can actually encode.
 export interface DesignAgentLogEntry {
   question_index: number
   kind: DiscoveryQuestionKind
   question: string
   answer: string | null
+  dimension?: DesignDimension | null
+  chosen_option?: string | null
 }
 
 export type AmbiguityFindingKind = 'inferred-artifact' | 'conflict'
@@ -399,6 +438,11 @@ export interface CaseOutputRow {
   is_test_fold: boolean
   created_at: string
   trace_id: string | null
+  // Domain-shaped output the agent emitted for this case (forecast
+  // curve, redline pair, recommendation table). Null when the agent
+  // didn't emit one. The Operate-tab resolver reads this and dispatches
+  // to the workflow's declared primitives.
+  output_payload: Record<string, unknown> | null
 }
 
 export interface CaseOutputList {

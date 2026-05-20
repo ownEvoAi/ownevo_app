@@ -13,10 +13,14 @@ import {
   type ProposalSummary,
   type WorkflowSpecShape,
 } from '@/lib/api'
-import { formatScore, relativeTime } from '@/lib/format'
+import { relativeTime } from '@/lib/format'
 import { AlertList } from '@/app/components/primitives/alert-list'
+import { ConversationView } from '@/app/components/primitives/conversation-view'
+import { DocumentReader } from '@/app/components/primitives/document-reader'
 import { KanbanBoard } from '@/app/components/primitives/kanban-board'
 import { MetricCards } from '@/app/components/primitives/metric-cards'
+import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
+import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
 import { TableView } from '@/app/components/primitives/table-view'
 import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
 import { resolveTabPrimitives } from '@/lib/primitive-data-resolver'
@@ -26,12 +30,21 @@ interface PageProps {
 }
 
 // Operate tab — mock parity with www/preview/s26-rk7p3/06-workflow-operate.html
-// (also 09 support, 10 contract, 10b labour). Renders the primitives
-// the spec declared on its "operate" tab. The layer-D resolver maps
-// MetricCards + TimeSeriesChart to real iteration-derived data; other
-// primitives (TableView / KanbanBoard / ScheduleGrid / ConversationView /
-// DocumentReader / etc.) render an empty placeholder until the agent
-// emits per-case output rich enough to populate them.
+// (also 09 support, 10 contract, 10b labour). Production-execution
+// view: what the agent has produced against live triggers + data
+// sources, NOT what it predicted against eval cases. Eval-suite
+// diagnostics belong on Overview.
+//
+// Input side renders from the spec — tools the agent can call,
+// declared data sources, env generators that act as scheduled
+// triggers. No agent emission needed.
+//
+// Output side passes `context: 'operate'` to the layer-D resolver so
+// iteration-meta and eval-prediction primitives stay empty here. They
+// will be replaced with real production output when a workflow-
+// specific production_output payload lands (kernel-side: a
+// `submit_production_output` tool + `workflow_production_outputs`
+// table). Until then the Operate tab is honest about being a shell.
 export default async function WorkflowOperatePage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
@@ -73,17 +86,35 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
     )
   }
 
-  // Find the "Operate" tab in the spec UI plan. Spec tabs vary by
-  // workflow (`Overview` / `Operate` / `Investigate` / etc.); we look
-  // for "operate" by name and fall back to the SECOND tab (most specs
-  // put Overview at index 0, the operate-shaped view at index 1).
+  // Find the operate-view tab in the spec UI plan. NL-gen names tabs
+  // per workflow (`Portfolio` / `Forecast` / `Review queue` / etc.)
+  // rather than literally "Operate", so we look up by name first then
+  // fall back gracefully:
+  //   1. tab named exactly "operate" (mock-shaped specs)
+  //   2. the second tab if the spec has ≥2 (Overview-at-0 + Operate-at-1)
+  //   3. the first tab if there's only one (single-tab specs share
+  //      primitives between Overview and Operate — the chrome differs,
+  //      not the primitive set)
+  //   4. nothing when zero tabs are declared
+  // Matches the operator route's fallback (`resolvePrimitives` reads
+  // tabs[0]), so /operate and /operator/[wf] stay in sync.
   const tabs = spec?.ui?.tabs ?? []
   const operateTab =
-    tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
+    tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ??
+    tabs[1] ??
+    tabs[0]
 
   const primitives = operateTab
     ? resolveTabPrimitives(
-        { spec, iterations, evalCases, proposals, caseOutputs, wsId },
+        {
+          spec,
+          iterations,
+          evalCases,
+          proposals,
+          caseOutputs,
+          wsId,
+          context: 'operate',
+        },
         operateTab.name ?? 'operate',
       ) ?? []
     : []
@@ -93,41 +124,60 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
     .filter((p): p is Extract<typeof primitives[number], { kind: 'empty' }> => p.kind === 'empty')
     .map((p) => p.primitiveType)
 
-  const latestIter = iterations.length > 0 ? iterations[iterations.length - 1] : null
   const pendingProposals = proposals.filter(
     (p) => p.state === 'gate-passed' || p.state === 'pending',
   )
+
+  // Inputs the agent reads against in production — pulled straight from
+  // the spec. `env_generators` are the scheduled / event triggers the
+  // platform would fire (e.g. "weekly SAP refresh", "support ticket
+  // arrival"); `data_sources` are the external feeds the agent reads;
+  // `tools` are the actions the agent is allowed to take.
+  const dataSources = spec?.environment?.data_sources ?? []
+  const envGenerators = spec?.environment?.env_generators ?? []
+  const tools = spec?.tools ?? []
+  const hasInputs =
+    dataSources.length > 0 || envGenerators.length > 0 || tools.length > 0
+
+  // "Has the agent produced any domain-shaped output the operator can
+  // actually see?" — drives the status banner. Doesn't track live
+  // triggers (no live-trigger plumbing yet); reflects only whether the
+  // latest iteration produced a payload primitive the resolver can
+  // render.
+  const hasProduction =
+    (caseOutputs?.items ?? []).some(
+      (it) =>
+        it.output_payload != null &&
+        typeof it.output_payload === 'object' &&
+        Object.keys(it.output_payload).length > 0,
+    )
+  const latestRunAt =
+    iterations.length > 0 ? iterations[iterations.length - 1].ended_at : null
 
   return (
     <>
       <section className="operate-status">
         <div className="operate-status-pill">
           <span
-            className={`operate-status-dot ${iterations.length > 0 ? 'live' : 'idle'}`}
+            className={`operate-status-dot ${hasProduction ? 'live' : 'idle'}`}
           />
-          <strong>{iterations.length > 0 ? 'Active' : 'Idle'}</strong>
-          {latestIter !== null && latestIter.ended_at !== null ? (
-            <span style={{ color: 'var(--text-muted)' }}>
-              · last run {relativeTime(latestIter.ended_at)}
-            </span>
-          ) : null}
+          <strong>
+            {hasProduction
+              ? 'Latest output captured'
+              : 'Awaiting first production run'}
+          </strong>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {hasProduction
+              ? '· from the agent on the latest iteration; live trigger pending'
+              : '· live trigger + execution capture not wired yet'}
+          </span>
         </div>
         <div className="operate-status-cells">
           <div className="operate-status-cell">
-            <div className="operate-status-label">Current val_score</div>
+            <div className="operate-status-label">Latest agent run</div>
             <div className="operate-status-value">
-              {latestIter?.val_score !== null && latestIter?.val_score !== undefined
-                ? formatScore(latestIter.val_score)
-                : '—'}
+              {latestRunAt ? relativeTime(latestRunAt) : '—'}
             </div>
-          </div>
-          <div className="operate-status-cell">
-            <div className="operate-status-label">Iterations</div>
-            <div className="operate-status-value">{iterations.length}</div>
-          </div>
-          <div className="operate-status-cell">
-            <div className="operate-status-label">Eval cases</div>
-            <div className="operate-status-value">{evalCases.length}</div>
           </div>
           <div className="operate-status-cell">
             <div className="operate-status-label">Pending review</div>
@@ -160,44 +210,137 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
         </p>
       ) : null}
 
-      {resolved.length > 0 && (
-        <section className="overview-primitives" style={{ marginTop: 12 }}>
-          {resolved.map((p, i) => {
-            if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
-            if (p.kind === 'TimeSeriesChart')
-              return <TimeSeriesChart key={i} data={p.data} />
-            if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
-            if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
-            if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
-            return null
-          })}
+      {hasInputs ? (
+        <section style={{ marginTop: 8, marginBottom: 16 }}>
+          <h2 className="section-title" style={{ marginBottom: 10 }}>
+            Inputs
+          </h2>
+          <div className="operate-inputs">
+            {envGenerators.length > 0 ? (
+              <InputBlock
+                label="Triggers"
+                hint="When the platform would invoke this workflow in production."
+                items={envGenerators.map((g) => ({
+                  name: g.name,
+                  description: g.description,
+                }))}
+              />
+            ) : null}
+            {dataSources.length > 0 ? (
+              <InputBlock
+                label="Data sources"
+                hint="External feeds the agent reads at execution time."
+                items={dataSources.map((d) => ({
+                  name: d.id,
+                  description:
+                    d.entity != null ? `${d.entity} — ${d.description ?? ''}` : d.description,
+                }))}
+              />
+            ) : null}
+            {tools.length > 0 ? (
+              <InputBlock
+                label="Tools"
+                hint="Actions the agent is allowed to take during a run."
+                items={tools.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                }))}
+              />
+            ) : null}
+          </div>
         </section>
-      )}
+      ) : null}
 
-      {unresolvedTypes.length > 0 && (
-        <p className="overview-primitives-unresolved" style={{ marginTop: 14 }}>
-          Per-case agent output isn&rsquo;t captured yet — recommendations
-          and alerts will land here once the agent produces them.
-        </p>
-      )}
-
-      {iterations.length === 0 && (
-        <div
-          style={{
-            background: 'var(--bg)',
-            border: '1px dashed var(--border)',
-            borderRadius: 8,
-            padding: 28,
-            textAlign: 'center',
-            color: 'var(--text-muted)',
-            fontSize: 13,
-            marginTop: 14,
-          }}
-        >
-          The agent hasn&rsquo;t run yet on this workflow. Trigger the
-          first iteration from the Overview tab.
-        </div>
-      )}
+      <section style={{ marginTop: 8 }}>
+        <h2 className="section-title" style={{ marginBottom: 10 }}>
+          Outputs
+        </h2>
+        {resolved.length > 0 ? (
+          <div className="overview-primitives">
+            {resolved.map((p, i) => {
+              if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
+              if (p.kind === 'TimeSeriesChart')
+                return <TimeSeriesChart key={i} data={p.data} />
+              if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
+              if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
+              if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
+              if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
+              if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
+              if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
+              if (p.kind === 'DocumentReader') return <DocumentReader key={i} data={p.data} />
+              return null
+            })}
+          </div>
+        ) : (
+          <div
+            style={{
+              background: 'var(--bg)',
+              border: '1px dashed var(--border)',
+              borderRadius: 8,
+              padding: 24,
+              color: 'var(--text-muted)',
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            <strong style={{ color: 'var(--text-2)' }}>
+              No production output captured yet.
+            </strong>
+            <p style={{ margin: '8px 0 0' }}>
+              When a trigger fires and the agent produces output against
+              live data, the spec&rsquo;s declared primitives
+              {unresolvedTypes.length > 0 ? (
+                <>
+                  {' '}({unresolvedTypes.join(', ')})
+                </>
+              ) : null}{' '}
+              render here. Eval-suite predictions are improvement-loop
+              diagnostics and stay on{' '}
+              <Link
+                href={`/workspaces/${wsId}/workflows/${wfId}`}
+                style={{ color: 'var(--accent)' }}
+              >
+                Overview
+              </Link>
+              .
+            </p>
+          </div>
+        )}
+      </section>
     </>
+  )
+}
+
+interface InputItem {
+  name: string
+  description?: string
+}
+
+function InputBlock({
+  label,
+  hint,
+  items,
+}: {
+  label: string
+  hint: string
+  items: InputItem[]
+}) {
+  return (
+    <div className="operate-input-block">
+      <div className="operate-input-head">
+        <span className="operate-input-label">{label}</span>
+        <span className="operate-input-hint">{hint}</span>
+      </div>
+      <ul className="operate-input-list">
+        {items.map((it, i) => (
+          <li key={`${it.name}-${i}`}>
+            <code className="operate-input-name">{it.name}</code>
+            {it.description ? (
+              <span className="operate-input-desc"> · {it.description}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

@@ -1,4 +1,5 @@
 import type { SideBySideData, SidePanel } from './types'
+import { CaseCaption } from './case-caption'
 
 interface Props {
   data: SideBySideData
@@ -37,24 +38,27 @@ function renderBody(panel: SidePanel) {
 
 export function SideBySideView({ data }: Props) {
   return (
-    <div className="side-by-side">
-      {[data.left, data.right].map((panel, i) => (
-        <div className="side" key={i}>
-          <div
-            className="side-header"
-            style={
-              i === 1
-                ? { background: 'var(--green-soft)', color: 'var(--green)' }
-                : undefined
-            }
-          >
-            <span>{panel.title}</span>
+    <div>
+      <div className="side-by-side">
+        {[data.left, data.right].map((panel, i) => (
+          <div className="side" key={i}>
+            <div
+              className="side-header"
+              style={
+                i === 1
+                  ? { background: 'var(--green-soft)', color: 'var(--green)' }
+                  : undefined
+              }
+            >
+              <span>{panel.title}</span>
+            </div>
+            <div className={panel.format === 'code' ? 'side-body code' : 'side-body'}>
+              {renderBody(panel)}
+            </div>
           </div>
-          <div className={panel.format === 'code' ? 'side-body code' : 'side-body'}>
-            {renderBody(panel)}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
+      <CaseCaption caption={data.caption} />
     </div>
   )
 }

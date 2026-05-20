@@ -14,6 +14,16 @@ const PILL_TONES: Record<string, string> = {
   fail: 'pill red',
 }
 
+function isSafeHref(v: string): boolean {
+  if (v.startsWith('/') || v.startsWith('./') || v.startsWith('../')) return true
+  try {
+    const u = new URL(v)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 function formatCell(value: unknown, col: TableColumn): React.ReactNode {
   if (value === null || value === undefined) return ''
   if (col.type === 'pill') {
@@ -72,7 +82,7 @@ export function TableView({ data }: Props) {
                       .join(' ')}
                     title={tooltip || undefined}
                   >
-                    {typeof linkHref === 'string' && linkHref.length > 0 ? (
+                    {typeof linkHref === 'string' && linkHref.length > 0 && isSafeHref(linkHref) ? (
                       <a
                         href={linkHref}
                         style={{
