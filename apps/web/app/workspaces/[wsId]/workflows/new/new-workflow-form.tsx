@@ -1,7 +1,13 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useActionState, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useActionState,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
 import type { VerticalTemplate } from './templates'
@@ -23,18 +29,24 @@ export function NewWorkflowForm({
     null,
   )
   const formRef = useRef<HTMLFormElement | null>(null)
+  // `useTransition` lets us keep a pending flag while the design page is
+  // server-rendering. The SSR pre-fetch makes one LLM call (Sonnet 4.6,
+  // ~6–12s), and without a pending state the button looks frozen. Wrap
+  // the router.push so the button can swap to a spinner + ETA copy.
+  const [discoveryPending, startDiscoveryTransition] = useTransition()
 
   const runDiscovery = () => {
     const qs = new URLSearchParams()
     if (selectedTemplateId) qs.set('template_id', selectedTemplateId)
     if (description.trim()) qs.set('description', description.trim())
-    router.push(
-      `/workspaces/${wsId}/workflows/new/design${
-        qs.toString() ? `?${qs}` : ''
-      }`,
-    )
+    const href = `/workspaces/${wsId}/workflows/new/design${
+      qs.toString() ? `?${qs}` : ''
+    }`
+    startDiscoveryTransition(() => {
+      router.push(href)
+    })
   }
-  const canRunDiscovery = description.trim().length >= 50
+  const canRunDiscovery = description.trim().length >= 50 && !discoveryPending
 
   const pickTemplate = (t: VerticalTemplate) => {
     setSelectedTemplateId(t.id)
@@ -53,7 +65,11 @@ export function NewWorkflowForm({
   // ⌘↵ / Ctrl-↵ from the textarea submits Generate without forcing the
   // reviewer to mouse over to the button. Browser default for ↵ in a
   // textarea is a newline, so we only intercept when a modifier is held.
+  // Guard on discoveryPending: if navigation to the design page is already
+  // in flight, don't fire a concurrent generateWorkflowAction call (which
+  // would burn an LLM call and race the navigation).
   const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (discoveryPending) return
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       formRef.current?.requestSubmit()
@@ -162,15 +178,25 @@ export function NewWorkflowForm({
             onClick={runDiscovery}
             disabled={!canRunDiscovery}
             aria-disabled={!canRunDiscovery}
+            aria-busy={discoveryPending}
             title={
-              canRunDiscovery
-                ? 'Run a 1–2 minute discovery interview before generating'
-                : 'Write a description (50+ characters) first'
+              discoveryPending
+                ? 'Starting the design agent — first question takes about 10s'
+                : canRunDiscovery
+                  ? 'Run a 1–2 minute discovery interview before generating'
+                  : 'Write a description (50+ characters) first'
             }
           >
-            Design with agent &rsaquo;
+            {discoveryPending ? (
+              <>
+                <span className="spinner" aria-hidden /> Starting design
+                agent — ~10s
+              </>
+            ) : (
+              <>Design with agent &rsaquo;</>
+            )}
           </button>
-          <SubmitButton />
+          <SubmitButton discoveryPending={discoveryPending} />
           <span className="kbd-hint">
             <kbd>⌘</kbd>
             <kbd>↵</kbd> to generate
@@ -189,10 +215,11 @@ export function NewWorkflowForm({
 // can read that from a config endpoint and replace this constant.
 const NL_GEN_ETA_SECONDS = 30
 
-function SubmitButton() {
+function SubmitButton({ discoveryPending }: { discoveryPending: boolean }) {
   const { pending } = useFormStatus()
+  const isDisabled = pending || discoveryPending
   return (
-    <button type="submit" className="btn btn-primary" disabled={pending} aria-disabled={pending}>
+    <button type="submit" className="btn btn-primary" disabled={isDisabled} aria-disabled={isDisabled}>
       {pending ? (
         <>
           <span className="spinner" aria-hidden /> Generating spec — ~{NL_GEN_ETA_SECONDS}s
