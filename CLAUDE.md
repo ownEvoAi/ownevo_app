@@ -75,6 +75,42 @@ Forced-tool-use `predict_label(value: bool)` per case; orthogonal to the multi-t
 - API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages`.
 - The qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override. qwen3-base + qwen3-coder ARE unlocked.
 
+## OSS-friendly diffs — no external repo references
+
+This repo is the public reference implementation. Anything that ships in a
+diff here — code, comments, tests, docstrings, fixture text, PR bodies,
+CHANGELOG entries — must be self-contained for an external reader.
+
+Never reference, link to, or quote from:
+
+- `../ownevo_docs/` or any sibling/private repo (`mvp-execution/`, `pitch/`,
+  `yc/`, `competitors/`, `vision/`)
+- Internal planning artifacts (`PLAN.md`, `TODOS.md`, `DEMO_VIDEO_SCRIPT.md`)
+- Internal IDs (`TODO-NN`, `PLAN 8.4.11`, `W6.4`, internal PR numbers from
+  other repos)
+- Personal paths (`~/code/jobs/`, `~/code/startup2026/`)
+- Recording/demo scripts or pitch artifacts not in this repo
+- Founder/investor framing (don't write code comments that assume the
+  reader is part of the pitch context)
+
+Replace external-artifact references with self-contained descriptions of
+what the code does and why. Example:
+
+- **Wrong:** `# labels match the recording-script voiceover`
+- **Right:** `# labels are concrete named patterns so the failures page renders realistic content`
+
+If you genuinely need to point at private context for a teammate, put it
+in `CLAUDE.local.md` (gitignored) or in a `mvp-execution/` doc that lives
+in the private docs repo — not in tracked files here.
+
+This rule applies to every PR. Audit the branch diff before committing:
+
+```bash
+git diff main..HEAD | grep -nE "ownevo_docs|/mvp-execution/|/yc/|/pitch/|TODO-[0-9]+|PLAN\.md|~/code/|recording.script|founder|investor.pitch"
+```
+
+A clean grep means the branch is OSS-publishable.
+
 ## Out of scope
 
 Multiple framework integrations beyond Claude Agent SDK, self-evolving harness, custom Rust gateway, knowledge ingestion connectors, mobile UI, skills marketplace.

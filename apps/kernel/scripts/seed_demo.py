@@ -85,15 +85,15 @@ async def _upsert_workflow(
 
 
 # Demo fixture content — hand-crafted clusters + skill diff + proposal for
-# demand-prediction so the workspace UI has the full loop visible on the
-# /failures + /proposals beats of the recorded demo video script.
+# demand-prediction so the workspace UI shows the full loop on the
+# Failures + Proposals tabs without waiting for a harder eval set.
 #
 # Why hand-craft instead of iterating until real clusters form: the
 # demand-prediction eval cases are easy enough that one cycle produces
 # ~2 failures, below the clustering pipeline's `min_inputs=5` floor.
 # Running more iterations doesn't help — clustering is per-iteration.
 # These fixtures stand in for what a harder eval set would produce
-# organically; the labels match the recording-script voiceover and the
+# organically; labels are concrete (named seasonal patterns) and the
 # proposal is the kind of plain-English edit the proposer-LLM would
 # write on a real failure cluster.
 #
@@ -141,10 +141,10 @@ async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
     Skipped if demand-prediction already has clusters (so re-runs are a no-op).
     Returns True when the fixture rows were inserted, False when skipped.
 
-    These rows are demo-only — they exist so the recorded demo-video script's
-    `/failures` + `/proposals` beats render against demand-prediction. They
-    do NOT come from a real iteration's failure cases; the labels + skill diff
-    are hand-authored to match the recording-script voiceover.
+    These rows are demo-only — they let the workspace UI render the full
+    loop on demand-prediction (Failures + Proposals tabs) without waiting
+    for a harder eval set. They do NOT come from a real iteration's
+    failure cases; the labels + skill diff are hand-authored.
     """
     from ownevo_kernel.audit import append_audit_entry
     from ownevo_kernel.types import AuditKind
