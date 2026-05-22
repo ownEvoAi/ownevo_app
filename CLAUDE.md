@@ -75,41 +75,35 @@ Forced-tool-use `predict_label(value: bool)` per case; orthogonal to the multi-t
 - API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages`.
 - The qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override. qwen3-base + qwen3-coder ARE unlocked.
 
-## OSS-friendly diffs — no external repo references
+## OSS-friendly diffs
 
 This repo is the public reference implementation. Anything that ships in a
-diff here — code, comments, tests, docstrings, fixture text, PR bodies,
-CHANGELOG entries — must be self-contained for an external reader.
+tracked file — code, comments, tests, docstrings, fixture text, PR bodies,
+CHANGELOG entries — has to read cleanly for an external reader who has no
+access to private context.
 
-Never reference, link to, or quote from:
+Comments and docstrings should describe **what the code does and why**, in
+self-contained terms. They should not reference:
 
-- `../ownevo_docs/` or any sibling/private repo (`mvp-execution/`, `pitch/`,
-  `yc/`, `competitors/`, `vision/`)
-- Internal planning artifacts (`PLAN.md`, `TODOS.md`, `DEMO_VIDEO_SCRIPT.md`)
-- Internal IDs (`TODO-NN`, `PLAN 8.4.11`, `W6.4`, internal PR numbers from
-  other repos)
-- Personal paths (`~/code/jobs/`, `~/code/startup2026/`)
-- Recording/demo scripts or pitch artifacts not in this repo
-- Founder/investor framing (don't write code comments that assume the
-  reader is part of the pitch context)
+- Sibling repositories in the parent workspace
+- Personal or machine-local paths
+- Internal planning systems (private design docs, ticket IDs, week numbers,
+  pitch artifacts, recording scripts)
+- Audience framing that assumes the reader is part of the team's pitch or
+  investor context
 
-Replace external-artifact references with self-contained descriptions of
-what the code does and why. Example:
+Wrong: a comment that anchors itself to an external artifact a public reader
+cannot see (`# matches the script we recorded`, `# per W6.4 plan`).
+Right: the same comment rewritten as a self-contained explanation of why the
+code is shaped the way it is (`# labels are concrete named patterns so the
+failures page renders realistic content`).
 
-- **Wrong:** `# labels match the recording-script voiceover`
-- **Right:** `# labels are concrete named patterns so the failures page renders realistic content`
+Private context that a teammate genuinely needs goes in `CLAUDE.local.md`
+(gitignored) — not in tracked files here.
 
-If you genuinely need to point at private context for a teammate, put it
-in `CLAUDE.local.md` (gitignored) or in a `mvp-execution/` doc that lives
-in the private docs repo — not in tracked files here.
-
-This rule applies to every PR. Audit the branch diff before committing:
-
-```bash
-git diff main..HEAD | grep -nE "ownevo_docs|/mvp-execution/|/yc/|/pitch/|TODO-[0-9]+|PLAN\.md|~/code/|recording.script|founder|investor.pitch"
-```
-
-A clean grep means the branch is OSS-publishable.
+This rule applies to every PR. Audit before committing; the specific patterns
+to grep for are listed in `CLAUDE.local.md` so they themselves stay out of
+the public diff.
 
 ## Out of scope
 
