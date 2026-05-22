@@ -65,7 +65,11 @@ export function NewWorkflowForm({
   // ⌘↵ / Ctrl-↵ from the textarea submits Generate without forcing the
   // reviewer to mouse over to the button. Browser default for ↵ in a
   // textarea is a newline, so we only intercept when a modifier is held.
+  // Guard on discoveryPending: if navigation to the design page is already
+  // in flight, don't fire a concurrent generateWorkflowAction call (which
+  // would burn an LLM call and race the navigation).
   const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (discoveryPending) return
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       formRef.current?.requestSubmit()
@@ -192,7 +196,7 @@ export function NewWorkflowForm({
               <>Design with agent &rsaquo;</>
             )}
           </button>
-          <SubmitButton />
+          <SubmitButton discoveryPending={discoveryPending} />
           <span className="kbd-hint">
             <kbd>⌘</kbd>
             <kbd>↵</kbd> to generate
@@ -211,10 +215,11 @@ export function NewWorkflowForm({
 // can read that from a config endpoint and replace this constant.
 const NL_GEN_ETA_SECONDS = 30
 
-function SubmitButton() {
+function SubmitButton({ discoveryPending }: { discoveryPending: boolean }) {
   const { pending } = useFormStatus()
+  const isDisabled = pending || discoveryPending
   return (
-    <button type="submit" className="btn btn-primary" disabled={pending} aria-disabled={pending}>
+    <button type="submit" className="btn btn-primary" disabled={isDisabled} aria-disabled={isDisabled}>
       {pending ? (
         <>
           <span className="spinner" aria-hidden /> Generating spec — ~{NL_GEN_ETA_SECONDS}s
