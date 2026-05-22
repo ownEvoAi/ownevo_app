@@ -1,7 +1,13 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useActionState, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useActionState,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from 'react'
 import { useFormStatus } from 'react-dom'
 import { generateWorkflowAction, type GenerateState } from './actions'
 import type { VerticalTemplate } from './templates'
@@ -23,18 +29,24 @@ export function NewWorkflowForm({
     null,
   )
   const formRef = useRef<HTMLFormElement | null>(null)
+  // `useTransition` lets us keep a pending flag while the design page is
+  // server-rendering. The SSR pre-fetch makes one LLM call (Sonnet 4.6,
+  // ~6–12s), and without a pending state the button looks frozen. Wrap
+  // the router.push so the button can swap to a spinner + ETA copy.
+  const [discoveryPending, startDiscoveryTransition] = useTransition()
 
   const runDiscovery = () => {
     const qs = new URLSearchParams()
     if (selectedTemplateId) qs.set('template_id', selectedTemplateId)
     if (description.trim()) qs.set('description', description.trim())
-    router.push(
-      `/workspaces/${wsId}/workflows/new/design${
-        qs.toString() ? `?${qs}` : ''
-      }`,
-    )
+    const href = `/workspaces/${wsId}/workflows/new/design${
+      qs.toString() ? `?${qs}` : ''
+    }`
+    startDiscoveryTransition(() => {
+      router.push(href)
+    })
   }
-  const canRunDiscovery = description.trim().length >= 50
+  const canRunDiscovery = description.trim().length >= 50 && !discoveryPending
 
   const pickTemplate = (t: VerticalTemplate) => {
     setSelectedTemplateId(t.id)
@@ -162,13 +174,23 @@ export function NewWorkflowForm({
             onClick={runDiscovery}
             disabled={!canRunDiscovery}
             aria-disabled={!canRunDiscovery}
+            aria-busy={discoveryPending}
             title={
-              canRunDiscovery
-                ? 'Run a 1–2 minute discovery interview before generating'
-                : 'Write a description (50+ characters) first'
+              discoveryPending
+                ? 'Starting the design agent — first question takes about 10s'
+                : canRunDiscovery
+                  ? 'Run a 1–2 minute discovery interview before generating'
+                  : 'Write a description (50+ characters) first'
             }
           >
-            Design with agent &rsaquo;
+            {discoveryPending ? (
+              <>
+                <span className="spinner" aria-hidden /> Starting design
+                agent — ~10s
+              </>
+            ) : (
+              <>Design with agent &rsaquo;</>
+            )}
           </button>
           <SubmitButton />
           <span className="kbd-hint">
