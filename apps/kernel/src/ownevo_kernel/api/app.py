@@ -32,6 +32,7 @@ from .routes import (
     audit,
     design_agent,
     design_agent_ambiguity,
+    models,
     nl_gen,
     proposals,
     skills,
@@ -111,6 +112,7 @@ def create_app(
     api.include_router(design_agent.router)
     api.include_router(design_agent_ambiguity.router)
     api.include_router(workflows.router)
+    api.include_router(models.router)
     api.include_router(audit.router)
     api.include_router(traces.workflow_traces_router)
     api.include_router(traces.trace_router)

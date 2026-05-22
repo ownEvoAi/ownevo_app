@@ -46,6 +46,7 @@ class SeededWorkflow:
     inserted: bool  # False if the row already existed and was just refreshed
     iteration_state: str | None = None  # set when --with-iterations runs an iteration
     iteration_val: float | None = None
+    demo_fixtures_added: bool = False  # True when demo clusters/proposal fixtures inserted
 
 
 async def _upsert_workflow(
@@ -81,6 +82,188 @@ async def _upsert_workflow(
         description=description,
         inserted=bool(row["inserted"]),
     )
+
+
+# Demo fixture content — hand-crafted clusters + skill diff + proposal for
+# demand-prediction so the workspace UI shows the full loop on the
+# Failures + Proposals tabs without waiting for a harder eval set.
+#
+# Why hand-craft instead of iterating until real clusters form: the
+# demand-prediction eval cases are easy enough that one cycle produces
+# ~2 failures, below the clustering pipeline's `min_inputs=5` floor.
+# Running more iterations doesn't help — clustering is per-iteration.
+# These fixtures stand in for what a harder eval set would produce
+# organically; labels are concrete (named seasonal patterns) and the
+# proposal is the kind of plain-English edit the proposer-LLM would
+# write on a real failure cluster.
+#
+# Only inserted when demand-prediction has 0 clusters — re-running the
+# seed is a no-op once the fixtures exist.
+_DP_CLUSTER_LABELS: tuple[tuple[str, str, int], ...] = (
+    (
+        "Holiday markdown false-negatives, weeks 47-51",
+        "high",
+        5,
+    ),
+    (
+        "Off-shelf bias on slow-mover SKUs",
+        "medium",
+        3,
+    ),
+)
+
+_DP_SKILL_ID = "demand-prediction.instruction"
+_DP_SKILL_V1_CONTENT = (
+    "Predict whether each SKU will exceed its demand threshold in the "
+    "upcoming planning week. Use the prior 8 weeks of velocity and the "
+    "store's seasonal index. Lean conservative on uncertainty — under-"
+    "forecasting beats over-stocking on perishables."
+)
+_DP_SKILL_V2_CONTENT = (
+    _DP_SKILL_V1_CONTENT
+    + "\n\n"
+    + "When the planning window falls in weeks 47-51 and any holiday-"
+    "markdown signal is present (seasonal-promo cue, dip-tail pattern, "
+    "end-of-year clearance flag), lean toward predicting True even under "
+    "uncertainty. Recall is the gating metric and false-negatives in "
+    "this window are the dominant failure mode."
+)
+_DP_PROPOSAL_SUMMARY = (
+    "Add a holiday-markdown override for weeks 47-51: when the trajectory "
+    "shows any seasonal-promo signal in those weeks, lean True. Addresses "
+    "the dominant false-negative cluster the loop surfaced this cycle."
+)
+
+
+async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
+    """Insert hand-crafted clusters + a gate-passed proposal on demand-prediction.
+
+    Skipped if demand-prediction already has clusters (so re-runs are a no-op).
+    Returns True when the fixture rows were inserted, False when skipped.
+
+    These rows are demo-only — they let the workspace UI render the full
+    loop on demand-prediction (Failures + Proposals tabs) without waiting
+    for a harder eval set. They do NOT come from a real iteration's
+    failure cases; the labels + skill diff are hand-authored.
+    """
+    from ownevo_kernel.audit import append_audit_entry
+    from ownevo_kernel.types import AuditKind
+
+    workflow_id = "demand-prediction"
+
+    existing = await conn.fetchval(
+        "SELECT COUNT(*)::int FROM failure_clusters WHERE workflow_id = $1",
+        workflow_id,
+    )
+    if existing and existing > 0:
+        return False
+
+    # Need a recent iteration to attach the proposal to.
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        # No iteration to anchor the proposal — bail rather than orphan rows.
+        return False
+
+    async with conn.transaction():
+        # 1. Failure clusters.
+        for label, severity, cluster_size in _DP_CLUSTER_LABELS:
+            cluster_id = await conn.fetchval(
+                """
+                INSERT INTO failure_clusters
+                    (workflow_id, label, severity, cluster_size)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                workflow_id,
+                label,
+                severity,
+                cluster_size,
+            )
+            await append_audit_entry(
+                conn,
+                kind=AuditKind.CLUSTER_CREATED,
+                payload={
+                    "workflow_id": workflow_id,
+                    "cluster_id": str(cluster_id),
+                    "label": label,
+                    "severity": severity,
+                    "source": "demo-fixture",
+                },
+                actor="seed_demo:demo-fixtures",
+                related_id=cluster_id,
+            )
+
+        # 2. Skill + two versions (v1 baseline, v2 the "proposed" edit).
+        await conn.execute(
+            """
+            INSERT INTO skills (id, kind, workflow_id)
+            VALUES ($1, 'instruction'::skill_kind, $2)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            _DP_SKILL_ID,
+            workflow_id,
+        )
+        v1_id = await conn.fetchval(
+            """
+            INSERT INTO skill_versions
+                (skill_id, version_seq, content, created_by)
+            VALUES ($1, 1, $2, 'seed_demo:demo-fixtures')
+            RETURNING id
+            """,
+            _DP_SKILL_ID,
+            _DP_SKILL_V1_CONTENT,
+        )
+        v2_id = await conn.fetchval(
+            """
+            INSERT INTO skill_versions
+                (skill_id, version_seq, content, parent_version_id, created_by)
+            VALUES ($1, 2, $2, $3, 'seed_demo:demo-fixtures')
+            RETURNING id
+            """,
+            _DP_SKILL_ID,
+            _DP_SKILL_V2_CONTENT,
+            v1_id,
+        )
+        await conn.execute(
+            "UPDATE skills SET head_version_id = $1 WHERE id = $2",
+            v1_id,
+            _DP_SKILL_ID,
+        )
+
+        # 3. Gate-passed proposal pointing at the v2 skill version.
+        proposal_id = await conn.fetchval(
+            """
+            INSERT INTO proposals
+                (iteration_id, skill_id, parent_version_id,
+                 proposed_content, plain_language_summary, state)
+            VALUES ($1, $2, $3, $4, $5, 'gate-passed'::proposal_state)
+            RETURNING id
+            """,
+            iter_id,
+            _DP_SKILL_ID,
+            v1_id,
+            _DP_SKILL_V2_CONTENT,
+            _DP_PROPOSAL_SUMMARY,
+        )
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_id),
+                "skill_id": _DP_SKILL_ID,
+                "state": "gate-passed",
+                "source": "demo-fixture",
+            },
+            actor="seed_demo:demo-fixtures",
+            related_id=proposal_id,
+        )
+
+    return True
 
 
 async def seed_demo(
@@ -205,6 +388,22 @@ async def seed_demo(
                 file=sys.stderr,
             )
             updated.append(w)
+
+    # Hand-craft demo clusters + proposal for demand-prediction (see comment
+    # block on `_seed_demand_prediction_demo_fixtures`). Idempotent — bails
+    # if clusters already exist.
+    fixtures_added = await _seed_demand_prediction_demo_fixtures(conn)
+    if fixtures_added:
+        for i, w in enumerate(updated):
+            if w.id == "demand-prediction":
+                updated[i] = SeededWorkflow(
+                    id=w.id,
+                    description=w.description,
+                    inserted=w.inserted,
+                    iteration_state=w.iteration_state,
+                    iteration_val=w.iteration_val,
+                    demo_fixtures_added=True,
+                )
     return updated
 
 

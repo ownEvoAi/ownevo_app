@@ -454,6 +454,11 @@ class WorkflowAnatomy(_Strict):
     # the matching audit_entries rows (`design-agent-negotiation` +
     # `design-agent-ambiguity` kinds).
     design_agent_log: dict[str, Any] | None = None
+    # Per-workflow agent-model slug (`provider:model`). Stored as text
+    # on `workflows.agent_model_id`; validated against the runtime-enabled
+    # provider+model allowlist on PATCH. Phase 2 will thread this through
+    # the iteration runner so the loop dispatches to the chosen provider.
+    agent_model_id: str = "anthropic:claude-sonnet-4-6"
 
 
 class EvalCaseCreate(_Strict):
@@ -487,6 +492,39 @@ class WorkflowUpdate(_Strict):
     """
 
     description: str = Field(min_length=10, max_length=4096)
+
+
+class WorkflowAgentModelUpdate(_Strict):
+    """Patch payload for `PATCH /api/workflows/{id}/agent-model`.
+
+    Slug is `provider:model` — e.g. `anthropic:claude-sonnet-4-6`,
+    `fireworks:kimi-k2p6`. Validated against the runtime-enabled
+    provider+model allowlist in `kernel/llm/providers.py`.
+    """
+
+    agent_model_id: str = Field(min_length=3, max_length=256)
+
+
+class ProviderModels(_Strict):
+    """One entry in the `GET /api/models` response.
+
+    `id` is the slug prefix. `label` is the human display string. `models`
+    are the operator-enabled models for this provider.
+    """
+
+    id: str
+    label: str
+    models: list[str]
+
+
+class ModelCatalog(_Strict):
+    """Response for `GET /api/models`.
+
+    Listed in the order declared in `kernel/llm/providers.PROVIDERS`.
+    The web form renders each entry as an `<optgroup label={label}>`.
+    """
+
+    providers: list[ProviderModels]
 
 
 class WorkflowDeleteResponse(_Strict):
