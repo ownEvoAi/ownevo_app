@@ -18,7 +18,9 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
 
+from ...audit import append_audit_entry
 from ...design_agent.log import load_design_agent_log
+from ...llm import is_model_allowed
 from ...nl_gen.design_brief_context import (
     EVAL_CASE_DIMENSIONS,
     METRIC_DIMENSIONS,
@@ -29,6 +31,7 @@ from ...nl_gen.eval_generator import generate_eval_case_set
 from ...nl_gen.eval_persistence import persist_eval_case_set
 from ...nl_gen.metric_generator import generate_metric_definition
 from ...nl_gen.sim_generator import generate_simulation_plan
+from ...types import AuditKind
 from .._anthropic_client import build_async_anthropic
 from ..deps import ConnDep, DemoModeCheck, PoolDep
 from ..jsonb import decode_jsonb_obj
@@ -49,6 +52,7 @@ from ..models import (
     RunIterationResponse,
     TryItRequest,
     TryItResponse,
+    WorkflowAgentModelUpdate,
     WorkflowAnatomy,
     WorkflowDeleteResponse,
     WorkflowList,
@@ -144,7 +148,8 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         """
         SELECT id, description, mode::text AS mode, kind, spec,
                simulation_plan, metric_definition,
-               created_from_template, design_agent_log
+               created_from_template, design_agent_log,
+               agent_model_id
         FROM workflows
         WHERE id = $1
         """,
@@ -165,6 +170,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         spec=spec,
         simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
         metric_definition=decode_jsonb_obj(row["metric_definition"]),
+        agent_model_id=row["agent_model_id"],
         created_from_template=row["created_from_template"],
         design_agent_log=decode_jsonb_obj(row["design_agent_log"]),
     )
@@ -1240,7 +1246,7 @@ async def update_workflow(
         WHERE id = $1
         RETURNING id, description, mode::text AS mode, kind, spec,
                   simulation_plan, metric_definition,
-                  created_from_template
+                  created_from_template, agent_model_id
         """,
         workflow_id,
         payload.description.strip(),
@@ -1260,6 +1266,85 @@ async def update_workflow(
         simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
         metric_definition=decode_jsonb_obj(row["metric_definition"]),
         created_from_template=row["created_from_template"],
+        agent_model_id=row["agent_model_id"],
+    )
+
+
+@router.patch(
+    "/{workflow_id}/agent-model",
+    response_model=WorkflowAnatomy,
+)
+async def update_workflow_agent_model(
+    workflow_id: str,
+    payload: WorkflowAgentModelUpdate,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> WorkflowAnatomy:
+    """Switch the agent model for one workflow.
+
+    The slug is `provider:model` (e.g. `anthropic:claude-sonnet-4-6`).
+    Validated against the runtime-enabled allowlist defined by
+    `OWNEVO_PROVIDER_*_ENABLED` + `OWNEVO_PROVIDER_*_MODELS` env vars.
+    A 422 response means the operator hasn't enabled that pair via
+    `.env`; rejected slugs never reach the DB.
+
+    On success, the change is recorded as a hash-chained audit entry
+    of kind `workflow-agent-model-changed`. Phase 2 will wire the
+    chosen slug through the iteration runner; today the column persists
+    + audits but the loop still uses `OWNEVO_LLM_MODEL`.
+    """
+    new_slug = payload.agent_model_id.strip()
+    if not is_model_allowed(new_slug):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Model not enabled. Set the provider's "
+                "OWNEVO_PROVIDER_*_ENABLED + OWNEVO_PROVIDER_*_MODELS "
+                "env vars and restart the kernel."
+            ),
+        )
+
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """
+            UPDATE workflows
+            SET agent_model_id = $2
+            WHERE id = $1
+            RETURNING id, description, mode::text AS mode, kind, spec,
+                      simulation_plan, metric_definition,
+                      created_from_template, design_agent_log,
+                      agent_model_id
+            """,
+            workflow_id,
+            new_slug,
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found",
+            )
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.WORKFLOW_AGENT_MODEL_CHANGED,
+            payload={
+                "workflow_id": row["id"],
+                "agent_model_id": row["agent_model_id"],
+            },
+            actor="api:patch-agent-model",
+        )
+
+    spec = decode_jsonb_obj(row["spec"]) or {}
+    return WorkflowAnatomy(
+        id=row["id"],
+        description=row["description"],
+        mode=row["mode"],
+        kind=row["kind"],
+        spec=spec,
+        simulation_plan=decode_jsonb_obj(row["simulation_plan"]),
+        metric_definition=decode_jsonb_obj(row["metric_definition"]),
+        created_from_template=row["created_from_template"],
+        design_agent_log=decode_jsonb_obj(row["design_agent_log"]),
+        agent_model_id=row["agent_model_id"],
     )
 
 

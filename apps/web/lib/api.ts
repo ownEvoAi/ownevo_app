@@ -804,6 +804,40 @@ export interface WorkflowAnatomy {
   /** Design-agent discovery transcript + ambiguity report; null when the
    * workflow was authored without running the discovery interview. */
   design_agent_log: DesignAgentLog | null
+  /** Provider-prefixed agent-model slug, e.g. 'anthropic:claude-sonnet-4-6'.
+   * Defaults to 'anthropic:claude-sonnet-4-6' on rows that pre-date migration
+   * 0014 / never went through the picker. Validated against the runtime
+   * `OWNEVO_PROVIDER_*` env allowlist on PATCH. */
+  agent_model_id: string
+}
+
+/** Single provider entry in the `/api/models` response — one `<optgroup>`. */
+export interface ProviderModels {
+  id: string
+  label: string
+  models: string[]
+}
+
+export interface ModelCatalog {
+  providers: ProviderModels[]
+}
+
+export async function getModelCatalog(): Promise<ModelCatalog> {
+  return jsonFetch<ModelCatalog>('/api/models')
+}
+
+export async function updateWorkflowAgentModel(
+  workflowId: string,
+  agentModelId: string,
+): Promise<WorkflowAnatomy> {
+  return jsonFetch<WorkflowAnatomy>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/agent-model`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent_model_id: agentModelId }),
+    },
+  )
 }
 
 // cache() deduplicates calls with the same workflowId within one render pass.
