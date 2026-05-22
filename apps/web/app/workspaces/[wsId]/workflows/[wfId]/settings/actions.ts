@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import {
   deleteWorkflow as deleteWorkflowApi,
   KernelApiError,
+  updateWorkflowAgentModel,
   updateWorkflowDescription,
   type WorkflowDeleteResponse,
 } from '@/lib/api'
@@ -47,6 +48,41 @@ export async function updateDescriptionAction(
   revalidatePath(`/workspaces/${input.wsId}`)
   return { ok: true }
 }
+
+interface UpdateAgentModelInput {
+  wsId: string
+  wfId: string
+  agentModelId: string
+}
+
+export async function updateAgentModelAction(
+  input: UpdateAgentModelInput,
+): Promise<UpdateResult> {
+  const slug = input.agentModelId.trim()
+  if (!slug.includes(':')) {
+    return {
+      ok: false,
+      error: 'Model id must be a provider:model slug.',
+    }
+  }
+  try {
+    await updateWorkflowAgentModel(input.wfId, slug)
+  } catch (err) {
+    if (err instanceof KernelApiError) {
+      return { ok: false, error: err.detail }
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+
+  // Settings page reads agent_model_id; Audit tab will pick up the
+  // new audit_entries row on its own server fetch.
+  revalidatePath(`/workspaces/${input.wsId}/workflows/${input.wfId}`, 'layout')
+  return { ok: true }
+}
+
 
 interface DeleteWorkflowInput {
   wsId: string

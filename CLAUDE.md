@@ -75,6 +75,36 @@ Forced-tool-use `predict_label(value: bool)` per case; orthogonal to the multi-t
 - API-format-load-bearing: `qwen/qwen3.5-9b` is 0/3 via OpenAI but 3/3 via Anthropic `/v1/messages`.
 - The qwen3.5 / qwen3.6 lineage embeds thinking deeper than the directive can override. qwen3-base + qwen3-coder ARE unlocked.
 
+## OSS-friendly diffs
+
+This repo is the public reference implementation. Anything that ships in a
+tracked file — code, comments, tests, docstrings, fixture text, PR bodies,
+CHANGELOG entries — has to read cleanly for an external reader who has no
+access to private context.
+
+Comments and docstrings should describe **what the code does and why**, in
+self-contained terms. They should not reference:
+
+- Sibling repositories in the parent workspace
+- Personal or machine-local paths
+- Internal planning systems (private design docs, ticket IDs, week numbers,
+  authoring artifacts not in this repo)
+- Audience framing that assumes the reader is part of the team's pitch or
+  investor context
+
+Wrong: a comment that anchors itself to an external artifact a public reader
+cannot see (`# matches the script we recorded`, `# per W6.4 plan`).
+Right: the same comment rewritten as a self-contained explanation of why the
+code is shaped the way it is (`# labels are concrete named patterns so the
+failures page renders realistic content`).
+
+Private context that a teammate genuinely needs goes in `CLAUDE.local.md`
+(gitignored) — not in tracked files here.
+
+This rule applies to every PR. Audit before committing; the specific patterns
+to grep for are listed in `CLAUDE.local.md` so they themselves stay out of
+the public diff.
+
 ## Out of scope
 
 Multiple framework integrations beyond Claude Agent SDK, self-evolving harness, custom Rust gateway, knowledge ingestion connectors, mobile UI, skills marketplace.

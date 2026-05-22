@@ -97,6 +97,7 @@ class AuditKind(StrEnum):
     # row carrying the AmbiguityReport at WorkflowSpec finalization time.
     DESIGN_AGENT_NEGOTIATION = "design-agent-negotiation"
     DESIGN_AGENT_AMBIGUITY = "design-agent-ambiguity"
+    WORKFLOW_AGENT_MODEL_CHANGED = "workflow-agent-model-changed"
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ class Workflow(_Base):
     sim_skill_id: str | None = None
     meta_eval_score: float | None = Field(default=None, ge=0.0, le=1.0)
     mode: WorkflowMode = WorkflowMode.GATED
+    agent_model_id: str = "anthropic:claude-sonnet-4-6"
     created_at: datetime
 
 

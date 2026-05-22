@@ -33,6 +33,7 @@ const KIND_TONE: Record<string, string> = {
   'deployment-updated': 'amber',
   'design-agent-negotiation': 'outline',
   'design-agent-ambiguity': 'amber',
+  'workflow-agent-model-changed': 'accent',
 }
 
 const DISCOVERY_KIND_LABEL: Record<DesignAgentLogEntry['kind'], string> = {

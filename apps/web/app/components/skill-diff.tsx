@@ -204,6 +204,6 @@ const codeBoxStyle: React.CSSProperties = {
   lineHeight: 1.65,
   fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
   margin: 0,
-  whiteSpace: 'pre',
-  overflowX: 'auto',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
 }
