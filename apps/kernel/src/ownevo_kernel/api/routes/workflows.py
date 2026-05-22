@@ -1296,12 +1296,8 @@ async def update_workflow_agent_model(
     new_slug = payload.agent_model_id.strip()
     if not is_model_allowed(new_slug):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Model not enabled. Set the provider's "
-                "OWNEVO_PROVIDER_*_ENABLED + OWNEVO_PROVIDER_*_MODELS "
-                "env vars and restart the kernel."
-            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Model not available. Contact your administrator to enable it.",
         )
 
     async with conn.transaction():

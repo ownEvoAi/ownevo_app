@@ -14,13 +14,14 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ...llm import enabled_providers
+from ..deps import DemoModeCheck
 from ..models import ModelCatalog, ProviderModels
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 @router.get("", response_model=ModelCatalog)
-async def list_models() -> ModelCatalog:
+async def list_models(_: DemoModeCheck) -> ModelCatalog:
     """Grouped provider+model catalog the picker UI reads.
 
     Order follows the declaration in `PROVIDERS`; providers with an

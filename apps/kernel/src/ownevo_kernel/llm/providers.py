@@ -131,6 +131,10 @@ def enabled_providers(
     return out
 
 
+# Frozenset of all known provider IDs — built once at import, used by parse_slug.
+_KNOWN_PROVIDER_IDS: frozenset[str] = frozenset(p.id for p in PROVIDERS)
+
+
 def parse_slug(slug: str) -> tuple[ProviderId, str]:
     """Split a `provider:model` slug into its parts.
 
@@ -146,8 +150,7 @@ def parse_slug(slug: str) -> tuple[ProviderId, str]:
     provider_part, _, model_part = slug.partition(":")
     if not provider_part or not model_part:
         raise ValueError(f"agent model slug has empty side: {slug!r}")
-    known = {p.id for p in PROVIDERS}
-    if provider_part not in known:
+    if provider_part not in _KNOWN_PROVIDER_IDS:
         raise ValueError(
             f"unknown provider {provider_part!r} in slug {slug!r}"
         )

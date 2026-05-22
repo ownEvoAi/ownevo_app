@@ -24,21 +24,31 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
   let agentModelId: string | null = null
   let providers: ProviderModels[] = []
   let apiError: { title: string; detail: string } | null = null
+  let catalogError = false
 
-  try {
-    const [anatomy, catalog] = await Promise.all([
-      getWorkflowAnatomy(wfId),
-      getModelCatalog(),
-    ])
-    description = anatomy.description
-    agentModelId = anatomy.agent_model_id
-    providers = catalog.providers
-  } catch (err) {
+  // Use allSettled so a /api/models glitch doesn't take down the
+  // description form — each fetch fails independently.
+  const [anatomyResult, catalogResult] = await Promise.allSettled([
+    getWorkflowAnatomy(wfId),
+    getModelCatalog(),
+  ])
+
+  if (anatomyResult.status === 'fulfilled') {
+    description = anatomyResult.value.description
+    agentModelId = anatomyResult.value.agent_model_id
+  } else {
+    const err = anatomyResult.reason
     if (err instanceof KernelApiError && err.status === 404) {
       apiError = { title: 'Workflow not registered.', detail: err.detail }
     } else {
       apiError = kernelError(err)
     }
+  }
+
+  if (catalogResult.status === 'fulfilled') {
+    providers = catalogResult.value.providers
+  } else {
+    catalogError = true
   }
 
   return (
@@ -56,12 +66,19 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
             wfId={wfId}
             initialDescription={description}
           />
-          <ModelPickerForm
-            wsId={wsId}
-            wfId={wfId}
-            initialAgentModelId={agentModelId}
-            providers={providers}
-          />
+          {catalogError ? (
+            <div role="alert" className="api-banner">
+              <strong>Model catalog unavailable.</strong> Could not load the
+              provider list from the kernel. Restart the kernel or check logs.
+            </div>
+          ) : (
+            <ModelPickerForm
+              wsId={wsId}
+              wfId={wfId}
+              initialAgentModelId={agentModelId}
+              providers={providers}
+            />
+          )}
           <DeleteWorkflowForm wsId={wsId} wfId={wfId} />
         </div>
       ) : null}

@@ -7,12 +7,14 @@ green.
 
 from __future__ import annotations
 
+import json
 import os
 
 import asyncpg
 import httpx
 import pytest
 from ownevo_kernel.db import ENV_VAR
+from ownevo_kernel.llm import PROVIDERS
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
@@ -20,22 +22,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-_PROVIDER_ENVS = (
-    "OWNEVO_PROVIDER_ANTHROPIC_ENABLED",
-    "OWNEVO_PROVIDER_ANTHROPIC_MODELS",
-    "OWNEVO_PROVIDER_OPENAI_ENABLED",
-    "OWNEVO_PROVIDER_OPENAI_MODELS",
-    "OWNEVO_PROVIDER_XAI_ENABLED",
-    "OWNEVO_PROVIDER_XAI_MODELS",
-    "OWNEVO_PROVIDER_GEMINI_ENABLED",
-    "OWNEVO_PROVIDER_GEMINI_MODELS",
-    "OWNEVO_PROVIDER_FIREWORKS_ENABLED",
-    "OWNEVO_PROVIDER_FIREWORKS_MODELS",
-    "OWNEVO_PROVIDER_OPENROUTER_ENABLED",
-    "OWNEVO_PROVIDER_OPENROUTER_MODELS",
-    "OWNEVO_PROVIDER_OLLAMA_ENABLED",
-    "OWNEVO_PROVIDER_OLLAMA_MODELS",
-)
+# Derived from PROVIDERS so adding a new provider automatically covers cleanup.
+_PROVIDER_ENVS = tuple(name for p in PROVIDERS for name in (p.enabled_env, p.models_env))
 
 
 @pytest.fixture
@@ -164,9 +152,7 @@ async def test_patch_agent_model_happy_path(
     assert len(audit_rows) == 1
     row = audit_rows[0]
     assert row["actor"] == "api:patch-agent-model"
-    import json as _json
-
-    payload = _json.loads(row["payload"])
+    payload = json.loads(row["payload"])
     assert payload["workflow_id"] == "wf-swap"
     assert payload["agent_model_id"] == "anthropic:claude-opus-4-7"
 
@@ -188,7 +174,7 @@ async def test_patch_rejects_disabled_provider(
         "/api/workflows/wf-blocked/agent-model",
         json={"agent_model_id": "fireworks:kimi-k2p6"},
     )
-    assert res.status_code == 422
+    assert res.status_code == 400
     # Row unchanged
     stored = await db.fetchval(
         "SELECT agent_model_id FROM workflows WHERE id = $1",
@@ -213,7 +199,7 @@ async def test_patch_rejects_unknown_model_under_enabled_provider(
         "/api/workflows/wf-unknown/agent-model",
         json={"agent_model_id": "anthropic:claude-haiku-4-5"},
     )
-    assert res.status_code == 422
+    assert res.status_code == 400
 
 
 async def test_patch_rejects_malformed_slug(
@@ -232,7 +218,7 @@ async def test_patch_rejects_malformed_slug(
         "/api/workflows/wf-bad/agent-model",
         json={"agent_model_id": "no-colon-here"},
     )
-    assert res.status_code == 422
+    assert res.status_code == 400
 
 
 async def test_patch_404_on_unknown_workflow(
