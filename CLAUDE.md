@@ -88,7 +88,7 @@ self-contained terms. They should not reference:
 - Sibling repositories in the parent workspace
 - Personal or machine-local paths
 - Internal planning systems (private design docs, ticket IDs, week numbers,
-  pitch artifacts, recording scripts)
+  authoring artifacts not in this repo)
 - Audience framing that assumes the reader is part of the team's pitch or
   investor context
 
