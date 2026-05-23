@@ -18,11 +18,13 @@ export function ModelPickerForm({
   wfId,
   initialAgentModelId,
   providers,
+  readOnly = false,
 }: {
   wsId: string
   wfId: string
   initialAgentModelId: string
   providers: ProviderModels[]
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -62,10 +64,11 @@ export function ModelPickerForm({
       <div className="settings-card-header">
         <h2 className="settings-card-title">Agent model</h2>
         <p className="settings-card-subtitle">
-          Which LLM the agent solver uses for this workflow. The list
-          below is the union of providers your operator has enabled via{' '}
-          <code>OWNEVO_PROVIDER_*</code> environment variables. Every
-          change is recorded in the append-only audit log.
+          {readOnly
+            ? 'Which LLM the agent solver uses for this workflow. The list below shows the available models — selection is view-only on this deployment.'
+            : 'Which LLM the agent solver uses for this workflow. The list below is the union of providers your operator has enabled via  '
+          }
+          {!readOnly && <><code>OWNEVO_PROVIDER_*</code>{' '}environment variables. Every change is recorded in the append-only audit log.</>}
         </p>
       </div>
 
@@ -85,10 +88,11 @@ export function ModelPickerForm({
             id="agent-model-select"
             value={selected}
             onChange={(e) => {
+              if (readOnly) return
               setSelected(e.target.value)
               if (savedAt) setSavedAt(null)
             }}
-            disabled={isPending}
+            disabled={isPending || readOnly}
             className="settings-select"
           >
             {/* Show the current selection even if it's no longer in the
@@ -122,28 +126,30 @@ export function ModelPickerForm({
         </>
       )}
 
-      <div className="settings-card-actions">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending || !dirty || empty}
-          className="btn btn-primary"
-        >
-          {isPending ? 'Saving…' : 'Save'}
-        </button>
-        {dirty && !isPending ? (
+      {!readOnly && (
+        <div className="settings-card-actions">
           <button
             type="button"
-            onClick={handleReset}
-            className="btn btn-secondary"
+            onClick={handleSave}
+            disabled={isPending || !dirty || empty}
+            className="btn btn-primary"
           >
-            Discard
+            {isPending ? 'Saving…' : 'Save'}
           </button>
-        ) : null}
-        {savedAt && !dirty ? (
-          <span className="settings-saved-cue">Saved.</span>
-        ) : null}
-      </div>
+          {dirty && !isPending ? (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="btn btn-secondary"
+            >
+              Discard
+            </button>
+          ) : null}
+          {savedAt && !dirty ? (
+            <span className="settings-saved-cue">Saved.</span>
+          ) : null}
+        </div>
+      )}
 
       {error ? (
         <p role="alert" className="settings-error">

@@ -497,3 +497,38 @@ fly-logs:
 # Open a shell on the kernel machine.
 fly-ssh:
 	flyctl ssh console -a ownevo-kernel
+
+# ----------------------------------------------------------------------------
+# Live demo operator tooling (signed-invite mint + revoke + budget gate)
+# ----------------------------------------------------------------------------
+# These targets are only useful on a deploy that runs with DEMO_MODE=true
+# and a token-quota gate on the design-agent + NL-gen routes. Mint
+# targets require OWNEVO_DEMO_SIGNING_KEY exported locally. Revoke and
+# budget targets require OWNEVO_DATABASE_URL pointed at the demo
+# Postgres (or the local dev DB for testing).
+#
+#   make demo-invite LABEL="acme-pilot" TIER=unlimited DAYS=60
+#   make demo-revoke JTI=abcd1234
+#   make demo-budget-cap NOTE="hit \$5 console cap at 14:32 UTC"
+#   make demo-budget-clear
+
+DEMO_BASE_URL ?= https://demo.ownevo.ai
+TIER          ?= elevated
+DAYS          ?= 30
+
+demo-invite:
+	@if [ -z "$(LABEL)" ]; then echo "usage: make demo-invite LABEL=... [TIER=elevated|unlimited] [DAYS=N] [DEMO_BASE_URL=...]"; exit 2; fi
+	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/mint_demo_invite.py \
+	    --label "$(LABEL)" --tier $(TIER) --days $(DAYS) --base-url $(DEMO_BASE_URL)
+
+demo-revoke:
+	@if [ -z "$(JTI)" ]; then echo "usage: make demo-revoke JTI=... [LABEL=...] [REASON=...]"; exit 2; fi
+	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/demo_admin.py revoke \
+	    --jti "$(JTI)" $(if $(LABEL),--label "$(LABEL)") $(if $(REASON),--reason "$(REASON)")
+
+demo-budget-cap:
+	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/demo_admin.py budget-cap \
+	    $(if $(NOTE),--note "$(NOTE)")
+
+demo-budget-clear:
+	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/demo_admin.py budget-clear

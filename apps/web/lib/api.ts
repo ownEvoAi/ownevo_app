@@ -240,6 +240,7 @@ export async function generateWorkflow(
   workflowId?: string,
   templateId?: string,
   designAgentLog?: DesignAgentLog | null,
+  cookieHeader?: string,
 ): Promise<GenerateWorkflowResponse> {
   const body: Record<string, unknown> = { description }
   if (workflowId) body.workflow_id = workflowId
@@ -248,6 +249,7 @@ export async function generateWorkflow(
   return jsonFetch<GenerateWorkflowResponse>('/api/nl-gen/generate', {
     method: 'POST',
     body: JSON.stringify(body),
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
   })
 }
 
@@ -358,6 +360,7 @@ export async function fetchNextDiscoveryQuestion(
   templateId: string | null,
   priorAnswers: PriorDiscoveryAnswer[],
   signal?: AbortSignal,
+  cookieHeader?: string,
 ): Promise<NextDiscoveryQuestionResponse> {
   return jsonFetch<NextDiscoveryQuestionResponse>('/api/design-agent/next-question', {
     method: 'POST',
@@ -366,6 +369,7 @@ export async function fetchNextDiscoveryQuestion(
       template_id: templateId,
       prior_answers: priorAnswers,
     }),
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     signal,
   })
 }

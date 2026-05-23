@@ -33,7 +33,7 @@ from ...nl_gen.metric_generator import generate_metric_definition
 from ...nl_gen.sim_generator import generate_simulation_plan
 from ...types import AuditKind
 from .._anthropic_client import build_async_anthropic
-from ..deps import ConnDep, DemoModeCheck, PoolDep
+from ..deps import ConnDep, DemoModeCheck, PoolDep, is_demo_mode
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
@@ -77,6 +77,10 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
 
     Sorted by `created_at ASC` so demand-prediction (the bootstrap
     workflow) ranks first; the demo flow follows that visual ordering.
+
+    Under ``DEMO_MODE=true`` the response excludes benchmark workflows
+    (``kind='benchmark'``) so the public demo never exposes M5 / τ³
+    surfaces. Production deploys return the full list.
     """
     rows = await conn.fetch(
         """
@@ -130,6 +134,8 @@ async def list_workflows(conn: ConnDep) -> WorkflowList:
         list(_PENDING_STATES),
     )
 
+    if is_demo_mode():
+        rows = [r for r in rows if r["kind"] != "benchmark"]
     items = [_row_to_summary(r) for r in rows]
     return WorkflowList(items=items, total=len(items))
 
@@ -157,6 +163,13 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
     )
     if row is None:
         # Static message — never reflect the user-supplied path param.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+    if is_demo_mode() and row["kind"] == "benchmark":
+        # Benchmark workflows are hidden from the public demo surface.
+        # Same opaque 404 as a missing row — never leak the kind.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow not found",

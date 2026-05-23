@@ -11,7 +11,7 @@ import {
   type NextDiscoveryQuestion,
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
-} from '@/lib/api'
+} from '@/lib/api-server'
 
 const _DISCOVERY_KINDS: ReadonlySet<DiscoveryQuestionKind> = new Set([
   'metric',

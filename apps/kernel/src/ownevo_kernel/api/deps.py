@@ -46,9 +46,14 @@ async def get_conn(pool: PoolDep) -> AsyncGenerator[asyncpg.Connection, None]:
 ConnDep = Annotated[asyncpg.Connection, Depends(get_conn)]
 
 
+def is_demo_mode() -> bool:
+    """True when this kernel is serving the public demo (``DEMO_MODE=true``)."""
+    return os.environ.get("DEMO_MODE", "").lower() == "true"
+
+
 def require_not_demo_mode() -> None:
     """Raise 503 when DEMO_MODE=true — blocks write ops on the live demo."""
-    if os.environ.get("DEMO_MODE", "").lower() == "true":
+    if is_demo_mode():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(

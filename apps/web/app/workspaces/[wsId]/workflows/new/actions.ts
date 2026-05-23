@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { generateWorkflow, KernelApiError } from '@/lib/api'
+import { generateWorkflow, KernelApiError } from '@/lib/api-server'
 
 export interface GenerateState {
   error: string | null

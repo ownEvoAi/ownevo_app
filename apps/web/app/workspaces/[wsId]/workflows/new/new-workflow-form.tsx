@@ -17,9 +17,14 @@ const initialState: GenerateState = { error: null }
 export function NewWorkflowForm({
   wsId,
   templates,
+  demoGate,
 }: {
   wsId: string
   templates: VerticalTemplate[]
+  // Server-rendered demo gate. When `disabled` is true, both CTAs render
+  // inert with `reason` as the tooltip — visitors never click into a
+  // call we already know will 429.
+  demoGate?: { disabled: boolean; reason: string | null }
 }) {
   const router = useRouter()
   const action = generateWorkflowAction.bind(null, wsId)
@@ -46,7 +51,9 @@ export function NewWorkflowForm({
       router.push(href)
     })
   }
-  const canRunDiscovery = description.trim().length >= 50 && !discoveryPending
+  const demoBlocked = demoGate?.disabled ?? false
+  const canRunDiscovery =
+    description.trim().length >= 50 && !discoveryPending && !demoBlocked
 
   const pickTemplate = (t: VerticalTemplate) => {
     setSelectedTemplateId(t.id)
@@ -180,11 +187,13 @@ export function NewWorkflowForm({
             aria-disabled={!canRunDiscovery}
             aria-busy={discoveryPending}
             title={
-              discoveryPending
-                ? 'Starting the design agent — first question takes about 10s'
-                : canRunDiscovery
-                  ? 'Run a 1–2 minute discovery interview before generating'
-                  : 'Write a description (50+ characters) first'
+              demoBlocked
+                ? (demoGate?.reason ?? 'Demo quota exhausted.')
+                : discoveryPending
+                  ? 'Starting the design agent — first question takes about 10s'
+                  : canRunDiscovery
+                    ? 'Run a 1–2 minute discovery interview before generating'
+                    : 'Write a description (50+ characters) first'
             }
           >
             {discoveryPending ? (
@@ -196,7 +205,11 @@ export function NewWorkflowForm({
               <>Design with agent &rsaquo;</>
             )}
           </button>
-          <SubmitButton discoveryPending={discoveryPending} />
+          <SubmitButton
+            discoveryPending={discoveryPending}
+            demoBlocked={demoBlocked}
+            demoReason={demoGate?.reason ?? null}
+          />
           <span className="kbd-hint">
             <kbd>⌘</kbd>
             <kbd>↵</kbd> to generate
@@ -215,11 +228,25 @@ export function NewWorkflowForm({
 // can read that from a config endpoint and replace this constant.
 const NL_GEN_ETA_SECONDS = 30
 
-function SubmitButton({ discoveryPending }: { discoveryPending: boolean }) {
+function SubmitButton({
+  discoveryPending,
+  demoBlocked,
+  demoReason,
+}: {
+  discoveryPending: boolean
+  demoBlocked: boolean
+  demoReason: string | null
+}) {
   const { pending } = useFormStatus()
-  const isDisabled = pending || discoveryPending
+  const isDisabled = pending || discoveryPending || demoBlocked
   return (
-    <button type="submit" className="btn btn-primary" disabled={isDisabled} aria-disabled={isDisabled}>
+    <button
+      type="submit"
+      className="btn btn-primary"
+      disabled={isDisabled}
+      aria-disabled={isDisabled}
+      title={demoBlocked ? (demoReason ?? 'Demo quota exhausted.') : undefined}
+    >
       {pending ? (
         <>
           <span className="spinner" aria-hidden /> Generating spec — ~{NL_GEN_ETA_SECONDS}s
