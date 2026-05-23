@@ -149,11 +149,23 @@ async def list_audit(
 
 
 @router.get("/export")
-async def export_chain(conn: ConnDep) -> Response:
+async def export_chain(
+    conn: ConnDep,
+    workflow_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description=(
+            "When present, restrict the export to entries whose related_id ties "
+            "back to this workflow (iterations, proposals, clusters) or whose "
+            "payload carries `workflow_id` directly. Uses the same filter logic "
+            "as GET /api/audit?workflow_id=."
+        ),
+    ),
+) -> Response:
     """Download the audit log as canonical JSON (capped at 100 000 entries).
 
-    Backs the "Export chain" button on the audit page. Bytes are the
-    sorted-keys + no-whitespace form produced by `to_canonical_json`;
+    Backs the "Export chain" button on the audit and per-workflow audit pages.
+    Bytes are the sorted-keys + no-whitespace form produced by `to_canonical_json`;
     the same form `verify_chain` measures with `canonical_export_bytes`.
     Two exports taken at different times diff cleanly — only the
     appended entries change.
@@ -164,9 +176,37 @@ async def export_chain(conn: ConnDep) -> Response:
     """
     entries = await export_audit_log(conn, max_rows=_AUDIT_EXPORT_MAX_ROWS)
     truncated = len(entries) == _AUDIT_EXPORT_MAX_ROWS
+
+    if workflow_id is not None:
+        related_rows = await conn.fetch(
+            """
+            SELECT id FROM iterations WHERE workflow_id = $1
+            UNION ALL
+            SELECT p.id FROM proposals p
+              JOIN iterations i ON i.id = p.iteration_id
+              WHERE i.workflow_id = $1
+            UNION ALL
+            SELECT id FROM failure_clusters WHERE workflow_id = $1
+            """,
+            workflow_id,
+        )
+        wf_related_ids = {r["id"] for r in related_rows}
+        entries = [
+            e for e in entries
+            if (e.related_id is not None and e.related_id in wf_related_ids)
+            or (
+                isinstance(e.payload, dict)
+                and e.payload.get("workflow_id") == workflow_id
+            )
+        ]
+        # Truncation flag reflects the unfiltered cap, not the filtered count.
+        # A per-workflow export is always a strict subset of the cap, so a
+        # truncated workspace export still means some entries may be missing.
+
     body = to_canonical_json(entries)
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-    filename = f"audit-chain-{timestamp}.json"
+    suffix = f"-wf-{workflow_id[:8]}" if workflow_id else ""
+    filename = f"audit-chain{suffix}-{timestamp}.json"
     headers: dict[str, str] = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "no-store",

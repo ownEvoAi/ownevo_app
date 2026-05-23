@@ -90,6 +90,13 @@ export default async function WorkflowAuditPage({ params }: PageProps) {
           </p>
         </div>
         <div className="page-actions">
+          <a
+            href={`/workspaces/${wsId}/workflows/${wfId}/audit/export`}
+            className="btn btn-secondary"
+            download
+          >
+            Export chain
+          </a>
           <Link
             href={`/workspaces/${wsId}/audit`}
             className="btn btn-secondary"
