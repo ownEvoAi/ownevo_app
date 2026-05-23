@@ -15,7 +15,7 @@ default cloud endpoint.
 Pointing the kernel at a self-hosted endpoint:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://192.168.1.50:1234   # LMS Anthropic-compat
+export ANTHROPIC_BASE_URL=http://<your-inference-host>:1234   # LMS Anthropic-compat
 docker compose up -d --force-recreate kernel
 ```
 

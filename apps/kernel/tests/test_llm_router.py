@@ -142,7 +142,7 @@ def test_router_dispatches_ollama_without_api_key():
     env = _env(
         OWNEVO_PROVIDER_OLLAMA_ENABLED="true",
         OWNEVO_PROVIDER_OLLAMA_MODELS="qwen3-coder:30b",
-        OWNEVO_LLM_HOST="192.168.1.50",
+        OWNEVO_LLM_HOST="127.0.0.1",
     )
     handle = build_chat_client("ollama:qwen3-coder:30b", env=env)
     assert handle.model == "qwen3-coder:30b"
@@ -158,13 +158,13 @@ def test_router_dispatches_local_via_explicit_base_url():
     env = _env(
         OWNEVO_PROVIDER_LOCAL_ENABLED="true",
         OWNEVO_PROVIDER_LOCAL_MODELS="qwen/qwen3.6-35b-a3b",
-        OWNEVO_LOCAL_BASE_URL="http://192.168.1.50:1234/v1",
+        OWNEVO_LOCAL_BASE_URL="http://127.0.0.1:1234/v1",
     )
     handle = build_chat_client("local:qwen/qwen3.6-35b-a3b", env=env)
     assert handle.model == "qwen/qwen3.6-35b-a3b"
     assert handle.anthropic_client is None
     assert handle.openai_client is not None
-    assert "192.168.1.50" in str(handle.openai_client.base_url)
+    assert "127.0.0.1" in str(handle.openai_client.base_url)
 
 
 def test_router_dispatches_local_falls_back_to_llm_host():
