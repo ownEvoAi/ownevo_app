@@ -27,8 +27,8 @@ ProviderId = Literal[
     "openai",
     "xai",
     "gemini",
-    "fireworks",
     "openrouter",
+    "local",
     "ollama",
 ]
 
@@ -76,20 +76,20 @@ PROVIDERS: Final[tuple[ProviderConfig, ...]] = (
         models_env="OWNEVO_PROVIDER_GEMINI_MODELS",
     ),
     ProviderConfig(
-        id="fireworks",
-        label="Fireworks",
-        enabled_env="OWNEVO_PROVIDER_FIREWORKS_ENABLED",
-        models_env="OWNEVO_PROVIDER_FIREWORKS_MODELS",
-    ),
-    ProviderConfig(
         id="openrouter",
         label="OpenRouter",
         enabled_env="OWNEVO_PROVIDER_OPENROUTER_ENABLED",
         models_env="OWNEVO_PROVIDER_OPENROUTER_MODELS",
     ),
     ProviderConfig(
+        id="local",
+        label="Local / Custom OpenAI",
+        enabled_env="OWNEVO_PROVIDER_LOCAL_ENABLED",
+        models_env="OWNEVO_PROVIDER_LOCAL_MODELS",
+    ),
+    ProviderConfig(
         id="ollama",
-        label="Ollama (local)",
+        label="Local (Ollama)",
         enabled_env="OWNEVO_PROVIDER_OLLAMA_ENABLED",
         models_env="OWNEVO_PROVIDER_OLLAMA_MODELS",
     ),

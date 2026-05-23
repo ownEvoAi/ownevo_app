@@ -105,13 +105,6 @@ def test_router_dispatches_openai_with_default_base_url():
             "generativelanguage.googleapis.com",
         ),
         (
-            "fireworks",
-            "kimi-k2",
-            "FIREWORKS_API_KEY",
-            "test-fireworks-key",
-            "api.fireworks.ai",
-        ),
-        (
             "openrouter",
             "moonshotai/kimi-k2",
             "OPENROUTER_API_KEY",
@@ -158,6 +151,44 @@ def test_router_dispatches_ollama_without_api_key():
     # OllamaChatClient stores the cleaned api base internally; just
     # verify it isn't the default openai endpoint.
     assert "ollama" in type(handle.openai_client).__name__.lower()
+
+
+def test_router_dispatches_local_via_explicit_base_url():
+    pytest.importorskip("openai")
+    env = _env(
+        OWNEVO_PROVIDER_LOCAL_ENABLED="true",
+        OWNEVO_PROVIDER_LOCAL_MODELS="qwen/qwen3.6-35b-a3b",
+        OWNEVO_LOCAL_BASE_URL="http://192.168.1.50:1234/v1",
+    )
+    handle = build_chat_client("local:qwen/qwen3.6-35b-a3b", env=env)
+    assert handle.model == "qwen/qwen3.6-35b-a3b"
+    assert handle.anthropic_client is None
+    assert handle.openai_client is not None
+    assert "192.168.1.50" in str(handle.openai_client.base_url)
+
+
+def test_router_dispatches_local_falls_back_to_llm_host():
+    pytest.importorskip("openai")
+    env = _env(
+        OWNEVO_PROVIDER_LOCAL_ENABLED="true",
+        OWNEVO_PROVIDER_LOCAL_MODELS="qwen/qwen3.6-35b-a3b",
+        OWNEVO_LLM_HOST="10.0.0.5",
+    )
+    env.pop("OWNEVO_LOCAL_BASE_URL", None)
+    handle = build_chat_client("local:qwen/qwen3.6-35b-a3b", env=env)
+    assert "10.0.0.5" in str(handle.openai_client.base_url)
+
+
+def test_router_dispatches_local_defaults_to_localhost():
+    pytest.importorskip("openai")
+    env = _env(
+        OWNEVO_PROVIDER_LOCAL_ENABLED="true",
+        OWNEVO_PROVIDER_LOCAL_MODELS="qwen/qwen3.6-35b-a3b",
+    )
+    env.pop("OWNEVO_LOCAL_BASE_URL", None)
+    env.pop("OWNEVO_LLM_HOST", None)
+    handle = build_chat_client("local:qwen/qwen3.6-35b-a3b", env=env)
+    assert "localhost" in str(handle.openai_client.base_url)
 
 
 # ---------------------------------------------------------------------------

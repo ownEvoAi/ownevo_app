@@ -67,13 +67,13 @@ _ROUTES: dict[str, _ProviderRoute] = {
         api_key_env="GEMINI_API_KEY",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     ),
-    "fireworks": _ProviderRoute(
-        api_key_env="FIREWORKS_API_KEY",
-        base_url="https://api.fireworks.ai/inference/v1",
-    ),
     "openrouter": _ProviderRoute(
         api_key_env="OPENROUTER_API_KEY",
         base_url="https://openrouter.ai/api/v1",
+    ),
+    "local": _ProviderRoute(
+        api_key_env="",  # Keyless by default; OWNEVO_LOCAL_BASE_URL sets the endpoint.
+        base_url=None,   # Resolved at dispatch time from env.
     ),
     "ollama": _ProviderRoute(
         api_key_env="",  # Ollama is keyless (LAN daemon).
@@ -195,7 +195,27 @@ def build_chat_client(
             openai_client=OllamaChatClient(base_url=base_url),
         )
 
-    # OpenAI-compat providers (openai / xai / gemini / fireworks / openrouter).
+    if provider_id == "local":
+        from openai import AsyncOpenAI
+
+        # OWNEVO_LOCAL_BASE_URL is the OpenAI-compat base URL for any
+        # self-hosted or on-premise inference server (LM Studio, vLLM,
+        # llama.cpp server, etc.). Falls back to OWNEVO_LLM_BASE_URL so
+        # operators who already set that variable get continuity. A dummy
+        # api_key is required by the SDK but not sent when connecting to
+        # keyless servers.
+        base_url = (
+            source.get("OWNEVO_LOCAL_BASE_URL")
+            or source.get("OWNEVO_LLM_BASE_URL")
+            or f"http://{source.get('OWNEVO_LLM_HOST') or 'localhost'}:1234/v1"
+        )
+        api_key = source.get("OWNEVO_LOCAL_API_KEY") or "local"
+        return ChatClientHandle(
+            model=model,
+            openai_client=AsyncOpenAI(api_key=api_key, base_url=base_url),
+        )
+
+    # OpenAI-compat providers (openai / xai / gemini / openrouter).
     from openai import AsyncOpenAI
 
     if route.base_url:
