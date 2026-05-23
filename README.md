@@ -55,13 +55,7 @@ Detailed system tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Captured from a local `make seed-demo-with-iter` run — no editing, no mockup layer.
 
-**The improvement curve** — val_score climbing across four iterations of `demand-prediction`: iter #0 gate-blocked, iters #1–3 gate-passed. The lift chart is the headline product artifact — a domain expert sees this go up over weeks of operation, not minutes.
-
-<p align="center">
-  <img src="docs/img/lift-chart.png" alt="Lift chart — val_score climbing 0.46 → 0.65 → 0.77 → 0.80 across 4 iterations" width="820">
-</p>
-
-**Workflow overview** — plain-English description, the improvement curve in context, recorded iterations, and the agent's anatomy (skills, tools, reviewer, success metric) on a single page.
+**Workflow overview** — plain-English description, the improvement curve (val_score climbing 0.46 → 0.65 → 0.77 → 0.80 across four iterations of `demand-prediction` — iter #0 gate-blocked, iters #1–3 gate-passed), recorded iterations, and the agent's anatomy (skills, tools, reviewer, success metric) on a single page.
 
 <p align="center">
   <img src="docs/img/workflow-overview.png" alt="Workflow overview — description, improvement curve, iteration list, agent anatomy" width="820">
