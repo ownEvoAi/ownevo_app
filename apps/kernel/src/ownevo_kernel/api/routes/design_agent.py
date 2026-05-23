@@ -362,16 +362,22 @@ async def next_question(
                     answered_count=answered_count,
                 )
         finally:
+            # Swallow DB errors so a transient Postgres issue never replaces
+            # an informative LLM error with an opaque 500. Best-effort only —
+            # Anthropic already billed for whatever rounds completed.
             if demo is not None and (
                 accountant.input_tokens or accountant.output_tokens
             ):
-                async with request.app.state.pool.acquire() as _usage_conn:
-                    await record_demo_usage(
-                        _usage_conn,
-                        demo,
-                        input_tokens=accountant.input_tokens,
-                        output_tokens=accountant.output_tokens,
-                    )
+                try:
+                    async with request.app.state.pool.acquire() as _usage_conn:
+                        await record_demo_usage(
+                            _usage_conn,
+                            demo,
+                            input_tokens=accountant.input_tokens,
+                            output_tokens=accountant.output_tokens,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass  # best-effort
 
     # --- Hardcoded fallback ---
     # Legacy template walk: pick the lowest unanswered positional index.

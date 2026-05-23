@@ -324,14 +324,19 @@ async def generate_workflow(
     finally:
         # Record tokens even if the LLM call raised — Anthropic already
         # billed for whatever rounds completed before the failure.
+        # Swallow DB errors here so a transient Postgres issue never
+        # replaces an informative 502/429 with an opaque 500.
         if demo is not None and (accountant.input_tokens or accountant.output_tokens):
-            async with request.app.state.pool.acquire() as _usage_conn:
-                await record_demo_usage(
-                    _usage_conn,
-                    demo,
-                    input_tokens=accountant.input_tokens,
-                    output_tokens=accountant.output_tokens,
-                )
+            try:
+                async with request.app.state.pool.acquire() as _usage_conn:
+                    await record_demo_usage(
+                        _usage_conn,
+                        demo,
+                        input_tokens=accountant.input_tokens,
+                        output_tokens=accountant.output_tokens,
+                    )
+            except Exception:  # noqa: BLE001
+                pass  # best-effort; Anthropic already billed
 
     workflow_id = body.workflow_id or spec.id
 

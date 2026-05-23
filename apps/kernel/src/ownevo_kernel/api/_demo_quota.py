@@ -35,18 +35,24 @@ def limit_for_tier(tier: str) -> int | None:
     if tier == "unlimited":
         return None
     if tier == "elevated":
+        try:
+            return int(
+                os.environ.get(
+                    "OWNEVO_DEMO_ELEVATED_TOKENS_PER_DAY",
+                    DEFAULT_ELEVATED_LIMIT,
+                )
+            )
+        except ValueError:
+            return DEFAULT_ELEVATED_LIMIT
+    try:
         return int(
             os.environ.get(
-                "OWNEVO_DEMO_ELEVATED_TOKENS_PER_DAY",
-                DEFAULT_ELEVATED_LIMIT,
+                "OWNEVO_DEMO_ANON_TOKENS_PER_DAY",
+                DEFAULT_ANON_LIMIT,
             )
         )
-    return int(
-        os.environ.get(
-            "OWNEVO_DEMO_ANON_TOKENS_PER_DAY",
-            DEFAULT_ANON_LIMIT,
-        )
-    )
+    except ValueError:
+        return DEFAULT_ANON_LIMIT
 
 
 @dataclass(frozen=True)

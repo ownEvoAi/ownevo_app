@@ -29,7 +29,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from .._demo_budget import get_budget_status
 from .._demo_identity import (
     DEMO_INVITE_COOKIE,
+    SIGNING_KEY_ENV,
     InviteInvalid,
+    _is_revoked,
     resolve_demo_identity,
     verify_invite_token,
 )
@@ -97,27 +99,47 @@ async def redeem_invite(
     body: RedeemInviteRequest,
     request: Request,
     response: Response,
+    conn: ConnDep,
 ) -> Response:
-    """Validate an invite token and set the ``ownevo_demo_invite`` cookie."""
+    """Validate an invite token and set the ``ownevo_demo_invite`` cookie.
+
+    Validation order:
+      1. DEMO_MODE guard (404 if off).
+      2. Signing key present (503 if misconfigured).
+      3. HMAC signature + expiry (400 invite_invalid if bad).
+      4. Revocation denylist (400 invite_revoked if revoked).
+
+    On success: 204 with Set-Cookie ``ownevo_demo_invite``.
+    """
     if not is_demo_mode():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Demo invites are only redeemable on the live demo",
         )
-    signing_key = os.environ.get("OWNEVO_DEMO_SIGNING_KEY")
+    signing_key = os.environ.get(SIGNING_KEY_ENV)
     if not signing_key:
         # Misconfiguration on the server, not a client error.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Demo signing key is not configured on the kernel",
+            detail={
+                "code": "signing_key_not_configured",
+                "message": "Demo signing key is not configured on the kernel",
+            },
         )
     try:
-        verify_invite_token(body.token, signing_key)
+        claims = verify_invite_token(body.token, signing_key)
     except InviteInvalid as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invite_invalid", "reason": str(exc)},
         ) from exc
+
+    jti = str(claims["jti"])
+    if await _is_revoked(conn, jti):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invite_revoked", "reason": "This invite has been revoked."},
+        )
 
     # 204 with Set-Cookie. The cookie holds the token verbatim — the
     # kernel re-verifies on every quota-gated request.

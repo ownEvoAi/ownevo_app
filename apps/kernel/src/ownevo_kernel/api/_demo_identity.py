@@ -162,8 +162,11 @@ def _set_anon_cookie(response: Response, value: str, *, secure: bool) -> None:
     )
 
 
-def _clear_invite_cookie(response: Response) -> None:
-    response.delete_cookie(DEMO_INVITE_COOKIE, path="/")
+def _clear_invite_cookie(response: Response, *, secure: bool) -> None:
+    # Pass the same Secure flag used when the cookie was set so browsers
+    # recognise the deletion directive. Mismatch causes some browsers to
+    # silently ignore the delete, leaving a revoked token live in the jar.
+    response.delete_cookie(DEMO_INVITE_COOKIE, path="/", secure=secure)
 
 
 async def resolve_demo_identity(
@@ -186,12 +189,15 @@ async def resolve_demo_identity(
         try:
             claims = verify_invite_token(invite_token, signing_key)
         except InviteInvalid:
-            _clear_invite_cookie(response)
+            _clear_invite_cookie(response, secure=request.url.scheme == "https")
         else:
             jti = str(claims["jti"])
             if not await _is_revoked(conn, jti):
                 tier = claims["tier"]
-                assert tier in ("elevated", "unlimited")  # validated above
+                if tier not in ("elevated", "unlimited"):
+                    # verify_invite_token already validates this; reaching here
+                    # would indicate a logic bug, not a client error.
+                    raise InviteInvalid(f"bad tier: {tier!r}")
                 return DemoIdentity(
                     identity_key=f"inv:{jti}",
                     tier=tier,  # type: ignore[arg-type]
@@ -199,7 +205,7 @@ async def resolve_demo_identity(
                     invite_jti=jti,
                     invite_exp=int(claims["exp"]),
                 )
-            _clear_invite_cookie(response)
+            _clear_invite_cookie(response, secure=request.url.scheme == "https")
 
     cookie_id = request.cookies.get(DEMO_ID_COOKIE)
     if not cookie_id:
@@ -235,5 +241,5 @@ def utc_today() -> dt.date:
 
 
 # FastAPI dependency alias for routes that want only the identity (no
-# gate). Most routes will use ``DemoGateDep`` in ``deps.py`` instead.
+# gate). Most routes will use ``DemoGateDep`` in ``_demo_gate.py`` instead.
 DemoIdentityDep = Annotated[DemoIdentity, Depends(resolve_demo_identity)]

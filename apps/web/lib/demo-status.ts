@@ -33,7 +33,7 @@ const FALLBACK: DemoStatus = {
 // usual.
 export async function getDemoStatus(): Promise<DemoStatus> {
   if (!isDemoMode()) return FALLBACK
-  const apiUrl = process.env.NEXT_PUBLIC_KERNEL_URL || 'http://localhost:8000'
+  const apiUrl = process.env.OWNEVO_KERNEL_API_URL || 'http://localhost:8000'
   const jar = await cookies()
   const cookieHeader = jar
     .getAll()
