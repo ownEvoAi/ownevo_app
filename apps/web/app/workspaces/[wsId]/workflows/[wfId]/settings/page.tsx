@@ -5,6 +5,7 @@ import {
   KernelApiError,
   type ProviderModels,
 } from '@/lib/api'
+import { isDemoMode } from '@/lib/demo-mode'
 import { DescriptionForm } from './description-form'
 import { DeleteWorkflowForm } from './delete-form'
 import { ModelPickerForm } from './model-picker-form'
@@ -20,14 +21,12 @@ interface PageProps {
 export default async function WorkflowSettingsPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
+  const demoMode = isDemoMode()
   let description: string | null = null
   let agentModelId: string | null = null
   let providers: ProviderModels[] = []
   let apiError: { title: string; detail: string } | null = null
-  // 'demo-mode' — kernel returned 503 because DEMO_MODE is on; the picker
-  // is intentionally hidden on read-only deployments.
-  // 'kernel-error' — any other failure; surface a recoverable banner.
-  let catalogError: 'demo-mode' | 'kernel-error' | null = null
+  let catalogError: 'kernel-error' | null = null
 
   // Use allSettled so a /api/models glitch doesn't take down the
   // description form — each fetch fails independently.
@@ -52,10 +51,9 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
     providers = catalogResult.value.providers
   } else {
     const err = catalogResult.reason
-    catalogError =
-      err instanceof KernelApiError && err.status === 503
-        ? 'demo-mode'
-        : 'kernel-error'
+    if (!(err instanceof KernelApiError && err.status === 503)) {
+      catalogError = 'kernel-error'
+    }
   }
 
   return (
@@ -73,19 +71,7 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
             wfId={wfId}
             initialDescription={description}
           />
-          {catalogError === 'demo-mode' ? (
-            <div className="settings-card">
-              <div className="settings-card-header">
-                <h2 className="settings-card-title">Agent model</h2>
-                <p className="settings-card-subtitle">
-                  Read-only deployment — model selection is disabled here. To
-                  switch the per-workflow agent model, run the kernel locally
-                  or on a non-demo deployment where{' '}
-                  <code>DEMO_MODE</code> is unset.
-                </p>
-              </div>
-            </div>
-          ) : catalogError === 'kernel-error' ? (
+          {catalogError === 'kernel-error' ? (
             <div role="alert" className="api-banner">
               <strong>Model catalog unavailable.</strong> Could not load the
               provider list from the kernel. Restart the kernel or check logs.
@@ -96,6 +82,7 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
               wfId={wfId}
               initialAgentModelId={agentModelId}
               providers={providers}
+              readOnly={demoMode}
             />
           )}
           <div className="settings-card">

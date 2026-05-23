@@ -14,15 +14,18 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ...llm import enabled_providers
-from ..deps import DemoModeCheck
 from ..models import ModelCatalog, ProviderModels
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 @router.get("", response_model=ModelCatalog)
-async def list_models(_: DemoModeCheck) -> ModelCatalog:
+async def list_models() -> ModelCatalog:
     """Grouped provider+model catalog the picker UI reads.
+
+    Read-only — returns the env-var allowlist with no side effects.
+    Available in demo mode so the settings page can display which
+    models are configured, even though the PATCH endpoint is gated.
 
     Order follows the declaration in `PROVIDERS`; providers with an
     empty allowed-models list (or `_ENABLED` set to false) are omitted.
