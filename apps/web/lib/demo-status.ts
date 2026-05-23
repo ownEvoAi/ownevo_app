@@ -1,5 +1,11 @@
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { isDemoMode } from './demo-mode'
+
+// Only these two cookies are relevant to the kernel's demo identity resolver.
+// Forward only them so unrelated cookies (analytics, framework internals) are
+// not leaked to the kernel. Must match `DEMO_COOKIE_NAMES` in api-server.ts.
+const DEMO_COOKIE_NAMES: readonly string[] = ['ownevo_demo_id', 'ownevo_demo_invite']
 
 // Shape mirrors `DemoStatusResponse` in apps/kernel/.../routes/demo.py.
 export interface DemoStatus {
@@ -31,12 +37,17 @@ const FALLBACK: DemoStatus = {
 // and per-day usage. Returns a safe fallback (demoMode=false) on
 // network errors and when DEMO_MODE is off — pages then render as
 // usual.
-export async function getDemoStatus(): Promise<DemoStatus> {
+//
+// Wrapped with React `cache()` so multiple callers within the same
+// server render (e.g. the root-layout DemoBanner + a page-level gate
+// check) share one network round-trip.
+export const getDemoStatus = cache(async (): Promise<DemoStatus> => {
   if (!isDemoMode()) return FALLBACK
   const apiUrl = process.env.OWNEVO_KERNEL_API_URL || 'http://localhost:8000'
   const jar = await cookies()
   const cookieHeader = jar
     .getAll()
+    .filter((c) => DEMO_COOKIE_NAMES.includes(c.name))
     .map((c) => `${c.name}=${c.value}`)
     .join('; ')
 
@@ -65,7 +76,7 @@ export async function getDemoStatus(): Promise<DemoStatus> {
   } catch {
     return FALLBACK
   }
-}
+})
 
 // Disabled-state computed once on the server so the CTA renders
 // inert without any client hydration. `reason` is the tooltip copy.

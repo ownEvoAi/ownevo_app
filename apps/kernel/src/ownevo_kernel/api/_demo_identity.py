@@ -24,12 +24,15 @@ import base64
 import datetime as dt
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Annotated, Literal
+
+_log = logging.getLogger(__name__)
 
 import asyncpg
 from fastapi import Depends, Request, Response
@@ -185,6 +188,12 @@ async def resolve_demo_identity(
     """
     signing_key = os.environ.get(SIGNING_KEY_ENV)
     invite_token = request.cookies.get(DEMO_INVITE_COOKIE)
+    if invite_token and not signing_key:
+        _log.error(
+            "%s not set; invite cookie present but cannot be verified — "
+            "all visitors will be treated as anonymous",
+            SIGNING_KEY_ENV,
+        )
     if invite_token and signing_key:
         try:
             claims = verify_invite_token(invite_token, signing_key)
@@ -208,7 +217,11 @@ async def resolve_demo_identity(
             _clear_invite_cookie(response, secure=request.url.scheme == "https")
 
     cookie_id = request.cookies.get(DEMO_ID_COOKIE)
-    if not cookie_id:
+    # Reject browser-supplied values that exceed the expected token length.
+    # Server-generated tokens from secrets.token_urlsafe(24) are 32 chars;
+    # 256 is a generous cap that still prevents unbounded primary-key growth
+    # in demo_usage under adversarial traffic.
+    if not cookie_id or len(cookie_id) > 256:
         cookie_id = secrets.token_urlsafe(24)
         _set_anon_cookie(response, cookie_id, secure=request.url.scheme == "https")
     return DemoIdentity(

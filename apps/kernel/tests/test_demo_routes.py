@@ -24,6 +24,8 @@ from ownevo_kernel.api._demo_identity import (
     mint_invite_token,
 )
 from ownevo_kernel.api._demo_quota import (
+    DEFAULT_ANON_LIMIT,
+    DEFAULT_ELEVATED_LIMIT,
     get_quota_status,
     limit_for_tier,
     record_usage,
@@ -237,3 +239,95 @@ async def test_redeem_invite_404_when_demo_mode_off(
         "/api/demo/redeem-invite", json={"token": "anything"}
     )
     assert r.status_code == 404
+
+
+async def test_redeem_invite_503_when_signing_key_missing(
+    api_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The kernel must return 503 when OWNEVO_DEMO_SIGNING_KEY is not set."""
+    monkeypatch.delenv("OWNEVO_DEMO_SIGNING_KEY", raising=False)
+    r = await api_client.post("/api/demo/redeem-invite", json={"token": "anything.valid"})
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "signing_key_not_configured"
+
+
+# ---------------------------------------------------------------------------
+# Gate wiring — end-to-end HTTP surface
+# ---------------------------------------------------------------------------
+
+
+async def test_design_agent_returns_502_when_budget_exhausted(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection
+) -> None:
+    """Budget exhausted → DemoGateDep must short-circuit with 502."""
+    from ownevo_kernel.api._demo_budget import set_budget_status
+
+    await set_budget_status(db, exhausted=True, note="ci-budget-test")
+    r = await api_client.post(
+        "/api/design-agent/next-question",
+        json={"description": "x" * 60, "prior_answers": []},
+    )
+    assert r.status_code == 502
+    assert r.json()["detail"]["code"] == "demo_budget_cap_reached"
+
+
+async def test_design_agent_returns_429_when_quota_exhausted(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection
+) -> None:
+    """Quota exhausted → DemoGateDep must short-circuit with 429."""
+    # Get an anonymous cookie via the status endpoint.
+    r0 = await api_client.get("/api/demo/status")
+    cookie_val = r0.cookies["ownevo_demo_id"]
+    identity = _anon_identity(f"c:{cookie_val}")
+    # Blow past the 1000-token cap pinned by demo_env.
+    await record_usage(db, identity, input_tokens=1001, output_tokens=0)
+
+    r = await api_client.post(
+        "/api/design-agent/next-question",
+        json={"description": "x" * 60, "prior_answers": []},
+        cookies={"ownevo_demo_id": cookie_val},
+    )
+    assert r.status_code == 429
+    assert r.json()["detail"]["code"] == "demo_quota_exhausted"
+
+
+# ---------------------------------------------------------------------------
+# Quota edge cases
+# ---------------------------------------------------------------------------
+
+
+async def test_record_usage_zero_tokens_is_noop(db: asyncpg.Connection) -> None:
+    """record_usage(0, 0) must not create a row in demo_usage."""
+    identity = _anon_identity("c:zero-test")
+    await record_usage(db, identity, input_tokens=0, output_tokens=0)
+    count = await db.fetchval(
+        "SELECT COUNT(*) FROM demo_usage WHERE identity_key = $1",
+        identity.identity_key,
+    )
+    assert count == 0
+
+
+def test_limit_for_tier_bad_anon_env_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-integer OWNEVO_DEMO_ANON_TOKENS_PER_DAY falls back to compiled default."""
+    monkeypatch.setenv("OWNEVO_DEMO_ANON_TOKENS_PER_DAY", "not-a-number")
+    assert limit_for_tier("anonymous") == DEFAULT_ANON_LIMIT
+
+
+def test_limit_for_tier_bad_elevated_env_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-integer OWNEVO_DEMO_ELEVATED_TOKENS_PER_DAY falls back to compiled default."""
+    monkeypatch.setenv("OWNEVO_DEMO_ELEVATED_TOKENS_PER_DAY", "not-a-number")
+    assert limit_for_tier("elevated") == DEFAULT_ELEVATED_LIMIT
+
+
+async def test_demo_status_reports_budget_exhausted(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection
+) -> None:
+    """GET /api/demo/status must reflect budget_exhausted=true in its response."""
+    from ownevo_kernel.api._demo_budget import set_budget_status
+
+    await set_budget_status(db, exhausted=True, note="ci-status-test")
+    r = await api_client.get("/api/demo/status")
+    assert r.status_code == 200
+    assert r.json()["budget_exhausted"] is True

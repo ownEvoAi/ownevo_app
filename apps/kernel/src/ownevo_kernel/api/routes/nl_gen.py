@@ -13,9 +13,12 @@ Two endpoints:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Literal
+
+_log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -335,8 +338,8 @@ async def generate_workflow(
                         input_tokens=accountant.input_tokens,
                         output_tokens=accountant.output_tokens,
                     )
-            except Exception:  # noqa: BLE001
-                pass  # best-effort; Anthropic already billed
+            except Exception as _exc:  # noqa: BLE001
+                _log.warning("demo usage recording failed (best-effort): %s", _exc)
 
     workflow_id = body.workflow_id or spec.id
 

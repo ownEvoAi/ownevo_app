@@ -1,20 +1,29 @@
-"""Unit tests for the demo invite mint/verify codec.
+"""Unit tests for the demo invite mint/verify codec and token accountant.
 
 These cover the cryptographic + structural guarantees of the token: a
 correct sign-then-verify roundtrip, rejection of expired tokens,
 rejection of tampered signatures, and rejection of malformed payloads.
 DB-backed flows are covered in `test_demo_routes.py`.
+
+Also covers `TokenAccountant` / `wrap_client_for_accounting` — pure unit
+tests with no DB or network needed.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from ownevo_kernel.api._demo_identity import (
     InviteInvalid,
     mint_invite_token,
     verify_invite_token,
+)
+from ownevo_kernel.api._demo_token_accountant import (
+    TokenAccountant,
+    wrap_client_for_accounting,
 )
 
 
@@ -78,3 +87,81 @@ def test_verify_rejects_wrong_signing_key() -> None:
 def test_verify_rejects_malformed_token() -> None:
     with pytest.raises(InviteInvalid, match="malformed token"):
         verify_invite_token("not-a-token", "k0")
+
+
+def test_verify_rejects_missing_claim() -> None:
+    """A well-signed token with a missing required claim must be rejected."""
+    import base64
+    import hmac
+    import json
+    from hashlib import sha256
+
+    # Build a token that has a valid signature but is missing `jti`.
+    claims = {"label": "x", "tier": "elevated", "exp": int(time.time()) + 86400}
+    payload_bytes = json.dumps(claims, sort_keys=True, separators=(",", ":")).encode()
+    payload_s = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii")
+    sig_bytes = hmac.new(b"k0", payload_s.encode(), sha256).digest()
+    sig_s = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode("ascii")
+    token = f"{payload_s}.{sig_s}"
+    with pytest.raises(InviteInvalid, match="missing claim"):
+        verify_invite_token(token, "k0")
+
+
+# ---------------------------------------------------------------------------
+# TokenAccountant + wrap_client_for_accounting — pure unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_accountant_accumulates_across_calls() -> None:
+    """Usage from multiple calls on the same client must accumulate."""
+    msg1 = MagicMock()
+    msg1.usage.input_tokens = 100
+    msg1.usage.output_tokens = 50
+    msg2 = MagicMock()
+    msg2.usage.input_tokens = 200
+    msg2.usage.output_tokens = 75
+    client = MagicMock()
+    client.messages.create = AsyncMock(side_effect=[msg1, msg2])
+    acc = TokenAccountant()
+    wrap_client_for_accounting(client, acc)
+
+    async def _run() -> None:
+        await client.messages.create()
+        await client.messages.create()
+
+    asyncio.get_event_loop().run_until_complete(_run())
+    assert acc.input_tokens == 300
+    assert acc.output_tokens == 125
+
+
+def test_accountant_does_not_bleed_across_client_instances() -> None:
+    """Patching one client must not affect a separate unpatched client."""
+    msg = MagicMock()
+    msg.usage.input_tokens = 10
+    msg.usage.output_tokens = 5
+    client_a = MagicMock()
+    client_a.messages.create = AsyncMock(return_value=msg)
+    client_b = MagicMock()
+    client_b.messages.create = AsyncMock(return_value=msg)
+
+    acc_a = TokenAccountant()
+    wrap_client_for_accounting(client_a, acc_a)
+    # client_b is deliberately NOT wrapped.
+
+    asyncio.get_event_loop().run_until_complete(client_a.messages.create())
+    asyncio.get_event_loop().run_until_complete(client_b.messages.create())
+
+    assert acc_a.input_tokens == 10
+    assert acc_a.output_tokens == 5
+
+
+def test_accountant_tolerates_missing_usage_attr() -> None:
+    """If the response has no usage attribute, recording must not raise."""
+    msg = MagicMock(spec=[])  # no attributes
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value=msg)
+    acc = TokenAccountant()
+    wrap_client_for_accounting(client, acc)
+    asyncio.get_event_loop().run_until_complete(client.messages.create())
+    assert acc.input_tokens == 0
+    assert acc.output_tokens == 0

@@ -30,9 +30,12 @@ sends the full `prior_answers` list on every request.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Request, status
+
+_log = logging.getLogger(__name__)
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...design_agent import (
@@ -376,8 +379,8 @@ async def next_question(
                             input_tokens=accountant.input_tokens,
                             output_tokens=accountant.output_tokens,
                         )
-                except Exception:  # noqa: BLE001
-                    pass  # best-effort
+                except Exception as _exc:  # noqa: BLE001
+                    _log.warning("demo usage recording failed (best-effort): %s", _exc)
 
     # --- Hardcoded fallback ---
     # Legacy template walk: pick the lowest unanswered positional index.

@@ -20,7 +20,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
   const inviteToken = req.nextUrl.searchParams.get(INVITE_PARAM)
-  if (!inviteToken) {
+  // Max 2048 chars matches the kernel's RedeemInviteRequest.token validation.
+  // Silently drop oversized values rather than storing them as oversized cookies.
+  if (!inviteToken || inviteToken.length > 2048) {
     return NextResponse.next()
   }
 
