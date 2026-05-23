@@ -11,7 +11,6 @@ tests with no DB or network needed.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -112,7 +111,7 @@ def test_verify_rejects_missing_claim() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_accountant_accumulates_across_calls() -> None:
+async def test_accountant_accumulates_across_calls() -> None:
     """Usage from multiple calls on the same client must accumulate."""
     msg1 = MagicMock()
     msg1.usage.input_tokens = 100
@@ -124,17 +123,13 @@ def test_accountant_accumulates_across_calls() -> None:
     client.messages.create = AsyncMock(side_effect=[msg1, msg2])
     acc = TokenAccountant()
     wrap_client_for_accounting(client, acc)
-
-    async def _run() -> None:
-        await client.messages.create()
-        await client.messages.create()
-
-    asyncio.get_event_loop().run_until_complete(_run())
+    await client.messages.create()
+    await client.messages.create()
     assert acc.input_tokens == 300
     assert acc.output_tokens == 125
 
 
-def test_accountant_does_not_bleed_across_client_instances() -> None:
+async def test_accountant_does_not_bleed_across_client_instances() -> None:
     """Patching one client must not affect a separate unpatched client."""
     msg = MagicMock()
     msg.usage.input_tokens = 10
@@ -148,20 +143,20 @@ def test_accountant_does_not_bleed_across_client_instances() -> None:
     wrap_client_for_accounting(client_a, acc_a)
     # client_b is deliberately NOT wrapped.
 
-    asyncio.get_event_loop().run_until_complete(client_a.messages.create())
-    asyncio.get_event_loop().run_until_complete(client_b.messages.create())
+    await client_a.messages.create()
+    await client_b.messages.create()
 
     assert acc_a.input_tokens == 10
     assert acc_a.output_tokens == 5
 
 
-def test_accountant_tolerates_missing_usage_attr() -> None:
+async def test_accountant_tolerates_missing_usage_attr() -> None:
     """If the response has no usage attribute, recording must not raise."""
     msg = MagicMock(spec=[])  # no attributes
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=msg)
     acc = TokenAccountant()
     wrap_client_for_accounting(client, acc)
-    asyncio.get_event_loop().run_until_complete(client.messages.create())
+    await client.messages.create()
     assert acc.input_tokens == 0
     assert acc.output_tokens == 0
