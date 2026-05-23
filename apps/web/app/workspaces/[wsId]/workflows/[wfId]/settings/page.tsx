@@ -98,6 +98,30 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
               providers={providers}
             />
           )}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <h2 className="settings-card-title">Export</h2>
+              <p className="settings-card-subtitle">
+                Download the current agent configuration or eval cases as JSON.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/agent/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Export agent
+              </a>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/evals/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Export evals
+              </a>
+            </div>
+          </div>
           <DeleteWorkflowForm wsId={wsId} wfId={wfId} />
         </div>
       ) : null}
