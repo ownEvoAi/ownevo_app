@@ -41,12 +41,16 @@ export async function GET(
     upstream.headers.get('content-disposition') ??
     `attachment; filename="audit-chain-wf-${wfId.slice(0, 8)}.json"`
 
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      'content-type': 'application/json',
-      'content-disposition': contentDisposition,
-      'cache-control': 'no-store',
-    },
-  })
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'content-disposition': contentDisposition,
+    'cache-control': 'no-store',
+  }
+  // Forward truncation signals so callers know the export hit the row cap.
+  const truncated = upstream.headers.get('x-audit-truncated')
+  const maxRows = upstream.headers.get('x-audit-max-rows')
+  if (truncated) headers['x-audit-truncated'] = truncated
+  if (maxRows) headers['x-audit-max-rows'] = maxRows
+
+  return new Response(upstream.body, { status: 200, headers })
 }

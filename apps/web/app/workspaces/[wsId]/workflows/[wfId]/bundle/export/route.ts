@@ -47,7 +47,10 @@ export async function GET(
       fetch(`${API_URL}/api/workflows/${wfEnc}/eval-cases`, { cache: 'no-store' }),
       fetch(`${API_URL}/api/proposals?workflow_id=${wfEnc}&limit=500`, { cache: 'no-store' }),
       fetch(`${API_URL}/api/workflows/${wfEnc}/failure_clusters`, { cache: 'no-store' }),
-      fetch(`${API_URL}/api/audit?workflow_id=${wfEnc}&limit=500`, { cache: 'no-store' }),
+      // Use the canonical export endpoint (sorted keys, no whitespace, same
+      // format as the standalone "Export chain" download) rather than the
+      // paginated list endpoint (500-row cap, different JSON shape).
+      fetch(`${API_URL}/api/audit/export?workflow_id=${wfEnc}`, { cache: 'no-store' }),
     ])
 
     if (!anatomyRes.ok) {

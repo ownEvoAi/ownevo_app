@@ -83,19 +83,19 @@ async def test_models_returns_enabled_providers_grouped(
         "OWNEVO_PROVIDER_ANTHROPIC_MODELS",
         "claude-sonnet-4-6,claude-opus-4-7",
     )
-    monkeypatch.setenv("OWNEVO_PROVIDER_FIREWORKS_ENABLED", "true")
-    monkeypatch.setenv("OWNEVO_PROVIDER_FIREWORKS_MODELS", "kimi-k2p6")
+    monkeypatch.setenv("OWNEVO_PROVIDER_LOCAL_ENABLED", "true")
+    monkeypatch.setenv("OWNEVO_PROVIDER_LOCAL_MODELS", "qwen/qwen3.6-35b-a3b")
 
     res = await api_client.get("/api/models")
     assert res.status_code == 200
     body = res.json()
-    assert [p["id"] for p in body["providers"]] == ["anthropic", "fireworks"]
+    assert [p["id"] for p in body["providers"]] == ["anthropic", "local"]
     assert body["providers"][0]["label"] == "Anthropic"
     assert body["providers"][0]["models"] == [
         "claude-sonnet-4-6",
         "claude-opus-4-7",
     ]
-    assert body["providers"][1]["models"] == ["kimi-k2p6"]
+    assert body["providers"][1]["models"] == ["qwen/qwen3.6-35b-a3b"]
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ async def test_patch_rejects_disabled_provider(
     monkeypatch: pytest.MonkeyPatch,
     clean_provider_env: None,
 ):
-    # Only Anthropic enabled — Fireworks must be rejected.
+    # Only Anthropic enabled — Local must be rejected.
     monkeypatch.setenv("OWNEVO_PROVIDER_ANTHROPIC_ENABLED", "true")
     monkeypatch.setenv(
         "OWNEVO_PROVIDER_ANTHROPIC_MODELS", "claude-sonnet-4-6"
@@ -172,7 +172,7 @@ async def test_patch_rejects_disabled_provider(
 
     res = await api_client.patch(
         "/api/workflows/wf-blocked/agent-model",
-        json={"agent_model_id": "fireworks:kimi-k2p6"},
+        json={"agent_model_id": "local:qwen/qwen3.6-35b-a3b"},
     )
     assert res.status_code == 400
     # Row unchanged

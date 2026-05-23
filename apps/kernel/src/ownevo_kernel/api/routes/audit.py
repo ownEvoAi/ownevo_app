@@ -14,6 +14,7 @@ underlying `export_audit_log` call.
 from __future__ import annotations
 
 import hmac
+import re
 from collections import Counter
 from datetime import UTC, datetime
 
@@ -205,7 +206,10 @@ async def export_chain(
 
     body = to_canonical_json(entries)
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-    suffix = f"-wf-{workflow_id[:8]}" if workflow_id else ""
+    # Strip characters that would break RFC 6266 Content-Disposition parsing
+    # (double-quotes, semicolons, backslashes, control chars).
+    safe_wf = re.sub(r'[^A-Za-z0-9._-]', '', workflow_id[:8]) if workflow_id else ""
+    suffix = f"-wf-{safe_wf}" if safe_wf else ""
     filename = f"audit-chain{suffix}-{timestamp}.json"
     headers: dict[str, str] = {
         "Content-Disposition": f'attachment; filename="{filename}"',

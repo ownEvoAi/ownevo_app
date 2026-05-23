@@ -236,7 +236,21 @@ def check_provider_api_keys(env: dict[str, str] | None = None) -> list[str]:
     warnings: list[str] = []
     for provider, _models in enabled_providers(env=source):
         route = _ROUTES.get(provider.id)
-        if route is None or not route.api_key_env:
+        if route is None:
+            continue
+        if not route.api_key_env:
+            # Keyless providers (local, ollama) still need a base URL or host.
+            if provider.id == "local" and not (
+                source.get("OWNEVO_LOCAL_BASE_URL")
+                or source.get("OWNEVO_LLM_BASE_URL")
+                or source.get("OWNEVO_LLM_HOST")
+            ):
+                warnings.append(
+                    "provider 'local' is enabled but no base URL is configured; "
+                    "set OWNEVO_LOCAL_BASE_URL (or OWNEVO_LLM_BASE_URL / OWNEVO_LLM_HOST). "
+                    "Defaulting to http://localhost:1234/v1 which is likely unreachable "
+                    "in containerized deployments."
+                )
             continue
         if not source.get(route.api_key_env):
             warnings.append(

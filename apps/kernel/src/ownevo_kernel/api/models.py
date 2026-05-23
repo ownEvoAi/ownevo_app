@@ -498,7 +498,7 @@ class WorkflowAgentModelUpdate(_Strict):
     """Patch payload for `PATCH /api/workflows/{id}/agent-model`.
 
     Slug is `provider:model` — e.g. `anthropic:claude-sonnet-4-6`,
-    `fireworks:kimi-k2p6`. Validated against the runtime-enabled
+    `local:qwen/qwen3.6-35b-a3b`. Validated against the runtime-enabled
     provider+model allowlist in `kernel/llm/providers.py`.
     """
 
