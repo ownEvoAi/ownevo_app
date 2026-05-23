@@ -4,6 +4,9 @@ Each test sets ``DEMO_MODE=true`` for its duration via monkeypatch and
 relies on the per-test ``db`` + ``api_client`` fixtures. The fixtures
 spin up a fresh database with migrations applied, so the demo tables
 land via migration 0016 automatically.
+
+Tests skip when ``OWNEVO_DATABASE_URL`` is unset so unit-only CI stays
+green.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import asyncpg
 import httpx
 import pytest
+from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.api._demo_budget import (
     get_budget_status,
     set_budget_status,
@@ -23,6 +27,13 @@ from ownevo_kernel.api._demo_quota import (
     get_quota_status,
     limit_for_tier,
     record_usage,
+)
+
+import os
+
+pytestmark = pytest.mark.skipif(
+    ENV_VAR not in os.environ,
+    reason=f"{ENV_VAR} not set; skipping integration tests",
 )
 
 SIGNING_KEY = "test-signing-key-deadbeef"
@@ -192,6 +203,30 @@ async def test_revoked_invite_falls_through_to_anon(
     )
     body = r.json()
     assert body["tier"] == "anonymous"
+
+
+async def test_redeem_invite_rejects_revoked_token(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection
+) -> None:
+    token = mint_invite_token(
+        label="will-revoke-at-redeem",
+        tier="elevated",
+        ttl_days=7,
+        signing_key=SIGNING_KEY,
+    )
+    from ownevo_kernel.api._demo_identity import verify_invite_token
+
+    claims = verify_invite_token(token, SIGNING_KEY)
+    jti = str(claims["jti"])
+    await db.execute(
+        "INSERT INTO demo_invite_revocations(jti, reason) VALUES ($1, $2)",
+        jti,
+        "revoked before redeem",
+    )
+    r = await api_client.post("/api/demo/redeem-invite", json={"token": token})
+    assert r.status_code == 400
+    body = r.json()
+    assert body["detail"]["code"] == "invite_revoked"
 
 
 async def test_redeem_invite_404_when_demo_mode_off(
