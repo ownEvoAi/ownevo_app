@@ -106,6 +106,82 @@ def test_verify_rejects_missing_claim() -> None:
         verify_invite_token(token, "k0")
 
 
+def test_verify_accepts_long_form_claim_keys() -> None:
+    """Tokens minted before the short-key change must keep validating."""
+    import base64
+    import hmac
+    import json
+    from hashlib import sha256
+
+    # Hand-build a token using the old long-form claim names, exactly as
+    # `mint_invite_token` used to produce before the short-key change.
+    iat = int(time.time())
+    claims = {
+        "label": "legacy-pilot",
+        "tier": "elevated",
+        "iat": iat,
+        "exp": iat + 86400,
+        "jti": "legacy-jti-1234",
+    }
+    payload_bytes = json.dumps(claims, sort_keys=True, separators=(",", ":")).encode()
+    payload_s = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii")
+    sig_bytes = hmac.new(b"k0", payload_s.encode(), sha256).digest()
+    sig_s = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode("ascii")
+    token = f"{payload_s}.{sig_s}"
+
+    out = verify_invite_token(token, "k0")
+    # Canonicalized output uses long-form keys regardless of input form.
+    assert out["label"] == "legacy-pilot"
+    assert out["tier"] == "elevated"
+    assert out["jti"] == "legacy-jti-1234"
+    assert out["exp"] == iat + 86400
+
+
+def test_short_form_tokens_are_meaningfully_shorter() -> None:
+    """The short-key payload should shave at least 10 chars vs the old long-key payload.
+
+    Anchors the size win quantitatively so a future refactor that
+    accidentally restores long keys (or adds a new long-name claim
+    without a short alias) will fail this test instead of silently
+    bloating the URL.
+    """
+    import base64
+    import hmac
+    import json
+    from hashlib import sha256
+
+    short_token = mint_invite_token(
+        label="acme-pilot", tier="elevated", ttl_days=30, signing_key="k0"
+    )
+
+    # Reconstruct the equivalent old-style long-key token for comparison.
+    iat = int(time.time())
+    long_claims = {
+        "label": "acme-pilot",
+        "tier": "elevated",
+        "iat": iat,
+        "exp": iat + 30 * 86400,
+        "jti": "x" * 22,  # secrets.token_urlsafe(16) is 22 chars
+    }
+    long_payload = json.dumps(
+        long_claims, sort_keys=True, separators=(",", ":")
+    ).encode()
+    long_payload_s = base64.urlsafe_b64encode(long_payload).rstrip(b"=").decode("ascii")
+    long_sig_s = (
+        base64.urlsafe_b64encode(
+            hmac.new(b"k0", long_payload_s.encode(), sha256).digest()
+        )
+        .rstrip(b"=")
+        .decode("ascii")
+    )
+    long_token = f"{long_payload_s}.{long_sig_s}"
+
+    assert len(long_token) - len(short_token) >= 10, (
+        f"short token is {len(short_token)} chars vs {len(long_token)} long; "
+        "expected at least 10 chars saved"
+    )
+
+
 # ---------------------------------------------------------------------------
 # TokenAccountant + wrap_client_for_accounting — pure unit tests
 # ---------------------------------------------------------------------------

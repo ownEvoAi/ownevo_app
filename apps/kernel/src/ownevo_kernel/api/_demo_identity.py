@@ -6,16 +6,23 @@ Phase 1 demo uses two cookies:
     visit. Drives the anonymous ``identity_key`` for quota accounting.
 
   * ``ownevo_demo_invite`` — HMAC-signed payload carrying
-    ``{label, tier, exp, jti}``. Set via the ``?invite=<token>`` query
-    param (handled by the Next.js middleware) or directly by the
-    ``/api/demo/redeem-invite`` route. Validates against
-    ``OWNEVO_DEMO_SIGNING_KEY`` and the ``demo_invite_revocations``
-    table.
+    ``{l, t, e, j, i}`` (label, tier, exp, jti, iat). Set via the
+    ``?invite=<token>`` query param (handled by the Next.js middleware)
+    or directly by the ``/api/demo/redeem-invite`` route. Validates
+    against ``OWNEVO_DEMO_SIGNING_KEY`` and the
+    ``demo_invite_revocations`` table.
 
 The signing format is a stripped-down HS256 JWT (no header — just
 ``base64url(payload).base64url(hmac_sha256(payload))``). Mint and verify
 happen in the same process; RFC 7519 interop is not required, so we keep
 the dependency surface to stdlib only.
+
+Field names are deliberately single-letter (``l``/``t``/``e``/``j``/``i``)
+to keep the encoded URL short — invites get embedded in URLs that are
+shared verbally or in messages where every byte off the token reduces
+visual noise. ``verify_invite_token`` still accepts the long-form claim
+names from any token minted before this change, so existing invites
+keep validating until their TTL runs out.
 """
 
 from __future__ import annotations
@@ -85,6 +92,23 @@ def _sign(payload: str, key: str) -> str:
     return _b64url_encode(sig)
 
 
+# Short-form ↔ long-form claim key map. Mint always writes short; verify
+# accepts either so tokens minted before this change keep validating.
+_SHORT_TO_LONG = {"l": "label", "t": "tier", "e": "exp", "j": "jti", "i": "iat"}
+
+
+def _canonicalize_claims(raw: dict[str, object]) -> dict[str, object]:
+    """Promote short-form claim keys to their long-form names.
+
+    Returns a dict with `{label, tier, exp, jti, iat}` keys regardless of
+    whether the input used the short or long form.
+    """
+    out: dict[str, object] = {}
+    for key, value in raw.items():
+        out[_SHORT_TO_LONG.get(key, key)] = value
+    return out
+
+
 def mint_invite_token(
     *,
     label: str,
@@ -93,7 +117,12 @@ def mint_invite_token(
     signing_key: str | None = None,
     issued_at: int | None = None,
 ) -> str:
-    """Mint a signed invite token. Caller is responsible for delivery."""
+    """Mint a signed invite token. Caller is responsible for delivery.
+
+    The payload uses single-letter claim keys (`l`/`t`/`e`/`j`/`i`) to
+    keep the encoded URL short. `verify_invite_token` still accepts
+    long-form keys from any token minted before this change.
+    """
     if tier not in ("elevated", "unlimited"):
         raise ValueError(f"invite tier must be elevated|unlimited, got {tier!r}")
     if ttl_days <= 0:
@@ -105,11 +134,11 @@ def mint_invite_token(
         )
     iat = issued_at if issued_at is not None else int(time.time())
     claims = {
-        "label": label,
-        "tier": tier,
-        "iat": iat,
-        "exp": iat + ttl_days * 86400,
-        "jti": secrets.token_urlsafe(16),
+        "l": label,
+        "t": tier,
+        "i": iat,
+        "e": iat + ttl_days * 86400,
+        "j": secrets.token_urlsafe(16),
     }
     payload = json.dumps(claims, sort_keys=True, separators=(",", ":")).encode()
     payload_s = _b64url_encode(payload)
@@ -117,7 +146,12 @@ def mint_invite_token(
 
 
 def verify_invite_token(token: str, signing_key: str) -> dict[str, object]:
-    """Return claims if the token is well-formed, signed, and unexpired."""
+    """Return canonicalized claims if the token is well-formed, signed, and unexpired.
+
+    Accepts either short-form (`l`/`t`/`e`/`j`/`i`) or long-form
+    (`label`/`tier`/`exp`/`jti`/`iat`) claim keys; the returned dict
+    always uses the long-form names so callers stay unchanged.
+    """
     parts = token.split(".")
     if len(parts) != 2:
         raise InviteInvalid("malformed token")
@@ -130,11 +164,12 @@ def verify_invite_token(token: str, signing_key: str) -> dict[str, object]:
     if not hmac.compare_digest(expected, actual):
         raise InviteInvalid("bad signature")
     try:
-        claims = json.loads(_b64url_decode(payload_s))
+        raw = json.loads(_b64url_decode(payload_s))
     except Exception as exc:
         raise InviteInvalid("malformed payload") from exc
-    if not isinstance(claims, dict):
+    if not isinstance(raw, dict):
         raise InviteInvalid("payload is not an object")
+    claims = _canonicalize_claims(raw)
     for k in ("label", "tier", "exp", "jti"):
         if k not in claims:
             raise InviteInvalid(f"missing claim: {k}")
