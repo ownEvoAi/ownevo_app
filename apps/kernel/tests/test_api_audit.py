@@ -5,6 +5,7 @@ The `api_client` fixture is shared via `conftest.py`.
 
 from __future__ import annotations
 
+import json
 import os
 from uuid import uuid4
 
@@ -321,11 +322,9 @@ async def test_export_chain_returns_canonical_json(
 ):
     """Exported bytes must match the canonical-JSON form `verify_chain` measures.
 
-    Same sort-keys + no-whitespace serialization the marketing site
-    sovereignty card promises ("export in an open format"). A customer
-    diffing two exports across time should see only appended entries.
+    Verifies sort-keys + no-whitespace serialization: two exports taken at
+    different times diff cleanly — only appended entries change.
     """
-    import json
 
     related = uuid4()
     for i in range(3):

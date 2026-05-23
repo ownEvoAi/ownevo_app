@@ -1,4 +1,4 @@
--- 0015 — proposal "Request changes" state + matching audit kind.
+-- 0015a — proposal "Request changes" state + matching audit kind (enum additions).
 --
 -- Adds a new terminal-ish state for proposals: `changes-requested`. A
 -- gate-passed proposal can transition here when a domain expert wants
@@ -11,15 +11,10 @@
 -- eval case from the comment). Distinct from `approved-awaiting-deploy`
 -- (which ships the proposal as-is).
 --
--- Postgres ENUM additions must run outside a transaction; this file is
--- single-statement so the migration runner doesn't wrap it.
+-- Postgres ENUM additions cannot run inside a transaction on Postgres < 16.
+-- The migration runner detects ADD VALUE and executes this file in
+-- autocommit mode. The CHECK constraint change is in a separate file
+-- (0015b) so it can run inside a transaction and roll back on failure.
 
 ALTER TYPE proposal_state ADD VALUE IF NOT EXISTS 'changes-requested';
 ALTER TYPE audit_kind ADD VALUE IF NOT EXISTS 'proposal-changes-requested';
-
--- Allow the new decision value on approvals.decision. Drop + re-add by
--- name is portable across Postgres versions; the default constraint
--- name `approvals_decision_check` matches what CREATE TABLE generated.
-ALTER TABLE approvals DROP CONSTRAINT IF EXISTS approvals_decision_check;
-ALTER TABLE approvals ADD CONSTRAINT approvals_decision_check
-    CHECK (decision IN ('approve', 'reject', 'request-changes'));

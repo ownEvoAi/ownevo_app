@@ -179,7 +179,7 @@ function pillVariant(state: string): string {
   if (state === 'gate-passed') return 'accent'
   if (state === 'approved-awaiting-deploy' || state === 'deployed') return 'green'
   if (state === 'rejected') return 'red'
-  if (state === 'gate-failed') return 'amber'
+  if (state === 'gate-failed' || state === 'changes-requested') return 'amber'
   return 'outline'
 }
 

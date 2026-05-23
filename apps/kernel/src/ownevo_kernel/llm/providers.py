@@ -12,7 +12,7 @@ Env shape per provider:
     OWNEVO_PROVIDER_<UPPER>_MODELS=model-a,model-b,model-c
 
 The API-key envs (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) are
-read by the dispatch router in Phase 2. This module only cares about
+read by `router.py` at dispatch time. This module only cares about
 which provider+model pairs are *allowed* to be selected.
 """
 

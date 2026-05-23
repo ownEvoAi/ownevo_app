@@ -420,3 +420,79 @@ async def test_reject_422_on_empty_decided_by(
         json={"decided_by": "   "},
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /request-changes
+# ---------------------------------------------------------------------------
+
+
+async def test_request_changes_200_advances_state(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/request-changes",
+        json={"decided_by": "human:reviewer", "comment": "soften the seasonal cap"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["state"] == "changes-requested"
+    assert body["proposal_id"] == str(seeded["proposal_id"])
+
+
+async def test_request_changes_422_on_missing_comment(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/request-changes",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_request_changes_422_on_blank_comment(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/request-changes",
+        json={"decided_by": "human:reviewer", "comment": "   "},
+    )
+    assert resp.status_code == 422
+
+
+async def test_request_changes_404_on_unknown(api_client: httpx.AsyncClient):
+    resp = await api_client.post(
+        f"/api/proposals/{uuid4()}/request-changes",
+        json={"decided_by": "human:reviewer", "comment": "adjust threshold"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_request_changes_409_on_wrong_state(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    seeded = await _seed_proposal(db, state=ProposalState.IN_GATE)
+    resp = await api_client.post(
+        f"/api/proposals/{seeded['proposal_id']}/request-changes",
+        json={"decided_by": "human:reviewer", "comment": "redirect the agent"},
+    )
+    assert resp.status_code == 409
+    assert "gate-passed" in resp.json()["detail"]
+
+
+async def test_list_proposals_filter_by_changes_requested(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    """?state=changes-requested returns only proposals in that state."""
+    seeded_cr = await _seed_proposal(db, state=ProposalState.CHANGES_REQUESTED)
+    await _seed_proposal(db, state=ProposalState.GATE_PASSED)
+
+    resp = await api_client.get("/api/proposals?state=changes-requested")
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = [item["id"] for item in body["items"]]
+    assert str(seeded_cr["proposal_id"]) in ids
+    assert all(item["state"] == "changes-requested" for item in body["items"])

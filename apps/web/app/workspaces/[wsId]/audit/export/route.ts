@@ -12,7 +12,7 @@ export async function GET(): Promise<Response> {
     upstream = await fetch(`${API_URL}/api/audit/export`, { cache: 'no-store' })
   } catch (err) {
     return NextResponse.json(
-      { error: 'Kernel API not reachable.', detail: String(err) },
+      { error: 'Kernel API not reachable.' },
       { status: 502 },
     )
   }

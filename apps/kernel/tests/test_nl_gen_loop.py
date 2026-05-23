@@ -708,3 +708,143 @@ async def test_no_edit_cycle_preserves_prior_instruction():
     assert report.cycles[1].instruction_edit is None
     # Cycle 2: same instruction carries forward
     assert report.cycles[2].instruction_before == cycle_0_instruction_after
+
+
+# ---------------------------------------------------------------------------
+# initial_instruction — steering text injection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_initial_instruction_seeds_cycle_0_instruction_before():
+    """Steering text passed as `initial_instruction` must appear as
+    `instruction_before` on cycle 0 so the agent and proposer see the
+    domain-expert redirect."""
+    spec, plan, case_set, metric = _fixture_bundle()
+    client = _ScriptedClient(
+        predictions_by_cycle=[_all_correct_predictions(case_set)],
+        proposer_payloads=[],
+        n_cases_per_cycle=len(case_set.cases),
+    )
+    steering = "Domain expert steering: soften the seasonal cap"
+
+    report = await run_nl_gen_demo_loop(
+        spec=spec, plan=plan, case_set=case_set, metric=metric,
+        client=client,  # type: ignore[arg-type]
+        n_cycles=1,
+        initial_instruction=steering,
+        clusterer_factory=_two_cluster_factory,
+        labeler=_FixedLabeler(),
+    )
+
+    # Cycle 0 sees the steering text as the seed instruction.
+    assert report.cycles[0].instruction_before == steering
+
+
+@pytest.mark.asyncio
+async def test_initial_instruction_blank_string_is_treated_as_none():
+    """Whitespace-only `initial_instruction` must be treated as absent
+    (not forwarded to the agent as an empty instruction block)."""
+    spec, plan, case_set, metric = _fixture_bundle()
+    client = _ScriptedClient(
+        predictions_by_cycle=[_all_correct_predictions(case_set)],
+        proposer_payloads=[],
+        n_cases_per_cycle=len(case_set.cases),
+    )
+
+    report = await run_nl_gen_demo_loop(
+        spec=spec, plan=plan, case_set=case_set, metric=metric,
+        client=client,  # type: ignore[arg-type]
+        n_cycles=1,
+        initial_instruction="   ",
+        clusterer_factory=_two_cluster_factory,
+        labeler=_FixedLabeler(),
+    )
+
+    assert report.cycles[0].instruction_before is None
+
+
+# ---------------------------------------------------------------------------
+# agent_openai_client — OpenAI-compat agent solver routing
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeOpenAIClient:
+    """Minimal AsyncOpenAI-compat duck-type for agent solver routing tests.
+
+    Tracks how many predict_label calls were routed through the OpenAI path.
+    """
+    predictions: dict[str, bool] = field(default_factory=dict)
+    calls: int = 0
+
+    @property
+    def chat(self) -> "_FakeOpenAIChat":
+        return _FakeOpenAIChat(self)
+
+
+@dataclass
+class _FakeOpenAIChat:
+    client: _FakeOpenAIClient
+
+    @property
+    def completions(self) -> "_FakeOpenAICompletions":
+        return _FakeOpenAICompletions(self.client)
+
+
+@dataclass
+class _FakeOpenAICompletions:
+    client: _FakeOpenAIClient
+
+    async def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.client.calls += 1
+        # Return a predict_label tool call with value=True.
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="tool_calls",
+                    message=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                id="tc_1",
+                                function=SimpleNamespace(
+                                    name="predict_label",
+                                    arguments='{"value": true, "rationale": "openai-fake"}',
+                                ),
+                            )
+                        ],
+                    ),
+                )
+            ],
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+        )
+
+
+@pytest.mark.asyncio
+async def test_agent_openai_client_routes_agent_calls_through_openai():
+    """When `agent_openai_client` is set, the agent solver must route through
+    that client rather than the Anthropic `client`. The Anthropic client should
+    only receive proposer calls."""
+    spec, plan, case_set, metric = _fixture_bundle()
+    n = len(case_set.cases)
+    anthropic_client = _ScriptedClient(
+        predictions_by_cycle=[{c.case_id: c.expected_value for c in case_set.cases}],
+        proposer_payloads=[],  # n_cycles=1 → no proposer call
+        n_cases_per_cycle=n,
+    )
+    openai_client = _FakeOpenAIClient()
+
+    await run_nl_gen_demo_loop(
+        spec=spec, plan=plan, case_set=case_set, metric=metric,
+        client=anthropic_client,  # type: ignore[arg-type]
+        agent_openai_client=openai_client,
+        n_cycles=1,
+        clusterer_factory=_two_cluster_factory,
+        labeler=_FixedLabeler(),
+    )
+
+    # All agent solver calls went through the OpenAI client.
+    assert openai_client.calls == n
+    # The Anthropic client received zero prediction calls.
+    assert anthropic_client.proposer_calls == 0

@@ -60,7 +60,7 @@ export default async function WorkspaceAuditPage({ params }: PageProps) {
             {audit.truncated ? ` (showing ${audit.items.length} most recent)` : ''}
           </p>
         </div>
-        <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <div className="page-actions" style={{ alignItems: 'flex-start' }}>
           <a
             href={`/workspaces/${wsId}/audit/export`}
             className="btn btn-secondary"

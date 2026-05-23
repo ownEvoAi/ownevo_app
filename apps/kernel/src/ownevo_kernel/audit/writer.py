@@ -148,16 +148,24 @@ async def append_audit_entry(
     return _row_to_entry(row)
 
 
+_EXPORT_MAX_ROWS: int = 100_000
+
+
 async def export_audit_log(
     conn: asyncpg.Connection,
     *,
     since_seq: int | None = None,
     kind: AuditKind | str | None = None,
+    max_rows: int = _EXPORT_MAX_ROWS,
 ) -> list[AuditEntry]:
     """All audit entries (or those with `seq > since_seq`), in `seq` order.
 
     `kind` filters to a single audit_kind — useful for "all proposals" or
     "all gate runs" queries without scanning the full log.
+
+    `max_rows` caps the result set (default 100 000). Callers that need
+    the full log beyond the cap should paginate using `since_seq`. The
+    export route sets a ``X-Audit-Truncated`` header when the cap fires.
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -168,6 +176,7 @@ async def export_audit_log(
         params.append(kind.value if isinstance(kind, AuditKind) else kind)
         clauses.append(f"kind = ${len(params)}::audit_kind")
 
+    params.append(max_rows)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = await conn.fetch(
         f"""
@@ -176,6 +185,7 @@ async def export_audit_log(
         FROM audit_entries
         {where}
         ORDER BY seq ASC
+        LIMIT ${len(params)}
         """,
         *params,
     )

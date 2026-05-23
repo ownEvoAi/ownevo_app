@@ -20,7 +20,13 @@ from datetime import UTC, datetime
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from ...audit.writer import _GENESIS_HASH, compute_entry_hash, export_audit_log, to_canonical_json
+from ...audit.writer import (
+    _EXPORT_MAX_ROWS as _AUDIT_EXPORT_MAX_ROWS,
+    _GENESIS_HASH,
+    compute_entry_hash,
+    export_audit_log,
+    to_canonical_json,
+)
 from ...types import AuditKind
 from ..deps import ConnDep, DemoModeCheck
 from ..models import AuditEntryRow, AuditList, AuditVerifyResponse
@@ -144,25 +150,34 @@ async def list_audit(
 
 @router.get("/export")
 async def export_chain(conn: ConnDep) -> Response:
-    """Download the entire audit log as canonical JSON.
+    """Download the audit log as canonical JSON (capped at 100 000 entries).
 
     Backs the "Export chain" button on the audit page. Bytes are the
     sorted-keys + no-whitespace form produced by `to_canonical_json`;
     the same form `verify_chain` measures with `canonical_export_bytes`.
     Two exports taken at different times diff cleanly — only the
     appended entries change.
+
+    When the log exceeds the cap, the response includes
+    ``X-Audit-Truncated: true`` and ``X-Audit-Max-Rows: 100000`` so
+    callers can detect incomplete exports and paginate via ``since_seq``.
     """
-    entries = await export_audit_log(conn)
+    entries = await export_audit_log(conn, max_rows=_AUDIT_EXPORT_MAX_ROWS)
+    truncated = len(entries) == _AUDIT_EXPORT_MAX_ROWS
     body = to_canonical_json(entries)
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     filename = f"audit-chain-{timestamp}.json"
+    headers: dict[str, str] = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    if truncated:
+        headers["X-Audit-Truncated"] = "true"
+        headers["X-Audit-Max-Rows"] = str(_AUDIT_EXPORT_MAX_ROWS)
     return Response(
         content=body,
         media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Cache-Control": "no-store",
-        },
+        headers=headers,
     )
 
 

@@ -161,7 +161,12 @@ def build_chat_client(
             "model in workflow settings."
         )
 
-    route = _ROUTES[provider_id]
+    route = _ROUTES.get(provider_id)
+    if route is None:
+        raise RouterError(
+            f"provider {provider_id!r} is in the allowlist but has no dispatch "
+            "entry in _ROUTES; this is a bug — update _ROUTES in router.py."
+        )
     api_key = source.get(route.api_key_env, "") if route.api_key_env else ""
     if route.api_key_env and not api_key:
         raise RouterError(

@@ -187,7 +187,7 @@ async def _decide(
     conn: asyncpg.Connection,
     *,
     proposal_id: UUID,
-    decision: str,  # "approve" | "reject"
+    decision: str,  # "approve" | "reject" | "request-changes"
     target_state: ProposalState,
     audit_kind: AuditKind,
     decided_by: str,
