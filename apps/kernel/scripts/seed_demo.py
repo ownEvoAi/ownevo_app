@@ -266,6 +266,95 @@ async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
     return True
 
 
+# Hand-crafted lift curve for demand-prediction. The real iteration runner
+# on the seeded eval set tends to land flat at val=0.8 because the cases
+# are easy — visually that reads as "the loop doesn't improve" on the
+# Overview chart, which is the opposite of what the product does. These
+# values fake what a harder eval set would produce: one warm-up
+# iteration that doesn't beat baseline, then three real gate-passes
+# climbing toward 0.8.
+_DP_CLIMBING_ITERATIONS: tuple[tuple[int, str, float], ...] = (
+    (0, "gate-blocked-no-improvement", 0.500),
+    (1, "gate-pass", 0.650),
+    (2, "gate-pass", 0.770),
+    (3, "gate-pass", 0.800),
+)
+
+
+async def _seed_demand_prediction_climbing_iterations(conn) -> bool:
+    """Force demand-prediction's iterations into a climbing lift curve.
+
+    Demo-only. The real iteration runner produces flat val_scores on the
+    seeded eval set (cases are too easy to differentiate iterations),
+    so the Overview chart reads as "no lift". This function overrides
+    that with a hand-crafted curve.
+
+    Idempotent: bails when the iterations already match the target
+    curve. Otherwise patches existing iterations and inserts any
+    missing ones (up to 4 total).
+
+    Returns True when any row was inserted or updated.
+    """
+    workflow_id = "demand-prediction"
+
+    existing = await conn.fetch(
+        "SELECT iteration_index, state::text, val_score FROM iterations "
+        "WHERE workflow_id = $1 ORDER BY iteration_index",
+        workflow_id,
+    )
+    existing_by_index = {
+        row["iteration_index"]: (row["state"], float(row["val_score"]))
+        for row in existing
+        if row["val_score"] is not None
+    }
+
+    already_climbing = all(
+        existing_by_index.get(idx) == (state, val)
+        for idx, state, val in _DP_CLIMBING_ITERATIONS
+    )
+    if already_climbing and len(existing) >= len(_DP_CLIMBING_ITERATIONS):
+        return False
+
+    changed = False
+    async with conn.transaction():
+        for idx, state, val in _DP_CLIMBING_ITERATIONS:
+            best_before = (
+                None if idx == 0 else _DP_CLIMBING_ITERATIONS[idx - 1][2]
+            )
+            best_after = max(
+                val, best_before if best_before is not None else val
+            )
+            if idx in existing_by_index:
+                await conn.execute(
+                    "UPDATE iterations SET state = $1::iteration_state, "
+                    "val_score = $2, best_ever_score_before = $3, "
+                    "best_ever_score_after = $4 "
+                    "WHERE workflow_id = $5 AND iteration_index = $6",
+                    state,
+                    val,
+                    best_before,
+                    best_after,
+                    workflow_id,
+                    idx,
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO iterations (workflow_id, iteration_index, "
+                    "state, val_score, best_ever_score_before, "
+                    "best_ever_score_after) "
+                    "VALUES ($1, $2, $3::iteration_state, $4, $5, $6)",
+                    workflow_id,
+                    idx,
+                    state,
+                    val,
+                    best_before,
+                    best_after,
+                )
+            changed = True
+
+    return changed
+
+
 async def seed_demo(
     conn,
     *,
@@ -344,6 +433,24 @@ async def seed_demo(
             if result.inserted:
                 await persist_eval_case_set(conn, case_set, workflow_id=workflow_id)
 
+    # Demo fixtures run regardless of `--with-iterations`. The climbing
+    # iterations function creates the 4 fixture iterations if they don't
+    # exist yet, and patches them otherwise — so the proposal attaches to
+    # a real iteration even when no real loop has been run.
+    await _seed_demand_prediction_climbing_iterations(conn)
+    fixtures_added = await _seed_demand_prediction_demo_fixtures(conn)
+    if fixtures_added:
+        for i, w in enumerate(seeded):
+            if w.id == "demand-prediction":
+                seeded[i] = SeededWorkflow(
+                    id=w.id,
+                    description=w.description,
+                    inserted=w.inserted,
+                    iteration_state=w.iteration_state,
+                    iteration_val=w.iteration_val,
+                    demo_fixtures_added=True,
+                )
+
     if not with_iterations:
         return seeded
 
@@ -389,21 +496,6 @@ async def seed_demo(
             )
             updated.append(w)
 
-    # Hand-craft demo clusters + proposal for demand-prediction (see comment
-    # block on `_seed_demand_prediction_demo_fixtures`). Idempotent — bails
-    # if clusters already exist.
-    fixtures_added = await _seed_demand_prediction_demo_fixtures(conn)
-    if fixtures_added:
-        for i, w in enumerate(updated):
-            if w.id == "demand-prediction":
-                updated[i] = SeededWorkflow(
-                    id=w.id,
-                    description=w.description,
-                    inserted=w.inserted,
-                    iteration_state=w.iteration_state,
-                    iteration_val=w.iteration_val,
-                    demo_fixtures_added=True,
-                )
     return updated
 
 
