@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   getProposal,
+  getWorkflowAnatomy,
   KernelApiError,
   type GateResultCases,
   type ProposalDetail,
@@ -9,6 +10,7 @@ import {
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
 import { SkillDiff } from '@/app/components/skill-diff'
 import { isDemoMode } from '@/lib/demo-mode'
+import { WorkflowTabs } from '@/app/workspaces/[wsId]/workflows/[wfId]/workflow-tabs'
 import { DecideForm } from './decide-form'
 import { DeployForm } from './deploy-form'
 
@@ -45,17 +47,37 @@ export default async function ProposalDetailPage({ params }: PageProps) {
   const canDecide = proposal.state === 'gate-passed'
   const canDeploy = proposal.state === 'approved-awaiting-deploy'
   const canRollback = proposal.state === 'deployed'
-  const wfHref = `/workspaces/${wsId}/workflows/${proposal.workflow.id}/failures`
+  const wfRoot = `/workspaces/${wsId}/workflows/${proposal.workflow.id}`
+
+  // Resolve isBenchmark so the WorkflowTabs hides the production-only
+  // tabs the workflow layout already hides. Soft-fail to false — a
+  // 404 here just means we show all tabs, which is the safer default.
+  let isBenchmark = false
+  try {
+    const anatomy = await getWorkflowAnatomy(proposal.workflow.id)
+    isBenchmark = anatomy.kind === 'benchmark'
+  } catch {
+    /* ignore — fall through with isBenchmark=false */
+  }
 
   return (
     <div>
       <nav className="crumb-row">
         <Link href={`/workspaces/${wsId}`}>Workspace</Link>
         <span className="sep">/</span>
-        <Link href={wfHref}>{proposal.workflow.description}</Link>
+        <Link href={`${wfRoot}/proposals`}>
+          {proposal.workflow.description}
+        </Link>
         <span className="sep">/</span>
         <span>Proposal {proposal.id.slice(0, 8)}</span>
       </nav>
+
+      <WorkflowTabs
+        wsId={wsId}
+        wfId={proposal.workflow.id}
+        isBenchmark={isBenchmark}
+        activeOverride="proposals"
+      />
 
       <ProposalHeader proposal={proposal} />
 
@@ -157,7 +179,7 @@ function pillVariant(state: string): string {
   if (state === 'gate-passed') return 'accent'
   if (state === 'approved-awaiting-deploy' || state === 'deployed') return 'green'
   if (state === 'rejected') return 'red'
-  if (state === 'gate-failed') return 'amber'
+  if (state === 'gate-failed' || state === 'changes-requested') return 'amber'
   return 'outline'
 }
 
@@ -334,11 +356,15 @@ function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
       </div>
     )
   }
+  const decisionLabel =
+    proposal.approval.decision === 'approve'
+      ? 'Approved'
+      : proposal.approval.decision === 'request-changes'
+        ? 'Changes requested'
+        : 'Rejected'
   return (
     <div className="sidebar-card">
-      <div className="sidebar-title">
-        {proposal.approval.decision === 'approve' ? 'Approved' : 'Rejected'}
-      </div>
+      <div className="sidebar-title">{decisionLabel}</div>
       <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
         {proposal.approval.decided_by}
       </div>

@@ -25,6 +25,7 @@ const STATE_VARIANT: Record<ProposalState, string> = {
   deployed: 'green',
   rejected: 'red',
   'rolled-back': 'red',
+  'changes-requested': 'amber',
 }
 
 export default async function WorkflowProposalsPage({ params }: PageProps) {

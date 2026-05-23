@@ -33,6 +33,7 @@ from .clustering.persistence import insert_cluster
 from .clustering.types import ClusterSummary
 from .eval_cases.registry import list_eval_cases
 from .eval_runner.runner import EvalCaseOutcome
+from .llm.router import RouterError, build_chat_client
 from .nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
 from .nl_gen.failure_clustering import NLGenFailureSnapshot
 from .nl_gen.instruction_proposer import (
@@ -260,6 +261,44 @@ async def _next_iteration_index(
     return int(row)
 
 
+async def _pending_steering_for_workflow(
+    conn: asyncpg.Connection,
+    workflow_id: str,
+) -> str | None:
+    """Steering text from the most recent `changes-requested` proposal.
+
+    When a domain expert clicks "Request changes" on a gate-passed
+    proposal, the comment lands on `approvals.comment` and the proposal
+    transitions to `changes-requested`. The next iteration on this
+    workflow injects that comment into the loop's
+    `initial_instruction` so the agent + proposer see the redirect.
+
+    Returns the most recent steering comment across all proposals in
+    this workflow, or None if no steering is pending. We don't filter
+    by "newer than last iteration" — the latest steering always wins,
+    and once the iteration completes the operator can request changes
+    again on the new proposal.
+    """
+    row = await conn.fetchval(
+        """
+        SELECT a.comment
+        FROM approvals a
+        JOIN proposals p ON p.id = a.proposal_id
+        JOIN iterations i ON i.id = p.iteration_id
+        WHERE i.workflow_id = $1
+          AND a.decision = 'request-changes'
+          AND a.comment IS NOT NULL
+        ORDER BY a.decided_at DESC
+        LIMIT 1
+        """,
+        workflow_id,
+    )
+    if row is None:
+        return None
+    text = str(row).strip()
+    return text or None
+
+
 async def run_one_iteration_for_workflow(
     pool: asyncpg.Pool,
     *,
@@ -287,6 +326,11 @@ async def run_one_iteration_for_workflow(
         instruction_before = await _current_head_instruction(conn, workflow_id)
         parent_skill_version_id = await _current_head_version_id(conn, workflow_id)
         iteration_index = await _next_iteration_index(conn, workflow_id)
+        agent_model_slug = await conn.fetchval(
+            "SELECT agent_model_id FROM workflows WHERE id = $1",
+            workflow_id,
+        )
+        pending_steering = await _pending_steering_for_workflow(conn, workflow_id)
 
         started_at = datetime.now(UTC)
 
@@ -334,31 +378,96 @@ async def run_one_iteration_for_workflow(
     # the LLM occasionally emits a malformed edit), fall back to a
     # one-cycle run so we still capture the agent's score. The iteration
     # lands as no-improvement rather than 502'ing.
+    # Resolve the workflow's per-workflow model choice into agent-side
+    # overrides for run_nl_gen_demo_loop. The proposer always runs on
+    # the env-Anthropic `client` (NL-gen is Anthropic-only today); the
+    # picker only swaps the agent solver. A disabled provider or
+    # missing API key surfaces as RouterError → 409 to the API layer.
+    agent_overrides: dict[str, Any] = {
+        "agent_model": None,
+        "agent_openai_client": None,
+    }
+    if pending_steering:
+        # Surface the steering as a labelled bullet so the agent's
+        # per-workflow-instruction block reads cleanly and the proposer
+        # downstream can pattern-match on "Domain expert steering".
+        agent_overrides["initial_instruction"] = (
+            f"Domain expert steering (from a Request changes decision): "
+            f"{pending_steering}"
+        )
+    chat_handle = None
+    if agent_model_slug:
+        try:
+            chat_handle = build_chat_client(agent_model_slug)
+        except RouterError as exc:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE iterations
+                    SET state = 'sandbox-error'::iteration_state,
+                        ended_at = now()
+                    WHERE id = $1
+                    """,
+                    iteration_id,
+                )
+            raise WorkflowNotIterableError(str(exc)) from exc
+        agent_overrides["agent_model"] = chat_handle.model
+        if chat_handle.openai_client is not None:
+            agent_overrides["agent_openai_client"] = chat_handle.openai_client
+
     cycle: CycleOutcome
     try:
-        report = await run_nl_gen_demo_loop(
-            spec=spec,
-            plan=sim_plan,
-            case_set=case_set,
-            metric=metric,
-            client=client,
-            n_cycles=2,
-        )
-        if not report.cycles:
-            raise IterationRunnerError("loop produced no cycles")
-        cycle = report.cycles[0]
-    except (InstructionEditValidationError, NoInstructionEditToolUseError):
-        # Proposer flaked — re-run with n_cycles=1 to get the score
-        # without invoking the proposer at all.
         try:
-            fallback_report = await run_nl_gen_demo_loop(
+            report = await run_nl_gen_demo_loop(
                 spec=spec,
                 plan=sim_plan,
                 case_set=case_set,
                 metric=metric,
                 client=client,
-                n_cycles=1,
+                n_cycles=2,
+                **agent_overrides,
             )
+            if not report.cycles:
+                raise IterationRunnerError("loop produced no cycles")
+            cycle = report.cycles[0]
+        except (InstructionEditValidationError, NoInstructionEditToolUseError):
+            # Proposer flaked — re-run with n_cycles=1 to get the score
+            # without invoking the proposer at all.
+            try:
+                fallback_report = await run_nl_gen_demo_loop(
+                    spec=spec,
+                    plan=sim_plan,
+                    case_set=case_set,
+                    metric=metric,
+                    client=client,
+                    n_cycles=1,
+                    **agent_overrides,
+                )
+            except (Exception, asyncio.CancelledError):
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE iterations
+                        SET state = 'sandbox-error'::iteration_state,
+                            ended_at = now()
+                        WHERE id = $1
+                        """,
+                        iteration_id,
+                    )
+                raise
+            if not fallback_report.cycles:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE iterations
+                        SET state = 'sandbox-error'::iteration_state,
+                            ended_at = now()
+                        WHERE id = $1
+                        """,
+                        iteration_id,
+                    )
+                raise IterationRunnerError("fallback loop produced no cycles") from None
+            cycle = fallback_report.cycles[0]
         except (Exception, asyncio.CancelledError):
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -371,31 +480,9 @@ async def run_one_iteration_for_workflow(
                     iteration_id,
                 )
             raise
-        if not fallback_report.cycles:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE iterations
-                    SET state = 'sandbox-error'::iteration_state,
-                        ended_at = now()
-                    WHERE id = $1
-                    """,
-                    iteration_id,
-                )
-            raise IterationRunnerError("fallback loop produced no cycles") from None
-        cycle = fallback_report.cycles[0]
-    except (Exception, asyncio.CancelledError):
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE iterations
-                SET state = 'sandbox-error'::iteration_state,
-                    ended_at = now()
-                WHERE id = $1
-                """,
-                iteration_id,
-            )
-        raise
+    finally:
+        if chat_handle is not None:
+            await chat_handle.aclose()
     val_score = cycle.metric_value
     n_failed = cycle.n_failures
     cycle_ended_at = datetime.now(UTC)

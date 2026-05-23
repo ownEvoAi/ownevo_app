@@ -12,7 +12,7 @@ Env shape per provider:
     OWNEVO_PROVIDER_<UPPER>_MODELS=model-a,model-b,model-c
 
 The API-key envs (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) are
-read by the dispatch router in Phase 2. This module only cares about
+read by `router.py` at dispatch time. This module only cares about
 which provider+model pairs are *allowed* to be selected.
 """
 
@@ -27,8 +27,8 @@ ProviderId = Literal[
     "openai",
     "xai",
     "gemini",
-    "fireworks",
     "openrouter",
+    "local",
     "ollama",
 ]
 
@@ -76,20 +76,20 @@ PROVIDERS: Final[tuple[ProviderConfig, ...]] = (
         models_env="OWNEVO_PROVIDER_GEMINI_MODELS",
     ),
     ProviderConfig(
-        id="fireworks",
-        label="Fireworks",
-        enabled_env="OWNEVO_PROVIDER_FIREWORKS_ENABLED",
-        models_env="OWNEVO_PROVIDER_FIREWORKS_MODELS",
-    ),
-    ProviderConfig(
         id="openrouter",
         label="OpenRouter",
         enabled_env="OWNEVO_PROVIDER_OPENROUTER_ENABLED",
         models_env="OWNEVO_PROVIDER_OPENROUTER_MODELS",
     ),
     ProviderConfig(
+        id="local",
+        label="Local / Custom OpenAI",
+        enabled_env="OWNEVO_PROVIDER_LOCAL_ENABLED",
+        models_env="OWNEVO_PROVIDER_LOCAL_MODELS",
+    ),
+    ProviderConfig(
         id="ollama",
-        label="Ollama (local)",
+        label="Local (Ollama)",
         enabled_env="OWNEVO_PROVIDER_OLLAMA_ENABLED",
         models_env="OWNEVO_PROVIDER_OLLAMA_MODELS",
     ),

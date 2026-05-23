@@ -422,6 +422,8 @@ async def run_nl_gen_demo_loop(
     client: AsyncAnthropic,
     n_cycles: int = DEFAULT_N_CYCLES,
     agent_model: str | None = None,
+    agent_openai_client: Any | None = None,
+    initial_instruction: str | None = None,
     proposer_model: str = DEFAULT_PROPOSER_MODEL,
     proposer_max_tokens: int = DEFAULT_PROPOSER_MAX_TOKENS,
     n_failure_examples_per_cluster: int = DEFAULT_FAILURE_EXAMPLES_PER_CLUSTER,
@@ -438,15 +440,23 @@ async def run_nl_gen_demo_loop(
             A3-A4 NL-gen pipeline. The orchestrator does NOT regenerate
             them — that's a separate concern (``generate_full_pipeline``
             for live workflows; fixtures for the demo).
-        client: AsyncAnthropic client used for both the agent solver
-            (per-case predictions) and the instruction proposer (one
-            call per cycle, end-of-cycle). Reusing one client is the
-            common case; tests can pass a fake.
+        client: AsyncAnthropic client used for the instruction proposer
+            (and for the agent solver, when ``agent_openai_client`` is
+            None). Tests can pass a fake.
         n_cycles: How many cycles to run. Each cycle = one full agent
             pass over ``case_set.cases`` + clustering + (except the
             last cycle) one instruction-proposer call. Min 1.
-        agent_model: Override the agent solver's default model
-            (anthropic). None → ``agent_solver.DEFAULT_MODEL``.
+        agent_model: Override the agent solver's default model. None →
+            ``agent_solver.DEFAULT_MODEL``.
+        agent_openai_client: When set, the agent solver routes through
+            this client instead of the Anthropic ``client`` — used by
+            the per-workflow model picker to dispatch the agent leg
+            through OpenAI, xAI, Gemini, Fireworks, OpenRouter, or
+            Ollama while the proposer continues to use Anthropic.
+        initial_instruction: Seed for ``cumulative_instruction`` on
+            cycle 0. Used to inject domain-expert steering text from a
+            ``changes-requested`` proposal so the next iteration's
+            agent (and downstream proposer) sees the redirect.
         proposer_model: Anthropic model id for the proposer. Default
             sonnet 4.6.
         proposer_max_tokens: Output cap on the proposer call.
@@ -496,7 +506,9 @@ async def run_nl_gen_demo_loop(
 
     started_at = datetime.now(UTC)
     cycles: list[CycleOutcome] = []
-    cumulative_instruction: str | None = None
+    cumulative_instruction: str | None = (
+        initial_instruction.strip() if initial_instruction and initial_instruction.strip() else None
+    )
 
     for cycle_idx in range(n_cycles):
         cycle_started = datetime.now(UTC)
@@ -514,6 +526,7 @@ async def run_nl_gen_demo_loop(
                 metric,
                 client=client,
                 model=agent_model,
+                openai_client=agent_openai_client,
                 per_workflow_instruction=instruction_before,
             )
             metric_value = report.value

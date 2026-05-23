@@ -98,6 +98,80 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
               providers={providers}
             />
           )}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <h2 className="settings-card-title">Export</h2>
+              <p className="settings-card-subtitle">
+                Download a full ownership bundle or individual datasets as JSON.
+                All exports are point-in-time snapshots — re-download to refresh.
+              </p>
+            </div>
+            {/* Bundle — primary CTA */}
+            <div style={{ marginTop: 12, marginBottom: 16 }}>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/bundle/export`}
+                className="btn btn-primary"
+                download
+              >
+                Export full bundle
+              </a>
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                Agent · evals · proposals · failures · audit in one file
+              </p>
+            </div>
+            {/* Individual exports */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 12,
+                borderTop: '1px solid var(--border)',
+              }}
+            >
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/agent/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Agent
+              </a>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/evals/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Evals
+              </a>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/proposals/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Proposals
+              </a>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/failures/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Failures
+              </a>
+              <a
+                href={`/workspaces/${wsId}/workflows/${wfId}/audit/export`}
+                className="btn btn-secondary"
+                download
+              >
+                Audit
+              </a>
+            </div>
+          </div>
           <DeleteWorkflowForm wsId={wsId} wfId={wfId} />
         </div>
       ) : null}

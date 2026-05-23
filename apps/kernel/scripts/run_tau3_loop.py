@@ -282,7 +282,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         default=None,
         help="Base URL for the judge's Anthropic-compat endpoint. "
              "Default: Anthropic cloud (https://api.anthropic.com). "
-             "Set to e.g. http://localhost:1234 to use LMS as judge.",
+             "Set to e.g. http://<your-inference-host>:1234 to use LMS as judge.",
     )
     parser.add_argument(
         "--llm-judge-api-key",

@@ -64,6 +64,11 @@ class ProposalState(StrEnum):
     APPROVED_AWAITING_DEPLOY = "approved-awaiting-deploy"
     DEPLOYED = "deployed"
     ROLLED_BACK = "rolled-back"
+    # Domain expert asked for a plain-language change to a gate-passed
+    # proposal. The next iteration on this workflow re-runs the agent +
+    # proposer with the steering text injected into the prompt, producing
+    # a fresh proposal.
+    CHANGES_REQUESTED = "changes-requested"
 
 
 class ApproverType(StrEnum):
@@ -83,6 +88,7 @@ class AuditKind(StrEnum):
     PROPOSAL_CREATED = "proposal-created"
     PROPOSAL_APPROVED = "proposal-approved"
     PROPOSAL_REJECTED = "proposal-rejected"
+    PROPOSAL_CHANGES_REQUESTED = "proposal-changes-requested"
     PROPOSAL_DEPLOYED = "proposal-deployed"
     PROPOSAL_ROLLED_BACK = "proposal-rolled-back"
     EVAL_CASE_ADDED = "eval-case-added"
@@ -269,7 +275,7 @@ class Approval(_Base):
     proposal_id: UUID
     decided_by: str  # "human:<id>" | "llm-judge" | "autonomous"
     approver_type: ApproverType
-    decision: Literal["approve", "reject"]
+    decision: Literal["approve", "reject", "request-changes"]
     comment: str | None = None
     became_eval_case_id: UUID | None = None
     decided_at: datetime

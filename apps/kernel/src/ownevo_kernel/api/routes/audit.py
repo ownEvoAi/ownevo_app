@@ -14,13 +14,20 @@ underlying `export_audit_log` call.
 from __future__ import annotations
 
 import hmac
+import re
 from collections import Counter
 from datetime import UTC, datetime
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from ...audit.writer import _GENESIS_HASH, compute_entry_hash, export_audit_log, to_canonical_json
+from ...audit.writer import (
+    _EXPORT_MAX_ROWS as _AUDIT_EXPORT_MAX_ROWS,
+    _GENESIS_HASH,
+    compute_entry_hash,
+    export_audit_log,
+    to_canonical_json,
+)
 from ...types import AuditKind
 from ..deps import ConnDep, DemoModeCheck
 from ..models import AuditEntryRow, AuditList, AuditVerifyResponse
@@ -140,6 +147,82 @@ async def list_audit(
     # filtered result set — not whether there are more unfiltered entries.
     truncated = len(entries) > len(sliced)
     return AuditList(items=items, total=total, truncated=truncated)
+
+
+@router.get("/export")
+async def export_chain(
+    conn: ConnDep,
+    workflow_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description=(
+            "When present, restrict the export to entries whose related_id ties "
+            "back to this workflow (iterations, proposals, clusters) or whose "
+            "payload carries `workflow_id` directly. Uses the same filter logic "
+            "as GET /api/audit?workflow_id=."
+        ),
+    ),
+) -> Response:
+    """Download the audit log as canonical JSON (capped at 100 000 entries).
+
+    Backs the "Export chain" button on the audit and per-workflow audit pages.
+    Bytes are the sorted-keys + no-whitespace form produced by `to_canonical_json`;
+    the same form `verify_chain` measures with `canonical_export_bytes`.
+    Two exports taken at different times diff cleanly — only the
+    appended entries change.
+
+    When the log exceeds the cap, the response includes
+    ``X-Audit-Truncated: true`` and ``X-Audit-Max-Rows: 100000`` so
+    callers can detect incomplete exports and paginate via ``since_seq``.
+    """
+    entries = await export_audit_log(conn, max_rows=_AUDIT_EXPORT_MAX_ROWS)
+    truncated = len(entries) == _AUDIT_EXPORT_MAX_ROWS
+
+    if workflow_id is not None:
+        related_rows = await conn.fetch(
+            """
+            SELECT id FROM iterations WHERE workflow_id = $1
+            UNION ALL
+            SELECT p.id FROM proposals p
+              JOIN iterations i ON i.id = p.iteration_id
+              WHERE i.workflow_id = $1
+            UNION ALL
+            SELECT id FROM failure_clusters WHERE workflow_id = $1
+            """,
+            workflow_id,
+        )
+        wf_related_ids = {r["id"] for r in related_rows}
+        entries = [
+            e for e in entries
+            if (e.related_id is not None and e.related_id in wf_related_ids)
+            or (
+                isinstance(e.payload, dict)
+                and e.payload.get("workflow_id") == workflow_id
+            )
+        ]
+        # Truncation flag reflects the unfiltered cap, not the filtered count.
+        # A per-workflow export is always a strict subset of the cap, so a
+        # truncated workspace export still means some entries may be missing.
+
+    body = to_canonical_json(entries)
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    # Strip characters that would break RFC 6266 Content-Disposition parsing
+    # (double-quotes, semicolons, backslashes, control chars).
+    safe_wf = re.sub(r'[^A-Za-z0-9._-]', '', workflow_id[:8]) if workflow_id else ""
+    suffix = f"-wf-{safe_wf}" if safe_wf else ""
+    filename = f"audit-chain{suffix}-{timestamp}.json"
+    headers: dict[str, str] = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    if truncated:
+        headers["X-Audit-Truncated"] = "true"
+        headers["X-Audit-Max-Rows"] = str(_AUDIT_EXPORT_MAX_ROWS)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers=headers,
+    )
 
 
 @router.post("/verify", response_model=AuditVerifyResponse)

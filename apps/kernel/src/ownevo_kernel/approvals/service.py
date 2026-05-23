@@ -103,6 +103,49 @@ async def approve_proposal(
     )
 
 
+async def request_changes_proposal(
+    conn: asyncpg.Connection,
+    *,
+    proposal_id: UUID,
+    decided_by: str,
+    approver_type: ApproverType = ApproverType.HUMAN,
+    comment: str,
+) -> Approval:
+    """Transition `gate-passed` → `changes-requested` with steering text.
+
+    Middle ground between Approve and Reject: the proposal stays alive
+    but gets redirected. The comment IS the steering text — required
+    here (unlike approve/reject where comment is optional). The next
+    iteration on this workflow picks up the latest steering comment
+    and threads it into the agent + proposer prompt so the fresh
+    proposal reflects the redirect.
+
+    No eval case is created (the steering is feedback to the loop,
+    not a regression case the gate should protect against — that's
+    what Reject does).
+
+    Raises:
+        ProposalNotFoundError: no row with this id.
+        ApprovalStateError: proposal is not in `gate-passed`.
+        ValueError: `decided_by` or `comment` is empty/whitespace.
+    """
+    if not comment or not comment.strip():
+        raise ValueError(
+            "request_changes_proposal: comment must be non-empty — "
+            "the steering text is the whole point of this decision",
+        )
+    return await _decide(
+        conn,
+        proposal_id=proposal_id,
+        decision="request-changes",
+        target_state=ProposalState.CHANGES_REQUESTED,
+        audit_kind=AuditKind.PROPOSAL_CHANGES_REQUESTED,
+        decided_by=decided_by,
+        approver_type=approver_type,
+        comment=comment,
+    )
+
+
 async def reject_proposal(
     conn: asyncpg.Connection,
     *,
@@ -144,7 +187,7 @@ async def _decide(
     conn: asyncpg.Connection,
     *,
     proposal_id: UUID,
-    decision: str,  # "approve" | "reject"
+    decision: str,  # "approve" | "reject" | "request-changes"
     target_state: ProposalState,
     audit_kind: AuditKind,
     decided_by: str,

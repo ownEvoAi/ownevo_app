@@ -28,8 +28,12 @@ export function DecideForm({
   const [decidedBy, setDecidedBy] = useState('human:reviewer')
   const [error, setError] = useState<string | null>(null)
 
-  function handleDecision(decision: 'approve' | 'reject') {
+  function handleDecision(decision: 'approve' | 'reject' | 'request-changes') {
     setError(null)
+    if (decision === 'request-changes' && !comment.trim()) {
+      setError('Add a comment first — the steering text drives the next iteration.')
+      return
+    }
     startTransition(async () => {
       const result = await decideAction({
         proposalId,
@@ -113,7 +117,7 @@ export function DecideForm({
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         disabled={isPending}
-        placeholder="Optional comment. If you reject + comment, the comment becomes a new eval case automatically."
+        placeholder="Optional comment. Required for Request changes — the steering text drives the next iteration. On Reject, the comment becomes a new eval case automatically."
         style={{
           width: '100%',
           minHeight: 90,
@@ -136,7 +140,8 @@ export function DecideForm({
           lineHeight: 1.4,
         }}
       >
-        Approval transitions the proposal to <code>approved-awaiting-deploy</code>.
+        Approval transitions to <code>approved-awaiting-deploy</code>. Request
+        changes keeps the proposal alive — your comment feeds the next iteration.
         Rejection is terminal; comment becomes a regression eval case.
       </div>
 
@@ -158,6 +163,21 @@ export function DecideForm({
           }}
         >
           {isPending ? 'Submitting…' : 'Approve & advance'}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleDecision('request-changes')}
+          disabled={isPending || demoMode}
+          title={demoMode ? 'Disabled in read-only demo' : undefined}
+          className="btn btn-secondary"
+          style={{
+            width: '100%',
+            justifyContent: 'center',
+            padding: '8px 14px',
+            fontSize: 13,
+          }}
+        >
+          Request changes
         </button>
         <button
           type="button"

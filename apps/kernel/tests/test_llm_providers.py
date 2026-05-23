@@ -93,8 +93,8 @@ def test_enabled_providers_preserves_declaration_order():
     # Even if env sets providers out of order, the result follows
     # PROVIDERS' declaration order so the picker UI is stable.
     env = {
-        "OWNEVO_PROVIDER_FIREWORKS_ENABLED": "true",
-        "OWNEVO_PROVIDER_FIREWORKS_MODELS": "kimi-k2p6",
+        "OWNEVO_PROVIDER_LOCAL_ENABLED": "true",
+        "OWNEVO_PROVIDER_LOCAL_MODELS": "qwen/qwen3.6-35b-a3b",
         "OWNEVO_PROVIDER_ANTHROPIC_ENABLED": "true",
         "OWNEVO_PROVIDER_ANTHROPIC_MODELS": "claude-sonnet-4-6",
     }
@@ -141,15 +141,15 @@ def _two_provider_env() -> dict[str, str]:
     return {
         "OWNEVO_PROVIDER_ANTHROPIC_ENABLED": "true",
         "OWNEVO_PROVIDER_ANTHROPIC_MODELS": "claude-sonnet-4-6,claude-opus-4-7",
-        "OWNEVO_PROVIDER_FIREWORKS_ENABLED": "true",
-        "OWNEVO_PROVIDER_FIREWORKS_MODELS": "kimi-k2p6",
+        "OWNEVO_PROVIDER_LOCAL_ENABLED": "true",
+        "OWNEVO_PROVIDER_LOCAL_MODELS": "qwen/qwen3.6-35b-a3b",
     }
 
 
 def test_is_model_allowed_happy_path():
     env = _two_provider_env()
     assert is_model_allowed("anthropic:claude-sonnet-4-6", env=env)
-    assert is_model_allowed("fireworks:kimi-k2p6", env=env)
+    assert is_model_allowed("local:qwen/qwen3.6-35b-a3b", env=env)
 
 
 def test_is_model_allowed_rejects_unknown_model_under_enabled_provider():

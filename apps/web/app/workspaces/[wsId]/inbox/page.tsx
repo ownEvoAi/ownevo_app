@@ -259,6 +259,7 @@ function StatePill({ state }: { state: string }) {
     deployed: 'green',
     rejected: 'red',
     'gate-failed': 'amber',
+    'changes-requested': 'amber',
     'in-gate': 'outline',
   }
   const variant = variantByState[state] ?? 'outline'
