@@ -115,9 +115,9 @@ export function ModelPickerForm({
             ))}
           </select>
           <p className="settings-subnote">
-            Selection persists per workflow. Runtime routing wiring lands in a
-            follow-up — the loop continues to use{' '}
-            <code>OWNEVO_LLM_MODEL</code> until then.
+            Selection takes effect on the next iteration. The agent solver
+            dispatches through the chosen provider; the proposer remains on
+            Anthropic.
           </p>
         </>
       )}

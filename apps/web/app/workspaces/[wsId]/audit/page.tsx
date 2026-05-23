@@ -14,6 +14,7 @@ const KIND_TONE: Record<string, string> = {
   'proposal-approved': 'green',
   'proposal-deployed': 'green',
   'proposal-rejected': 'red',
+  'proposal-changes-requested': 'amber',
   'proposal-rolled-back': 'red',
   'gate-run-completed': 'accent',
   'gate-run-started': 'outline',
@@ -59,7 +60,14 @@ export default async function WorkspaceAuditPage({ params }: PageProps) {
             {audit.truncated ? ` (showing ${audit.items.length} most recent)` : ''}
           </p>
         </div>
-        <div className="page-actions">
+        <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <a
+            href={`/workspaces/${wsId}/audit/export`}
+            className="btn btn-secondary"
+            download
+          >
+            Export chain
+          </a>
           <VerifyButton wsId={wsId} />
         </div>
       </header>

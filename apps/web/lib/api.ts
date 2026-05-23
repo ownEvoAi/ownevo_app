@@ -23,6 +23,7 @@ export type ProposalState =
   | 'deployed'
   | 'rejected'
   | 'rolled-back'
+  | 'changes-requested'
 
 export interface ProposalSummary {
   id: string
@@ -76,7 +77,7 @@ export interface ApprovalDetail {
   id: string
   decided_by: string
   approver_type: string
-  decision: 'approve' | 'reject'
+  decision: 'approve' | 'reject' | 'request-changes'
   comment: string | null
   became_eval_case_id: string | null
   decided_at: string
@@ -213,6 +214,16 @@ export async function rejectProposal(
   body: DecideRequest,
 ): Promise<ApproveResponse> {
   return jsonFetch<ApproveResponse>(`/api/proposals/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function requestChangesProposal(
+  id: string,
+  body: DecideRequest,
+): Promise<ApproveResponse> {
+  return jsonFetch<ApproveResponse>(`/api/proposals/${id}/request-changes`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

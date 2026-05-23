@@ -26,6 +26,7 @@ from ownevo_kernel.approvals import (
     ProposalNotFoundError,
     approve_proposal,
     reject_proposal,
+    request_changes_proposal,
 )
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.types import (
@@ -292,3 +293,67 @@ async def test_decided_by_must_be_non_empty(db: asyncpg.Connection):
         await approve_proposal(db, proposal_id=proposal_id, decided_by="")
     with pytest.raises(ValueError, match="decided_by"):
         await approve_proposal(db, proposal_id=proposal_id, decided_by="   ")
+
+
+# ---------------------------------------------------------------------------
+# Request changes — middle-ground steering decision
+# ---------------------------------------------------------------------------
+
+
+async def test_request_changes_transitions_state_and_captures_comment(
+    db: asyncpg.Connection,
+):
+    proposal_id, _ = await _seed_proposal_in_state(
+        db, workflow_id="wf-request-changes",
+    )
+
+    approval = await request_changes_proposal(
+        db,
+        proposal_id=proposal_id,
+        decided_by="human:reviewer",
+        comment="Soften the seasonal cap — week 47 markdown was correct here.",
+    )
+
+    assert approval.decision == "request-changes"
+    assert approval.comment is not None
+    assert "seasonal cap" in approval.comment
+    # No eval case is created — steering is feedback to the loop, not
+    # a regression case the gate should defend against.
+    assert approval.became_eval_case_id is None
+
+    new_state = await db.fetchval(
+        "SELECT state::text FROM proposals WHERE id = $1", proposal_id,
+    )
+    assert new_state == ProposalState.CHANGES_REQUESTED.value
+
+    audit_kind = await db.fetchval(
+        "SELECT kind::text FROM audit_entries WHERE related_id = $1", proposal_id,
+    )
+    assert audit_kind == AuditKind.PROPOSAL_CHANGES_REQUESTED.value
+
+
+async def test_request_changes_requires_non_empty_comment(db: asyncpg.Connection):
+    proposal_id, _ = await _seed_proposal_in_state(db)
+    with pytest.raises(ValueError, match="comment"):
+        await request_changes_proposal(
+            db, proposal_id=proposal_id, decided_by="human:reviewer", comment="",
+        )
+    with pytest.raises(ValueError, match="comment"):
+        await request_changes_proposal(
+            db, proposal_id=proposal_id, decided_by="human:reviewer", comment="   ",
+        )
+
+
+async def test_request_changes_rejects_non_gate_passed_state(
+    db: asyncpg.Connection,
+):
+    proposal_id, _ = await _seed_proposal_in_state(
+        db, state=ProposalState.IN_GATE,
+    )
+    with pytest.raises(ApprovalStateError):
+        await request_changes_proposal(
+            db,
+            proposal_id=proposal_id,
+            decided_by="human:reviewer",
+            comment="Try again.",
+        )

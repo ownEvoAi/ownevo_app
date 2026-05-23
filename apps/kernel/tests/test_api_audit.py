@@ -299,3 +299,47 @@ async def test_verify_detects_seq_gap(
     assert body["total_entries"] == 2
     assert len(body["missing_seqs"]) == 3
     assert body["duplicate_seqs"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/audit/export
+# ---------------------------------------------------------------------------
+
+
+async def test_export_chain_empty(api_client: httpx.AsyncClient):
+    res = await api_client.get("/api/audit/export")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("application/json")
+    disposition = res.headers["content-disposition"]
+    assert disposition.startswith('attachment; filename="audit-chain-')
+    assert disposition.endswith('.json"')
+    assert res.content == b"[]"
+
+
+async def test_export_chain_returns_canonical_json(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Exported bytes must match the canonical-JSON form `verify_chain` measures.
+
+    Same sort-keys + no-whitespace serialization the marketing site
+    sovereignty card promises ("export in an open format"). A customer
+    diffing two exports across time should see only appended entries.
+    """
+    import json
+
+    related = uuid4()
+    for i in range(3):
+        await _seed_entry(db, kind="proposal-created", related_id=related,
+                          payload={"i": i})
+
+    verify = await api_client.post("/api/audit/verify")
+    export = await api_client.get("/api/audit/export")
+
+    assert export.status_code == 200
+    assert len(export.content) == verify.json()["canonical_export_bytes"]
+    parsed = json.loads(export.content)
+    assert len(parsed) == 3
+    assert all(e["kind"] == "proposal-created" for e in parsed)
+    # Canonical form: no whitespace between tokens.
+    assert b": " not in export.content
+    assert b", " not in export.content

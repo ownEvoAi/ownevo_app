@@ -334,11 +334,15 @@ function DecisionRecorded({ proposal }: { proposal: ProposalDetail }) {
       </div>
     )
   }
+  const decisionLabel =
+    proposal.approval.decision === 'approve'
+      ? 'Approved'
+      : proposal.approval.decision === 'request-changes'
+        ? 'Changes requested'
+        : 'Rejected'
   return (
     <div className="sidebar-card">
-      <div className="sidebar-title">
-        {proposal.approval.decision === 'approve' ? 'Approved' : 'Rejected'}
-      </div>
+      <div className="sidebar-title">{decisionLabel}</div>
       <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
         {proposal.approval.decided_by}
       </div>

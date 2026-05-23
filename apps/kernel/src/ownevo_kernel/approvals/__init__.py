@@ -18,6 +18,7 @@ from .service import (
     ProposalNotFoundError,
     approve_proposal,
     reject_proposal,
+    request_changes_proposal,
 )
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "approve_proposal",
     "deploy_proposal",
     "reject_proposal",
+    "request_changes_proposal",
     "rollback_proposal",
 ]

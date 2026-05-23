@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..db import ENV_VAR
+from ..llm.router import check_provider_api_keys
 from .models import HealthResponse
 from .routes import (
     audit,
@@ -60,6 +61,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        for warning in check_provider_api_keys():
+            logger.warning("llm-router: %s", warning)
+
         if pool is not None:
             # Caller-managed pool — don't open or close it here.
             app.state.pool = pool

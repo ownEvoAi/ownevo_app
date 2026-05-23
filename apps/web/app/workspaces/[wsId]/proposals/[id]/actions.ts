@@ -6,13 +6,14 @@ import {
   deployProposal,
   KernelApiError,
   rejectProposal,
+  requestChangesProposal,
   rollbackProposal,
 } from '@/lib/api'
 
 interface DecideInput {
   proposalId: string
   wsId: string
-  decision: 'approve' | 'reject'
+  decision: 'approve' | 'reject' | 'request-changes'
   decidedBy: string
   comment?: string
 }
@@ -30,7 +31,12 @@ export async function decideAction(input: DecideInput): Promise<DecideResult> {
     return { ok: false, error: 'Reviewer identity is required.' }
   }
 
-  const fn = input.decision === 'approve' ? approveProposal : rejectProposal
+  const fn =
+    input.decision === 'approve'
+      ? approveProposal
+      : input.decision === 'request-changes'
+        ? requestChangesProposal
+        : rejectProposal
   try {
     const res = await fn(input.proposalId, {
       decided_by: input.decidedBy,

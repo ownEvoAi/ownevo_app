@@ -18,7 +18,7 @@ from collections import Counter
 from datetime import UTC, datetime
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from ...audit.writer import _GENESIS_HASH, compute_entry_hash, export_audit_log, to_canonical_json
 from ...types import AuditKind
@@ -140,6 +140,30 @@ async def list_audit(
     # filtered result set — not whether there are more unfiltered entries.
     truncated = len(entries) > len(sliced)
     return AuditList(items=items, total=total, truncated=truncated)
+
+
+@router.get("/export")
+async def export_chain(conn: ConnDep) -> Response:
+    """Download the entire audit log as canonical JSON.
+
+    Backs the "Export chain" button on the audit page. Bytes are the
+    sorted-keys + no-whitespace form produced by `to_canonical_json`;
+    the same form `verify_chain` measures with `canonical_export_bytes`.
+    Two exports taken at different times diff cleanly — only the
+    appended entries change.
+    """
+    entries = await export_audit_log(conn)
+    body = to_canonical_json(entries)
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"audit-chain-{timestamp}.json"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/verify", response_model=AuditVerifyResponse)

@@ -29,6 +29,7 @@ from ...approvals import (
     approve_proposal,
     deploy_proposal,
     reject_proposal,
+    request_changes_proposal,
     rollback_proposal,
 )
 from ...types import ApproverType
@@ -68,7 +69,7 @@ async def list_proposals(
     state: str | None = Query(
         default=None,
         description="Filter by proposal state (e.g., 'gate-passed').",
-        pattern=r"^(pending|in-gate|gate-failed|gate-passed|approved-awaiting-deploy|deployed|rejected|rolled-back)$",
+        pattern=r"^(pending|in-gate|gate-failed|gate-passed|approved-awaiting-deploy|deployed|rejected|rolled-back|changes-requested)$",
     ),
     workflow_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
@@ -319,6 +320,38 @@ async def reject(
     )
 
 
+@router.post(
+    "/{proposal_id}/request-changes",
+    response_model=ApproveResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def request_changes(
+    proposal_id: UUID,
+    body: DecideRequest,
+    conn: ConnDep,
+) -> ApproveResponse:
+    """Transition `gate-passed` → `changes-requested` with steering text.
+
+    The comment is required — it IS the steering input that the next
+    iteration on this workflow threads into the agent + proposer
+    prompt. Returns 422 if the comment is missing or empty.
+    """
+    if not body.comment or not body.comment.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "comment is required for /request-changes — the steering "
+                "text drives the next iteration's proposer"
+            ),
+        )
+    return await _decide(
+        conn=conn,
+        proposal_id=proposal_id,
+        body=body,
+        decision="request-changes",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Deploy / rollback
 # ---------------------------------------------------------------------------
@@ -422,6 +455,13 @@ async def _deploy_or_rollback(
     )
 
 
+_DECISION_DISPATCH = {
+    "approve": (approve_proposal, "approved-awaiting-deploy"),
+    "reject": (reject_proposal, "rejected"),
+    "request-changes": (request_changes_proposal, "changes-requested"),
+}
+
+
 async def _decide(
     *,
     conn: asyncpg.Connection,
@@ -430,7 +470,7 @@ async def _decide(
     decision: str,
 ) -> ApproveResponse:
     approver_type = _resolve_approver_type(body.approver_type)
-    fn = approve_proposal if decision == "approve" else reject_proposal
+    fn, new_state = _DECISION_DISPATCH[decision]
     try:
         approval = await fn(
             conn,
@@ -455,7 +495,6 @@ async def _decide(
             detail=str(exc),
         ) from exc
 
-    new_state = "approved-awaiting-deploy" if decision == "approve" else "rejected"
     return ApproveResponse(
         proposal_id=proposal_id,
         state=new_state,
