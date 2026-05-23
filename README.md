@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://demo.ownevo.ai">Live demo</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
@@ -49,6 +50,34 @@ Two processes joined by REST + SSE:
 - **Next.js web** — workspace UI, side-by-side diff, lift chart, audit trail, approval queue.
 
 Detailed system tour: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## What the domain expert actually sees
+
+Captured from a local `make seed-demo-with-iter` run — no editing, no mockup layer.
+
+**Workflow overview** — plain-English description, the improvement curve (val_score climbing 0.46 → 0.65 → 0.77 → 0.80 across four iterations of `demand-prediction` — iter #0 gate-blocked, iters #1–3 gate-passed), recorded iterations, and the agent's anatomy (skills, tools, reviewer, success metric) on a single page.
+
+<p align="center">
+  <img src="docs/img/workflow-overview.png" alt="Workflow overview — description, improvement curve, iteration list, agent anatomy" width="820">
+</p>
+
+**Design with the agent** — a short discovery interview before generation. The design agent surfaces the metric trade-off and one or two ambiguities most workflows miss on the first pass, grounded in the operator's own description. Answers become hard constraints on the four generated artifacts (spec, simulation plan, success metric, eval seed cases).
+
+<p align="center">
+  <img src="docs/img/design-agent.png" alt="Design agent — decision-brief card with options, recommendation, and rationale" width="820">
+</p>
+
+**Proposal review** — side-by-side skill diff (V1 → V2), why-this-change rationale, the regression gate's verdict, and the audit-chain entries that produced the proposal. Approve / Request changes / Reject are the three terminal decisions; the comment box on Request changes becomes the steering text for the next iteration.
+
+<p align="center">
+  <img src="docs/img/proposal-review.png" alt="Proposal review — skill diff, regression gate verdict, audit chain" width="820">
+</p>
+
+**Audit chain** — append-only log of every state change in the workspace. SHA-256-hash-chained at the DB level; export as canonical JSON in one click; verify the chain end-to-end via the kernel.
+
+<p align="center">
+  <img src="docs/img/audit-trail.png" alt="Audit trail — append-only log with hash chain verification and export" width="820">
+</p>
 
 ## Quick start
 
