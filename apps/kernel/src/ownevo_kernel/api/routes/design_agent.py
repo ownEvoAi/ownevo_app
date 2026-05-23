@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...design_agent import (
@@ -52,6 +52,9 @@ from ...design_agent.prompts import (
     get_discovery_questions,
     known_template_ids,
 )
+from .._demo_gate import DemoGateDep
+from .._demo_quota import record_usage as record_demo_usage
+from .._demo_token_accountant import TokenAccountant, wrap_client_for_accounting
 
 router = APIRouter(prefix="/api/design-agent", tags=["design-agent"])
 
@@ -319,37 +322,56 @@ def _llm_client_or_none():
     response_model=NextQuestionResponse,
     response_model_exclude_none=True,
 )
-async def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
+async def next_question(
+    req: NextQuestionRequest,
+    request: Request,
+    demo: DemoGateDep,
+) -> NextQuestionResponse:
     answered_count = len(req.prior_answers)
     total_questions = len(DIMENSION_SPECS)
 
     # --- LLM path ---
     client = _llm_client_or_none()
+    accountant = TokenAccountant()
+    if client is not None and demo is not None:
+        wrap_client_for_accounting(client, accountant)
     if client is not None:
         try:
-            brief = await pick_next_question(
-                description=req.description,
-                template_id=req.template_id,
-                prior_answers=_convert_prior_for_interviewer(req.prior_answers),
-                client=client,
-            )
-        except InterviewerError:
-            brief = None
-            client = None  # fall through to hardcoded fallback below
-        else:
-            if brief is None:
+            try:
+                brief = await pick_next_question(
+                    description=req.description,
+                    template_id=req.template_id,
+                    prior_answers=_convert_prior_for_interviewer(req.prior_answers),
+                    client=client,
+                )
+            except InterviewerError:
+                brief = None
+                client = None  # fall through to hardcoded fallback below
+            else:
+                if brief is None:
+                    return NextQuestionResponse(
+                        next_question=None,
+                        done=True,
+                        total_questions=total_questions,
+                        answered_count=answered_count,
+                    )
                 return NextQuestionResponse(
-                    next_question=None,
-                    done=True,
+                    next_question=_llm_brief_to_response(brief),
+                    done=False,
                     total_questions=total_questions,
                     answered_count=answered_count,
                 )
-            return NextQuestionResponse(
-                next_question=_llm_brief_to_response(brief),
-                done=False,
-                total_questions=total_questions,
-                answered_count=answered_count,
-            )
+        finally:
+            if demo is not None and (
+                accountant.input_tokens or accountant.output_tokens
+            ):
+                async with request.app.state.pool.acquire() as _usage_conn:
+                    await record_demo_usage(
+                        _usage_conn,
+                        demo,
+                        input_tokens=accountant.input_tokens,
+                        output_tokens=accountant.output_tokens,
+                    )
 
     # --- Hardcoded fallback ---
     # Legacy template walk: pick the lowest unanswered positional index.

@@ -31,6 +31,7 @@ from ..llm.router import check_provider_api_keys
 from .models import HealthResponse
 from .routes import (
     audit,
+    demo,
     design_agent,
     design_agent_ambiguity,
     models,
@@ -122,6 +123,7 @@ def create_app(
     api.include_router(traces.trace_router)
     api.include_router(skills.skill_router)
     api.include_router(skills.workflow_skills_router)
+    api.include_router(demo.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:

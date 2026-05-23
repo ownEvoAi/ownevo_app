@@ -43,6 +43,9 @@ from ...nl_gen.workflow_spec_generator import (
     generate_workflow_spec,
 )
 from .._anthropic_client import build_async_anthropic
+from .._demo_gate import DemoGateDep
+from .._demo_quota import record_usage as record_demo_usage
+from .._demo_token_accountant import TokenAccountant, wrap_client_for_accounting
 
 router = APIRouter(prefix="/api/nl-gen", tags=["nl-gen"])
 
@@ -206,6 +209,7 @@ class GenerateResponse(BaseModel):
 async def generate_workflow(
     request: Request,
     body: GenerateRequest,
+    demo: DemoGateDep,
 ) -> GenerateResponse:
     """Generate a WorkflowSpec from a plain-English description, persist it.
 
@@ -266,6 +270,13 @@ async def generate_workflow(
     nl_gen_model = os.environ.get("OWNEVO_NL_GEN_MODEL") or None
     spec_kwargs: dict[str, str] = {"model": nl_gen_model} if nl_gen_model else {}
 
+    # In demo mode, intercept every messages.create response to accumulate
+    # token usage. The accountant is request-scoped — the patched method
+    # never escapes this handler because each request builds its own client.
+    accountant = TokenAccountant()
+    if demo is not None:
+        wrap_client_for_accounting(client, accountant)
+
     # Slice the persisted design-agent transcript per generator. Each
     # generator reads only the dimensions it can encode (spec gets
     # goal/connectors/UI/reviewer, sim_plan gets goal/trigger, metric
@@ -277,38 +288,50 @@ async def generate_workflow(
     metric_brief = format_dimensions_block(body.design_agent_log, METRIC_DIMENSIONS)
 
     try:
-        spec = await generate_workflow_spec(
-            client,
-            body.description,
-            design_brief_block=spec_brief,
-            **spec_kwargs,
-        )
-    except NoToolUseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM did not emit a workflow spec: {exc}",
-        ) from exc
-    except WorkflowSpecValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM produced invalid spec: {exc}",
-        ) from exc
+        try:
+            spec = await generate_workflow_spec(
+                client,
+                body.description,
+                design_brief_block=spec_brief,
+                **spec_kwargs,
+            )
+        except NoToolUseError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"LLM did not emit a workflow spec: {exc}",
+            ) from exc
+        except WorkflowSpecValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"LLM produced invalid spec: {exc}",
+            ) from exc
 
-    # The improvement loop needs sim_plan + metric to score iterations.
-    # Generate them eagerly (2 more LLM calls, ~25-40s each) so the user
-    # can run an iteration immediately without a second wait.
-    try:
-        sim_plan = await generate_simulation_plan(
-            client, spec, design_brief_block=sim_brief, **spec_kwargs
-        )
-        metric_def = await generate_metric_definition(
-            client, spec, design_brief_block=metric_brief, **spec_kwargs
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM-side failure during sim/metric generation: {exc}",
-        ) from exc
+        # The improvement loop needs sim_plan + metric to score iterations.
+        # Generate them eagerly (2 more LLM calls, ~25-40s each) so the user
+        # can run an iteration immediately without a second wait.
+        try:
+            sim_plan = await generate_simulation_plan(
+                client, spec, design_brief_block=sim_brief, **spec_kwargs
+            )
+            metric_def = await generate_metric_definition(
+                client, spec, design_brief_block=metric_brief, **spec_kwargs
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"LLM-side failure during sim/metric generation: {exc}",
+            ) from exc
+    finally:
+        # Record tokens even if the LLM call raised — Anthropic already
+        # billed for whatever rounds completed before the failure.
+        if demo is not None and (accountant.input_tokens or accountant.output_tokens):
+            async with request.app.state.pool.acquire() as _usage_conn:
+                await record_demo_usage(
+                    _usage_conn,
+                    demo,
+                    input_tokens=accountant.input_tokens,
+                    output_tokens=accountant.output_tokens,
+                )
 
     workflow_id = body.workflow_id or spec.id
 

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { gateStateFor, getDemoStatus } from '@/lib/demo-status'
 import { NewWorkflowForm } from './new-workflow-form'
 import { VERTICAL_TEMPLATES } from './templates'
 
@@ -17,6 +18,7 @@ export default async function NewWorkflowPage({
   const { wsId } = await params
   const { from } = await searchParams
   const fromConnect = from === 'connect'
+  const demoGate = gateStateFor(await getDemoStatus())
 
   return (
     <div className="preview-wrap">
@@ -55,7 +57,11 @@ export default async function NewWorkflowPage({
         the loop proposes an edit, you approve.
       </p>
 
-      <NewWorkflowForm wsId={wsId} templates={VERTICAL_TEMPLATES} />
+      <NewWorkflowForm
+        wsId={wsId}
+        templates={VERTICAL_TEMPLATES}
+        demoGate={demoGate}
+      />
 
       <div className="gen-help">
         <h3 className="gen-help-title">What makes a good description?</h3>
