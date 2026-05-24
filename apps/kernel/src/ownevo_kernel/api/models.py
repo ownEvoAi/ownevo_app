@@ -711,14 +711,47 @@ class FailureClusterSummary(_Strict):
     # was built from. Resolved by picking any sample trace and reading
     # its `traces.iteration_id`. Null only when sample traces predate
     # the Tier-1 trace-persistence change (legacy clusters) or weren't
-    # produced by an iteration (production traces — not yet wired).
+    # produced by an iteration (production traces).
     spawning_iteration_index: int | None = None
     spawning_iteration_id: UUID | None = None
+    # Per-cluster source mix. Derived from `traces.iteration_id IS NULL`
+    # (production) vs `IS NOT NULL` (eval). A cluster reads as
+    # production-only, eval-only, or mixed depending on which side of
+    # the join its sample traces fall on. Sample traces with no matching
+    # row in `traces` (legacy clusters predating Tier-1 trace persistence)
+    # do not contribute to either count.
+    prod_count: int = 0
+    eval_count: int = 0
 
 
 class FailureClusterList(_Strict):
     workflow_id: str
     items: list[FailureClusterSummary]
+
+
+class FailureListItem(_Strict):
+    """One row in the flat-list view of failures (cluster-list toggle).
+
+    Each row is one sample trace from a cluster's `sample_trace_ids`,
+    decorated with the cluster's label/severity so a reviewer can scan
+    individual failures across clusters in a single sortable table.
+    """
+
+    trace_id: UUID
+    cluster_id: UUID
+    cluster_label: str
+    severity: str  # 'high' | 'medium' | 'low'
+    source: str  # 'production' | 'eval'
+    started_at: datetime | None
+    # Eval-case binding when source='eval'; null for production rows
+    # (production traces aren't attached to an eval case).
+    eval_case_id: UUID | None
+    iteration_index: int | None
+
+
+class FailureList(_Strict):
+    workflow_id: str
+    items: list[FailureListItem]
 
 
 # ---------------------------------------------------------------------------
@@ -944,6 +977,8 @@ __all__ = [
     "DecideRequest",
     "FailureClusterList",
     "FailureClusterSummary",
+    "FailureList",
+    "FailureListItem",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

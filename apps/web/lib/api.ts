@@ -891,6 +891,9 @@ export interface FailureClusterSummary {
   latest_proposal_id: string | null
   spawning_iteration_index?: number | null
   spawning_iteration_id?: string | null
+  // 9.2.1 — per-cluster source mix derived from traces.iteration_id.
+  prod_count: number
+  eval_count: number
 }
 
 export interface FailureClusterList {
@@ -903,6 +906,37 @@ export async function getWorkflowFailureClusters(
 ): Promise<FailureClusterList> {
   return jsonFetch<FailureClusterList>(
     `/api/workflows/${encodeURIComponent(workflowId)}/failure_clusters`,
+  )
+}
+
+// 9.2.1 — flat-list view of individual failures, one row per sample
+// trace across all active clusters. `source` may be 'production',
+// 'eval', or omitted (returns all).
+export type FailureSource = 'production' | 'eval'
+
+export interface FailureListItem {
+  trace_id: string
+  cluster_id: string
+  cluster_label: string
+  severity: ClusterSeverity
+  source: FailureSource
+  started_at: string | null
+  eval_case_id: string | null
+  iteration_index: number | null
+}
+
+export interface FailureList {
+  workflow_id: string
+  items: FailureListItem[]
+}
+
+export async function getWorkflowFailureList(
+  workflowId: string,
+  source?: FailureSource,
+): Promise<FailureList> {
+  const qs = source ? `?source=${source}` : ''
+  return jsonFetch<FailureList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/failures${qs}`,
   )
 }
 

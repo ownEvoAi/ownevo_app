@@ -44,6 +44,8 @@ from ..models import (
     EvalCaseSummary,
     FailureClusterList,
     FailureClusterSummary,
+    FailureList,
+    FailureListItem,
     GenerateEvalCasesResponse,
     IterationCaseRow,
     IterationDetailFull,
@@ -460,42 +462,67 @@ async def list_failure_clusters(
         workflow_id,
     )
 
-    # Resolve spawning_iteration per cluster in a single follow-up
-    # query: pick the earliest iteration_index whose traces overlap
-    # any of the cluster's sample_trace_ids. Done in Python (not as
-    # a correlated subquery) because asyncpg's ANY($1::uuid[]) handling
-    # of NULL/empty arrays is brittle and a single batched lookup
-    # over the union of all sample ids is straightforward.
+    # Resolve spawning_iteration + source mix per cluster in a single
+    # follow-up query. Source is derived from `traces.iteration_id`:
+    # `IS NULL` = production trace, `IS NOT NULL` = eval (an iteration
+    # run produced it). Done in Python (not a correlated subquery)
+    # because asyncpg's ANY($1::uuid[]) handling of NULL/empty arrays is
+    # brittle and a single batched lookup is straightforward.
     all_sample_ids: list[UUID] = []
     for r in rows:
         for tid in r["sample_trace_ids"] or []:
             all_sample_ids.append(tid)
     spawning_by_cluster: dict[UUID, tuple[int, UUID]] = {}
+    # eval_traces: trace_id → (iteration_index, iteration_id); only
+    # populated for sample traces with non-null iteration_id.
+    eval_traces: dict[UUID, tuple[int, UUID]] = {}
+    # prod_traces: set of sample trace ids whose `iteration_id IS NULL`.
+    prod_traces: set[UUID] = set()
     if all_sample_ids:
-        trace_iter_rows = await conn.fetch(
+        trace_rows = await conn.fetch(
             """
-            SELECT t.id AS trace_id, i.id AS iter_id, i.iteration_index
+            SELECT
+                t.id            AS trace_id,
+                t.iteration_id  AS iter_id,
+                i.iteration_index
             FROM traces t
-            JOIN iterations i ON i.id = t.iteration_id
+            LEFT JOIN iterations i ON i.id = t.iteration_id
             WHERE t.id = ANY($1::uuid[])
-              AND t.iteration_id IS NOT NULL
             """,
             all_sample_ids,
         )
-        trace_to_iter: dict[UUID, tuple[int, UUID]] = {
-            row["trace_id"]: (row["iteration_index"], row["iter_id"])
-            for row in trace_iter_rows
-        }
+        for row in trace_rows:
+            if row["iter_id"] is None:
+                prod_traces.add(row["trace_id"])
+            else:
+                eval_traces[row["trace_id"]] = (
+                    row["iteration_index"],
+                    row["iter_id"],
+                )
         for r in rows:
             best: tuple[int, UUID] | None = None
             for tid in r["sample_trace_ids"] or []:
-                resolved = trace_to_iter.get(tid)
+                resolved = eval_traces.get(tid)
                 if resolved is None:
                     continue
                 if best is None or resolved[0] < best[0]:
                     best = resolved
             if best is not None:
                 spawning_by_cluster[r["id"]] = best
+
+    # Per-cluster prod/eval counts. Sample ids absent from both sets
+    # (legacy clusters predating Tier-1 trace persistence) don't
+    # contribute to either count.
+    source_counts: dict[UUID, tuple[int, int]] = {}
+    for r in rows:
+        prod = 0
+        evl = 0
+        for tid in r["sample_trace_ids"] or []:
+            if tid in prod_traces:
+                prod += 1
+            elif tid in eval_traces:
+                evl += 1
+        source_counts[r["id"]] = (prod, evl)
 
     items = [
         FailureClusterSummary(
@@ -525,10 +552,102 @@ async def list_failure_clusters(
                 if r["id"] in spawning_by_cluster
                 else None
             ),
+            prod_count=source_counts.get(r["id"], (0, 0))[0],
+            eval_count=source_counts.get(r["id"], (0, 0))[1],
         )
         for r in rows
     ]
     return FailureClusterList(workflow_id=workflow_id, items=items)
+
+
+@router.get(
+    "/{workflow_id}/failures",
+    response_model=FailureList,
+)
+async def list_workflow_failures(
+    workflow_id: str,
+    conn: ConnDep,
+    source: str | None = None,
+) -> FailureList:
+    """Return one row per failed sample trace across all active clusters.
+
+    Powers the list/cluster toggle on the Failures view. `source` may
+    be `production`, `eval`, or omitted (returns all). Each row is a
+    `(trace, cluster)` pairing decorated with timestamp + severity so
+    a reviewer can sort across clusters in a single table.
+
+    For eval rows the trace is bound to the iteration that produced it,
+    and (when resolvable) the eval case the iteration was running
+    against. Production rows have no iteration_id / eval_case_id.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    if source not in (None, "production", "eval"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source must be 'production', 'eval', or omitted",
+        )
+
+    # One query joins each active cluster's sample_trace_ids through
+    # `traces` and (for eval rows) into iterations. The unnest preserves
+    # the cluster→trace mapping so we can render label + severity per
+    # row without a second pass.
+    rows = await conn.fetch(
+        """
+        SELECT
+            t.id            AS trace_id,
+            fc.id           AS cluster_id,
+            fc.label        AS cluster_label,
+            fc.severity     AS severity,
+            CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END
+                            AS source,
+            t.started_at    AS started_at,
+            i.iteration_index,
+            -- Best-effort eval_case binding: most recent eval_case
+            -- attached to this cluster. Null for production rows or
+            -- clusters with no eval cases yet.
+            (
+                SELECT ec.id FROM eval_cases ec
+                WHERE ec.cluster_id = fc.id
+                ORDER BY ec.created_at DESC
+                LIMIT 1
+            )               AS eval_case_id
+        FROM failure_clusters fc
+        CROSS JOIN LATERAL unnest(COALESCE(fc.sample_trace_ids, '{}'::uuid[]))
+            AS sample_id
+        JOIN traces t ON t.id = sample_id
+        LEFT JOIN iterations i ON i.id = t.iteration_id
+        WHERE fc.workflow_id = $1
+          AND ($2::text IS NULL OR
+               (CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END) = $2)
+        ORDER BY t.started_at DESC NULLS LAST, fc.severity ASC
+        """,
+        workflow_id,
+        source,
+    )
+
+    items = [
+        FailureListItem(
+            trace_id=r["trace_id"],
+            cluster_id=r["cluster_id"],
+            cluster_label=r["cluster_label"],
+            severity=r["severity"],
+            source=r["source"],
+            started_at=r["started_at"],
+            eval_case_id=r["eval_case_id"] if r["source"] == "eval" else None,
+            iteration_index=r["iteration_index"],
+        )
+        for r in rows
+    ]
+    return FailureList(workflow_id=workflow_id, items=items)
 
 
 @router.get(

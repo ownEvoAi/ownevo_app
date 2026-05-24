@@ -1,26 +1,45 @@
 import {
   getWorkflowFailureClusters,
+  getWorkflowFailureList,
   kernelError,
   KernelApiError,
   type FailureClusterList,
+  type FailureClusterSummary,
+  type FailureList,
+  type FailureSource,
 } from '../../../../../../lib/api'
 import { FailureClusterCard } from './failure-cluster-card'
+import { FailuresControls } from './failures-controls'
+import { FailuresListTable } from './failures-list-table'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
+  searchParams: Promise<{ view?: string; source?: string }>
 }
 
-// One card per active cluster, sorted high → medium → low, then by
-// cluster_size. Visual target: www/preview/s26-rk7p3/16-failures.html.
-export default async function WorkflowFailuresPage({ params }: PageProps) {
+// One card per active cluster (default) or one row per individual
+// failure (list view). 9.2.1 adds source provenance + list/cluster
+// toggle. Visual target: www/preview/s26-rk7p3/16-failures.html.
+export default async function WorkflowFailuresPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { wsId, wfId } = await params
+  const sp = await searchParams
+  const view: 'cluster' | 'list' = sp.view === 'list' ? 'list' : 'cluster'
+  const source: FailureSource | null =
+    sp.source === 'production' || sp.source === 'eval' ? sp.source : null
 
   let clusters: FailureClusterList = { workflow_id: wfId, items: [] }
+  let failureList: FailureList = { workflow_id: wfId, items: [] }
   let apiError: { title: string; detail: string } | null = null
   let notFound = false
 
   try {
     clusters = await getWorkflowFailureClusters(wfId)
+    if (view === 'list') {
+      failureList = await getWorkflowFailureList(wfId, source ?? undefined)
+    }
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       notFound = true
@@ -29,10 +48,34 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
     }
   }
 
+  // Source totals are derived from the cluster list, not the flat
+  // list, so the chip counts stay stable regardless of which view is
+  // active.
+  const totalProd = clusters.items.reduce(
+    (acc, c) => acc + (c.prod_count ?? 0),
+    0,
+  )
+  const totalEval = clusters.items.reduce(
+    (acc, c) => acc + (c.eval_count ?? 0),
+    0,
+  )
+
+  // Apply the source filter to the cluster list view. A cluster
+  // matches when it has at least one failure from the selected source.
+  // Mixed clusters appear under both filters so the reviewer can drill
+  // into either side.
+  const visibleClusters: FailureClusterSummary[] = clusters.items.filter(
+    (c) => {
+      if (source === 'production') return (c.prod_count ?? 0) > 0
+      if (source === 'eval') return (c.eval_count ?? 0) > 0
+      return true
+    },
+  )
+
   // Group by severity to match the mock's "Active" / "Resolved" layout.
-  const high = clusters.items.filter((c) => c.severity === 'high')
-  const medium = clusters.items.filter((c) => c.severity === 'medium')
-  const low = clusters.items.filter((c) => c.severity === 'low')
+  const high = visibleClusters.filter((c) => c.severity === 'high')
+  const medium = visibleClusters.filter((c) => c.severity === 'medium')
+  const low = visibleClusters.filter((c) => c.severity === 'low')
 
   return (
     <>
@@ -85,6 +128,17 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
         </div>
       </div>
 
+      {clusters.items.length > 0 && (
+        <FailuresControls
+          wsId={wsId}
+          wfId={wfId}
+          view={view}
+          source={source}
+          totalProd={totalProd}
+          totalEval={totalEval}
+        />
+      )}
+
       {clusters.items.length === 0 && !apiError && !notFound && (
         <div
           style={{
@@ -104,7 +158,11 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
         </div>
       )}
 
-      {high.length > 0 && (
+      {view === 'list' && (
+        <FailuresListTable rows={failureList.items} wsId={wsId} wfId={wfId} />
+      )}
+
+      {view === 'cluster' && high.length > 0 && (
         <>
           <div className="group-head">High · {high.length}</div>
           <div className="clusters">
@@ -115,7 +173,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
         </>
       )}
 
-      {medium.length > 0 && (
+      {view === 'cluster' && medium.length > 0 && (
         <>
           <div className="group-head">Medium · {medium.length}</div>
           <div className="clusters">
@@ -126,7 +184,7 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
         </>
       )}
 
-      {low.length > 0 && (
+      {view === 'cluster' && low.length > 0 && (
         <>
           <div className="group-head">Low · {low.length}</div>
           <div className="clusters">
@@ -135,6 +193,23 @@ export default async function WorkflowFailuresPage({ params }: PageProps) {
             ))}
           </div>
         </>
+      )}
+
+      {view === 'cluster' && visibleClusters.length === 0 && clusters.items.length > 0 && (
+        <div
+          style={{
+            background: 'var(--bg)',
+            border: '1px dashed var(--border)',
+            borderRadius: 8,
+            padding: 24,
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+            marginTop: 16,
+          }}
+        >
+          No clusters match the current source filter.
+        </div>
       )}
     </>
   )

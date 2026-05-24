@@ -605,3 +605,171 @@ async def test_failure_clusters_latest_proposal_picks_newest(
     # second so it wins. The id is rendered as a UUID string.
     assert latest == str(prop_new)
     assert latest != str(prop_old)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.1 — failure provenance (prod_count / eval_count) + flat-list view
+# ---------------------------------------------------------------------------
+
+
+async def _seed_trace_with_iteration(
+    conn: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    iteration_id=None,
+):
+    """Insert a minimal `traces` row. `iteration_id=None` makes it a
+    production trace; passing one makes it an eval trace."""
+    return await conn.fetchval(
+        """
+        INSERT INTO traces
+            (workflow_id, iteration_id, events, started_at)
+        VALUES ($1, $2, '[]'::jsonb, now())
+        RETURNING id
+        """,
+        workflow_id,
+        iteration_id,
+    )
+
+
+async def _attach_sample_traces(
+    conn: asyncpg.Connection, *, cluster_id, trace_ids: list,
+) -> None:
+    await conn.execute(
+        "UPDATE failure_clusters SET sample_trace_ids = $1::uuid[] WHERE id = $2",
+        trace_ids,
+        cluster_id,
+    )
+
+
+async def test_failure_clusters_source_mix_counts(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A cluster with 2 production traces + 3 eval traces reports
+    prod_count=2, eval_count=3 on the cluster endpoint."""
+    await _seed_workflow(db, workflow_id="wf-mix")
+    iter_id = await _seed_iteration(db, workflow_id="wf-mix", iteration_index=0)
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-mix", label="mixed", severity="high",
+        cluster_size=5,
+    )
+    sample_ids = []
+    for _ in range(2):
+        sample_ids.append(
+            await _seed_trace_with_iteration(db, workflow_id="wf-mix")
+        )
+    for _ in range(3):
+        sample_ids.append(
+            await _seed_trace_with_iteration(
+                db, workflow_id="wf-mix", iteration_id=iter_id,
+            )
+        )
+    await _attach_sample_traces(db, cluster_id=cluster_id, trace_ids=sample_ids)
+
+    res = await api_client.get("/api/workflows/wf-mix/failure_clusters")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 1
+    assert items[0]["prod_count"] == 2
+    assert items[0]["eval_count"] == 3
+
+
+async def test_failure_clusters_source_counts_default_zero_for_legacy(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A cluster with empty sample_trace_ids (legacy) reports
+    prod_count=0, eval_count=0 — derivation is silent rather than
+    guessing."""
+    await _seed_workflow(db, workflow_id="wf-legacy")
+    await _seed_cluster(
+        db, workflow_id="wf-legacy", label="bare", severity="low", cluster_size=1,
+    )
+    res = await api_client.get("/api/workflows/wf-legacy/failure_clusters")
+    assert res.status_code == 200
+    item = res.json()["items"][0]
+    assert item["prod_count"] == 0
+    assert item["eval_count"] == 0
+
+
+async def test_failures_endpoint_404_on_unknown(api_client: httpx.AsyncClient):
+    res = await api_client.get("/api/workflows/nope/failures")
+    assert res.status_code == 404
+
+
+async def test_failures_endpoint_returns_flat_list_with_source(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-flat")
+    iter_id = await _seed_iteration(db, workflow_id="wf-flat", iteration_index=0)
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-flat", label="flat", severity="medium",
+        cluster_size=3,
+    )
+    prod_trace = await _seed_trace_with_iteration(db, workflow_id="wf-flat")
+    eval_trace_a = await _seed_trace_with_iteration(
+        db, workflow_id="wf-flat", iteration_id=iter_id,
+    )
+    eval_trace_b = await _seed_trace_with_iteration(
+        db, workflow_id="wf-flat", iteration_id=iter_id,
+    )
+    await _attach_sample_traces(
+        db, cluster_id=cluster_id,
+        trace_ids=[prod_trace, eval_trace_a, eval_trace_b],
+    )
+
+    res = await api_client.get("/api/workflows/wf-flat/failures")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 3
+    sources = sorted(r["source"] for r in items)
+    assert sources == ["eval", "eval", "production"]
+    # Every row carries cluster label + severity for table rendering.
+    for r in items:
+        assert r["cluster_label"] == "flat"
+        assert r["severity"] == "medium"
+    # Eval rows expose iteration_index; production rows don't.
+    for r in items:
+        if r["source"] == "eval":
+            assert r["iteration_index"] == 0
+        else:
+            assert r["iteration_index"] is None
+
+
+async def test_failures_endpoint_source_filter(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-filter")
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-filter", iteration_index=0,
+    )
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-filter", label="cf", severity="high",
+        cluster_size=2,
+    )
+    prod_trace = await _seed_trace_with_iteration(db, workflow_id="wf-filter")
+    eval_trace = await _seed_trace_with_iteration(
+        db, workflow_id="wf-filter", iteration_id=iter_id,
+    )
+    await _attach_sample_traces(
+        db, cluster_id=cluster_id, trace_ids=[prod_trace, eval_trace],
+    )
+
+    res_prod = await api_client.get(
+        "/api/workflows/wf-filter/failures?source=production"
+    )
+    assert res_prod.status_code == 200
+    assert [r["source"] for r in res_prod.json()["items"]] == ["production"]
+
+    res_eval = await api_client.get(
+        "/api/workflows/wf-filter/failures?source=eval"
+    )
+    assert res_eval.status_code == 200
+    assert [r["source"] for r in res_eval.json()["items"]] == ["eval"]
+
+
+async def test_failures_endpoint_rejects_bad_source(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-bad")
+    res = await api_client.get("/api/workflows/wf-bad/failures?source=bogus")
+    assert res.status_code == 400

@@ -99,15 +99,25 @@ async def _upsert_workflow(
 #
 # Only inserted when demand-prediction has 0 clusters — re-running the
 # seed is a no-op once the fixtures exist.
-_DP_CLUSTER_LABELS: tuple[tuple[str, str, int], ...] = (
+# (label, severity, cluster_size, prod_count, eval_count)
+# Sources sum to cluster_size. The mix is hand-tuned so the demo shows
+# (a) a mixed-source cluster (high — production traces from the live
+# agent + eval-set re-runs both surfaced the same failure pattern), and
+# (b) an eval-only cluster (medium — caught by the eval set, hasn't
+# been seen in production yet).
+_DP_CLUSTER_LABELS: tuple[tuple[str, str, int, int, int], ...] = (
     (
         "Holiday markdown false-negatives, weeks 47-51",
         "high",
         5,
+        3,  # prod
+        2,  # eval
     ),
     (
         "Off-shelf bias on slow-mover SKUs",
         "medium",
+        3,
+        0,
         3,
     ),
 )
@@ -169,35 +179,9 @@ async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
         return False
 
     async with conn.transaction():
-        # 1. Failure clusters.
-        for label, severity, cluster_size in _DP_CLUSTER_LABELS:
-            cluster_id = await conn.fetchval(
-                """
-                INSERT INTO failure_clusters
-                    (workflow_id, label, severity, cluster_size)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id
-                """,
-                workflow_id,
-                label,
-                severity,
-                cluster_size,
-            )
-            await append_audit_entry(
-                conn,
-                kind=AuditKind.CLUSTER_CREATED,
-                payload={
-                    "workflow_id": workflow_id,
-                    "cluster_id": str(cluster_id),
-                    "label": label,
-                    "severity": severity,
-                    "source": "demo-fixture",
-                },
-                actor="seed_demo:demo-fixtures",
-                related_id=cluster_id,
-            )
-
-        # 2. Skill + two versions (v1 baseline, v2 the "proposed" edit).
+        # 1. Skill v1 (baseline) — needed before the trace rows that
+        # reference it. v2 (the proposed edit) is created below alongside
+        # the proposal.
         await conn.execute(
             """
             INSERT INTO skills (id, kind, workflow_id)
@@ -217,7 +201,68 @@ async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
             _DP_SKILL_ID,
             _DP_SKILL_V1_CONTENT,
         )
-        v2_id = await conn.fetchval(
+
+        # 2. Failure clusters + per-cluster sample traces. Each cluster
+        # gets `prod_count` traces with iteration_id=NULL and `eval_count`
+        # traces with iteration_id=iter_id; sample_trace_ids points at
+        # them. The Failures-page source pill reads counts back from the
+        # `traces.iteration_id` join in `list_failure_clusters`.
+        for (
+            label,
+            severity,
+            cluster_size,
+            prod_count,
+            eval_count,
+        ) in _DP_CLUSTER_LABELS:
+            sample_ids: list = []
+            for kind, count in (("production", prod_count), ("eval", eval_count)):
+                bind_iter = None if kind == "production" else iter_id
+                for _ in range(count):
+                    trace_id = await conn.fetchval(
+                        """
+                        INSERT INTO traces
+                            (workflow_id, iteration_id, skill_version_id,
+                             events, started_at, ended_at)
+                        VALUES ($1, $2, $3, '[]'::jsonb, now(), now())
+                        RETURNING id
+                        """,
+                        workflow_id,
+                        bind_iter,
+                        v1_id,
+                    )
+                    sample_ids.append(trace_id)
+
+            cluster_id = await conn.fetchval(
+                """
+                INSERT INTO failure_clusters
+                    (workflow_id, label, severity, cluster_size,
+                     sample_trace_ids)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id
+                """,
+                workflow_id,
+                label,
+                severity,
+                cluster_size,
+                sample_ids,
+            )
+            await append_audit_entry(
+                conn,
+                kind=AuditKind.CLUSTER_CREATED,
+                payload={
+                    "workflow_id": workflow_id,
+                    "cluster_id": str(cluster_id),
+                    "label": label,
+                    "severity": severity,
+                    "source": "demo-fixture",
+                },
+                actor="seed_demo:demo-fixtures",
+                related_id=cluster_id,
+            )
+
+        # 3. Skill v2 (the proposed edit) — v1 already inserted above
+        # so the seeded traces can reference it.
+        await conn.fetchval(
             """
             INSERT INTO skill_versions
                 (skill_id, version_seq, content, parent_version_id, created_by)
@@ -234,7 +279,7 @@ async def _seed_demand_prediction_demo_fixtures(conn) -> bool:
             _DP_SKILL_ID,
         )
 
-        # 3. Gate-passed proposal pointing at the v2 skill version.
+        # 4. Gate-passed proposal pointing at the v2 skill version.
         proposal_id = await conn.fetchval(
             """
             INSERT INTO proposals

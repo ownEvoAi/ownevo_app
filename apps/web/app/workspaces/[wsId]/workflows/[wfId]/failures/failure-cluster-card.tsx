@@ -13,6 +13,42 @@ const SEVERITY_PILL: Record<string, string> = {
   low: 'pill outline',
 }
 
+// 9.2.1 — source pill(s) for a cluster's prod/eval mix.
+// - Both counts > 0  → render two pills (Prod n + Eval n) so the mixed
+//   nature is visible at a glance.
+// - One count > 0    → render a single pill (no count) — the single-
+//   sourced cluster is unambiguous on its own.
+// - Both zero        → render nothing; the source-info row is absent.
+//   Legacy clusters predate Tier-1 trace persistence so source can't
+//   be derived; hiding the pill keeps "no info" distinct from "zero".
+function SourcePills({ prod, eval_: ev }: { prod: number; eval_: number }) {
+  if (prod === 0 && ev === 0) return null
+  if (prod > 0 && ev > 0) {
+    return (
+      <>
+        <span className="pill source-prod" title="Production failures">
+          Prod {prod}
+        </span>
+        <span className="pill source-eval" title="Eval-set failures">
+          Eval {ev}
+        </span>
+      </>
+    )
+  }
+  if (prod > 0) {
+    return (
+      <span className="pill source-prod" title="Production failures only">
+        Production
+      </span>
+    )
+  }
+  return (
+    <span className="pill source-eval" title="Eval-set failures only">
+      Eval
+    </span>
+  )
+}
+
 // Card for one failure cluster. Visual target:
 // www/preview/s26-rk7p3/16-failures.html § .cluster.
 //
@@ -46,6 +82,7 @@ export function FailureClusterCard({ cluster, wsId, wfId }: CardProps) {
           <span className={severityClass}>
             {cluster.severity[0].toUpperCase() + cluster.severity.slice(1)}
           </span>
+          <SourcePills prod={cluster.prod_count} eval_={cluster.eval_count} />
           <span>
             {cluster.cluster_size} trace{cluster.cluster_size === 1 ? '' : 's'}
           </span>
