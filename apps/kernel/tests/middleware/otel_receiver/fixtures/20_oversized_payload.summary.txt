@@ -1,0 +1,1 @@
+# oversize fixture — 9437204 bytes, not mirrored verbatim. See _fixture_cases.py::20_oversized_payload.

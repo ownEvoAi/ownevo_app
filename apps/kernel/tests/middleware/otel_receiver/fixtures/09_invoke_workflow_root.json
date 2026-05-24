@@ -1,0 +1,39 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": []
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "test-fixture"
+          },
+          "spans": [
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "invoke_workflow"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000000500000000",
+              "kind": 3,
+              "name": "gen_ai.chat",
+              "parentSpanId": "",
+              "spanId": "1111111111111111",
+              "startTimeUnixNano": "1700000000000000000",
+              "status": {
+                "code": 1,
+                "message": ""
+              },
+              "traceId": "11111111111111111111111111111111"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

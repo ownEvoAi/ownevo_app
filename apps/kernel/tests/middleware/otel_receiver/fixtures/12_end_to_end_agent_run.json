@@ -1,0 +1,171 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": []
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "test-fixture"
+          },
+          "spans": [
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "invoke_agent"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000000500000000",
+              "kind": 3,
+              "name": "gen_ai.chat",
+              "parentSpanId": "",
+              "spanId": "1111111111111111",
+              "startTimeUnixNano": "1700000000000000000",
+              "status": {
+                "code": 1,
+                "message": ""
+              },
+              "traceId": "11111111111111111111111111111111"
+            },
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.model",
+                  "value": {
+                    "stringValue": "claude-opus-4-7"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "120"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "35"
+                  }
+                },
+                {
+                  "key": "gen_ai.output.messages",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        {
+                          "kvlistValue": {
+                            "values": [
+                              {
+                                "key": "role",
+                                "value": {
+                                  "stringValue": "assistant"
+                                }
+                              },
+                              {
+                                "key": "parts",
+                                "value": {
+                                  "arrayValue": {
+                                    "values": [
+                                      {
+                                        "kvlistValue": {
+                                          "values": [
+                                            {
+                                              "key": "type",
+                                              "value": {
+                                                "stringValue": "text"
+                                              }
+                                            },
+                                            {
+                                              "key": "content",
+                                              "value": {
+                                                "stringValue": "Hello, supplier S-7821 has 14-day lead time."
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000000500000000",
+              "kind": 3,
+              "name": "gen_ai.chat",
+              "parentSpanId": "",
+              "spanId": "2222222222222222",
+              "startTimeUnixNano": "1700000000000000000",
+              "status": {
+                "code": 1,
+                "message": ""
+              },
+              "traceId": "11111111111111111111111111111111"
+            },
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.id",
+                  "value": {
+                    "stringValue": "toolu_abc"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "lookup_supplier"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.arguments",
+                  "value": {
+                    "stringValue": "{\"supplier_id\":\"S-7821\"}"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.result",
+                  "value": {
+                    "stringValue": "{\"lead_time_days\":14}"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000001420000000",
+              "kind": 3,
+              "name": "gen_ai.execute_tool",
+              "parentSpanId": "1111111111111111",
+              "spanId": "3333333333333333",
+              "startTimeUnixNano": "1700000001000000000",
+              "status": {
+                "code": 1,
+                "message": ""
+              },
+              "traceId": "11111111111111111111111111111111"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
