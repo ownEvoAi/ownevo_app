@@ -97,6 +97,50 @@ async def test_end_to_end_agent_run_returns_three_events(
     assert body["accepted_events"] == 3
 
 
+async def test_protobuf_content_type_accepted(api_client: httpx.AsyncClient) -> None:
+    """A real OTLP-HTTP protobuf body decodes the same as the JSON path."""
+    import base64
+    import binascii
+    import copy
+
+    from google.protobuf.json_format import ParseDict
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+        ExportTraceServiceRequest,
+    )
+
+    case = next(c for c in CASES if c.name == "12_end_to_end_agent_run")
+    converted = copy.deepcopy(case.payload)
+    for rs in converted["resourceSpans"]:
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                for field in ("traceId", "spanId", "parentSpanId"):
+                    raw = span.get(field)
+                    if isinstance(raw, str) and raw:
+                        span[field] = base64.b64encode(
+                            binascii.unhexlify(raw)
+                        ).decode("ascii")
+    pb = ParseDict(
+        converted, ExportTraceServiceRequest(), ignore_unknown_fields=True
+    ).SerializeToString()
+
+    resp = await api_client.post(
+        "/api/otel/v1/traces",
+        content=pb,
+        headers={"Content-Type": "application/x-protobuf"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["accepted_events"] == 3
+
+
+async def test_malformed_protobuf_returns_400(api_client: httpx.AsyncClient) -> None:
+    resp = await api_client.post(
+        "/api/otel/v1/traces",
+        content=b"\xde\xad\xbe\xef garbage",
+        headers={"Content-Type": "application/x-protobuf"},
+    )
+    assert resp.status_code == 400
+
+
 async def test_request_body_as_string_round_trips(api_client: httpx.AsyncClient) -> None:
     """The route reads raw bytes; passing serialised JSON as content works."""
     case = next(c for c in CASES if c.name == "05_tool_call_ok")

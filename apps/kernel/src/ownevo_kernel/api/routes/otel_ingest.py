@@ -15,9 +15,15 @@ bound workflow (if any) determines `traces.workflow_id` on the
 ingested rows. Tests and local-dev flows can opt out by setting
 `OWNEVO_OTLP_AUTH_OPTIONAL=true` — see `middleware/otel_receiver/auth.py`.
 
+Both OTLP-HTTP encodings are accepted: JSON (the default for
+`langsmith-collector-proxy`) and protobuf (`Content-Type:
+application/x-protobuf`, the default for OpenLLMetry / traceloop and
+most stock OTel SDKs). The protobuf body is converted to the same
+object model the JSON path uses, then handed to the shared mapper.
+
 Out of scope for this slice:
 
-  * gRPC + protobuf OTLP — JSON-over-HTTP only.
+  * gRPC OTLP — HTTP transport only (JSON or protobuf).
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from ...middleware.otel_receiver import (
     ReceiverTokenAuth,
     ReceiverTokenAuthError,
     decode_otlp_payload,
+    decode_otlp_protobuf,
     persist_decoded_batch,
     verify_request_token,
 )
@@ -206,9 +213,19 @@ async def ingest_otlp_traces(
             detail=str(exc),
         ) from exc
 
+    # OpenLLMetry / traceloop and most OTel SDKs emit OTLP-HTTP protobuf
+    # by default; langsmith-collector-proxy emits OTLP-JSON. Branch on the
+    # declared Content-Type — anything that isn't protobuf is treated as
+    # JSON (the receiver's original contract).
+    content_type = request.headers.get("content-type", "").lower()
+    is_protobuf = "application/x-protobuf" in content_type or (
+        "application/protobuf" in content_type
+    )
+    decode = decode_otlp_protobuf if is_protobuf else decode_otlp_payload
+
     try:
         batch = await asyncio.to_thread(
-            decode_otlp_payload, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+            decode, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
         )
     except OversizedPayloadError as exc:
         # Second-line cap guard — catches the rare case where the

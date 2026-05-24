@@ -51,11 +51,13 @@ from .mapper import (
     decode_otlp_payload,
 )
 from .persist import PersistResult, persist_decoded_batch
+from .protobuf_decode import decode_otlp_protobuf
 
 __all__ = [
     "DEFAULT_MAX_BODY_BYTES",
     "DecodeWarning",
     "DecodedBatch",
+    "decode_otlp_protobuf",
     "MalformedTokenError",
     "MissingTokenError",
     "OtelDecodeError",
