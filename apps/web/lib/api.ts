@@ -261,6 +261,27 @@ export async function createMetricProposal(
   )
 }
 
+// 9.2.3 — create a kind='ui-primitive' proposal. `proposed_primitives`
+// is the new operate-tab primitive list; each entry must carry `type`.
+export interface CreateUIPrimitiveProposalBody {
+  plain_language_summary: string
+  proposed_primitives: Array<{ type: string; [k: string]: unknown }>
+  rationale?: string | null
+}
+
+export async function createUIPrimitiveProposal(
+  workflowId: string,
+  body: CreateUIPrimitiveProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/ui-primitive`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
 // 9.2.3 — ordering-inversion check for kind='metric' proposals.
 // Returned shape mirrors `proposals.ordering_inversion.to_api_dict`.
 export interface InversionIterationDelta {

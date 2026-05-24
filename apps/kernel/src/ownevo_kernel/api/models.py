@@ -760,6 +760,23 @@ class MetricProposalCreate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class UIPrimitiveProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/ui-primitive`.
+
+    `proposed_primitives` is the new operate-tab primitive list. Each
+    entry must carry at minimum a `type` string; additional props
+    survive untouched (today the agent-solver layer cares about
+    `type`, the operate resolver looks up `output_payload[key]` per
+    type — those keys are derived, not user-supplied).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_primitives: list[dict[str, Any]]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class FailureListItem(_Strict):
     """One row in the flat-list view of failures (cluster-list toggle).
 
@@ -1011,6 +1028,7 @@ __all__ = [
     "FailureList",
     "FailureListItem",
     "MetricProposalCreate",
+    "UIPrimitiveProposalCreate",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

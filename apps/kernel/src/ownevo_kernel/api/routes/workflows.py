@@ -49,6 +49,7 @@ from ..models import (
     GenerateEvalCasesResponse,
     MetricProposalCreate,
     ProposalSummary,
+    UIPrimitiveProposalCreate,
     IterationCaseRow,
     IterationDetailFull,
     IterationList,
@@ -1464,6 +1465,123 @@ async def create_metric_proposal(
         iteration_index=iter_index,
         skill_id=None,
         kind="metric",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="pending",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='ui-primitive' proposal. Parallel to the metric
+# flow: anchor to the workflow's latest iteration, persist the new
+# primitive list in `proposed_payload`, return a ProposalSummary so
+# the web client can route to the proposal-detail page.
+@router.post(
+    "/{workflow_id}/proposals/ui-primitive",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_ui_primitive_proposal(
+    workflow_id: str,
+    body: UIPrimitiveProposalCreate,
+    conn: ConnDep,
+) -> ProposalSummary:
+    """Create a kind='ui-primitive' proposal staged against the workflow.
+
+    `proposed_primitives` is the new operate-tab primitive list; every
+    entry must carry a `type` string. 422 when any entry is missing
+    `type` so the diff renderer + post-approval write have a clean
+    invariant to rely on.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    for i, prim in enumerate(body.proposed_primitives):
+        t = prim.get("type")
+        if not isinstance(t, str) or not t.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"proposed_primitives[{i}] is missing a non-empty "
+                    "`type` field"
+                ),
+            )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a UI-primitive edit so the proposal has "
+                "audit context."
+            ),
+        )
+
+    import json as _json
+    proposal_row = await conn.fetchrow(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state
+        )
+        VALUES (
+            $1, NULL, NULL,
+            '', $2::jsonb, $3,
+            'ui-primitive'::proposal_kind, 'pending'::proposal_state
+        )
+        RETURNING id, created_at, state_updated_at
+        """,
+        iter_id,
+        _json.dumps({"primitives": body.proposed_primitives}),
+        body.plain_language_summary,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.PROPOSAL_CREATED,
+        payload={
+            "workflow_id": workflow_id,
+            "proposal_id": str(proposal_row["id"]),
+            "kind": "ui-primitive",
+            "rationale": body.rationale,
+            "primitive_types": [p["type"] for p in body.proposed_primitives],
+        },
+        actor="api:create_ui_primitive_proposal",
+        related_id=proposal_row["id"],
+    )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="ui-primitive",
         workflow_id=workflow_id,
         workflow_description=description or "",
         state="pending",

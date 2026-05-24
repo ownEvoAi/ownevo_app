@@ -17,6 +17,7 @@ import {
 } from '@/app/components/workflow-spec-sections'
 import { InlineDescriptionBlock } from '../inline-description-edit'
 import { ProposeMetricEdit } from './propose-metric-edit'
+import { ProposeUIPrimitiveEdit } from './propose-ui-primitive-edit'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -132,6 +133,13 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
         primitives={primitives}
         operateHref={operateHref}
         skillCount={skillCount}
+        action={
+          <ProposeUIPrimitiveEdit
+            wsId={wsId}
+            wfId={wfId}
+            current={primitives as Array<{ type: string }>}
+          />
+        }
       />
     </>
   )

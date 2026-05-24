@@ -51,13 +51,22 @@ export default async function ProposalDetailPage({ params }: PageProps) {
   const canRollback = proposal.state === 'deployed'
   const wfRoot = `/workspaces/${wsId}/workflows/${proposal.workflow.id}`
 
-  // Resolve isBenchmark so the WorkflowTabs hides the production-only
-  // tabs the workflow layout already hides. Soft-fail to false — a
-  // 404 here just means we show all tabs, which is the safer default.
+  // Resolve isBenchmark + (for ui-primitive proposals) the current
+  // primitive list so the diff can show added/removed types. Soft-
+  // fail to defaults on 404 — the page still renders, just without
+  // the side-by-side primitive comparison.
   let isBenchmark = false
+  let currentPrimitives: Array<{ type: string }> = []
   try {
     const anatomy = await getWorkflowAnatomy(proposal.workflow.id)
     isBenchmark = anatomy.kind === 'benchmark'
+    const prims = anatomy.spec?.ui?.tabs?.[0]?.primitives ?? []
+    currentPrimitives = prims.filter(
+      (p): p is { type: string } =>
+        typeof p === 'object' &&
+        p !== null &&
+        typeof (p as { type?: unknown }).type === 'string',
+    )
   } catch {
     /* ignore — fall through with isBenchmark=false */
   }
@@ -114,7 +123,10 @@ export default async function ProposalDetailPage({ params }: PageProps) {
             </>
           ) : (
             <>
-              <ArtifactDiff proposal={proposal} />
+              <ArtifactDiff
+                proposal={proposal}
+                currentPrimitives={currentPrimitives}
+              />
               {proposal.kind === 'metric' && (
                 <OrderingInversionPanel check={inversionCheck} />
               )}
@@ -212,13 +224,25 @@ function artifactLabel(kind: ProposalDetail['kind']): string {
 }
 
 // 9.2.3 — per-kind diff renderer for non-skill artifact proposals.
-// Renders a kind-specific summary of the proposed change. For metric
-// proposals the new metric definition is shown as a JSON-shaped block
-// with the named field, family, direction, and (when present)
-// description / rationale highlighted. Other kinds fall back to a
-// pretty-printed payload.
-function ArtifactDiff({ proposal }: { proposal: ProposalDetail }) {
+// Renders a kind-specific summary of the proposed change. Metric and
+// ui-primitive have dedicated branches; description / sim fall back
+// to a pretty-printed payload until their flows ship.
+function ArtifactDiff({
+  proposal,
+  currentPrimitives,
+}: {
+  proposal: ProposalDetail
+  currentPrimitives: Array<{ type: string }>
+}) {
   const payload = proposal.proposed_payload ?? {}
+  if (proposal.kind === 'ui-primitive') {
+    return (
+      <UIPrimitiveDiff
+        payload={payload}
+        currentPrimitives={currentPrimitives}
+      />
+    )
+  }
   if (proposal.kind === 'metric') {
     const name = stringOrNull(payload.name) ?? '(unnamed)'
     const family = stringOrNull(payload.family)
@@ -686,4 +710,99 @@ function verdictPill(meets: boolean | null) {
   if (meets)
     return <span className="pill source-prod">passes</span>
   return <span className="pill red">fails</span>
+}
+
+// 9.2.3 — diff renderer for kind='ui-primitive' proposals. Compares
+// the current primitive list against `payload.primitives`, shows
+// the unchanged / added / removed types with shape-pills.
+function UIPrimitiveDiff({
+  payload,
+  currentPrimitives,
+}: {
+  payload: Record<string, unknown>
+  currentPrimitives: Array<{ type: string }>
+}) {
+  const proposedRaw = payload.primitives
+  const proposed: Array<{ type: string }> = Array.isArray(proposedRaw)
+    ? proposedRaw.filter(
+        (p): p is { type: string } =>
+          typeof p === 'object' &&
+          p !== null &&
+          typeof (p as { type?: unknown }).type === 'string',
+      )
+    : []
+
+  const currentSet = new Set(currentPrimitives.map((p) => p.type))
+  const proposedSet = new Set(proposed.map((p) => p.type))
+  const added = proposed.filter((p) => !currentSet.has(p.type))
+  const removed = currentPrimitives.filter((p) => !proposedSet.has(p.type))
+  const unchanged = currentPrimitives.filter((p) => proposedSet.has(p.type))
+
+  return (
+    <>
+      <h2 className="section-title">Operate-view UI · proposed change</h2>
+      <div className="artifact-diff ui-primitive-diff">
+        {added.length === 0 && removed.length === 0 ? (
+          <div className="ui-primitive-diff-note">
+            No primitive types added or removed. The proposal may
+            update per-primitive props on existing types.
+          </div>
+        ) : (
+          <>
+            {added.length > 0 ? (
+              <div className="ui-primitive-diff-row">
+                <span className="ui-primitive-diff-label added">
+                  Added · {added.length}
+                </span>
+                <div className="ui-primitive-diff-pills">
+                  {added.map((p) => (
+                    <span
+                      key={p.type}
+                      className="pill source-prod ui-primitive-pill"
+                    >
+                      + {p.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {removed.length > 0 ? (
+              <div className="ui-primitive-diff-row">
+                <span className="ui-primitive-diff-label removed">
+                  Removed · {removed.length}
+                </span>
+                <div className="ui-primitive-diff-pills">
+                  {removed.map((p) => (
+                    <span
+                      key={p.type}
+                      className="pill red ui-primitive-pill"
+                    >
+                      − {p.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+        {unchanged.length > 0 ? (
+          <div className="ui-primitive-diff-row">
+            <span className="ui-primitive-diff-label unchanged">
+              Unchanged · {unchanged.length}
+            </span>
+            <div className="ui-primitive-diff-pills">
+              {unchanged.map((p) => (
+                <span
+                  key={p.type}
+                  className="pill outline ui-primitive-pill"
+                >
+                  {p.type}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </>
+  )
 }
