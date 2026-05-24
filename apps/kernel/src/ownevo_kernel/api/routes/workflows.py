@@ -18,6 +18,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 
 from ...audit import append_audit_entry
 from ...design_agent.log import load_design_agent_log
@@ -566,6 +567,93 @@ async def list_failure_clusters(
     return FailureClusterList(workflow_id=workflow_id, items=items)
 
 
+class ClusterProductionFailuresResponse(BaseModel):
+    """Result of an on-demand production-failure clustering run.
+
+    `clustered_failures` is the number of failing production traces that
+    fed the run; `clusters_created` is how many `failure_clusters` rows
+    the run persisted (may be lower — some failures land in noise or get
+    gated out as low-quality clusters). `cluster_ids` lets the caller
+    deep-link straight to the new clusters.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str
+    clustered_failures: int
+    clusters_created: int
+    cluster_ids: list[UUID]
+
+
+@router.post(
+    "/{workflow_id}/cluster-production-failures",
+    response_model=ClusterProductionFailuresResponse,
+)
+async def cluster_production_failures_route(
+    workflow_id: str,
+    conn: ConnDep,
+    _demo: DemoModeCheck,
+) -> ClusterProductionFailuresResponse:
+    """Cluster the workflow's production-trace tool failures on demand.
+
+    Reads production traces (iteration_id IS NULL) whose events carry a
+    `tool_call_result status='error'`, runs the embed → reduce → cluster
+    → label pipeline, and persists surviving clusters into
+    `failure_clusters` — making OTLP-ingested agent failures show up on
+    the Failures tab next to eval-derived clusters.
+
+    Heavy by design (sentence-transformers + UMAP + HDBSCAN + an LLM
+    label call), so it's an explicit POST rather than something that
+    runs on every ingest. Blocked under DEMO_MODE.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    # Construct the real (heavy) pipeline implementations. Imported
+    # lazily so the module import doesn't pull the `clustering` /
+    # `agent` extras on every API boot — only this route needs them.
+    try:
+        from ...clustering.default_impl import (
+            AnthropicLabeler,
+            HDBSCANClusterer,
+            SentenceTransformerEmbedder,
+            UMAPReducer,
+        )
+        from ...clustering.from_traces import cluster_production_failures
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Clustering dependencies are not installed on this kernel "
+                "(install the `clustering` + `agent` extras)."
+            ),
+        ) from exc
+
+    persisted = await cluster_production_failures(
+        conn,
+        workflow_id,
+        embedder=SentenceTransformerEmbedder(),
+        reducer=UMAPReducer(),
+        clusterer=HDBSCANClusterer(),
+        labeler=AnthropicLabeler(),
+    )
+
+    cluster_ids = [p.id for p in persisted]
+    return ClusterProductionFailuresResponse(
+        workflow_id=workflow_id,
+        clustered_failures=sum(len(p.summary.member_indices) for p in persisted),
+        clusters_created=len(persisted),
+        cluster_ids=cluster_ids,
+    )
+
+
 @router.get(
     "/{workflow_id}/failures",
     response_model=FailureList,
@@ -639,7 +727,9 @@ async def list_workflow_failures(
           AND ($2::text IS NULL OR
                (CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END) = $2)
         ORDER BY t.started_at DESC NULLS LAST,
-                 CASE fc.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC
+                 CASE fc.severity
+                     WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3
+                 END ASC
         LIMIT $3
         """,
         workflow_id,
@@ -780,7 +870,7 @@ async def list_workflow_case_outputs(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="iteration must be 'latest' or an integer index",
-            )
+            ) from None
         iter_row = await conn.fetchrow(
             """
             SELECT id, iteration_index
