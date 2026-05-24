@@ -32,7 +32,7 @@ export default async function NewWorkflowPage({
         </p>
       </header>
 
-      <EntryStrip wsId={wsId} active={fromConnect ? 'connect' : 'greenfield'} />
+      <EntryStrip wsId={wsId} active="greenfield" />
 
       {fromConnect ? (
         <div className="connect-context-note">
@@ -103,8 +103,14 @@ export function EntryStrip({
 }) {
   return (
     <div className="entry-strip">
-      <div
-        className={`entry-card${active === 'greenfield' ? ' active' : ' dim'}`}
+      <Link
+        href={
+          active === 'greenfield'
+            ? '#'
+            : `/workspaces/${wsId}/workflows/new`
+        }
+        className={`entry-card${active === 'greenfield' ? ' active' : ''}`}
+        style={{ textDecoration: 'none' }}
       >
         <div className="entry-icon" aria-hidden>
           <svg viewBox="0 0 16 16">
@@ -121,7 +127,7 @@ export function EntryStrip({
             run the first iteration.
           </div>
         </div>
-      </div>
+      </Link>
       <Link
         href={
           active === 'connect'
