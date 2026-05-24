@@ -35,6 +35,7 @@ from uuid import UUID
 
 import asyncpg
 
+from ..api.jsonb import decode_jsonb_obj
 from ..audit import append_audit_entry
 from ..eval_cases import add_eval_case
 from ..types import (
@@ -45,6 +46,7 @@ from ..types import (
     ProposalState,
     ProvenanceKind,
 )
+from .apply import APPLY_BY_KIND
 
 
 class ApprovalStateError(Exception):
@@ -206,6 +208,7 @@ async def _decide(
         proposal_row = await conn.fetchrow(
             """
             SELECT p.id, p.state::text AS state, p.iteration_id, p.skill_id,
+                   p.kind::text AS kind, p.proposed_payload,
                    i.workflow_id
             FROM proposals p
             JOIN iterations i ON i.id = p.iteration_id
@@ -226,6 +229,17 @@ async def _decide(
             )
 
         workflow_id: str = proposal_row["workflow_id"]
+        kind: str = proposal_row["kind"] or "skill"
+
+        # Non-skill artifact proposals (description / metric / sim /
+        # ui-primitive) skip the separate deploy step — there's no
+        # skill_versions row to point at — and apply the change to
+        # the workflow row in this same transaction. On approve they
+        # land in `deployed` directly; reject / request-changes use
+        # the caller-supplied target_state unchanged.
+        effective_target = target_state
+        if decision == "approve" and kind != "skill":
+            effective_target = ProposalState.DEPLOYED
 
         # 3. Insert approvals row. UNIQUE(proposal_id) means concurrent
         # callers race to be first; the row-lock above keeps the race
@@ -257,8 +271,26 @@ async def _decide(
             WHERE id = $1
             """,
             proposal_id,
-            target_state.value,
+            effective_target.value,
         )
+
+        # 4b. Non-skill apply — runs after the state row update but
+        # before the audit entry, so an apply failure rolls back the
+        # whole decision atomically.
+        apply_summary: dict[str, Any] | None = None
+        if decision == "approve" and kind != "skill":
+            apply_fn = APPLY_BY_KIND.get(kind)
+            if apply_fn is None:
+                raise ApprovalStateError(
+                    f"Proposal {proposal_id} has unknown kind {kind!r}; "
+                    "no apply handler registered",
+                )
+            payload = decode_jsonb_obj(proposal_row["proposed_payload"]) or {}
+            apply_summary = await apply_fn(
+                conn,
+                workflow_id=workflow_id,
+                payload=payload,
+            )
 
         # 5. Reject + comment → seed eval case + link.
         eval_case: EvalCase | None = None
@@ -288,11 +320,15 @@ async def _decide(
             "decision": decision,
             "approver_type": approver_type.value,
             "decided_by": decided_by,
+            "kind": kind,
+            "terminal_state": effective_target.value,
         }
         if normalized_comment is not None:
             audit_payload["comment"] = normalized_comment
         if eval_case is not None:
             audit_payload["became_eval_case_id"] = str(eval_case.id)
+        if apply_summary is not None:
+            audit_payload["applied"] = apply_summary
         await append_audit_entry(
             conn,
             kind=audit_kind,

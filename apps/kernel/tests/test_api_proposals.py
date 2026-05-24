@@ -759,3 +759,225 @@ async def test_inversion_check_flags_gate_verdict_flip(
     assert it["inverted"] is True
     assert it["old_meets_target"] is True
     assert it["new_meets_target"] is False
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — non-skill approve applies the change + → deployed
+# ---------------------------------------------------------------------------
+
+
+async def _create_metric_proposal_via_api(
+    api_client: httpx.AsyncClient,
+    *,
+    workflow_id: str,
+    payload: dict,
+):
+    res = await api_client.post(
+        f"/api/workflows/{workflow_id}/proposals/metric",
+        json={
+            "plain_language_summary": "Switch metric",
+            "proposed_metric": payload,
+            "rationale": None,
+        },
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+async def test_approve_description_applies_change_and_deploys(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) VALUES "
+        "('wf-app-desc', 'Original description text.', '{}'::jsonb) "
+        "ON CONFLICT DO NOTHING"
+    )
+    await db.execute(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES "
+        "('wf-app-desc', 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())"
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-app-desc/proposals/description",
+        json={
+            "plain_language_summary": "Add past misses.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week. Past misses: "
+                "2024 holiday markdowns."
+            ),
+        },
+    )
+    assert res.status_code == 201, res.text
+    proposal_id = res.json()["id"]
+
+    decide = await api_client.post(
+        f"/api/proposals/{proposal_id}/approve",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert decide.status_code == 200, decide.text
+
+    # State transitioned straight to deployed (non-skill skips deploy).
+    final = await api_client.get(f"/api/proposals/{proposal_id}")
+    assert final.json()["state"] == "deployed"
+
+    # Workflow row received the new description.
+    desc = await db.fetchval(
+        "SELECT description FROM workflows WHERE id = 'wf-app-desc'"
+    )
+    assert desc == (
+        "Predict demand for the upcoming planning week. Past misses: "
+        "2024 holiday markdowns."
+    )
+
+
+async def test_approve_metric_writes_inflated_definition(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    # Seed workflow with a current metric_definition so the apply path
+    # has something to inherit defaults from.
+    import json as _json
+    current_md = {
+        "schema_version": "0.1",
+        "workflow_spec_id": "wf-app-metric",
+        "name": "pass-rate",
+        "family": "pass_rate",
+        "direction": "maximize",
+        "lower_bound": 0.0,
+        "upper_bound": 1.0,
+        "target_value": 0.75,
+        "description": "Current.",
+        "rationale": "seed.",
+        "provenance": {"kind": "derived", "source": "test"},
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec, metric_definition) "
+        "VALUES ('wf-app-metric', 'demo', '{}'::jsonb, $1::jsonb)",
+        _json.dumps(current_md),
+    )
+    await db.execute(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES "
+        "('wf-app-metric', 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())"
+    )
+
+    proposal = await _create_metric_proposal_via_api(
+        api_client,
+        workflow_id="wf-app-metric",
+        payload={"name": "recall", "family": "recall", "direction": "higher"},
+    )
+
+    decide = await api_client.post(
+        f"/api/proposals/{proposal['id']}/approve",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert decide.status_code == 200
+
+    raw = await db.fetchval(
+        "SELECT metric_definition FROM workflows WHERE id = 'wf-app-metric'"
+    )
+    md = _json.loads(raw) if isinstance(raw, str) else raw
+    assert md["name"] == "recall"
+    assert md["family"] == "recall"
+    assert md["direction"] == "maximize"  # 'higher' → 'maximize'
+    # Inherited from current; not overwritten.
+    assert md["target_value"] == 0.75
+    assert md["lower_bound"] == 0.0
+    assert md["upper_bound"] == 1.0
+
+
+async def test_approve_ui_primitive_merges_into_spec_ui(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    import json as _json
+    spec = {
+        "ui": {
+            "tabs": [
+                {"primitives": [{"type": "HeadlineMetrics"}]},
+            ]
+        }
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) "
+        "VALUES ('wf-app-uip', 'demo', $1::jsonb)",
+        _json.dumps(spec),
+    )
+    await db.execute(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES "
+        "('wf-app-uip', 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())"
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-app-uip/proposals/ui-primitive",
+        json={
+            "plain_language_summary": "Add AlertList.",
+            "proposed_primitives": [
+                {"type": "HeadlineMetrics"},
+                {"type": "AlertList"},
+            ],
+        },
+    )
+    proposal_id = res.json()["id"]
+    decide = await api_client.post(
+        f"/api/proposals/{proposal_id}/approve",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert decide.status_code == 200
+
+    raw_spec = await db.fetchval(
+        "SELECT spec FROM workflows WHERE id = 'wf-app-uip'"
+    )
+    parsed = _json.loads(raw_spec) if isinstance(raw_spec, str) else raw_spec
+    types = [p["type"] for p in parsed["ui"]["tabs"][0]["primitives"]]
+    assert types == ["HeadlineMetrics", "AlertList"]
+
+
+async def test_approve_sim_merges_sections_into_spec(
+    db: asyncpg.Connection, api_client: httpx.AsyncClient,
+):
+    import json as _json
+    spec = {
+        "tools": [{"name": "lookup_velocity"}],
+        "environment": {
+            "personas": [{"role": "planner"}],
+            "env_generators": [],
+            "data_sources": [],
+        },
+    }
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) "
+        "VALUES ('wf-app-sim', 'demo', $1::jsonb)",
+        _json.dumps(spec),
+    )
+    await db.execute(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES "
+        "('wf-app-sim', 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())"
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-app-sim/proposals/sim",
+        json={
+            "plain_language_summary": "Add seasonal index tool.",
+            "proposed_spec": {
+                "tools": [
+                    {"name": "lookup_velocity"},
+                    {"name": "lookup_seasonal_index"},
+                ],
+            },
+        },
+    )
+    proposal_id = res.json()["id"]
+    decide = await api_client.post(
+        f"/api/proposals/{proposal_id}/approve",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert decide.status_code == 200
+
+    raw_spec = await db.fetchval(
+        "SELECT spec FROM workflows WHERE id = 'wf-app-sim'"
+    )
+    parsed = _json.loads(raw_spec) if isinstance(raw_spec, str) else raw_spec
+    tools = [t["name"] for t in parsed["tools"]]
+    assert tools == ["lookup_velocity", "lookup_seasonal_index"]
+    # Untouched sections survive.
+    personas = [p["role"] for p in parsed["environment"]["personas"]]
+    assert personas == ["planner"]

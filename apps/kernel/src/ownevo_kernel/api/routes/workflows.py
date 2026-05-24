@@ -1431,7 +1431,7 @@ async def create_metric_proposal(
         VALUES (
             $1, NULL, NULL,
             '', $2::jsonb, $3,
-            'metric'::proposal_kind, 'pending'::proposal_state
+            'metric'::proposal_kind, 'gate-passed'::proposal_state
         )
         RETURNING id, created_at, state_updated_at
         """,
@@ -1469,7 +1469,7 @@ async def create_metric_proposal(
         kind="metric",
         workflow_id=workflow_id,
         workflow_description=description or "",
-        state="pending",
+        state="gate-passed",
         plain_language_summary=body.plain_language_summary,
         eval_score=None,
         eval_rationale=None,
@@ -1542,7 +1542,7 @@ async def create_sim_proposal(
         VALUES (
             $1, NULL, NULL,
             '', $2::jsonb, $3,
-            'sim'::proposal_kind, 'pending'::proposal_state
+            'sim'::proposal_kind, 'gate-passed'::proposal_state
         )
         RETURNING id, created_at, state_updated_at
         """,
@@ -1581,7 +1581,7 @@ async def create_sim_proposal(
         kind="sim",
         workflow_id=workflow_id,
         workflow_description=description or "",
-        state="pending",
+        state="gate-passed",
         plain_language_summary=body.plain_language_summary,
         eval_score=None,
         eval_rationale=None,
@@ -1659,7 +1659,7 @@ async def create_description_proposal(
         VALUES (
             $1, NULL, NULL,
             '', $2::jsonb, $3,
-            'description'::proposal_kind, 'pending'::proposal_state
+            'description'::proposal_kind, 'gate-passed'::proposal_state
         )
         RETURNING id, created_at, state_updated_at
         """,
@@ -1700,7 +1700,7 @@ async def create_description_proposal(
         kind="description",
         workflow_id=workflow_id,
         workflow_description=current_description or "",
-        state="pending",
+        state="gate-passed",
         plain_language_summary=body.plain_language_summary,
         eval_score=None,
         eval_rationale=None,
@@ -1778,7 +1778,7 @@ async def create_ui_primitive_proposal(
         VALUES (
             $1, NULL, NULL,
             '', $2::jsonb, $3,
-            'ui-primitive'::proposal_kind, 'pending'::proposal_state
+            'ui-primitive'::proposal_kind, 'gate-passed'::proposal_state
         )
         RETURNING id, created_at, state_updated_at
         """,
@@ -1817,7 +1817,7 @@ async def create_ui_primitive_proposal(
         kind="ui-primitive",
         workflow_id=workflow_id,
         workflow_description=description or "",
-        state="pending",
+        state="gate-passed",
         plain_language_summary=body.plain_language_summary,
         eval_score=None,
         eval_rationale=None,

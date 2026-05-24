@@ -849,7 +849,7 @@ async def test_create_metric_proposal_happy_path(
     assert body["kind"] == "metric"
     assert body["skill_id"] is None
     assert body["iteration_index"] == 3
-    assert body["state"] == "pending"
+    assert body["state"] == "gate-passed"
     assert (
         body["plain_language_summary"]
         == "Switch from F1 to recall — recall-first."
