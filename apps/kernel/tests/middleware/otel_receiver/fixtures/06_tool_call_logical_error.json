@@ -1,0 +1,63 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": []
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "test-fixture"
+          },
+          "spans": [
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.id",
+                  "value": {
+                    "stringValue": "toolu_abc"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "lookup_supplier"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.arguments",
+                  "value": {
+                    "stringValue": "{\"supplier_id\":\"S-7821\"}"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.result",
+                  "value": {
+                    "stringValue": "{\"error\":\"missing\"}"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000001420000000",
+              "kind": 3,
+              "name": "gen_ai.execute_tool",
+              "parentSpanId": "1111111111111111",
+              "spanId": "2222222222222222",
+              "startTimeUnixNano": "1700000001000000000",
+              "status": {
+                "code": 2,
+                "message": "supplier not found"
+              },
+              "traceId": "11111111111111111111111111111111"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
