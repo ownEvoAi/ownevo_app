@@ -47,6 +47,8 @@ from ..models import (
     FailureList,
     FailureListItem,
     GenerateEvalCasesResponse,
+    MetricProposalCreate,
+    ProposalSummary,
     IterationCaseRow,
     IterationDetailFull,
     IterationList,
@@ -1353,6 +1355,124 @@ async def try_workflow_one_case(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         trace=result.trace,
+    )
+
+
+# 9.2.3 — non-skill artifact proposal create endpoint. Currently only
+# `kind='metric'` is wired; description / sim / ui-primitive follow
+# the same shape. The proposal anchors to the workflow's latest
+# iteration (so the audit chain has a context to thread through) and
+# the gate's ordering-inversion check (re-scoring prior iterations
+# against the new metric) lands in a follow-up.
+@router.post(
+    "/{workflow_id}/proposals/metric",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_metric_proposal(
+    workflow_id: str,
+    body: MetricProposalCreate,
+    conn: ConnDep,
+) -> ProposalSummary:
+    """Create a kind='metric' proposal staged against the workflow.
+
+    The body's `proposed_metric` is the new MetricDefinitionShape JSONB.
+    Saved as `proposed_payload`, with `skill_id` and
+    `parent_version_id` null (metric proposals don't have a skill
+    version to fork).
+
+    422 when the workflow doesn't exist; 422 when no iteration has
+    been run yet (the proposal needs an iteration to anchor its audit
+    context); 422 when the proposed metric is missing the required
+    `name` field.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    if not isinstance(body.proposed_metric.get("name"), str):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="proposed_metric.name must be a non-empty string",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a metric edit so the proposal has audit "
+                "context."
+            ),
+        )
+
+    import json as _json
+    proposal_row = await conn.fetchrow(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state
+        )
+        VALUES (
+            $1, NULL, NULL,
+            '', $2::jsonb, $3,
+            'metric'::proposal_kind, 'pending'::proposal_state
+        )
+        RETURNING id, created_at, state_updated_at
+        """,
+        iter_id,
+        _json.dumps(body.proposed_metric),
+        body.plain_language_summary,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.PROPOSAL_CREATED,
+        payload={
+            "workflow_id": workflow_id,
+            "proposal_id": str(proposal_row["id"]),
+            "kind": "metric",
+            "rationale": body.rationale,
+        },
+        actor="api:create_metric_proposal",
+        related_id=proposal_row["id"],
+    )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="metric",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="pending",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
     )
 
 

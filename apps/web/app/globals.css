@@ -1727,6 +1727,116 @@
 }
 
 /* ---------------------------------------------------------------------
+   9.2.3 — Propose-metric-edit panel + per-kind proposal diff render.
+   --------------------------------------------------------------------- */
+
+.propose-edit-btn {
+  font-size: 12px;
+}
+.propose-edit-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.propose-edit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.propose-edit-head strong {
+  font-size: 13px;
+}
+.propose-edit-help {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.propose-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.propose-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.propose-edit-field span {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.propose-edit-field em {
+  font-style: normal;
+  color: var(--text-muted);
+}
+.propose-edit-field input,
+.propose-edit-field select,
+.propose-edit-field textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.propose-edit-field input:focus,
+.propose-edit-field select:focus,
+.propose-edit-field textarea:focus {
+  outline: none;
+  border-color: var(--accent, #4f46e5);
+}
+.propose-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+.propose-edit-error {
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  border-radius: 4px;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.artifact-diff {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.artifact-diff-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.artifact-diff-warning {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.32);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #92400e;
+}
+.artifact-diff-payload {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------
    9.2.2 — Spec tab header + inline description-edit.
    --------------------------------------------------------------------- */
 

@@ -740,6 +740,26 @@ class FailureClusterList(_Strict):
     items: list[FailureClusterSummary]
 
 
+# 9.2.3 — non-skill artifact proposal create requests. One model per
+# kind so the body schema documents the artifact shape explicitly.
+# The endpoint mounts `/api/workflows/{wfId}/proposals/{kind}` and
+# returns the created proposal as a `ProposalSummary`.
+
+class MetricProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/metric`.
+
+    `proposed_metric` is the new `MetricDefinitionShape` — same shape
+    as the workflow's existing `metric_definition` JSONB. Required to
+    carry a `name` so the diff renderer can label the change.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_metric: dict[str, Any]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class FailureListItem(_Strict):
     """One row in the flat-list view of failures (cluster-list toggle).
 
@@ -990,6 +1010,7 @@ __all__ = [
     "FailureClusterSummary",
     "FailureList",
     "FailureListItem",
+    "MetricProposalCreate",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

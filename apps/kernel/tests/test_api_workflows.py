@@ -773,3 +773,99 @@ async def test_failures_endpoint_rejects_bad_source(
     await _seed_workflow(db, workflow_id="wf-bad")
     res = await api_client.get("/api/workflows/wf-bad/failures?source=bogus")
     assert res.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-metric-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_metric_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall.",
+            "proposed_metric": {"name": "recall", "direction": "higher"},
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_metric_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Metric proposals anchor to the latest iteration. A workflow
+    with no iterations has nothing to anchor to → 422."""
+    await _seed_workflow(db, workflow_id="wf-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-no-iter/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall.",
+            "proposed_metric": {"name": "recall", "direction": "higher"},
+        },
+    )
+    assert res.status_code == 422
+    assert "iteration" in res.json()["detail"].lower()
+
+
+async def test_create_metric_proposal_422_when_metric_name_missing(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-noname")
+    await _seed_iteration(db, workflow_id="wf-noname", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-noname/proposals/metric",
+        json={
+            "plain_language_summary": "Bad payload.",
+            "proposed_metric": {"family": "classification"},  # no name
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_metric_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-mp")
+    iter_id = await _seed_iteration(db, workflow_id="wf-mp", iteration_index=3)
+
+    res = await api_client.post(
+        "/api/workflows/wf-mp/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall — recall-first.",
+            "proposed_metric": {
+                "name": "recall",
+                "family": "classification",
+                "direction": "higher",
+                "description": "True positive rate on alert_correct.",
+            },
+            "rationale": "Recall is the gating metric per design-agent answers.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "metric"
+    assert body["skill_id"] is None
+    assert body["iteration_index"] == 3
+    assert body["state"] == "pending"
+    assert (
+        body["plain_language_summary"]
+        == "Switch from F1 to recall — recall-first."
+    )
+
+    # Round-trip via the proposal detail endpoint: kind + payload land
+    # in the response shape and `proposed_payload` round-trips the
+    # submitted metric definition exactly.
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "metric"
+    assert detail_body["proposed_payload"]["name"] == "recall"
+    assert detail_body["proposed_payload"]["direction"] == "higher"
+    # Anchored to the seeded iteration.
+    assert detail_body["iteration_id"] == str(iter_id)
+    # An audit entry was appended.
+    kinds = [e["kind"] for e in detail_body["audit_entries"]]
+    assert "proposal-created" in kinds

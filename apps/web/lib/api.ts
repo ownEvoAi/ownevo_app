@@ -25,11 +25,19 @@ export type ProposalState =
   | 'rolled-back'
   | 'changes-requested'
 
+export type ProposalKind =
+  | 'skill'
+  | 'description'
+  | 'metric'
+  | 'sim'
+  | 'ui-primitive'
+
 export interface ProposalSummary {
   id: string
   iteration_id: string
   iteration_index: number
-  skill_id: string
+  skill_id: string | null
+  kind: ProposalKind
   workflow_id: string
   workflow_description: string
   state: ProposalState
@@ -86,10 +94,12 @@ export interface ApprovalDetail {
 export interface ProposalDetail {
   id: string
   iteration_id: string
-  skill_id: string
+  skill_id: string | null
+  kind: ProposalKind
   parent_version_id: string | null
   state: ProposalState
   proposed_content: string
+  proposed_payload: Record<string, unknown> | null
   parent_version_content: string | null
   parent_version_seq: number | null
   plain_language_summary: string
@@ -227,6 +237,28 @@ export async function requestChangesProposal(
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+// 9.2.3 — create a kind='metric' proposal on a workflow. The new
+// metric definition lands in `proposed_payload` and the proposal
+// is anchored to the workflow's latest iteration.
+export interface CreateMetricProposalBody {
+  plain_language_summary: string
+  proposed_metric: Record<string, unknown>
+  rationale?: string | null
+}
+
+export async function createMetricProposal(
+  workflowId: string,
+  body: CreateMetricProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/metric`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
 }
 
 export interface GenerateWorkflowResponse {

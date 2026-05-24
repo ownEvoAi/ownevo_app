@@ -83,17 +83,23 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
       <div className="prop-grid">
         <div>
-          <h2 className="section-title">
-            Skill diff · {proposal.skill_id}
-            {proposal.parent_version_seq !== null
-              ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
-              : ' · initial version'}
-          </h2>
-          <SkillDiff
-            current={proposal.parent_version_content}
-            proposed={proposal.proposed_content}
-            parentVersionSeq={proposal.parent_version_seq}
-          />
+          {proposal.kind === 'skill' ? (
+            <>
+              <h2 className="section-title">
+                Skill diff · {proposal.skill_id}
+                {proposal.parent_version_seq !== null
+                  ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
+                  : ' · initial version'}
+              </h2>
+              <SkillDiff
+                current={proposal.parent_version_content}
+                proposed={proposal.proposed_content}
+                parentVersionSeq={proposal.parent_version_seq}
+              />
+            </>
+          ) : (
+            <ArtifactDiff proposal={proposal} />
+          )}
 
           <h2 className="section-title">Why this change</h2>
           <Rationale proposal={proposal} />
@@ -155,7 +161,11 @@ function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
       <h1 className="prop-title">{proposal.plain_language_summary}</h1>
       <div className="prop-meta-row">
         <Meta label="Workflow" value={proposal.workflow.description} />
-        <Meta label="Skill" value={proposal.skill_id} />
+        {proposal.kind === 'skill' && proposal.skill_id ? (
+          <Meta label="Skill" value={proposal.skill_id} />
+        ) : (
+          <Meta label="Artifact" value={artifactLabel(proposal.kind)} />
+        )}
         <Meta
           label="Created"
           value={`${relativeTime(proposal.created_at)} · ${formatDateTime(proposal.created_at)}`}
@@ -164,6 +174,83 @@ function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
       </div>
     </div>
   )
+}
+
+function artifactLabel(kind: ProposalDetail['kind']): string {
+  switch (kind) {
+    case 'description':
+      return 'Description'
+    case 'metric':
+      return 'Success metric'
+    case 'sim':
+      return 'Simulator'
+    case 'ui-primitive':
+      return 'Operate-view UI'
+    default:
+      return kind
+  }
+}
+
+// 9.2.3 — per-kind diff renderer for non-skill artifact proposals.
+// Renders a kind-specific summary of the proposed change. For metric
+// proposals the new metric definition is shown as a JSON-shaped block
+// with the named field, family, direction, and (when present)
+// description / rationale highlighted. Other kinds fall back to a
+// pretty-printed payload.
+function ArtifactDiff({ proposal }: { proposal: ProposalDetail }) {
+  const payload = proposal.proposed_payload ?? {}
+  if (proposal.kind === 'metric') {
+    const name = stringOrNull(payload.name) ?? '(unnamed)'
+    const family = stringOrNull(payload.family)
+    const direction = stringOrNull(payload.direction)
+    const description = stringOrNull(payload.description)
+    const rationale = stringOrNull(payload.rationale)
+    const metaLine = [family, direction].filter(Boolean).join(' · ')
+    return (
+      <>
+        <h2 className="section-title">
+          Success metric · proposed change
+        </h2>
+        <div className="artifact-diff metric-def">
+          <div>
+            <span className="key">metric:</span> {name}
+          </div>
+          {metaLine ? (
+            <div className="artifact-diff-meta">{metaLine}</div>
+          ) : null}
+          {description ? (
+            <div style={{ marginTop: 6, color: 'var(--text-3)' }}>
+              {description}
+            </div>
+          ) : null}
+          {rationale ? (
+            <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
+              <span className="key">rationale:</span> {rationale}
+            </div>
+          ) : null}
+          <div className="artifact-diff-warning">
+            Ordering-inversion check against prior iterations is not
+            yet wired — approval applies the metric as-is. Re-scoring
+            lands in a follow-up.
+          </div>
+        </div>
+      </>
+    )
+  }
+  return (
+    <>
+      <h2 className="section-title">
+        {artifactLabel(proposal.kind)} · proposed change
+      </h2>
+      <pre className="artifact-diff-payload">
+        {JSON.stringify(payload, null, 2)}
+      </pre>
+    </>
+  )
+}
+
+function stringOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

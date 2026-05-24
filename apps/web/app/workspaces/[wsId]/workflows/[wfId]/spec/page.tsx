@@ -16,6 +16,7 @@ import {
   SimulatorSection,
 } from '@/app/components/workflow-spec-sections'
 import { InlineDescriptionBlock } from '../inline-description-edit'
+import { ProposeMetricEdit } from './propose-metric-edit'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -120,7 +121,12 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
 
       <EvalCasesSection cases={evalCases} wsId={wsId} wfId={wfId} />
 
-      <MetricSection metric={metricDef} />
+      <MetricSection
+        metric={metricDef}
+        action={
+          <ProposeMetricEdit wsId={wsId} wfId={wfId} current={metricDef} />
+        }
+      />
 
       <PrimitivesSection
         primitives={primitives}
