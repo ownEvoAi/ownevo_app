@@ -129,12 +129,15 @@ async def _seed_workflow_and_iteration(
     )
     case_uuid_by_id: dict[str, UUID] = {}
     for case_id in case_ids:
+        # case_id lives inside expected_behavior JSONB — eval_cases has no
+        # dedicated case_id column (matches iteration_runner._persist_case_outputs
+        # and the JSONB path used by solve_with_replay_agent).
         eval_case_uuid: UUID = await db.fetchval(
             """
             INSERT INTO eval_cases (
-                workflow_id, case_id, input, expected_behavior, is_test_fold
+                workflow_id, input, expected_behavior, is_test_fold
             )
-            VALUES ($1, $2, '{}'::jsonb, '{}'::jsonb, false)
+            VALUES ($1, '{}'::jsonb, jsonb_build_object('case_id', $2), false)
             RETURNING id
             """,
             workflow_id,

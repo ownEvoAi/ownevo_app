@@ -71,7 +71,7 @@ class CapturingSandbox:
     pool: asyncpg.Pool
     workflow_id: str
     iteration_id: UUID
-    _call_idx: int = 0
+    _call_idx: int = field(default=0, init=False)
     capture_failures: int = field(default=0, init=False)
 
     async def run(
@@ -117,6 +117,13 @@ class CapturingSandbox:
             "error": result.error,
             "error_class": result.error_class,
         }
+        # Plain INSERT — no ON CONFLICT clause. call_idx is monotonically
+        # increasing per CapturingSandbox instance; a duplicate
+        # (iteration_id, call_idx) is a programming error (e.g. the same
+        # CapturingSandbox instance reused across two iterations). An
+        # IntegrityError here is caught by the caller's broad except block,
+        # logged, and counted as a capture_failure — the error is loud and
+        # traceable rather than silently overwriting prior captures.
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -124,9 +131,6 @@ class CapturingSandbox:
                     workflow_id, iteration_id, call_idx, result
                 )
                 VALUES ($1, $2, $3, $4::jsonb)
-                ON CONFLICT (iteration_id, call_idx) DO UPDATE
-                    SET result = EXCLUDED.result,
-                        captured_at = now()
                 """,
                 self.workflow_id,
                 self.iteration_id,

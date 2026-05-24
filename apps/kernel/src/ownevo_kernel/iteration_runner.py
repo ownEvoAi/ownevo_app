@@ -19,6 +19,7 @@ The runner is intentionally one-cycle-at-a-time so the UI button maps
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid as _uuid
 from dataclasses import dataclass
@@ -206,25 +207,6 @@ async def _load_artifacts(
     return spec, sim_plan, metric, case_set
 
 
-class _NullConnContext:
-    """No-op async context manager returning None as the "connection."
-
-    Used in `run_one_iteration_for_workflow` so the phase-2
-    connection-acquire pattern is uniform: replay tier acquires from
-    the pool, mock/real tiers acquire this no-op. Avoids branching on
-    `if replay_config is not None` inside the LLM window.
-    """
-
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        return None
-
-
-def _null_conn_context() -> _NullConnContext:
-    return _NullConnContext()
-
 
 def _coerce_jsonb(value: object) -> dict | None:
     """asyncpg may return JSONB as dict or as raw JSON string depending on
@@ -348,7 +330,21 @@ async def _load_replay_sim_config(
             "replay_sim_config is NULL — the migration 0019 CHECK "
             "constraint should have caught this; investigate.",
         )
-    return ReplaySimConfig.model_validate(raw)
+    config = ReplaySimConfig.model_validate(raw)
+    # Slice-A only implements fallback='error'. Operators who set
+    # fallback='mock' or fallback='real' would get a silent sandbox-error
+    # (ReplayCaseMissingError → iteration_runner except block) rather than
+    # the documented graceful degradation. Raise here so the misconfiguration
+    # surfaces as a WorkflowNotIterableError → 409 before the iteration
+    # starts. Slice-B will remove this guard when the fallback dispatch
+    # is wired in the loop.
+    if config.fallback != "error":
+        raise WorkflowNotIterableError(
+            f"workflow {workflow_id!r} has replay_sim_config.fallback="
+            f"{config.fallback!r} but only fallback='error' is implemented "
+            "in this version. Set fallback='error' or wait for Slice-B.",
+        )
+    return config
 
 
 async def _load_mock_sim_config(
@@ -528,7 +524,7 @@ async def run_one_iteration_for_workflow(
     # For real / mock tiers we keep phase 2 connection-free so the
     # 30-90s LLM window doesn't pin a connection from the pool.
     replay_conn_ctx = (
-        pool.acquire() if replay_config is not None else _null_conn_context()
+        pool.acquire() if replay_config is not None else contextlib.nullcontext()
     )
     try:
         async with replay_conn_ctx as replay_conn:

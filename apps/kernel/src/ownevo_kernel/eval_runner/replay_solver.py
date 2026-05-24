@@ -60,6 +60,7 @@ captured outputs from.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -161,16 +162,26 @@ async def solve_with_replay_agent(
     # iteration_case_outputs joins eval_cases on eval_case_id; we need
     # the human-readable case_id to match against case_set.cases, so
     # join through.
+    # Note: eval_cases has no dedicated `case_id` column — the value
+    # lives inside expected_behavior JSONB as the "case_id" key, which
+    # is the same pattern used by iteration_runner._persist_case_outputs.
+    #
+    # The JOIN to iterations verifies cross-workflow ownership: a
+    # mis-pointed source_iteration_id from another workflow returns zero
+    # rows (all cases appear in `missing`) rather than silently serving
+    # another workflow's predictions.
     rows = await conn.fetch(
         """
         SELECT
-            ec.case_id           AS case_id,
+            ec.expected_behavior->>'case_id' AS case_id,
             ico.output_json      AS output_json,
             ico.passed           AS passed,
             ico.output_payload   AS output_payload
         FROM iteration_case_outputs ico
         JOIN eval_cases ec ON ec.id = ico.eval_case_id
+        JOIN iterations it ON it.id = ico.iteration_id
         WHERE ico.iteration_id = $1
+          AND it.workflow_id = ec.workflow_id
         """,
         source_iteration_id,
     )
@@ -198,6 +209,10 @@ async def solve_with_replay_agent(
         # field was guaranteed bool.
         actual_value: Any = bool(predicted) if isinstance(predicted, bool) else predicted
         rationale = output_json.get("rationale")
+        # Strip any existing [replay] prefix before adding ours, so that a
+        # replay-of-replay doesn't compound the prefix indefinitely.
+        if isinstance(rationale, str) and rationale.startswith(_REPLAY_RATIONALE_PREFIX):
+            rationale = rationale[len(_REPLAY_RATIONALE_PREFIX):]
         rationale_str = (
             f"{_REPLAY_RATIONALE_PREFIX}{rationale}"
             if isinstance(rationale, str) and rationale
@@ -230,7 +245,6 @@ def _decode_jsonb(value: Any) -> Any:
     if isinstance(value, (bytes, bytearray)):
         value = value.decode()
     if isinstance(value, str):
-        import json
         return json.loads(value)
     return value
 

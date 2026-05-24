@@ -69,7 +69,7 @@ async def _seed_captured(
     conn: asyncpg.Connection,
     *,
     case_id_to_expected: dict[str, bool],
-) -> tuple[asyncpg.connection.Connection, str, asyncpg.connection.Connection]:
+) -> tuple[str, uuid.UUID]:
     """Returns (workflow_id, iteration_id). Inserts everything via the
     passed conn so the smoketest can run inside one transaction."""
     workflow_id = f"smoketest-replay-wf-{uuid.uuid4().hex[:8]}"
@@ -87,12 +87,15 @@ async def _seed_captured(
         workflow_id,
     )
     for case_id, expected in case_id_to_expected.items():
+        # case_id lives inside expected_behavior JSONB — eval_cases has no
+        # dedicated case_id column (matches iteration_runner._persist_case_outputs
+        # and the JSONB path used by solve_with_replay_agent).
         eval_case_uuid = await conn.fetchval(
             """
             INSERT INTO eval_cases (
-                workflow_id, case_id, input, expected_behavior, is_test_fold
+                workflow_id, input, expected_behavior, is_test_fold
             )
-            VALUES ($1, $2, '{}'::jsonb, '{}'::jsonb, false)
+            VALUES ($1, '{}'::jsonb, jsonb_build_object('case_id', $2), false)
             RETURNING id
             """,
             workflow_id,
@@ -150,7 +153,18 @@ async def _main() -> int:
     parsed = urlparse(db_url)
     test_url = urlunparse(parsed._replace(path=f"/{dbname}"))
 
-    conn = await asyncpg.connect(test_url)
+    try:
+        conn = await asyncpg.connect(test_url)
+    except Exception as exc:
+        # DROP the test DB so repeated failures don't accumulate orphaned DBs.
+        admin = await asyncpg.connect(db_url)
+        try:
+            await admin.execute(f'DROP DATABASE "{dbname}"')
+        finally:
+            await admin.close()
+        print(f"FAIL — could not connect to test database {dbname!r}: {exc}")
+        return 1
+
     try:
         await migrate(conn)
 

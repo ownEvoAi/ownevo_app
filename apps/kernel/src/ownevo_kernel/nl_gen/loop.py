@@ -642,6 +642,14 @@ async def run_nl_gen_demo_loop(
             #    cycle to inject into; skip when no clusters; skip in
             #    mock tier — the mock solver ignores instructions and the
             #    iteration is designed to be LLM-free end-to-end).
+            #    Replay tier intentionally lets the proposer fire: replay
+            #    runs the captured agent predictions against the current
+            #    instruction and the proposer operates on the resulting
+            #    failure clusters. This is the primary replay use case —
+            #    validate that an instruction edit changes the gate verdict
+            #    without paying for fresh LLM agent calls. The proposer
+            #    itself still calls the LLM; "zero LLM calls" in the replay
+            #    description refers to the agent-prediction phase only.
             edit: InstructionEdit | None = None
             instruction_after = instruction_before
             if not is_last and top_cluster is not None and mock_config is None:

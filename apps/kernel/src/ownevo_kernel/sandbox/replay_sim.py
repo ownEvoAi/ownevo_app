@@ -36,6 +36,7 @@ at call_idx=0 every time.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -80,7 +81,7 @@ class ReplaySimSandbox:
 
     source_iteration_id: UUID
     captured: list[SandboxResult] = field(default_factory=list)
-    _cursor: int = 0
+    _cursor: int = field(default=0, init=False)
 
     @classmethod
     async def load(
@@ -154,7 +155,6 @@ def _decode_jsonb(value: Any) -> Any:
     if isinstance(value, (bytes, bytearray)):
         value = value.decode()
     if isinstance(value, str):
-        import json
         return json.loads(value)
     return value
 
