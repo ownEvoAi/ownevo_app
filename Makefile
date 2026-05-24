@@ -161,6 +161,13 @@ m5-baseline-no-db:
 sim-mock-smoketest:
 	cd apps/kernel && uv run python scripts/sim_mock_smoketest.py
 
+# Track 9.0.3 — end-to-end replay roundtrip. Seeds a captured iteration,
+# drives run_with_replay_agent against it, asserts predictions replay
+# byte-identically and the fixture's uncovered cases land in `missing`.
+# DB-backed; requires OWNEVO_DATABASE_URL.
+sim-replay-smoketest:
+	cd apps/kernel && uv run python scripts/sim_replay_smoketest.py
+
 # ----------------------------------------------------------------------------
 # Sandbox images (W2.6 #11c)
 # ----------------------------------------------------------------------------

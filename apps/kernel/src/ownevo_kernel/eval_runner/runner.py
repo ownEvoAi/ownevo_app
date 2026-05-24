@@ -44,6 +44,9 @@ from ownevo_kernel.nl_gen.sim_plan import SimulationPlan
 from ownevo_kernel.nl_gen.spec import WorkflowSpec
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
+    from uuid import UUID
+
+    import asyncpg
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
 
@@ -314,10 +317,101 @@ async def run_with_mock_agent(
     return _pack_report(spec, metric, metric_result, outcomes)
 
 
+async def run_with_replay_agent(
+    conn: asyncpg.Connection,
+    case_set: EvalCaseSet,
+    plan: SimulationPlan,
+    spec: WorkflowSpec,
+    metric: MetricDefinition,
+    *,
+    source_iteration_id: UUID,
+) -> tuple[EvalRunReport, list[str]]:
+    """Same shape as `run_with_agent`, but predictions come from a
+    prior iteration's captured `iteration_case_outputs` — zero LLM
+    calls.
+
+    Used when `workflows.sim_tier='replay'`. The iteration_runner
+    picks this path instead of `run_with_agent`; the rest of
+    `run_nl_gen_demo_loop` (clustering, proposer) is unchanged.
+
+    Returns a tuple `(report, missing_case_ids)`:
+      * `report`: an `EvalRunReport` built ONLY from the cases the
+        capture covered. The metric is computed over the present-set,
+        so a partial capture produces a partial-coverage report — the
+        caller decides whether to surface that or fall back.
+      * `missing_case_ids`: case_ids that weren't in the captured set.
+        Empty list when coverage was complete.
+
+    Returning the missing list separately rather than raising lets the
+    iteration_runner apply `ReplaySimConfig.fallback` ('error' / 'mock'
+    / 'real') without re-querying the captured table.
+
+    Raises:
+        ValueError: workflow_spec_id mismatch (mirrors `run_with_agent`).
+    """
+    # Lazy import — keeps `replay_solver` off the import path for
+    # callers that never touch the replay tier (mirrors the same
+    # pattern as `solve_with_agent`).
+    from .replay_solver import solve_with_replay_agent
+
+    check_against_spec(metric, spec)
+
+    results, missing = await solve_with_replay_agent(
+        conn,
+        case_set,
+        plan,
+        spec,
+        metric,
+        source_iteration_id=source_iteration_id,
+    )
+
+    # Build the report from only the covered cases. compute_metric
+    # needs at least one result to score; if the captured set covered
+    # nothing the caller MUST handle that (the fallback policy is
+    # what gets triggered in that case).
+    if not results:
+        # Synthesize a degenerate report so the caller can detect
+        # zero-coverage without us silently returning a misleading
+        # EvalRunReport with metric.value=NaN or similar. The empty
+        # outcomes tuple makes the no-coverage state obvious.
+        return _empty_report(spec, metric), missing
+
+    metric_result = compute_metric(metric, results)
+    is_test_fold_by_id = {c.case_id: c.is_test_fold for c in case_set.cases}
+    outcomes = tuple(
+        _outcome_for(r, is_test_fold=is_test_fold_by_id[r.case_id]) for r in results
+    )
+    return _pack_report(spec, metric, metric_result, outcomes), missing
+
+
+def _empty_report(spec: WorkflowSpec, metric: MetricDefinition) -> EvalRunReport:
+    """Construct an obvious zero-coverage report.
+
+    Used by `run_with_replay_agent` when no cases matched the
+    captured set. The caller has to apply the fallback policy; this
+    just gives it a shape-safe value to inspect before deciding.
+    """
+    return EvalRunReport(
+        workflow_spec_id=spec.id,
+        metric_name=metric.name,
+        metric_family="unknown",
+        direction=metric.direction,
+        value=0.0,
+        target_value=metric.target_value,
+        meets_target=False,
+        degenerate=True,
+        n_total=0,
+        n_pass=0,
+        tp=0, tn=0, fp=0, fn=0,
+        outcomes=(),
+    )
+
+
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
     "run_replay",
     "run_with_agent",
     "run_with_mock_agent",
+    "run_with_replay_agent",
 ]
