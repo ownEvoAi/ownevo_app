@@ -55,10 +55,27 @@ async def run() -> None:
         for path in pending:
             print(f"  applying {path.name} ...", end=" ", flush=True)
             sql = path.read_text()
-            # ALTER TYPE ... ADD VALUE cannot run inside a transaction on
-            # Postgres < 16. Detect these files and run them outside a
-            # transaction, then record the migration in a short transaction.
-            needs_no_txn = "ADD VALUE" in sql.upper()
+            # Two cases require running outside a transaction:
+            #
+            #   ALTER TYPE ... ADD VALUE
+            #     Cannot run inside a transaction on Postgres < 16.
+            #
+            #   -- ownevo:no-txn annotation
+            #     Migrations that include VALIDATE CONSTRAINT or
+            #     CREATE INDEX CONCURRENTLY must run outside a transaction.
+            #     VALIDATE CONSTRAINT only gets the lighter SHARE UPDATE
+            #     EXCLUSIVE lock when run outside any transaction; inside a
+            #     transaction the ACCESS EXCLUSIVE lock from the preceding
+            #     ADD CONSTRAINT NOT VALID is still held. CREATE INDEX
+            #     CONCURRENTLY refuses to run inside a transaction block
+            #     entirely.
+            #
+            # In both cases the SQL runs directly on the connection, then
+            # the migration record is written in its own short transaction.
+            needs_no_txn = (
+                "ADD VALUE" in sql.upper()
+                or "-- ownevo:no-txn" in sql
+            )
             if needs_no_txn:
                 await conn.execute(sql)
                 async with conn.transaction():

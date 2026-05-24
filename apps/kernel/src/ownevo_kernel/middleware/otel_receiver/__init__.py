@@ -21,7 +21,9 @@ Public surface (everything an outside caller needs):
 
   OtelDecodeError
       Raised on payloads that cannot be parsed at all (malformed JSON,
-      missing `ResourceSpans`, oversize body).
+      missing `ResourceSpans`). See `OversizedPayloadError` (a subclass)
+      for the body-size case — the HTTP layer maps that to 413 rather
+      than 400.
 
 The HTTP entry point is wired in `api/routes/otel_ingest.py`; that
 module imports from here.

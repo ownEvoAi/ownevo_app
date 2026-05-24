@@ -27,15 +27,17 @@
 -- has no default and is nullable, so existing rows aren't rewritten —
 -- the new value is materialised lazily on first write to each row).
 --
--- The CHECK constraint is declared `NOT VALID` so the migration does
--- not scan the existing `traces` rows under an ACCESS EXCLUSIVE lock.
+-- The CHECK constraint is declared `NOT VALID` so this migration runs
+-- fast under ACCESS EXCLUSIVE — the existing rows are NOT scanned here.
 -- All current rows have `ingest_source IS NULL` (the column was just
--- added in the previous statement), which trivially satisfies the
--- predicate; new INSERTs and UPDATEs are still enforced. The
--- subsequent `VALIDATE CONSTRAINT` upgrades the constraint to fully
--- valid under a SHARE UPDATE EXCLUSIVE lock — that lock blocks DDL
--- but allows concurrent reads and writes, so it is safe to run
--- online on a large table.
+-- added above), which trivially satisfies the predicate; new INSERTs
+-- and UPDATEs are still enforced immediately.
+--
+-- The subsequent VALIDATE CONSTRAINT and CREATE INDEX CONCURRENTLY are
+-- in migration 0018b_traces_ingest_source_online.sql, which runs
+-- outside a transaction (annotated `ownevo:no-txn`) so they can use
+-- the lighter SHARE UPDATE EXCLUSIVE lock mode — that lock blocks DDL
+-- but allows concurrent reads and writes on the high-volume traces table.
 
 ALTER TABLE traces
     ADD COLUMN IF NOT EXISTS ingest_source text;
@@ -47,10 +49,3 @@ ALTER TABLE traces
     ADD CONSTRAINT traces_ingest_source_chk
         CHECK (ingest_source IS NULL OR ingest_source IN ('otlp'))
         NOT VALID;
-
-ALTER TABLE traces
-    VALIDATE CONSTRAINT traces_ingest_source_chk;
-
-CREATE INDEX IF NOT EXISTS traces_ingest_source_idx
-    ON traces(ingest_source)
-    WHERE ingest_source IS NOT NULL;

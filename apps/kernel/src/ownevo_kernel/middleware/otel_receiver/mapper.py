@@ -52,6 +52,10 @@ Per `MAPPING.md`, each GenAI span becomes one or two AgentEvents:
     one `ToolCallResult`.
   * `gen_ai.operation.name = invoke_agent` / `invoke_workflow` /
     `create_agent` → no AgentEvent (root agent span is consumed silently).
+  * `gen_ai.operation.name = retrieval` → zero or more `Citation` events
+    (one per entry in `gen_ai.retrieval.documents`). `embeddings` is routed
+    through the same path but typically produces no events because the
+    document list attribute is absent.
   * everything else → skipped with a warning.
 
 The mapper is intentionally permissive: spans the receiver doesn't
@@ -62,6 +66,7 @@ recognise are skipped via `DecodeWarning`, not raised. Hard errors
 from __future__ import annotations
 
 import json
+import uuid as _uuid_mod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -336,6 +341,12 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
         out.warnings.append(DecodeWarning(span_id_hex, "span missing startTimeUnixNano"))
         return
 
+    try:
+        start_dt = _ns_to_datetime(start_ns)
+    except ValueError as exc:
+        out.warnings.append(DecodeWarning(span_id_hex, str(exc)))
+        return
+
     attrs = _flatten_attributes(span.get("attributes") or [])
     op_name = attrs.get("gen_ai.operation.name")
 
@@ -343,7 +354,7 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
         event_id=event_uuid,
         trace_id=trace_uuid,
         parent_span_id=parent_uuid,
-        timestamp=_ns_to_datetime(start_ns),
+        timestamp=start_dt,
     )
 
     if op_name in _LLM_OPS:
@@ -725,9 +736,10 @@ def _hex_to_uuid(hex_id: str, *, expected_bytes: int | None = None) -> UUID:
     (16 hex chars). Padding 8-byte span_ids with a zero prefix gives a
     stable UUID — the round-trip test pins it.
 
-    `expected_bytes` sets a strict width check:
-      - 16 → span_id (8 bytes). Padded to 32 hex chars.
-      - 32 → trace_id (16 bytes). No padding.
+    `expected_bytes` sets a strict width check (pass the byte count, not
+    the hex length):
+      - 8  → span_id (8 bytes, 16 hex chars). Padded to 32 hex chars.
+      - 16 → trace_id (16 bytes, 32 hex chars). No padding.
       - None → accepts both widths (legacy, no field context).
 
     A non-compliant width raises ValueError so the caller can emit a
@@ -754,21 +766,27 @@ def _hex_to_uuid(hex_id: str, *, expected_bytes: int | None = None) -> UUID:
         raise ValueError(f"invalid hex id {hex_id!r}: {exc}") from exc
 
 
+# Fixed namespace for all OTLP event ID derivations. Using a stable,
+# arbitrary UUID as the UUID v5 namespace ensures derived IDs cannot
+# collide across salt values regardless of the seed (SHA-1 pre-image
+# resistance makes the XOR-constructable-collision attack infeasible).
+_DERIVE_NAMESPACE = UUID("c8d3a201-7f4b-4e9d-b5a0-1f2c3d4e5f6a")
+
+
 def _derive_uuid(seed: UUID, *, salt: bytes) -> UUID:
     """Deterministically derive a sibling UUID from a seed.
 
     Used so a single OTel span that fans out into multiple AgentEvents
     (tool start + result, retrieval → multiple citations) gets stable,
     reproducible event_ids — the round-trip replay test relies on it.
+
+    UUID v5 (SHA-1 based) is used instead of XOR so that different salt
+    values cannot be back-solved to produce a collision, preventing a
+    crafted span_id from injecting duplicate event_ids into the JSONB
+    array.
     """
-    seed_bytes = seed.bytes
-    digest = bytearray(16)
-    for i in range(16):
-        digest[i] = seed_bytes[i] ^ salt[i % len(salt)] if salt else seed_bytes[i]
-    # Set RFC-4122 version 4 + variant bits so the result is a well-formed UUID.
-    digest[6] = (digest[6] & 0x0F) | 0x40
-    digest[8] = (digest[8] & 0x3F) | 0x80
-    return UUID(bytes=bytes(digest))
+    name = f"{seed!s}:{salt.decode('utf-8', errors='replace')}"
+    return _uuid_mod.uuid5(_DERIVE_NAMESPACE, name)
 
 
 def _parse_unix_nano(value: Any) -> int | None:
@@ -781,7 +799,10 @@ def _parse_unix_nano(value: Any) -> int | None:
 
 
 def _ns_to_datetime(ns: int) -> datetime:
-    return datetime.fromtimestamp(ns / 1e9, tz=UTC)
+    try:
+        return datetime.fromtimestamp(ns / 1e9, tz=UTC)
+    except (ValueError, OverflowError, OSError) as exc:
+        raise ValueError(f"timestamp {ns} ns out of representable range: {exc}") from exc
 
 
 def _duration_ms(start_ns: int, end_ns: int | None) -> int:

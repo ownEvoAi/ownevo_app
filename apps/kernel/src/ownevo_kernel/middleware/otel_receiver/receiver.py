@@ -15,6 +15,7 @@ comparison).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -35,11 +36,15 @@ async def receive_otlp_batch(
     """Decode one OTLP-JSON batch and return the AgentEvents.
 
     Async by signature so callers compose naturally with the rest of
-    the kernel's async surface; the mapper itself is pure-CPU and
-    needs no awaits today. If the mapper grows IO (e.g. a tenant
-    lookup), this seam absorbs it without changing the call sites.
+    the kernel's async surface. `decode_otlp_payload` is CPU-bound
+    (JSON parse + Pydantic validation), so it is offloaded to a
+    thread-pool executor to keep the event loop free during large-batch
+    processing. If the mapper grows IO (e.g. a tenant lookup), the
+    async seam already exists and call sites stay unchanged.
     """
-    batch = decode_otlp_payload(payload, max_body_bytes=max_body_bytes)
+    batch = await asyncio.to_thread(
+        decode_otlp_payload, payload, max_body_bytes=max_body_bytes
+    )
     if batch.warnings:
         _log.debug(
             "otel_receiver: decoded %d events with %d warnings",

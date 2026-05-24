@@ -662,8 +662,8 @@ paths:
         `appended_trace_ids` reveal which traces were newly inserted
         vs which extended an existing row.
 
-        gRPC / protobuf OTLP is not supported in this slice; sending
-        `Content-Type: application/x-protobuf` will return 400.
+        Only `application/json` is supported in this slice; gRPC and
+        protobuf OTLP are not implemented.
       requestBody:
         required: true
         content:
@@ -1601,7 +1601,7 @@ components:
     # ---------- otel-ingest ----------
     OtelIngestWarning:
       type: object
-      required: [reason]
+      required: [span_id, reason]
       properties:
         span_id: { type: string, nullable: true }
         reason: { type: string }

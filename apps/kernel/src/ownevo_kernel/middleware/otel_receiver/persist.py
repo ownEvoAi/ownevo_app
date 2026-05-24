@@ -139,7 +139,8 @@ async def persist_decoded_batch(
                 appended.append(trace_id)
             else:
                 saturated.append(trace_id)
-    touched = [t for t in groups.keys() if t not in saturated]
+    saturated_set = set(saturated)
+    touched = [t for t in groups if t not in saturated_set]
     return PersistResult(
         trace_ids=touched,
         created=created,
@@ -204,8 +205,9 @@ async def _upsert_one_trace(
         )
         VALUES ($1, $2::jsonb, $3, $4, $5)
         ON CONFLICT (id) DO UPDATE SET
-            events    = traces.events || EXCLUDED.events,
-            ended_at  = GREATEST(
+            events     = traces.events || EXCLUDED.events,
+            started_at = LEAST(traces.started_at, EXCLUDED.started_at),
+            ended_at   = GREATEST(
                 COALESCE(traces.ended_at, EXCLUDED.ended_at),
                 EXCLUDED.ended_at
             )
@@ -217,7 +219,10 @@ async def _upsert_one_trace(
         ended_at,
         _INGEST_SOURCE,
     )
-    assert row is not None  # INSERT ... RETURNING always returns a row
+    if row is None:
+        # INSERT ... RETURNING always returns a row; None here would indicate
+        # a driver or schema mismatch, not a normal condition.
+        raise RuntimeError("INSERT ... RETURNING returned no row — internal error")
     # `xmax = 0` is the classic Postgres trick to distinguish an INSERT
     # from an UPDATE on a single upsert RETURNING — `xmax = 0` means
     # the row was freshly inserted; a non-zero xmax means a pre-existing
