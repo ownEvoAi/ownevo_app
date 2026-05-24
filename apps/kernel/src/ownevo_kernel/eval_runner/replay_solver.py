@@ -71,7 +71,6 @@ from ..nl_gen.metric_def import MetricDefinition
 from ..nl_gen.sim_plan import SimulationPlan
 from ..nl_gen.spec import WorkflowSpec
 
-
 _REPLAY_RATIONALE_PREFIX = "[replay] "
 
 
@@ -204,6 +203,7 @@ async def solve_with_replay_agent(
             if isinstance(rationale, str) and rationale
             else f"{_REPLAY_RATIONALE_PREFIX}(no rationale captured)"
         )
+        payload = entry["output_payload"]
         results.append(
             ReplayResult(
                 case_id=case.case_id,
@@ -211,7 +211,7 @@ async def solve_with_replay_agent(
                 actual_value=actual_value,
                 expected_value=case.expected_value,
                 rationale=rationale_str,
-                output_payload=entry["output_payload"] if isinstance(entry["output_payload"], dict) else None,
+                output_payload=payload if isinstance(payload, dict) else None,
             ),
         )
 

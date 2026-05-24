@@ -527,10 +527,9 @@ async def run_one_iteration_for_workflow(
     # Replay tier needs a DB connection during the loop's agent solve.
     # For real / mock tiers we keep phase 2 connection-free so the
     # 30-90s LLM window doesn't pin a connection from the pool.
-    if replay_config is not None:
-        replay_conn_ctx = pool.acquire()
-    else:
-        replay_conn_ctx = _null_conn_context()
+    replay_conn_ctx = (
+        pool.acquire() if replay_config is not None else _null_conn_context()
+    )
     try:
         async with replay_conn_ctx as replay_conn:
             if replay_config is not None:
