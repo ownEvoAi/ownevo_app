@@ -28,6 +28,7 @@ emitter; do not point production tooling at it.
 from __future__ import annotations
 
 import copy
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -153,6 +154,20 @@ def readable_spans_to_otlp_json(spans: Iterable[ReadableSpan]) -> dict[str, Any]
     """
     from opentelemetry.trace import SpanKind, StatusCode
 
+    # Both maps are constant across all spans; built once here, not per-span.
+    status_code_map = {
+        StatusCode.UNSET: 0,
+        StatusCode.OK: 1,
+        StatusCode.ERROR: 2,
+    }
+    kind_map = {
+        SpanKind.INTERNAL: 1,
+        SpanKind.SERVER: 2,
+        SpanKind.CLIENT: 3,
+        SpanKind.PRODUCER: 4,
+        SpanKind.CONSUMER: 5,
+    }
+
     span_list: list[dict[str, Any]] = []
     for span in spans:
         ctx = span.get_span_context()
@@ -163,19 +178,6 @@ def readable_spans_to_otlp_json(spans: Iterable[ReadableSpan]) -> dict[str, Any]
         parent_hex = ""
         if span.parent is not None:
             parent_hex = f"{span.parent.span_id:016x}"
-
-        status_code_map = {
-            StatusCode.UNSET: 0,
-            StatusCode.OK: 1,
-            StatusCode.ERROR: 2,
-        }
-        kind_map = {
-            SpanKind.INTERNAL: 1,
-            SpanKind.SERVER: 2,
-            SpanKind.CLIENT: 3,
-            SpanKind.PRODUCER: 4,
-            SpanKind.CONSUMER: 5,
-        }
 
         span_dict: dict[str, Any] = {
             "traceId": trace_id_hex,
@@ -213,10 +215,10 @@ def _attributes_to_kv_list(attrs: dict[str, Any]) -> list[dict[str, Any]]:
 
     Only the AnyValue variants the receiver mapper consumes are
     emitted: string, int, double, bool, plus arrayValue for lists of
-    primitives. Nested dicts get JSON-serialised to a string — the
-    receiver `_unwrap_anyvalue` does not know how to traverse arbitrary
-    nested kvlists into the values the mapper expects, but it does
-    consume a stringValue that callers can `json.loads` if they need to.
+    primitives, and kvlistValue for nested dicts. The receiver's
+    `_unwrap_anyvalue` recurses into kvlistValue entries and
+    reconstructs the original Python dict — necessary for attributes
+    like `gen_ai.output.messages` that the mapper walks structurally.
     """
     out: list[dict[str, Any]] = []
     for key, value in attrs.items():
@@ -226,8 +228,6 @@ def _attributes_to_kv_list(attrs: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _anyvalue(value: Any) -> dict[str, Any]:
     """Wrap a Python value in the OTLP-JSON `AnyValue` envelope."""
-    import json
-
     if value is None:
         # OTLP has no explicit null AnyValue variant; emit an empty
         # stringValue to keep the key present for downstream warning

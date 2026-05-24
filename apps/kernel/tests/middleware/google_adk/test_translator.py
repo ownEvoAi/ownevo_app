@@ -201,16 +201,21 @@ def test_chain_without_translator_drops_tool_payload() -> None:
 
 
 @pytest.mark.parametrize(
-    "missing_kind",
+    "present_vendor_key",
     ["args_only", "result_only"],
 )
-def test_translator_handles_partial_vendor_keys(missing_kind: str) -> None:
+def test_translator_handles_partial_vendor_keys(present_vendor_key: str) -> None:
     """ADK could conceivably emit only one of the two vendor keys (a
     fire-and-forget tool with no return value, for example). The
-    translator should still rewrite whichever is present."""
+    translator should still rewrite whichever is present.
+
+    `present_vendor_key` names which ADK key remains after one is removed:
+      - "args_only"   → tool_response stripped; only tool_call_args present
+      - "result_only" → tool_call_args stripped; only tool_response present
+    """
     payload = _adk_tool_span()
     attrs = payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
-    if missing_kind == "args_only":
+    if present_vendor_key == "args_only":
         attrs[:] = [kv for kv in attrs if kv["key"] != "gcp.vertex.agent.tool_response"]
     else:
         attrs[:] = [kv for kv in attrs if kv["key"] != "gcp.vertex.agent.tool_call_args"]
@@ -218,9 +223,17 @@ def test_translator_handles_partial_vendor_keys(missing_kind: str) -> None:
     rewritten = translate_otlp_json_for_adk(payload)
     out_attrs = rewritten["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
     keys = {kv["key"] for kv in out_attrs}
-    if missing_kind == "args_only":
+    if present_vendor_key == "args_only":
         assert "gen_ai.tool.call.arguments" in keys
         assert "gen_ai.tool.call.result" not in keys
     else:
         assert "gen_ai.tool.call.arguments" not in keys
         assert "gen_ai.tool.call.result" in keys
+
+
+def test_empty_resource_spans_returned_unchanged() -> None:
+    """An explicit empty resourceSpans list is a no-op — the translator
+    returns the payload unchanged without raising."""
+    payload: dict[str, Any] = {"resourceSpans": []}
+    result = translate_otlp_json_for_adk(payload)
+    assert result == {"resourceSpans": []}

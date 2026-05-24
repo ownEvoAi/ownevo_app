@@ -82,27 +82,37 @@ def _add(a: int, b: int) -> int:
     return a + b
 
 
-def _install_in_memory_tracer() -> InMemorySpanExporter:
+@pytest.fixture
+def in_memory_tracer() -> InMemorySpanExporter:
     """Replace the global TracerProvider so ADK's auto-instrumentation
     emits into an in-memory exporter we can drain after the run.
 
     Uses `SimpleSpanProcessor` rather than `BatchSpanProcessor` so the
     test doesn't have to coordinate a flush window — every span is
     handed to the exporter the instant the span ends.
+
+    The original provider is restored in teardown so the replacement
+    does not leak into subsequent tests in the same process.
     """
+    original = trace.get_tracer_provider()
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    return exporter
+    try:
+        yield exporter
+    finally:
+        trace.set_tracer_provider(original)
 
 
-async def test_minimal_adk_agent_emits_decodable_tool_call() -> None:
+async def test_minimal_adk_agent_emits_decodable_tool_call(
+    in_memory_tracer: InMemorySpanExporter,
+) -> None:
     """End-to-end: build an ADK Agent with one tool, run one turn,
     capture the OTel spans, route them through the translator, decode
     them via the OTel receiver, assert the AgentEvent stream contains
     the tool call the agent made."""
-    exporter = _install_in_memory_tracer()
+    exporter = in_memory_tracer
 
     model = os.environ.get(_MODEL_ENV, _DEFAULT_MODEL)
     agent = Agent(
@@ -124,9 +134,9 @@ async def test_minimal_adk_agent_emits_decodable_tool_call() -> None:
 
     # Drain spans synchronously (SimpleSpanProcessor flushes on
     # span-end, but force_flush is idempotent and cheap insurance).
-    provider = trace.get_tracer_provider()
-    if hasattr(provider, "force_flush"):
-        provider.force_flush(timeout_millis=5000)
+    active_provider = trace.get_tracer_provider()
+    if hasattr(active_provider, "force_flush"):
+        active_provider.force_flush(timeout_millis=5000)
 
     spans = exporter.get_finished_spans()
     assert spans, "ADK produced no OTel spans — instrumentation not wired"
