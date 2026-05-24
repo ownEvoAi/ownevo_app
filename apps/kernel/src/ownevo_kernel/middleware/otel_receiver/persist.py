@@ -112,12 +112,23 @@ class PersistResult:
 async def persist_decoded_batch(
     conn: asyncpg.Connection,
     batch: DecodedBatch,
+    *,
+    workflow_id: str | None = None,
 ) -> PersistResult:
     """Upsert every trace in the batch and return the touched trace_ids.
 
     All upserts in the batch run inside a single transaction so a
     mid-batch DB error rolls back every prior write; the response and
     the table state stay consistent.
+
+    `workflow_id` binds every trace in the batch to a workflow — this is
+    the receiver token's bound workflow (or a request-supplied one for
+    workflow-agnostic tokens). When None, traces land unbound
+    (`workflow_id IS NULL`), which is the pre-binding behaviour. On an
+    append (a later batch for an existing trace_id), an existing binding
+    is preserved rather than overwritten — the first batch that named a
+    workflow wins, so a later workflow-agnostic flush can't orphan a
+    bound trace.
 
     No-op (returns empty result) when the batch has zero events — the
     receiver may emit an empty batch when every span was unknown or
@@ -132,7 +143,7 @@ async def persist_decoded_batch(
     saturated: list[UUID] = []
     async with conn.transaction():
         for trace_id, events in groups.items():
-            outcome = await _upsert_one_trace(conn, trace_id, events)
+            outcome = await _upsert_one_trace(conn, trace_id, events, workflow_id)
             if outcome is _UpsertOutcome.CREATED:
                 created.append(trace_id)
             elif outcome is _UpsertOutcome.APPENDED:
@@ -169,6 +180,7 @@ async def _upsert_one_trace(
     conn: asyncpg.Connection,
     trace_id: UUID,
     events: Sequence[AgentEvent],
+    workflow_id: str | None,
 ) -> _UpsertOutcome:
     """INSERT, append, or skip based on the per-trace event cap.
 
@@ -201,19 +213,21 @@ async def _upsert_one_trace(
     row = await conn.fetchrow(
         """
         INSERT INTO traces (
-            id, events, started_at, ended_at, ingest_source
+            id, workflow_id, events, started_at, ended_at, ingest_source
         )
-        VALUES ($1, $2::jsonb, $3, $4, $5)
+        VALUES ($1, $2, $3::jsonb, $4, $5, $6)
         ON CONFLICT (id) DO UPDATE SET
-            events     = traces.events || EXCLUDED.events,
-            started_at = LEAST(traces.started_at, EXCLUDED.started_at),
-            ended_at   = GREATEST(
+            events      = traces.events || EXCLUDED.events,
+            started_at  = LEAST(traces.started_at, EXCLUDED.started_at),
+            ended_at    = GREATEST(
                 COALESCE(traces.ended_at, EXCLUDED.ended_at),
                 EXCLUDED.ended_at
-            )
+            ),
+            workflow_id = COALESCE(traces.workflow_id, EXCLUDED.workflow_id)
         RETURNING (xmax = 0) AS was_inserted
         """,
         trace_id,
+        workflow_id,
         events_json,
         started_at,
         ended_at,

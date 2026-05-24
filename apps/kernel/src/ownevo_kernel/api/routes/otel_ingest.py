@@ -26,13 +26,14 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
     OtelDecodeError,
     OversizedPayloadError,
+    ReceiverTokenAuth,
     ReceiverTokenAuthError,
     decode_otlp_payload,
     persist_decoded_batch,
@@ -109,6 +110,46 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+async def _resolve_workflow_id(
+    conn: ConnDep,
+    auth: ReceiverTokenAuth | None,
+    query_workflow_id: str | None,
+) -> str | None:
+    """Decide which workflow the batch binds to.
+
+    Precedence:
+      * Token bound to a workflow → that workflow wins. A `?workflow_id=`
+        that names a *different* workflow is a cross-write attempt and is
+        rejected with 403 (the bound token is not allowed to write
+        elsewhere). A matching query param is harmless and accepted.
+      * Token workflow-agnostic (or no token in auth-optional mode) →
+        the `?workflow_id=` query param binds the batch, after checking
+        the workflow exists (404 otherwise). Absent → unbound (None).
+    """
+    token_wf = auth.workflow_id if auth is not None else None
+
+    if token_wf is not None:
+        if query_workflow_id is not None and query_workflow_id != token_wf:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="token is bound to a different workflow",
+            )
+        return token_wf
+
+    if query_workflow_id is not None:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM workflows WHERE id = $1", query_workflow_id
+        )
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"workflow {query_workflow_id!r} not found",
+            )
+        return query_workflow_id
+
+    return None
+
+
 @router.post(
     "/v1/traces",
     response_model=IngestResponse,
@@ -118,11 +159,14 @@ async def ingest_otlp_traces(
     request: Request,
     conn: ConnDep,
     authorization: str | None = Header(default=None),
+    workflow_id: str | None = Query(default=None),
 ) -> IngestResponse:
     """Accept one OTLP-JSON ResourceSpans batch and persist it.
 
     Decoded events land in the `traces` table — one row per unique
-    `AgentEvent.trace_id`. Subsequent batches for the same trace_id
+    `AgentEvent.trace_id`, bound to the workflow resolved from the
+    receiver token (or the `?workflow_id=` query param for
+    workflow-agnostic tokens). Subsequent batches for the same trace_id
     append onto the existing row's JSONB events array (the common
     pattern when an external collector flushes spans in waves).
 
@@ -145,11 +189,13 @@ async def ingest_otlp_traces(
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
+    bound_workflow_id = await _resolve_workflow_id(conn, auth, workflow_id)
+
     if auth is not None:
         _log.debug(
             "otel-ingest: authenticated token_id=%s workflow_id=%s",
             auth.token_id,
-            auth.workflow_id,
+            bound_workflow_id,
         )
 
     try:
@@ -177,7 +223,9 @@ async def ingest_otlp_traces(
             detail=str(exc),
         ) from exc
 
-    persisted = await persist_decoded_batch(conn, batch)
+    persisted = await persist_decoded_batch(
+        conn, batch, workflow_id=bound_workflow_id
+    )
 
     _log.info(
         "otel-ingest: accepted %d events, %d warnings, "

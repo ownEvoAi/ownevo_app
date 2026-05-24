@@ -524,11 +524,11 @@ async def test_persist_is_atomic_across_traces_on_failure(
     original_upsert = persist_mod._upsert_one_trace
     call_count = {"n": 0}
 
-    async def flaky_upsert(conn: asyncpg.Connection, trace_id, events):  # type: ignore[no-untyped-def]
+    async def flaky_upsert(conn: asyncpg.Connection, trace_id, events, workflow_id=None):  # type: ignore[no-untyped-def]
         call_count["n"] += 1
         if call_count["n"] == 2:
             raise RuntimeError("simulated DB failure on second trace")
-        return await original_upsert(conn, trace_id, events)
+        return await original_upsert(conn, trace_id, events, workflow_id)
 
     persist_mod._upsert_one_trace = flaky_upsert
     try:
