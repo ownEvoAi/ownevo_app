@@ -34,6 +34,8 @@ from ...approvals import (
 )
 from ...proposals.ordering_inversion import (
     check_metric_ordering_inversion,
+)
+from ...proposals.ordering_inversion import (
     to_api_dict as inversion_check_to_dict,
 )
 from ...types import ApproverType
@@ -334,16 +336,7 @@ async def get_metric_ordering_inversion_check(
             ),
         )
 
-    proposed = proposal_row["proposed_payload"]
-    if isinstance(proposed, str):
-        import json as _json
-
-        try:
-            proposed = _json.loads(proposed)
-        except (ValueError, TypeError):
-            proposed = {}
-    if not isinstance(proposed, dict):
-        proposed = {}
+    proposed = decode_jsonb_obj(proposal_row["proposed_payload"]) or {}
 
     result = await check_metric_ordering_inversion(
         conn,

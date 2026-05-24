@@ -151,7 +151,6 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
         personas={personas}
         envGenerators={envGenerators}
         dataSources={dataSources}
-        designLog={designLog}
         attributionSlot={
           <DesignAttribution log={designLog} dimensions={SIM_DIMENSIONS} />
         }

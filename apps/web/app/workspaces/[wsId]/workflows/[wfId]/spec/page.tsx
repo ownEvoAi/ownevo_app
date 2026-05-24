@@ -118,7 +118,6 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
         personas={personas}
         envGenerators={envGenerators}
         dataSources={dataSources}
-        designLog={anatomy.design_agent_log ?? null}
         action={
           <ProposeSimEdit
             wsId={wsId}

@@ -2,7 +2,6 @@ import Link from 'next/link'
 import type {
   AgentToolSpec,
   DataSourceSpec,
-  DesignAgentLog,
   DesignDimension,
   EnvGeneratorSpec,
   EvalCaseSummary,
@@ -98,7 +97,6 @@ export function SimulatorSection(props: {
   personas: PersonaSpec[]
   envGenerators: EnvGeneratorSpec[]
   dataSources: DataSourceSpec[]
-  designLog: DesignAgentLog | null
   attributionSlot?: React.ReactNode
   action?: React.ReactNode
 }) {

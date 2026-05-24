@@ -2874,14 +2874,11 @@
   color: var(--text);
   cursor: pointer;
 }
-.entry-card.dim {
-  opacity: 0.65;
-}
 .entry-card.active {
   border-color: var(--accent);
   background: rgba(59, 130, 246, 0.05);
 }
-.entry-card:hover:not(.active):not(.dim) {
+.entry-card:hover:not(.active) {
   border-color: var(--border-light);
 }
 .entry-icon {

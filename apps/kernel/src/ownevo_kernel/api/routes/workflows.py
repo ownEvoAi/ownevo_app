@@ -13,6 +13,7 @@ count.
 from __future__ import annotations
 
 import asyncio
+import json
 from uuid import UUID
 
 import asyncpg
@@ -38,6 +39,7 @@ from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
     CaseOutputRow,
+    DescriptionProposalCreate,
     EvalCaseCreate,
     EvalCaseList,
     EvalCaseProvenance,
@@ -46,19 +48,18 @@ from ..models import (
     FailureClusterSummary,
     FailureList,
     FailureListItem,
-    DescriptionProposalCreate,
     GenerateEvalCasesResponse,
-    MetricProposalCreate,
-    ProposalSummary,
-    SimProposalCreate,
-    UIPrimitiveProposalCreate,
     IterationCaseRow,
     IterationDetailFull,
     IterationList,
     IterationPoint,
+    MetricProposalCreate,
+    ProposalSummary,
     RunIterationResponse,
+    SimProposalCreate,
     TryItRequest,
     TryItResponse,
+    UIPrimitiveProposalCreate,
     WorkflowAgentModelUpdate,
     WorkflowAnatomy,
     WorkflowDeleteResponse,
@@ -573,6 +574,7 @@ async def list_workflow_failures(
     workflow_id: str,
     conn: ConnDep,
     source: str | None = None,
+    limit: int = 500,
 ) -> FailureList:
     """Return one row per failed sample trace across all active clusters.
 
@@ -581,10 +583,13 @@ async def list_workflow_failures(
     `(trace, cluster)` pairing decorated with timestamp + severity so
     a reviewer can sort across clusters in a single table.
 
+    `limit` caps the result set (default 500; max enforced at 2000).
+
     For eval rows the trace is bound to the iteration that produced it,
     and (when resolvable) the eval case the iteration was running
     against. Production rows have no iteration_id / eval_case_id.
     """
+    limit = min(max(limit, 1), 2000)
     workflow_exists = await conn.fetchval(
         "SELECT 1 FROM workflows WHERE id = $1",
         workflow_id,
@@ -633,10 +638,13 @@ async def list_workflow_failures(
         WHERE fc.workflow_id = $1
           AND ($2::text IS NULL OR
                (CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END) = $2)
-        ORDER BY t.started_at DESC NULLS LAST, fc.severity ASC
+        ORDER BY t.started_at DESC NULLS LAST,
+                 CASE fc.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC
+        LIMIT $3
         """,
         workflow_id,
         source,
+        limit,
     )
 
     items = [
@@ -1376,6 +1384,7 @@ async def create_metric_proposal(
     workflow_id: str,
     body: MetricProposalCreate,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> ProposalSummary:
     """Create a kind='metric' proposal staged against the workflow.
 
@@ -1384,7 +1393,7 @@ async def create_metric_proposal(
     `parent_version_id` null (metric proposals don't have a skill
     version to fork).
 
-    422 when the workflow doesn't exist; 422 when no iteration has
+    404 when the workflow doesn't exist; 422 when no iteration has
     been run yet (the proposal needs an iteration to anchor its audit
     context); 422 when the proposed metric is missing the required
     `name` field.
@@ -1420,38 +1429,39 @@ async def create_metric_proposal(
             ),
         )
 
-    import json as _json
-    proposal_row = await conn.fetchrow(
-        """
-        INSERT INTO proposals (
-            iteration_id, skill_id, parent_version_id,
-            proposed_content, proposed_payload, plain_language_summary,
-            kind, state
-        )
-        VALUES (
-            $1, NULL, NULL,
-            '', $2::jsonb, $3,
-            'metric'::proposal_kind, 'gate-passed'::proposal_state
-        )
-        RETURNING id, created_at, state_updated_at
-        """,
-        iter_id,
-        _json.dumps(body.proposed_metric),
-        body.plain_language_summary,
-    )
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.PROPOSAL_CREATED,
-        payload={
-            "workflow_id": workflow_id,
-            "proposal_id": str(proposal_row["id"]),
-            "kind": "metric",
-            "rationale": body.rationale,
-        },
-        actor="api:create_metric_proposal",
-        related_id=proposal_row["id"],
-    )
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'metric'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(body.proposed_metric),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "metric",
+                "rationale": body.rationale,
+            },
+            actor="api:create_metric_proposal",
+            related_id=proposal_row["id"],
+        )
 
     iter_index = await conn.fetchval(
         "SELECT iteration_index FROM iterations WHERE id = $1",
@@ -1491,6 +1501,7 @@ async def create_sim_proposal(
     workflow_id: str,
     body: SimProposalCreate,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> ProposalSummary:
     """Create a kind='sim' proposal staged against the workflow."""
     workflow_exists = await conn.fetchval(
@@ -1531,39 +1542,40 @@ async def create_sim_proposal(
             ),
         )
 
-    import json as _json
-    proposal_row = await conn.fetchrow(
-        """
-        INSERT INTO proposals (
-            iteration_id, skill_id, parent_version_id,
-            proposed_content, proposed_payload, plain_language_summary,
-            kind, state
-        )
-        VALUES (
-            $1, NULL, NULL,
-            '', $2::jsonb, $3,
-            'sim'::proposal_kind, 'gate-passed'::proposal_state
-        )
-        RETURNING id, created_at, state_updated_at
-        """,
-        iter_id,
-        _json.dumps(body.proposed_spec),
-        body.plain_language_summary,
-    )
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.PROPOSAL_CREATED,
-        payload={
-            "workflow_id": workflow_id,
-            "proposal_id": str(proposal_row["id"]),
-            "kind": "sim",
-            "rationale": body.rationale,
-            "section_keys": [k for k in sim_keys if k in body.proposed_spec],
-        },
-        actor="api:create_sim_proposal",
-        related_id=proposal_row["id"],
-    )
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'sim'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(body.proposed_spec),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "sim",
+                "rationale": body.rationale,
+                "section_keys": [k for k in sim_keys if k in body.proposed_spec],
+            },
+            actor="api:create_sim_proposal",
+            related_id=proposal_row["id"],
+        )
 
     iter_index = await conn.fetchval(
         "SELECT iteration_index FROM iterations WHERE id = $1",
@@ -1604,6 +1616,7 @@ async def create_description_proposal(
     workflow_id: str,
     body: DescriptionProposalCreate,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> ProposalSummary:
     """Create a kind='description' proposal staged against the workflow."""
     workflow_exists = await conn.fetchval(
@@ -1648,45 +1661,46 @@ async def create_description_proposal(
             ),
         )
 
-    import json as _json
-    proposal_row = await conn.fetchrow(
-        """
-        INSERT INTO proposals (
-            iteration_id, skill_id, parent_version_id,
-            proposed_content, proposed_payload, plain_language_summary,
-            kind, state
-        )
-        VALUES (
-            $1, NULL, NULL,
-            '', $2::jsonb, $3,
-            'description'::proposal_kind, 'gate-passed'::proposal_state
-        )
-        RETURNING id, created_at, state_updated_at
-        """,
-        iter_id,
-        _json.dumps(
-            {
-                "description": body.proposed_description,
-                "previous_description": current_description or "",
-            }
-        ),
-        body.plain_language_summary,
-    )
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.PROPOSAL_CREATED,
-        payload={
-            "workflow_id": workflow_id,
-            "proposal_id": str(proposal_row["id"]),
-            "kind": "description",
-            "rationale": body.rationale,
-            "char_delta": len(body.proposed_description)
-            - len(current_description or ""),
-        },
-        actor="api:create_description_proposal",
-        related_id=proposal_row["id"],
-    )
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'description'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(
+                {
+                    "description": body.proposed_description,
+                    "previous_description": current_description or "",
+                }
+            ),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "description",
+                "rationale": body.rationale,
+                "char_delta": len(body.proposed_description)
+                - len(current_description or ""),
+            },
+            actor="api:create_description_proposal",
+            related_id=proposal_row["id"],
+        )
 
     iter_index = await conn.fetchval(
         "SELECT iteration_index FROM iterations WHERE id = $1",
@@ -1723,6 +1737,7 @@ async def create_ui_primitive_proposal(
     workflow_id: str,
     body: UIPrimitiveProposalCreate,
     conn: ConnDep,
+    _: DemoModeCheck,
 ) -> ProposalSummary:
     """Create a kind='ui-primitive' proposal staged against the workflow.
 
@@ -1767,39 +1782,40 @@ async def create_ui_primitive_proposal(
             ),
         )
 
-    import json as _json
-    proposal_row = await conn.fetchrow(
-        """
-        INSERT INTO proposals (
-            iteration_id, skill_id, parent_version_id,
-            proposed_content, proposed_payload, plain_language_summary,
-            kind, state
-        )
-        VALUES (
-            $1, NULL, NULL,
-            '', $2::jsonb, $3,
-            'ui-primitive'::proposal_kind, 'gate-passed'::proposal_state
-        )
-        RETURNING id, created_at, state_updated_at
-        """,
-        iter_id,
-        _json.dumps({"primitives": body.proposed_primitives}),
-        body.plain_language_summary,
-    )
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.PROPOSAL_CREATED,
-        payload={
-            "workflow_id": workflow_id,
-            "proposal_id": str(proposal_row["id"]),
-            "kind": "ui-primitive",
-            "rationale": body.rationale,
-            "primitive_types": [p["type"] for p in body.proposed_primitives],
-        },
-        actor="api:create_ui_primitive_proposal",
-        related_id=proposal_row["id"],
-    )
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'ui-primitive'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps({"primitives": body.proposed_primitives}),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "ui-primitive",
+                "rationale": body.rationale,
+                "primitive_types": [p["type"] for p in body.proposed_primitives],
+            },
+            actor="api:create_ui_primitive_proposal",
+            related_id=proposal_row["id"],
+        )
 
     iter_index = await conn.fetchval(
         "SELECT iteration_index FROM iterations WHERE id = $1",

@@ -1061,8 +1061,12 @@ export interface FailureList {
 export async function getWorkflowFailureList(
   workflowId: string,
   source?: FailureSource,
+  limit?: number,
 ): Promise<FailureList> {
-  const qs = source ? `?source=${source}` : ''
+  const params: string[] = []
+  if (source) params.push(`source=${source}`)
+  if (limit !== undefined) params.push(`limit=${limit}`)
+  const qs = params.length ? `?${params.join('&')}` : ''
   return jsonFetch<FailureList>(
     `/api/workflows/${encodeURIComponent(workflowId)}/failures${qs}`,
   )
@@ -1351,7 +1355,9 @@ export interface DeployRequest {
 export interface DeployResponse {
   proposal_id: string
   state: ProposalState
-  skill_id: string
+  // Null for non-skill artifact proposals (description / metric / sim /
+  // ui-primitive) — those write directly to the workflow row.
+  skill_id: string | null
   skill_deployed_version_id: string | null
 }
 

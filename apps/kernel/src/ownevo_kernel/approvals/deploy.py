@@ -230,7 +230,7 @@ async def rollback_proposal(
         proposal_row = await conn.fetchrow(
             """
             SELECT p.id, p.state::text AS state, p.skill_id, p.iteration_id,
-                   i.proposed_skill_version_id
+                   p.kind::text AS kind, i.proposed_skill_version_id
             FROM proposals p
             JOIN iterations i ON i.id = p.iteration_id
             WHERE p.id = $1
@@ -246,6 +246,18 @@ async def rollback_proposal(
             raise ApprovalStateError(
                 f"Proposal {proposal_id} is in state {current_state.value!r}; "
                 f"only {ProposalState.DEPLOYED.value!r} can be rolled back",
+            )
+
+        # Non-skill artifact proposals (description / metric / sim /
+        # ui-primitive) have no skill_versions pointer to revert. The
+        # rollback UX for those kinds is "create a new proposal pointing
+        # at the previous value". Guard here so a direct API call can't
+        # silently succeed without actually reverting anything.
+        if proposal_row.get("kind") and proposal_row["kind"] not in ("skill", None, ""):
+            raise ApprovalStateError(
+                f"Proposal {proposal_id} has kind {proposal_row['kind']!r}; "
+                "rollback is only supported for kind='skill' proposals. "
+                "To revert this change, create a new proposal with the prior value.",
             )
 
         skill_id: str = proposal_row["skill_id"]

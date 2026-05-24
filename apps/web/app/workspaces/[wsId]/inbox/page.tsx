@@ -233,9 +233,15 @@ function ProposalRow({
             Gate score: {formatScore(proposal.eval_score)}
           </span>
           <span>·</span>
-          <span>
-            Skill: <span style={{ color: 'var(--accent)' }}>{proposal.skill_id}</span>
-          </span>
+          {proposal.kind === 'skill' && proposal.skill_id ? (
+            <span>
+              Skill: <span style={{ color: 'var(--accent)' }}>{proposal.skill_id}</span>
+            </span>
+          ) : (
+            <span>
+              Artifact: <span style={{ color: 'var(--accent)' }}>{proposal.kind ?? 'skill'}</span>
+            </span>
+          )}
           <span>·</span>
           <span>Iter #{proposal.iteration_index}</span>
         </div>

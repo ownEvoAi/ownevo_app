@@ -713,7 +713,7 @@ function OrderingInversionPanel({
 }
 
 function formatScoreOrDash(v: number | null): string {
-  return v === null ? '—' : v.toFixed(3)
+  return formatScore(v, 3)
 }
 
 function formatDeltaOrDash(v: number | null): string {
