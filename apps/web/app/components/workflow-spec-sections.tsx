@@ -494,7 +494,7 @@ export function simulatorMeta(
   return (
     `${tools.length} tool${tools.length === 1 ? '' : 's'} · ` +
     `${personas.length} persona${personas.length === 1 ? '' : 's'} · ` +
-    `${envCount} data source${envCount === 1 ? '' : 's'}` +
+    `${envCount} environment source${envCount === 1 ? '' : 's'}` +
     (hasSimPlan ? '' : ' · replay sim pending')
   )
 }

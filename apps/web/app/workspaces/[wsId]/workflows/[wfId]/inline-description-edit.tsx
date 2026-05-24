@@ -140,7 +140,7 @@ export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
           />
           <div className="inline-desc-meta">
             {draft.length} chars · min 10. Edits are cosmetic — they do
-            not regenerate the spec, simulator, eval cases, or metric.
+            not regenerate the spec, agent environment, eval cases, or metric.
           </div>
           <div className="inline-desc-actions">
             <button

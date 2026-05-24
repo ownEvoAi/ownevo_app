@@ -114,8 +114,8 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
       <header className="gen-head">
         <h1 className="gen-title">Review what we&apos;ll build</h1>
         <p className="gen-sub">
-          ownEvo generated the workflow spec, simulator, success metric,
-          and (when available) the eval cases from your description.
+          ownEvo generated the workflow spec, agent environment, success
+          metric, and (when available) the eval cases from your description.
           Look it over before the loop starts running. If anything is
           off, Revise deletes this row and lets you edit the
           description. Confirming opens the workflow and the next

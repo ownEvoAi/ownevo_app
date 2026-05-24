@@ -26,22 +26,28 @@ different roles:
     (init_state_code / step_code / event_fields). Eval cases bind
     to its trajectories — every case is a (seed, step_index,
     label_field, expected_value) pointer into one. The replay sim
-    has NO UI surface and NO proposal kind; it is frozen at NL-gen
-    time and cannot be edited in place.
+    has NO proposal kind and CANNOT be edited in place by this
+    module. Two writers exist in the codebase: (a) NL-gen at
+    workflow creation, and (b) `POST /api/workflows/{id}/eval-cases
+    /generate`, which atomically rewrites `simulation_plan` AND the
+    eval cases together — so case-to-sim binding stays consistent.
+    No other path may write this column.
 
 The split matters because the replay sim pins eval-case validity.
-Editing it would invalidate cases (their `expected_value` was
-recorded against the old trajectory at that seed). The agent
-environment is safe to edit — adding/removing tools or personas
-changes the agent's behaviour against the same cases, which is
-exactly what the regression gate is for.
+Editing it in isolation would invalidate cases (their
+`expected_value` was recorded against the old trajectory at that
+seed). The `/eval-cases/generate` route gets away with rewriting it
+only because it regenerates the cases in the same transaction. The
+agent environment is safe to edit — adding/removing tools or
+personas changes the agent's behaviour against the same cases,
+which is exactly what the regression gate is for.
 
 If we ever expose the replay sim for editing, we need a
 `simulation_plan_versions` table + per-eval-case `sim_version_id`
 FK + a replay-on-apply migration step (re-run each case against
 the proposed sim, drop/quarantine/re-label as needed). Until then
 `apply_sim_proposal` must NEVER write to `workflows.simulation_plan`
-— see the invariant test in tests/approvals/test_apply_sim.py.
+— see the invariant test in tests/test_apply_sim_invariant.py.
 """
 
 from __future__ import annotations

@@ -74,13 +74,13 @@ export function ProposeSimEdit({
       parsed = JSON.parse(draft)
     } catch (e) {
       setError(
-        'Proposed sim plan is not valid JSON: ' +
+        'Proposed agent environment is not valid JSON: ' +
           (e instanceof Error ? e.message : String(e)),
       )
       return
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      setError('Proposed sim plan must be a JSON object.')
+      setError('Proposed agent environment must be a JSON object.')
       return
     }
     startTransition(async () => {

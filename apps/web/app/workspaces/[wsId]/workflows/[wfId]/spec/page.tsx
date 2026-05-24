@@ -149,6 +149,18 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
           />
         }
       />
+
+      <p
+        className="spec-tab-sub"
+        style={{ marginTop: 24, fontSize: 13 }}
+      >
+        Looking for eval cases? They live on the{' '}
+        <a href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}>
+          Eval cases tab
+        </a>{' '}
+        — that's where you can generate cases from clustered failures,
+        add cases by hand, or delete stale ones.
+      </p>
     </>
   )
 }

@@ -18,8 +18,12 @@ longer be comparable.
 
 Two layers of guard here:
 
-  1. Source-level — assert `apply_sim_proposal`'s body doesn't reference
-     `simulation_plan`. Cheap, always-on, catches the obvious accident.
+  1. Source-level (always-on, AST scan) — walk `approvals/apply.py`
+     and flag any string-literal argument to an asyncpg call method
+     (execute / fetchval / etc.) that contains `simulation_plan`.
+     Whole-module scope so a refactor that pushes the write into a
+     helper can't bypass the invariant. Whitespace-tokenized so the
+     future `simulation_plan_versions` table is allowed.
 
   2. Behavioural (db-gated) — seed a workflow with a known
      `simulation_plan`, run a fully-populated sim payload through the
@@ -28,27 +32,77 @@ Two layers of guard here:
 
 from __future__ import annotations
 
-import inspect
+import ast
 import json
 import os
+from pathlib import Path
 
 import asyncpg
 import pytest
+from ownevo_kernel.approvals import apply as apply_module
 from ownevo_kernel.approvals.apply import apply_sim_proposal
 from ownevo_kernel.db import ENV_VAR
 
+# Method names through which a write could plausibly leave this module.
+# asyncpg's connection API plus the handful of wrappers we have.
+_DB_CALL_METHODS = frozenset(
+    {"execute", "executemany", "fetch", "fetchrow", "fetchval", "fetchmany"}
+)
 
-def test_apply_sim_source_does_not_mention_simulation_plan() -> None:
-    """Static guard: the apply function's source must not reference
-    `simulation_plan`. Catches the case where someone wires a write to
-    that column without realizing it breaks eval-case validity.
+
+def test_apply_module_db_calls_do_not_reference_simulation_plan() -> None:
+    """Static guard: every database call site in `approvals/apply.py`
+    must avoid the `simulation_plan` column.
+
+    Scans the WHOLE module (not just `apply_sim_proposal`'s body) so a
+    refactor that pushes the write into a helper can't bypass the
+    invariant. Scans only the *arguments to DB call methods* — comments,
+    docstrings, and prose mentioning `simulation_plan` are fine.
+
+    The check is: for every `<obj>.<method>(...)` where method is one of
+    asyncpg's read/write entry points, none of the string-literal
+    arguments may contain the column name.
+
+    Why string-literal scan, not raw substring? Because SQL writers
+    smuggle the column name as a literal. Identifier-level analysis
+    would miss e.g. `await conn.execute("UPDATE workflows SET
+    simulation_plan = $1 ...")`. We allow `simulation_plan_versions`
+    (a future versioning table) by tokenizing on whitespace.
     """
-    src = inspect.getsource(apply_sim_proposal)
-    assert "simulation_plan" not in src, (
-        "apply_sim_proposal references `simulation_plan` — this function "
-        "must only mutate workflows.spec. Editing simulation_plan would "
-        "invalidate every eval case bound to the prior trajectory. See "
-        "the module docstring in approvals/apply.py."
+    src = Path(apply_module.__file__).read_text()
+    tree = ast.parse(src)
+
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr in _DB_CALL_METHODS):
+            continue
+        for arg in (*node.args, *(kw.value for kw in node.keywords)):
+            if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+                continue
+            if "simulation_plan" not in arg.value:
+                continue
+            # Tokenize on whitespace so `simulation_plan_versions` (a
+            # future versioning table) doesn't trip the check; the bare
+            # `simulation_plan` column name DOES.
+            tokens = arg.value.replace("\n", " ").split()
+            bad = [
+                t for t in tokens
+                if "simulation_plan" in t and not t.startswith("simulation_plan_versions")
+            ]
+            if bad:
+                offenders.append(
+                    f"DB call `.{node.func.attr}(...)` at line {node.lineno} "
+                    f"references {bad}"
+                )
+
+    assert not offenders, (
+        "approvals/apply.py has a DB call referencing `simulation_plan` — "
+        "no proposal-apply path may write to that column. Editing "
+        "simulation_plan would invalidate every eval case bound to the "
+        "prior trajectory. See the module docstring. Offenders:\n  "
+        + "\n  ".join(offenders)
     )
 
 
