@@ -196,6 +196,22 @@ when multi-tenant lands, the receiver will require either a
 carry neither. For now the receiver tags every decoded AgentEvent with
 the workspace currently configured on the kernel.
 
+## Vendor-specific adapters
+
+Some platforms emit OTel that mostly follows the GenAI Semantic
+Conventions but uses a few vendor-prefixed attribute keys for
+payloads the spec hasn't pinned. Those platforms ship a thin
+translator alongside the receiver rather than complicating the
+receiver itself:
+
+- **Google Agent Development Kit (ADK).** ADK puts tool-call args and
+  results under `gcp.vertex.agent.tool_call_args` and
+  `gcp.vertex.agent.tool_response`, not the standard
+  `gen_ai.tool.call.arguments` / `gen_ai.tool.call.result`. The
+  adapter at `middleware/google_adk/` rewrites those keys before the
+  payload hits the receiver; see that module's docstring for the
+  full divergence list.
+
 ## What this mapping deliberately does not do
 
 - No protobuf / gRPC OTLP. JSON-over-HTTP only.
