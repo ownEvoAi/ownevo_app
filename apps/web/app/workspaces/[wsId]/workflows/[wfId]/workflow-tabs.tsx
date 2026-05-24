@@ -10,7 +10,7 @@ interface TabsProps {
   // Used by surfaces that live outside the workflow route tree (the
   // workspace-scoped proposal detail page mounts these tabs to keep
   // the workflow context visible while drilling in).
-  activeOverride?: 'overview' | 'operate' | 'eval-cases' | 'proposals' | 'failures' | 'traces' | 'audit' | 'triggers' | 'integrations' | 'permissions' | 'settings'
+  activeOverride?: 'overview' | 'spec' | 'operate' | 'eval-cases' | 'proposals' | 'failures' | 'traces' | 'audit' | 'triggers' | 'integrations' | 'permissions' | 'settings'
 }
 
 // Tab strip — Overview / Failures / Traces / Audit. Active state from
@@ -38,6 +38,7 @@ export function WorkflowTabs({
     hideOnBenchmark?: boolean
   }> = [
     { key: 'overview', href: root, label: 'Overview' },
+    { key: 'spec', href: `${root}/spec`, label: 'Spec' },
     { key: 'operate', href: `${root}/operate`, label: 'Operate', hideOnBenchmark: true },
     { key: 'eval-cases', href: `${root}/eval-cases`, label: 'Eval cases' },
     { key: 'proposals', href: `${root}/proposals`, label: 'Proposals' },

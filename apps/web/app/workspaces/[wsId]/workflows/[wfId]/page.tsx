@@ -14,6 +14,7 @@ import {
 import { AgentAnatomy } from '@/app/components/agent-anatomy'
 import { LiftChart } from '../../lift-chart'
 import { GenerateEvalCasesButton } from './eval-cases/generate-button'
+import { InlineDescriptionBlock } from './inline-description-edit'
 import { RunIterationButton } from './run-iteration-button'
 
 interface PageProps {
@@ -79,7 +80,11 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
       )}
 
       {!apiError && description ? (
-        <WorkflowDescription description={description} />
+        <InlineDescriptionBlock
+          wsId={wsId}
+          wfId={wfId}
+          description={description}
+        />
       ) : null}
 
       {!apiError ? (
@@ -239,69 +244,5 @@ function stateClass(state: string): string {
   return 'other'
 }
 
-// The full NL description the user wrote when creating the workflow.
-// First paragraph (the goal statement) renders always; remaining
-// paragraphs (data sources / reviewer / past misses) collapse into a
-// <details> so the Overview page stays scannable. Visible only on
-// hover-tooltip elsewhere, so this is the canonical "what does this
-// workflow do" surface.
-function WorkflowDescription({ description }: { description: string }) {
-  const paragraphs = description
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-  if (paragraphs.length === 0) return null
-  const [first, ...rest] = paragraphs
-  return (
-    <section
-      style={{
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
-        borderLeft: '3px solid var(--accent)',
-        borderRadius: 8,
-        padding: '14px 18px',
-        marginBottom: 16,
-      }}
-    >
-      <p
-        style={{
-          fontSize: 14,
-          lineHeight: 1.6,
-          color: 'var(--text-2)',
-          margin: 0,
-        }}
-      >
-        {first}
-      </p>
-      {rest.length > 0 ? (
-        <details style={{ marginTop: 10 }}>
-          <summary
-            style={{
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              userSelect: 'none',
-            }}
-          >
-            More context ({rest.length} more paragraph{rest.length === 1 ? '' : 's'})
-          </summary>
-          <div style={{ marginTop: 10 }}>
-            {rest.map((p, i) => (
-              <p
-                key={i}
-                style={{
-                  fontSize: 13.5,
-                  lineHeight: 1.6,
-                  color: 'var(--text-3)',
-                  margin: i === 0 ? 0 : '10px 0 0',
-                }}
-              >
-                {p}
-              </p>
-            ))}
-          </div>
-        </details>
-      ) : null}
-    </section>
-  )
-}
+// The full NL description (with inline-edit) lives in
+// `./inline-description-edit.tsx`. Both Overview and Spec render it.
