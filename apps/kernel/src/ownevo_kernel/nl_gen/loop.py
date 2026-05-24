@@ -532,13 +532,14 @@ async def run_nl_gen_demo_loop(
             #    everything downstream (clustering, proposer, gate)
             #    consumes the same EvalRunReport shape either way.
             if mock_config is not None:
+                assert mock_iteration_index is not None  # guarded by ValueError check above
                 report = await run_with_mock_agent(
                     case_set,
                     plan,
                     spec,
                     metric,
                     mock_config=mock_config,
-                    iteration_index=mock_iteration_index,  # type: ignore[arg-type]
+                    iteration_index=mock_iteration_index + cycle_idx,
                 )
             else:
                 report = await run_with_agent(
@@ -590,10 +591,12 @@ async def run_nl_gen_demo_loop(
             )
 
             # 4. Propose an instruction edit (skip on last cycle — no next
-            #    cycle to inject into; skip when no clusters).
+            #    cycle to inject into; skip when no clusters; skip in
+            #    mock tier — the mock solver ignores instructions and the
+            #    iteration is designed to be LLM-free end-to-end).
             edit: InstructionEdit | None = None
             instruction_after = instruction_before
-            if not is_last and top_cluster is not None:
+            if not is_last and top_cluster is not None and mock_config is None:
                 examples = _failure_examples_from_cluster(
                     top_cluster,
                     snapshots,

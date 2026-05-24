@@ -333,6 +333,12 @@ async def _load_mock_sim_config(
             "mock_sim_config is NULL — the migration 0018 CHECK "
             "constraint should have caught this; investigate.",
         )
+    if not isinstance(raw, dict):
+        raise WorkflowNotIterableError(
+            f"workflow {workflow_id!r} has sim_tier='mock' but "
+            f"mock_sim_config is not a JSON object (got {type(raw).__name__}) "
+            "— check your workflow configuration.",
+        )
     return MockSimConfig.model_validate(raw)
 
 

@@ -118,7 +118,7 @@ class MockSimSandbox:
     fixed_response: SandboxResult | None = None
     sequence: list[SandboxResult] = field(default_factory=list)
     default_response: SandboxResult | None = None
-    _cursor: int = 0
+    _cursor: int = field(init=False, default=0)
 
     @classmethod
     def from_script(cls, script: dict[str, Any] | None) -> MockSimSandbox:
@@ -137,7 +137,7 @@ class MockSimSandbox:
         if script is None:
             return cls(fixed_response=_coerce_response({}))
         if "sequence" in script:
-            entries = script.get("sequence") or []
+            entries = script.get("sequence")
             if not isinstance(entries, list):
                 raise ValueError(
                     "MockSim script: `sequence` must be a list of "

@@ -5,7 +5,7 @@ What we pin:
   1. Accuracy contract — for `accuracy_for(N) = a` and `n_cases = n`,
      the observed accuracy equals `round(n × a) / n` exactly. Pinned
      via the fraction-correct count, not via val_score (which depends
-     on the metric — that's covered in test_run_with_mock_agent_*).
+     on the metric — covered in `test_eval_runner_run_with_mock_agent.py`).
   2. Determinism — same seed + same iteration_index + same case_set
      produce byte-identical predictions across calls.
   3. Iteration sensitivity — different iteration_index produces a
@@ -18,8 +18,8 @@ What we pin:
   6. Empty case set is a no-op (matches the real-tier behaviour).
 
 The DB-backed end-to-end test (mock config flowing through
-iteration_runner) lives in test_iteration_runner_mock_sim.py (Slice A
-integration).
+iteration_runner with a real Postgres connection) is deferred — it
+requires the Postgres fixture used by the DB-gated test suite.
 """
 
 from __future__ import annotations

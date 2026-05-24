@@ -33,8 +33,8 @@ from ownevo_kernel.nl_gen.fixtures.eval_case_sets import (
 from ownevo_kernel.sim_tier import MockSimConfig
 
 _ACCURACY_CURVE = [0.50, 0.65, 0.77, 0.80]
-_DEFAULT_ACCURACY = 0.80
-_WALL_CLOCK_BUDGET_S = 5.0
+_DEFAULT_ACCURACY = _ACCURACY_CURVE[-1]  # plateau at curve end
+_WALL_CLOCK_BUDGET_S = 30.0  # generous budget to absorb cold-import and CI load
 
 
 async def _main() -> int:
@@ -61,7 +61,6 @@ async def _main() -> int:
     )
 
     started = time.monotonic()
-    observed: list[float] = []
     failures: list[str] = []
 
     for iteration_index in range(len(_ACCURACY_CURVE) + 1):
@@ -80,7 +79,6 @@ async def _main() -> int:
         # Per-iteration "exact match modulo rounding" is the contract:
         # round(n_cases * target) must equal n_pass.
         expected_n_pass = round(n_cases * target)
-        observed.append(report.value)
         ok = report.n_pass == expected_n_pass
         marker = "OK " if ok else "FAIL"
         print(

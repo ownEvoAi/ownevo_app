@@ -241,8 +241,6 @@ async def run_with_agent(
     # to install the `agent` extra.
     from .agent_solver import (
         DEFAULT_MODEL as _DEFAULT_MODEL,
-    )
-    from .agent_solver import (
         solve_with_agent,
     )
 
