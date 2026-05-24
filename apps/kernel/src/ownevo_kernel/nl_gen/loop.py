@@ -55,7 +55,8 @@ from ..clustering import (
     cluster_failures,
 )
 from ..clustering.types import RawClusterAssignment
-from ..eval_runner.runner import EvalCaseOutcome, run_with_agent
+from ..eval_runner.runner import EvalCaseOutcome, run_with_agent, run_with_mock_agent
+from ..sim_tier import MockSimConfig
 from .eval_case_set import EvalCaseSet
 from .failure_clustering import (
     NLGenFailureSnapshot,
@@ -431,6 +432,8 @@ async def run_nl_gen_demo_loop(
     reducer: Reducer | None = None,
     clusterer_factory: ClustererFactory | None = None,
     labeler: Labeler | None = None,
+    mock_config: MockSimConfig | None = None,
+    mock_iteration_index: int | None = None,
 ) -> DemoLoopReport:
     """Drive ``n_cycles`` of agent-run → cluster failures → propose
     instruction edit on a single NL-gen workflow.
@@ -478,6 +481,12 @@ async def run_nl_gen_demo_loop(
     """
     if n_cycles < 1:
         raise ValueError(f"n_cycles must be >= 1, got {n_cycles}")
+    if mock_config is not None and mock_iteration_index is None:
+        raise ValueError(
+            "mock_config provided without mock_iteration_index — the "
+            "MockAgentSolver's accuracy curve is keyed by iteration, "
+            "so the caller must supply it explicitly",
+        )
     if case_set.workflow_spec_id != spec.id:
         raise ValueError(
             f"case_set.workflow_spec_id={case_set.workflow_spec_id!r} "
@@ -518,17 +527,30 @@ async def run_nl_gen_demo_loop(
 
         async with asyncio.timeout(_CYCLE_TIMEOUT_SECONDS):
             # 1. Run the agent over the full case set with the cumulative
-            #    instruction (None on cycle 0).
-            report = await run_with_agent(
-                case_set,
-                plan,
-                spec,
-                metric,
-                client=client,
-                model=agent_model,
-                openai_client=agent_openai_client,
-                per_workflow_instruction=instruction_before,
-            )
+            #    instruction (None on cycle 0). Mock-tier swaps the
+            #    LLM-backed solver for a deterministic curve-driven one;
+            #    everything downstream (clustering, proposer, gate)
+            #    consumes the same EvalRunReport shape either way.
+            if mock_config is not None:
+                report = await run_with_mock_agent(
+                    case_set,
+                    plan,
+                    spec,
+                    metric,
+                    mock_config=mock_config,
+                    iteration_index=mock_iteration_index,  # type: ignore[arg-type]
+                )
+            else:
+                report = await run_with_agent(
+                    case_set,
+                    plan,
+                    spec,
+                    metric,
+                    client=client,
+                    model=agent_model,
+                    openai_client=agent_openai_client,
+                    per_workflow_instruction=instruction_before,
+                )
             metric_value = report.value
             meets_target = report.meets_target
 

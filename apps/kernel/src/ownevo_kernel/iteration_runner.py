@@ -50,6 +50,8 @@ from .types import AuditKind, EvalCase, IterationState, ProposalState
 if TYPE_CHECKING:  # pragma: no cover
     from anthropic import AsyncAnthropic
 
+    from .sim_tier import MockSimConfig
+
 
 _INSTRUCTION_SKILL_KIND = "instruction"
 _ITERATION_ACTOR = "nl-gen-iteration-runner"
@@ -299,6 +301,41 @@ async def _pending_steering_for_workflow(
     return text or None
 
 
+async def _load_mock_sim_config(
+    conn: asyncpg.Connection,
+    workflow_id: str,
+) -> MockSimConfig | None:
+    """Read sim_tier + mock_sim_config off the workflows row.
+
+    Returns a parsed `MockSimConfig` when `sim_tier='mock'`. Returns
+    `None` for any other tier (or when the workflow has no row, which
+    a downstream lookup will fail on first). The migration 0018 CHECK
+    constraint guarantees that `sim_tier='mock'` rows have non-NULL
+    `mock_sim_config`, so a missing payload at this layer is a
+    schema-drift bug worth raising.
+
+    Lazy-imports MockSimConfig so the iteration_runner module stays
+    importable without pulling pydantic into every consumer (matches
+    the chat_handle pattern further down).
+    """
+    from .sim_tier import MockSimConfig
+
+    row = await conn.fetchrow(
+        "SELECT sim_tier, mock_sim_config FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if row is None or row["sim_tier"] != "mock":
+        return None
+    raw = _coerce_jsonb(row["mock_sim_config"])
+    if raw is None:
+        raise WorkflowNotIterableError(
+            f"workflow {workflow_id!r} has sim_tier='mock' but "
+            "mock_sim_config is NULL — the migration 0018 CHECK "
+            "constraint should have caught this; investigate.",
+        )
+    return MockSimConfig.model_validate(raw)
+
+
 async def run_one_iteration_for_workflow(
     pool: asyncpg.Pool,
     *,
@@ -331,6 +368,7 @@ async def run_one_iteration_for_workflow(
             workflow_id,
         )
         pending_steering = await _pending_steering_for_workflow(conn, workflow_id)
+        mock_config = await _load_mock_sim_config(conn, workflow_id)
 
         started_at = datetime.now(UTC)
 
@@ -383,9 +421,15 @@ async def run_one_iteration_for_workflow(
     # the env-Anthropic `client` (NL-gen is Anthropic-only today); the
     # picker only swaps the agent solver. A disabled provider or
     # missing API key surfaces as RouterError → 409 to the API layer.
+    # Mock-tier short-circuits both `agent_model` (no LLM dispatch) and
+    # `agent_openai_client` (no client at all). The mock_config +
+    # mock_iteration_index pair drives the MockAgentSolver substitution
+    # inside `run_nl_gen_demo_loop`.
     agent_overrides: dict[str, Any] = {
         "agent_model": None,
         "agent_openai_client": None,
+        "mock_config": mock_config,
+        "mock_iteration_index": iteration_index if mock_config is not None else None,
     }
     if pending_steering:
         # Surface the steering as a labelled bullet so the agent's

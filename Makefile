@@ -154,6 +154,13 @@ m5-baseline:
 m5-baseline-no-db:
 	cd apps/kernel && uv run python scripts/m5_baseline.py --no-db $(M5_ARGS)
 
+# Track 9.0.2 — runs MockAgentSolver across iterations against a
+# scripted accuracy curve. Zero LLM calls, no DB, no Docker. Asserts
+# observed val_score matches the curve and the whole run fits a 5s
+# wall-clock budget. See scripts/sim_mock_smoketest.py.
+sim-mock-smoketest:
+	cd apps/kernel && uv run python scripts/sim_mock_smoketest.py
+
 # ----------------------------------------------------------------------------
 # Sandbox images (W2.6 #11c)
 # ----------------------------------------------------------------------------
