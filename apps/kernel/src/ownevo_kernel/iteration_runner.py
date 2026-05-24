@@ -50,7 +50,7 @@ from .types import AuditKind, EvalCase, IterationState, ProposalState
 if TYPE_CHECKING:  # pragma: no cover
     from anthropic import AsyncAnthropic
 
-    from .sim_tier import MockSimConfig
+    from .sim_tier import MockSimConfig, ReplaySimConfig
 
 
 _INSTRUCTION_SKILL_KIND = "instruction"
@@ -206,6 +206,26 @@ async def _load_artifacts(
     return spec, sim_plan, metric, case_set
 
 
+class _NullConnContext:
+    """No-op async context manager returning None as the "connection."
+
+    Used in `run_one_iteration_for_workflow` so the phase-2
+    connection-acquire pattern is uniform: replay tier acquires from
+    the pool, mock/real tiers acquire this no-op. Avoids branching on
+    `if replay_config is not None` inside the LLM window.
+    """
+
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+def _null_conn_context() -> _NullConnContext:
+    return _NullConnContext()
+
+
 def _coerce_jsonb(value: object) -> dict | None:
     """asyncpg may return JSONB as dict or as raw JSON string depending on
     the codec wired on the pool. Accept both."""
@@ -301,6 +321,36 @@ async def _pending_steering_for_workflow(
     return text or None
 
 
+async def _load_replay_sim_config(
+    conn: asyncpg.Connection,
+    workflow_id: str,
+) -> ReplaySimConfig | None:
+    """Read sim_tier + replay_sim_config off the workflows row.
+
+    Returns a parsed `ReplaySimConfig` when `sim_tier='replay'`.
+    Returns `None` for any other tier. Migration 0019's CHECK
+    constraint guarantees that `sim_tier='replay'` rows have non-NULL
+    `replay_sim_config`; a missing payload here is a schema-drift bug
+    worth raising.
+    """
+    from .sim_tier import ReplaySimConfig
+
+    row = await conn.fetchrow(
+        "SELECT sim_tier, replay_sim_config FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if row is None or row["sim_tier"] != "replay":
+        return None
+    raw = _coerce_jsonb(row["replay_sim_config"])
+    if raw is None:
+        raise WorkflowNotIterableError(
+            f"workflow {workflow_id!r} has sim_tier='replay' but "
+            "replay_sim_config is NULL — the migration 0019 CHECK "
+            "constraint should have caught this; investigate.",
+        )
+    return ReplaySimConfig.model_validate(raw)
+
+
 async def _load_mock_sim_config(
     conn: asyncpg.Connection,
     workflow_id: str,
@@ -375,6 +425,7 @@ async def run_one_iteration_for_workflow(
         )
         pending_steering = await _pending_steering_for_workflow(conn, workflow_id)
         mock_config = await _load_mock_sim_config(conn, workflow_id)
+        replay_config = await _load_replay_sim_config(conn, workflow_id)
 
         started_at = datetime.now(UTC)
 
@@ -430,12 +481,19 @@ async def run_one_iteration_for_workflow(
     # Mock-tier short-circuits both `agent_model` (no LLM dispatch) and
     # `agent_openai_client` (no client at all). The mock_config +
     # mock_iteration_index pair drives the MockAgentSolver substitution
-    # inside `run_nl_gen_demo_loop`.
+    # inside `run_nl_gen_demo_loop`. Replay-tier substitutes
+    # ReplayAgentSolver and needs a DB connection threaded through (the
+    # `replay_conn` is acquired below, after the existing phase-1 conn
+    # is released).
     agent_overrides: dict[str, Any] = {
         "agent_model": None,
         "agent_openai_client": None,
         "mock_config": mock_config,
         "mock_iteration_index": iteration_index if mock_config is not None else None,
+        "replay_conn": None,  # set below when replay_config is present
+        "replay_source_iteration_id": (
+            replay_config.source_iteration_id if replay_config is not None else None
+        ),
     }
     if pending_steering:
         # Surface the steering as a labelled bullet so the agent's
@@ -466,33 +524,68 @@ async def run_one_iteration_for_workflow(
             agent_overrides["agent_openai_client"] = chat_handle.openai_client
 
     cycle: CycleOutcome
+    # Replay tier needs a DB connection during the loop's agent solve.
+    # For real / mock tiers we keep phase 2 connection-free so the
+    # 30-90s LLM window doesn't pin a connection from the pool.
+    if replay_config is not None:
+        replay_conn_ctx = pool.acquire()
+    else:
+        replay_conn_ctx = _null_conn_context()
     try:
-        try:
-            report = await run_nl_gen_demo_loop(
-                spec=spec,
-                plan=sim_plan,
-                case_set=case_set,
-                metric=metric,
-                client=client,
-                n_cycles=2,
-                **agent_overrides,
-            )
-            if not report.cycles:
-                raise IterationRunnerError("loop produced no cycles")
-            cycle = report.cycles[0]
-        except (InstructionEditValidationError, NoInstructionEditToolUseError):
-            # Proposer flaked — re-run with n_cycles=1 to get the score
-            # without invoking the proposer at all.
+        async with replay_conn_ctx as replay_conn:
+            if replay_config is not None:
+                agent_overrides["replay_conn"] = replay_conn
             try:
-                fallback_report = await run_nl_gen_demo_loop(
+                report = await run_nl_gen_demo_loop(
                     spec=spec,
                     plan=sim_plan,
                     case_set=case_set,
                     metric=metric,
                     client=client,
-                    n_cycles=1,
+                    n_cycles=2,
                     **agent_overrides,
                 )
+                if not report.cycles:
+                    raise IterationRunnerError("loop produced no cycles")
+                cycle = report.cycles[0]
+            except (InstructionEditValidationError, NoInstructionEditToolUseError):
+                # Proposer flaked — re-run with n_cycles=1 to get the score
+                # without invoking the proposer at all.
+                try:
+                    fallback_report = await run_nl_gen_demo_loop(
+                        spec=spec,
+                        plan=sim_plan,
+                        case_set=case_set,
+                        metric=metric,
+                        client=client,
+                        n_cycles=1,
+                        **agent_overrides,
+                    )
+                except (Exception, asyncio.CancelledError):
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE iterations
+                            SET state = 'sandbox-error'::iteration_state,
+                                ended_at = now()
+                            WHERE id = $1
+                            """,
+                            iteration_id,
+                        )
+                    raise
+                if not fallback_report.cycles:
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE iterations
+                            SET state = 'sandbox-error'::iteration_state,
+                                ended_at = now()
+                            WHERE id = $1
+                            """,
+                            iteration_id,
+                        )
+                    raise IterationRunnerError("fallback loop produced no cycles") from None
+                cycle = fallback_report.cycles[0]
             except (Exception, asyncio.CancelledError):
                 async with pool.acquire() as conn:
                     await conn.execute(
@@ -505,31 +598,6 @@ async def run_one_iteration_for_workflow(
                         iteration_id,
                     )
                 raise
-            if not fallback_report.cycles:
-                async with pool.acquire() as conn:
-                    await conn.execute(
-                        """
-                        UPDATE iterations
-                        SET state = 'sandbox-error'::iteration_state,
-                            ended_at = now()
-                        WHERE id = $1
-                        """,
-                        iteration_id,
-                    )
-                raise IterationRunnerError("fallback loop produced no cycles") from None
-            cycle = fallback_report.cycles[0]
-        except (Exception, asyncio.CancelledError):
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE iterations
-                    SET state = 'sandbox-error'::iteration_state,
-                        ended_at = now()
-                    WHERE id = $1
-                    """,
-                    iteration_id,
-                )
-            raise
     finally:
         if chat_handle is not None:
             await chat_handle.aclose()

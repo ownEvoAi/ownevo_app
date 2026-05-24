@@ -55,7 +55,12 @@ from ..clustering import (
     cluster_failures,
 )
 from ..clustering.types import RawClusterAssignment
-from ..eval_runner.runner import EvalCaseOutcome, run_with_agent, run_with_mock_agent
+from ..eval_runner.runner import (
+    EvalCaseOutcome,
+    run_with_agent,
+    run_with_mock_agent,
+    run_with_replay_agent,
+)
 from ..sim_tier import MockSimConfig
 from .eval_case_set import EvalCaseSet
 from .failure_clustering import (
@@ -78,6 +83,9 @@ from .sim_plan import SimulationPlan
 from .spec import WorkflowSpec
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    import asyncpg
     from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
@@ -434,6 +442,8 @@ async def run_nl_gen_demo_loop(
     labeler: Labeler | None = None,
     mock_config: MockSimConfig | None = None,
     mock_iteration_index: int | None = None,
+    replay_conn: asyncpg.Connection | None = None,
+    replay_source_iteration_id: UUID | None = None,
 ) -> DemoLoopReport:
     """Drive ``n_cycles`` of agent-run → cluster failures → propose
     instruction edit on a single NL-gen workflow.
@@ -487,6 +497,17 @@ async def run_nl_gen_demo_loop(
             "MockAgentSolver's accuracy curve is keyed by iteration, "
             "so the caller must supply it explicitly",
         )
+    if (replay_conn is None) != (replay_source_iteration_id is None):
+        raise ValueError(
+            "replay_conn and replay_source_iteration_id must be "
+            "supplied together (both or neither) — replay tier needs "
+            "both to read captured outputs",
+        )
+    if mock_config is not None and replay_conn is not None:
+        raise ValueError(
+            "mock_config and replay_conn are mutually exclusive — a "
+            "workflow's sim_tier resolves to ONE of {real, mock, replay}",
+        )
     if case_set.workflow_spec_id != spec.id:
         raise ValueError(
             f"case_set.workflow_spec_id={case_set.workflow_spec_id!r} "
@@ -527,9 +548,12 @@ async def run_nl_gen_demo_loop(
 
         async with asyncio.timeout(_CYCLE_TIMEOUT_SECONDS):
             # 1. Run the agent over the full case set with the cumulative
-            #    instruction (None on cycle 0). Mock-tier swaps the
-            #    LLM-backed solver for a deterministic curve-driven one;
-            #    everything downstream (clustering, proposer, gate)
+            #    instruction (None on cycle 0). Three tiers, picked
+            #    based on which tier-config was threaded through:
+            #      * mock   — deterministic curve-driven predictions
+            #      * replay — captured outputs from a prior real iter
+            #      * real   — LLM-backed solver (default)
+            #    Everything downstream (clustering, proposer, gate)
             #    consumes the same EvalRunReport shape either way.
             if mock_config is not None:
                 assert mock_iteration_index is not None  # guarded by ValueError check above
@@ -541,6 +565,30 @@ async def run_nl_gen_demo_loop(
                     mock_config=mock_config,
                     iteration_index=mock_iteration_index + cycle_idx,
                 )
+            elif replay_conn is not None:
+                # replay_source_iteration_id presence enforced above
+                # alongside replay_conn — the assert is for the type
+                # checker, not a runtime guard.
+                assert replay_source_iteration_id is not None
+                report, missing = await run_with_replay_agent(
+                    replay_conn,
+                    case_set,
+                    plan,
+                    spec,
+                    metric,
+                    source_iteration_id=replay_source_iteration_id,
+                )
+                if missing:
+                    # Slice-A MVP: raise on any uncovered case. Fallback
+                    # to mock/real is wired by the iteration_runner layer
+                    # (it knows the workflow's full sim_tier config and
+                    # which solver to substitute for missing cases).
+                    from ..eval_runner.replay_solver import (
+                        ReplayCaseMissingError,
+                    )
+                    raise ReplayCaseMissingError(
+                        replay_source_iteration_id, missing,
+                    )
             else:
                 report = await run_with_agent(
                     case_set,

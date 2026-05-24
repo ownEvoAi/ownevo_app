@@ -1,6 +1,6 @@
-"""sim_tier discriminator + MockSim configuration schema.
+"""sim_tier discriminator + Mock/Replay configuration schemas.
 
-Track 9.0.2. Workflows pick how their iterations run via
+Tracks 9.0.2 + 9.0.3. Workflows pick how their iterations run via
 `workflows.sim_tier`:
 
   * `'real'`   — existing behaviour. The LLM-backed agent_solver runs
@@ -10,16 +10,21 @@ Track 9.0.2. Workflows pick how their iterations run via
                  (benchmark workflows). Deterministic scripted outputs
                  driven by `workflows.mock_sim_config`. Zero LLM cost,
                  sub-second per case.
-  * `'replay'` — reserved for Track 9.0.3. Replay against captured
-                 production traces.
+  * `'replay'` — ReplayAgentSolver (NL-gen) or ReplaySimSandbox
+                 (benchmark). Reads outputs that were captured during
+                 a prior real iteration and returns them byte-for-byte
+                 — high-fidelity pre-production validation of an
+                 instruction edit against a known-good run. Driven by
+                 `workflows.replay_sim_config`. Zero LLM cost; storage-
+                 bound rather than compute-bound.
 
-This module owns the *schema* of the discriminator and the mock config
-JSONB; the *behaviour* lives in the per-layer mock implementations
-(`eval_runner/mock_solver.py`, `sandbox/mock_sim.py`).
+This module owns the *schema* of the discriminator and the per-tier
+config JSONB; the *behaviour* lives in the per-layer implementations
+(`eval_runner/{mock,replay}_solver.py`, `sandbox/{mock,replay}_sim.py`).
 
 Why a top-level module instead of co-locating in `eval_runner/` or
-`sandbox/`: the same `MockSimConfig` is read by both layers depending
-on whether the workflow's agent goes through `agent_solver` (NL-gen) or
+`sandbox/`: the same configs are read by both layers depending on
+whether the workflow's agent goes through `agent_solver` (NL-gen) or
 through `SandboxRuntime` (M5/τ³ benchmarks). A neutral home avoids
 importing one layer from the other.
 """
@@ -27,7 +32,8 @@ importing one layer from the other.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -131,7 +137,67 @@ class MockSimConfig(BaseModel):
         return self.default_accuracy
 
 
+ReplayFallback = Literal["error", "mock", "real"]
+
+
+class ReplaySimConfig(BaseModel):
+    """JSONB stored in `workflows.replay_sim_config`.
+
+    Required when `workflows.sim_tier = 'replay'` (DB-enforced via the
+    migration 0019 CHECK constraint).
+
+    A replay iteration reads outputs that were captured during a prior
+    real iteration on the same workflow and emits them as if the agent
+    had just produced them. Two source surfaces, both keyed off
+    `source_iteration_id`:
+
+      * NL-gen workflows — `iteration_case_outputs` carries the
+        agent's structured per-case output. ReplayAgentSolver looks
+        up `(source_iteration_id, eval_case_id) → output_json + passed
+        + output_payload` and synthesizes a ReplayResult.
+
+      * Benchmark workflows — `captured_sandbox_runs` carries every
+        Docker invocation's result. ReplaySimSandbox cursors through
+        rows where `iteration_id = source_iteration_id` in `call_idx`
+        order.
+
+    `fallback` decides what happens when a requested case (NL-gen) or
+    call_idx (benchmark) isn't present in the captured set:
+
+      * `'error'` (default) — raise. Silent degradation hides real
+        correctness gaps; making the operator decide explicitly is
+        safer for high-fidelity validation.
+      * `'mock'`            — degrade to MockAgentSolver / MockSimSandbox.
+                              Requires `mock_sim_config` to also be set
+                              on the workflow.
+      * `'real'`            — degrade to the live LLM / Docker. Defeats
+                              the "zero LLM cost" property of replay
+                              but is the only option for cases that
+                              weren't captured.
+    """
+
+    source_iteration_id: UUID = Field(
+        description=(
+            "UUID of the iteration whose outputs this workflow replays "
+            "against. Must point at an iteration on the same workflow "
+            "that ran with sim_tier='real' (so its outputs were "
+            "captured into iteration_case_outputs / captured_sandbox_runs)."
+        ),
+    )
+    fallback: ReplayFallback = Field(
+        default="error",
+        description=(
+            "Policy when a requested case or sandbox call isn't in "
+            "the captured set. 'error' raises (safer default); 'mock' "
+            "degrades to MockAgentSolver/MockSimSandbox (requires "
+            "mock_sim_config); 'real' degrades to live LLM/Docker."
+        ),
+    )
+
+
 __all__ = [
     "SimTier",
     "MockSimConfig",
+    "ReplayFallback",
+    "ReplaySimConfig",
 ]
