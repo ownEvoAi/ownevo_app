@@ -77,7 +77,16 @@ async def run() -> None:
                 or "-- ownevo:no-txn" in sql
             )
             if needs_no_txn:
-                await conn.execute(sql)
+                # Execute each statement on its own. A multi-statement
+                # string is sent via the simple query protocol, which
+                # Postgres wraps in an implicit transaction block —
+                # CREATE INDEX CONCURRENTLY refuses to run inside one and
+                # VALIDATE CONSTRAINT loses its lighter SHARE UPDATE
+                # EXCLUSIVE lock. Single statements stay in autocommit.
+                from ownevo_kernel.db import split_sql_statements
+
+                for statement in split_sql_statements(sql):
+                    await conn.execute(statement)
                 async with conn.transaction():
                     await conn.execute(
                         "INSERT INTO schema_migrations (filename) VALUES ($1)",

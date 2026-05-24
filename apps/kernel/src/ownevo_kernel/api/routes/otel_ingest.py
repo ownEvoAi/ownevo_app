@@ -9,12 +9,15 @@ and writes one `traces` row per unique `trace_id` in the batch (via
 returns, the ingested traces are first-class citizens for the failure
 clustering pipeline, the inspection UI, and the rest of the kernel.
 
+Auth: the route requires a `Authorization: Bearer ownevo_rt_...` token
+minted via `apps/kernel/scripts/mint_receiver_token.py`. The token's
+bound workflow (if any) determines `traces.workflow_id` on the
+ingested rows. Tests and local-dev flows can opt out by setting
+`OWNEVO_OTLP_AUTH_OPTIONAL=true` — see `middleware/otel_receiver/auth.py`.
+
 Out of scope for this slice:
 
   * gRPC + protobuf OTLP — JSON-over-HTTP only.
-  * Authentication — the receiver is single-tenant and assumes a
-    trusted network path. Bearer-token auth lands with the
-    multi-tenant retrofit.
 """
 
 from __future__ import annotations
@@ -23,15 +26,17 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
     OtelDecodeError,
     OversizedPayloadError,
+    ReceiverTokenAuthError,
     decode_otlp_payload,
     persist_decoded_batch,
+    verify_request_token,
 )
 from ..deps import ConnDep
 
@@ -110,7 +115,9 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
     status_code=status.HTTP_200_OK,
 )
 async def ingest_otlp_traces(
-    request: Request, conn: ConnDep,
+    request: Request,
+    conn: ConnDep,
+    authorization: str | None = Header(default=None),
 ) -> IngestResponse:
     """Accept one OTLP-JSON ResourceSpans batch and persist it.
 
@@ -123,7 +130,28 @@ async def ingest_otlp_traces(
     accumulation from chunked-transfer payloads. The CPU-bound JSON
     decode is offloaded to a thread-pool executor so the event loop
     stays free during large-batch processing.
+
+    Authentication happens before body read so a bad token rejects
+    cheaply without consuming a multi-MiB upload.
     """
+    try:
+        auth = await verify_request_token(conn, authorization)
+    except ReceiverTokenAuthError:
+        # Uniform 401 across every failure mode — revealing "revoked"
+        # vs "unknown" vs "malformed" gives an attacker free information.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid receiver token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+    if auth is not None:
+        _log.debug(
+            "otel-ingest: authenticated token_id=%s workflow_id=%s",
+            auth.token_id,
+            auth.workflow_id,
+        )
+
     try:
         raw = await _read_body_with_limit(request, DEFAULT_MAX_BODY_BYTES)
     except OversizedPayloadError as exc:

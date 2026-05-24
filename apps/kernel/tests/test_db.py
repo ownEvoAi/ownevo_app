@@ -102,6 +102,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "learnings",
             "meta_evals",
             "proposals",
+            "receiver_tokens",
             "skill_deployments",
             "skill_versions",
             "skills",

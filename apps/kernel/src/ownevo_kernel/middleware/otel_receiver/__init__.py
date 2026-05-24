@@ -29,6 +29,19 @@ The HTTP entry point is wired in `api/routes/otel_ingest.py`; that
 module imports from here.
 """
 
+from .auth import (
+    MalformedTokenError,
+    MissingTokenError,
+    ReceiverTokenAuth,
+    ReceiverTokenAuthError,
+    RevokedTokenError,
+    UnknownTokenError,
+    hash_token,
+    is_auth_optional,
+    mint_token,
+    verify_request_token,
+    verify_token,
+)
 from .mapper import (
     DEFAULT_MAX_BODY_BYTES,
     DecodedBatch,
@@ -43,9 +56,20 @@ __all__ = [
     "DEFAULT_MAX_BODY_BYTES",
     "DecodeWarning",
     "DecodedBatch",
+    "MalformedTokenError",
+    "MissingTokenError",
     "OtelDecodeError",
     "OversizedPayloadError",
     "PersistResult",
+    "ReceiverTokenAuth",
+    "ReceiverTokenAuthError",
+    "RevokedTokenError",
+    "UnknownTokenError",
     "decode_otlp_payload",
+    "hash_token",
+    "is_auth_optional",
+    "mint_token",
     "persist_decoded_batch",
+    "verify_request_token",
+    "verify_token",
 ]
