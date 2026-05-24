@@ -2,18 +2,16 @@
 
 Accepts a single OTLP `ResourceSpans` batch as JSON (the encoding
 LangSmith's `langsmith-collector-proxy` and OpenLLMetry exporters
-emit by default when targeting a non-OTLP/gRPC sink). The body is
-decoded into typed AgentEvents via
-`middleware.otel_receiver.decode_otlp_payload`; persistence happens
-in a follow-on slice (the live LangSmith conformance CI run hooks
-into the same response shape).
+emit by default when targeting a non-OTLP/gRPC sink), decodes it into
+typed `AgentEvent`s via `middleware.otel_receiver.decode_otlp_payload`,
+and writes one `traces` row per unique `trace_id` in the batch (via
+`middleware.otel_receiver.persist_decoded_batch`). After this call
+returns, the ingested traces are first-class citizens for the failure
+clustering pipeline, the inspection UI, and the rest of the kernel.
 
 Out of scope for this slice:
 
   * gRPC + protobuf OTLP — JSON-over-HTTP only.
-  * Persistence into `traces.events` — the response carries the
-    decoded events back to the caller; the actual write path is the
-    next slice.
   * Authentication — the receiver is single-tenant and assumes a
     trusted network path. Bearer-token auth lands with the
     multi-tenant retrofit.
@@ -23,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
@@ -32,7 +31,9 @@ from ...middleware.otel_receiver import (
     OtelDecodeError,
     OversizedPayloadError,
     decode_otlp_payload,
+    persist_decoded_batch,
 )
+from ..deps import ConnDep
 
 _log = logging.getLogger(__name__)
 
@@ -47,12 +48,27 @@ class IngestWarning(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    """Response envelope returned by `/api/otel/v1/traces`."""
+    """Response envelope returned by `/api/otel/v1/traces`.
+
+    `created_trace_ids` lists trace_ids that resulted in a new
+    `traces` row; `appended_trace_ids` lists trace_ids whose existing
+    row was extended with additional events (the common case when an
+    external collector flushes spans in waves); `saturated_trace_ids`
+    lists trace_ids that were dropped at the persist layer because
+    they would push the per-trace event count past the safety cap
+    (see `_MAX_EVENTS_PER_TRACE` in `persist.py`). The split lets a
+    calling collector decide whether to surface a "new trace" event
+    upstream or pause emitting against a saturated trace, without
+    re-querying the database.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     accepted_events: int
     warnings: list[IngestWarning]
+    created_trace_ids: list[UUID]
+    appended_trace_ids: list[UUID]
+    saturated_trace_ids: list[UUID]
 
 
 async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
@@ -93,14 +109,20 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
     response_model=IngestResponse,
     status_code=status.HTTP_200_OK,
 )
-async def ingest_otlp_traces(request: Request) -> IngestResponse:
-    """Accept one OTLP-JSON ResourceSpans batch.
+async def ingest_otlp_traces(
+    request: Request, conn: ConnDep,
+) -> IngestResponse:
+    """Accept one OTLP-JSON ResourceSpans batch and persist it.
 
-    Returns the decoded-event count and per-span warnings. The body is
-    streamed with a byte cap to prevent unbounded memory accumulation
-    from chunked-transfer payloads. The CPU-bound JSON decode is
-    offloaded to a thread-pool executor so the event loop stays free
-    during large-batch processing.
+    Decoded events land in the `traces` table — one row per unique
+    `AgentEvent.trace_id`. Subsequent batches for the same trace_id
+    append onto the existing row's JSONB events array (the common
+    pattern when an external collector flushes spans in waves).
+
+    The body is streamed with a byte cap to prevent unbounded memory
+    accumulation from chunked-transfer payloads. The CPU-bound JSON
+    decode is offloaded to a thread-pool executor so the event loop
+    stays free during large-batch processing.
     """
     try:
         raw = await _read_body_with_limit(request, DEFAULT_MAX_BODY_BYTES)
@@ -127,13 +149,22 @@ async def ingest_otlp_traces(request: Request) -> IngestResponse:
             detail=str(exc),
         ) from exc
 
+    persisted = await persist_decoded_batch(conn, batch)
+
     _log.info(
-        "otel-ingest: accepted %d events, %d warnings",
+        "otel-ingest: accepted %d events, %d warnings, "
+        "%d trace(s) created, %d trace(s) appended, %d trace(s) saturated",
         len(batch.events),
         len(batch.warnings),
+        len(persisted.created),
+        len(persisted.appended),
+        len(persisted.saturated),
     )
 
     return IngestResponse(
         accepted_events=len(batch.events),
         warnings=[IngestWarning(span_id=w.span_id, reason=w.reason) for w in batch.warnings],
+        created_trace_ids=persisted.created,
+        appended_trace_ids=persisted.appended,
+        saturated_trace_ids=persisted.saturated,
     )

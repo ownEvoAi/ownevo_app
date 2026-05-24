@@ -144,6 +144,49 @@ The receiver returns HTTP responses in line with OTLP/HTTP conventions:
   mapper. Caller-driven bad data always produces 400 or a warning, not
   a 500.
 
+## Persistence
+
+After decoding, the receiver writes the resulting AgentEvent stream
+to the `traces` table — the same table the in-process
+`TraceCollector` uses. One row per unique `AgentEvent.trace_id` in
+the batch; the events are stored as a JSONB array in `traces.events`
+in arrival order.
+
+Subsequent batches that carry events for an already-stored trace_id
+**append** onto the existing row's events array (Postgres
+`INSERT ... ON CONFLICT (id) DO UPDATE SET events = traces.events ||
+EXCLUDED.events`). This matches the wave-flushing behaviour of real
+OTel collectors, which emit a trace's spans as each one finishes
+rather than all at once on root-span close.
+
+Persisted rows carry `ingest_source = 'otlp'` so downstream callers
+(failure clustering, the trace inspection UI, audit) can distinguish
+externally ingested traces from kernel-emitted ones. Kernel-emitted
+rows have `ingest_source IS NULL`. External rows currently have
+`workflow_id` and `iteration_id` set to NULL — binding an external
+trace to a registered workflow lands with the collector-association
+slice.
+
+Each batch is persisted inside a single Postgres transaction — a
+mid-batch DB error rolls back every prior upsert in the same batch,
+so the response and the table state stay consistent.
+
+A safety cap (`_MAX_EVENTS_PER_TRACE`, currently 10 000) bounds the
+events array per trace_id. Batches that would push a trace past the
+cap are dropped at the persist layer and reported in the response as
+`saturated_trace_ids` — this is the receiver's defence against a
+buggy or malicious external collector keeping one trace_id appending
+without bound. The cap is well above any plausible legitimate trace
+size; under concurrent writes the final count may overshoot
+slightly, which is acceptable for a safety net.
+
+The `POST /api/otel/v1/traces` response surfaces the persistence
+result as `created_trace_ids` (newly inserted rows),
+`appended_trace_ids` (rows extended in place), and
+`saturated_trace_ids` (batches dropped by the cap), so callers can
+route "new trace" notifications and pause against saturated traces
+without re-querying the table.
+
 ## Tenant isolation (sketch — full impl in a later slice)
 
 Track 13 ships single-tenant. OTel does not pin a tenant identifier;

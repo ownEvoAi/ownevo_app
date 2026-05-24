@@ -1,47 +1,49 @@
 """HTTP-level tests for `POST /api/otel/v1/traces`.
 
-The route is DB-free (no persistence yet — landed in a follow-on
-slice), so we mount just the otel_ingest router on a fresh FastAPI
-instance and exercise it via the in-process httpx + ASGITransport
-client. Same pattern as `test_api_nl_gen_preview.py`.
+The route resolves `ConnDep` (a per-request asyncpg connection) before
+the handler runs, so even the 4xx-path tests need a real pool wired
+through the FastAPI app. We use the shared `api_client` fixture from
+`conftest.py` — same `create_app(pool=...)` plumbing as the rest of
+the API surface, skipped automatically when `OWNEVO_DATABASE_URL` is
+unset.
+
+Persistence-shape assertions live in `test_route_otel_ingest_persist.py`;
+this file focuses on HTTP-level semantics (status codes + response
+envelope shape) so the two concerns stay legible separately.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator
+import os
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport
-from ownevo_kernel.api.routes.otel_ingest import router
+from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.middleware.otel_receiver import DEFAULT_MAX_BODY_BYTES
 
 from ._fixture_cases import CASES
 
-
-@pytest.fixture
-async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    app = FastAPI()
-    app.include_router(router)
-    async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://api.test",
-    ) as c:
-        yield c
+pytestmark = pytest.mark.skipif(
+    ENV_VAR not in os.environ,
+    reason=f"{ENV_VAR} not set; skipping integration tests",
+)
 
 
-async def test_well_formed_chat_batch_returns_200(client: httpx.AsyncClient) -> None:
+async def test_well_formed_chat_batch_returns_200(api_client: httpx.AsyncClient) -> None:
     case = next(c for c in CASES if c.name == "01_chat_basic_text")
-    resp = await client.post("/api/otel/v1/traces", json=case.payload)
+    resp = await api_client.post("/api/otel/v1/traces", json=case.payload)
     assert resp.status_code == 200
     body = resp.json()
     assert body["accepted_events"] == 1
     assert body["warnings"] == []
+    assert len(body["created_trace_ids"]) == 1
+    assert body["appended_trace_ids"] == []
+    assert body["saturated_trace_ids"] == []
 
 
-async def test_malformed_json_returns_400(client: httpx.AsyncClient) -> None:
-    resp = await client.post(
+async def test_malformed_json_returns_400(api_client: httpx.AsyncClient) -> None:
+    resp = await api_client.post(
         "/api/otel/v1/traces",
         content=b"{not json",
         headers={"Content-Type": "application/json"},
@@ -49,19 +51,19 @@ async def test_malformed_json_returns_400(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 400
 
 
-async def test_missing_resource_spans_returns_400(client: httpx.AsyncClient) -> None:
-    resp = await client.post("/api/otel/v1/traces", json={"foo": "bar"})
+async def test_missing_resource_spans_returns_400(api_client: httpx.AsyncClient) -> None:
+    resp = await api_client.post("/api/otel/v1/traces", json={"foo": "bar"})
     assert resp.status_code == 400
 
 
-async def test_payload_array_returns_400(client: httpx.AsyncClient) -> None:
-    resp = await client.post("/api/otel/v1/traces", json=[])
+async def test_payload_array_returns_400(api_client: httpx.AsyncClient) -> None:
+    resp = await api_client.post("/api/otel/v1/traces", json=[])
     assert resp.status_code == 400
 
 
-async def test_oversize_payload_returns_413(client: httpx.AsyncClient) -> None:
+async def test_oversize_payload_returns_413(api_client: httpx.AsyncClient) -> None:
     huge = b'{"resourceSpans":[]}' + b" " * (DEFAULT_MAX_BODY_BYTES + 1024 * 1024)
-    resp = await client.post(
+    resp = await api_client.post(
         "/api/otel/v1/traces",
         content=huge,
         headers={"Content-Type": "application/json"},
@@ -70,31 +72,35 @@ async def test_oversize_payload_returns_413(client: httpx.AsyncClient) -> None:
 
 
 async def test_unknown_op_surfaces_as_warning_not_error(
-    client: httpx.AsyncClient,
+    api_client: httpx.AsyncClient,
 ) -> None:
     case = next(c for c in CASES if c.name == "14_unknown_operation_skipped")
-    resp = await client.post("/api/otel/v1/traces", json=case.payload)
+    resp = await api_client.post("/api/otel/v1/traces", json=case.payload)
     assert resp.status_code == 200
     body = resp.json()
     assert body["accepted_events"] == 0
     assert len(body["warnings"]) >= 1
+    # Zero events → no trace rows touched.
+    assert body["created_trace_ids"] == []
+    assert body["appended_trace_ids"] == []
+    assert body["saturated_trace_ids"] == []
 
 
 async def test_end_to_end_agent_run_returns_three_events(
-    client: httpx.AsyncClient,
+    api_client: httpx.AsyncClient,
 ) -> None:
     case = next(c for c in CASES if c.name == "12_end_to_end_agent_run")
-    resp = await client.post("/api/otel/v1/traces", json=case.payload)
+    resp = await api_client.post("/api/otel/v1/traces", json=case.payload)
     assert resp.status_code == 200
     body = resp.json()
     # content_delta + tool_call_start + tool_call_result
     assert body["accepted_events"] == 3
 
 
-async def test_request_body_as_string_round_trips(client: httpx.AsyncClient) -> None:
+async def test_request_body_as_string_round_trips(api_client: httpx.AsyncClient) -> None:
     """The route reads raw bytes; passing serialised JSON as content works."""
     case = next(c for c in CASES if c.name == "05_tool_call_ok")
-    resp = await client.post(
+    resp = await api_client.post(
         "/api/otel/v1/traces",
         content=json.dumps(case.payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},

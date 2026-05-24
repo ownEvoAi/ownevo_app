@@ -35,6 +35,7 @@ from .mapper import (
     OversizedPayloadError,
     decode_otlp_payload,
 )
+from .persist import PersistResult, persist_decoded_batch
 
 __all__ = [
     "DEFAULT_MAX_BODY_BYTES",
@@ -42,5 +43,7 @@ __all__ = [
     "DecodedBatch",
     "OtelDecodeError",
     "OversizedPayloadError",
+    "PersistResult",
     "decode_otlp_payload",
+    "persist_decoded_batch",
 ]

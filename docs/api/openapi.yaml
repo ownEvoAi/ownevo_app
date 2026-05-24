@@ -647,10 +647,20 @@ paths:
         (the default encoding for LangSmith `langsmith-collector-proxy`
         and OpenLLMetry exporters targeting a non-gRPC sink).
 
-        The body is decoded into typed `AgentEvent` objects; DB
-        persistence is deferred to a follow-on slice. The response
-        always uses HTTP 200 — even when some spans were skipped.
-        Callers must inspect `warnings[]` to detect partial acceptance.
+        The body is decoded into typed `AgentEvent` objects and
+        persisted into the `traces` table — one row per unique
+        `AgentEvent.trace_id` present in the batch. Subsequent
+        batches that share a `trace_id` with an existing row append
+        onto its events array (the common pattern when an external
+        collector flushes spans in waves). Persisted rows are tagged
+        with `ingest_source = 'otlp'`, distinguishing them from
+        kernel-emitted traces.
+
+        The response always uses HTTP 200 — even when some spans
+        were skipped. Callers must inspect `warnings[]` to detect
+        partial acceptance. `created_trace_ids` and
+        `appended_trace_ids` reveal which traces were newly inserted
+        vs which extended an existing row.
 
         gRPC / protobuf OTLP is not supported in this slice; sending
         `Content-Type: application/x-protobuf` will return 400.
@@ -1598,7 +1608,12 @@ components:
 
     OtelIngestResponse:
       type: object
-      required: [accepted_events, warnings]
+      required:
+        - accepted_events
+        - warnings
+        - created_trace_ids
+        - appended_trace_ids
+        - saturated_trace_ids
       properties:
         accepted_events:
           type: integer
@@ -1608,6 +1623,34 @@ components:
           description: Per-span warnings for skipped or partially-decoded spans
           items:
             $ref: '#/components/schemas/OtelIngestWarning'
+        created_trace_ids:
+          type: array
+          description: |
+            Trace IDs that resulted in a new `traces` row (the batch
+            was the first one seen for that trace_id).
+          items:
+            type: string
+            format: uuid
+        appended_trace_ids:
+          type: array
+          description: |
+            Trace IDs whose existing `traces` row was extended with
+            additional events (the batch carried more spans for a
+            trace_id already on disk).
+          items:
+            type: string
+            format: uuid
+        saturated_trace_ids:
+          type: array
+          description: |
+            Trace IDs whose batch was dropped at the persist layer
+            because accepting it would push the row's event count past
+            the per-trace cap (a safety net against runaway append
+            growth from buggy or malicious external collectors).
+            Callers should pause emitting against a saturated trace.
+          items:
+            type: string
+            format: uuid
 
     # ---------- errors ----------
     Error:
