@@ -237,7 +237,9 @@ class Proposal(_Base):
 
     id: UUID
     iteration_id: UUID
-    skill_id: str
+    # Required for kind='skill'; null for non-skill artifact proposals
+    # (description / metric / sim / ui-primitive) added in Track 9.2.3.
+    skill_id: str | None = None
     parent_version_id: UUID | None = None
     proposed_content: str
     plain_language_summary: str

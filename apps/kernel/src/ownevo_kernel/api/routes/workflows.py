@@ -13,6 +13,7 @@ count.
 from __future__ import annotations
 
 import asyncio
+import json
 from uuid import UUID
 
 import asyncpg
@@ -38,20 +39,27 @@ from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
     CaseOutputRow,
+    DescriptionProposalCreate,
     EvalCaseCreate,
     EvalCaseList,
     EvalCaseProvenance,
     EvalCaseSummary,
     FailureClusterList,
     FailureClusterSummary,
+    FailureList,
+    FailureListItem,
     GenerateEvalCasesResponse,
     IterationCaseRow,
     IterationDetailFull,
     IterationList,
     IterationPoint,
+    MetricProposalCreate,
+    ProposalSummary,
     RunIterationResponse,
+    SimProposalCreate,
     TryItRequest,
     TryItResponse,
+    UIPrimitiveProposalCreate,
     WorkflowAgentModelUpdate,
     WorkflowAnatomy,
     WorkflowDeleteResponse,
@@ -460,42 +468,67 @@ async def list_failure_clusters(
         workflow_id,
     )
 
-    # Resolve spawning_iteration per cluster in a single follow-up
-    # query: pick the earliest iteration_index whose traces overlap
-    # any of the cluster's sample_trace_ids. Done in Python (not as
-    # a correlated subquery) because asyncpg's ANY($1::uuid[]) handling
-    # of NULL/empty arrays is brittle and a single batched lookup
-    # over the union of all sample ids is straightforward.
+    # Resolve spawning_iteration + source mix per cluster in a single
+    # follow-up query. Source is derived from `traces.iteration_id`:
+    # `IS NULL` = production trace, `IS NOT NULL` = eval (an iteration
+    # run produced it). Done in Python (not a correlated subquery)
+    # because asyncpg's ANY($1::uuid[]) handling of NULL/empty arrays is
+    # brittle and a single batched lookup is straightforward.
     all_sample_ids: list[UUID] = []
     for r in rows:
         for tid in r["sample_trace_ids"] or []:
             all_sample_ids.append(tid)
     spawning_by_cluster: dict[UUID, tuple[int, UUID]] = {}
+    # eval_traces: trace_id → (iteration_index, iteration_id); only
+    # populated for sample traces with non-null iteration_id.
+    eval_traces: dict[UUID, tuple[int, UUID]] = {}
+    # prod_traces: set of sample trace ids whose `iteration_id IS NULL`.
+    prod_traces: set[UUID] = set()
     if all_sample_ids:
-        trace_iter_rows = await conn.fetch(
+        trace_rows = await conn.fetch(
             """
-            SELECT t.id AS trace_id, i.id AS iter_id, i.iteration_index
+            SELECT
+                t.id            AS trace_id,
+                t.iteration_id  AS iter_id,
+                i.iteration_index
             FROM traces t
-            JOIN iterations i ON i.id = t.iteration_id
+            LEFT JOIN iterations i ON i.id = t.iteration_id
             WHERE t.id = ANY($1::uuid[])
-              AND t.iteration_id IS NOT NULL
             """,
             all_sample_ids,
         )
-        trace_to_iter: dict[UUID, tuple[int, UUID]] = {
-            row["trace_id"]: (row["iteration_index"], row["iter_id"])
-            for row in trace_iter_rows
-        }
+        for row in trace_rows:
+            if row["iter_id"] is None:
+                prod_traces.add(row["trace_id"])
+            else:
+                eval_traces[row["trace_id"]] = (
+                    row["iteration_index"],
+                    row["iter_id"],
+                )
         for r in rows:
             best: tuple[int, UUID] | None = None
             for tid in r["sample_trace_ids"] or []:
-                resolved = trace_to_iter.get(tid)
+                resolved = eval_traces.get(tid)
                 if resolved is None:
                     continue
                 if best is None or resolved[0] < best[0]:
                     best = resolved
             if best is not None:
                 spawning_by_cluster[r["id"]] = best
+
+    # Per-cluster prod/eval counts. Sample ids absent from both sets
+    # (legacy clusters predating Tier-1 trace persistence) don't
+    # contribute to either count.
+    source_counts: dict[UUID, tuple[int, int]] = {}
+    for r in rows:
+        prod = 0
+        evl = 0
+        for tid in r["sample_trace_ids"] or []:
+            if tid in prod_traces:
+                prod += 1
+            elif tid in eval_traces:
+                evl += 1
+        source_counts[r["id"]] = (prod, evl)
 
     items = [
         FailureClusterSummary(
@@ -525,10 +558,109 @@ async def list_failure_clusters(
                 if r["id"] in spawning_by_cluster
                 else None
             ),
+            prod_count=source_counts.get(r["id"], (0, 0))[0],
+            eval_count=source_counts.get(r["id"], (0, 0))[1],
         )
         for r in rows
     ]
     return FailureClusterList(workflow_id=workflow_id, items=items)
+
+
+@router.get(
+    "/{workflow_id}/failures",
+    response_model=FailureList,
+)
+async def list_workflow_failures(
+    workflow_id: str,
+    conn: ConnDep,
+    source: str | None = None,
+    limit: int = 500,
+) -> FailureList:
+    """Return one row per failed sample trace across all active clusters.
+
+    Powers the list/cluster toggle on the Failures view. `source` may
+    be `production`, `eval`, or omitted (returns all). Each row is a
+    `(trace, cluster)` pairing decorated with timestamp + severity so
+    a reviewer can sort across clusters in a single table.
+
+    `limit` caps the result set (default 500; max enforced at 2000).
+
+    For eval rows the trace is bound to the iteration that produced it,
+    and (when resolvable) the eval case the iteration was running
+    against. Production rows have no iteration_id / eval_case_id.
+    """
+    limit = min(max(limit, 1), 2000)
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    if source not in (None, "production", "eval"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source must be 'production', 'eval', or omitted",
+        )
+
+    # One query joins each active cluster's sample_trace_ids through
+    # `traces` and (for eval rows) into iterations. The unnest preserves
+    # the cluster→trace mapping so we can render label + severity per
+    # row without a second pass.
+    rows = await conn.fetch(
+        """
+        SELECT
+            t.id            AS trace_id,
+            fc.id           AS cluster_id,
+            fc.label        AS cluster_label,
+            fc.severity     AS severity,
+            CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END
+                            AS source,
+            t.started_at    AS started_at,
+            i.iteration_index,
+            -- Best-effort eval_case binding: most recent eval_case
+            -- attached to this cluster. Null for production rows or
+            -- clusters with no eval cases yet.
+            (
+                SELECT ec.id FROM eval_cases ec
+                WHERE ec.cluster_id = fc.id
+                ORDER BY ec.created_at DESC
+                LIMIT 1
+            )               AS eval_case_id
+        FROM failure_clusters fc
+        CROSS JOIN LATERAL unnest(COALESCE(fc.sample_trace_ids, '{}'::uuid[]))
+            AS sample_id
+        JOIN traces t ON t.id = sample_id
+        LEFT JOIN iterations i ON i.id = t.iteration_id
+        WHERE fc.workflow_id = $1
+          AND ($2::text IS NULL OR
+               (CASE WHEN t.iteration_id IS NULL THEN 'production' ELSE 'eval' END) = $2)
+        ORDER BY t.started_at DESC NULLS LAST,
+                 CASE fc.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC
+        LIMIT $3
+        """,
+        workflow_id,
+        source,
+        limit,
+    )
+
+    items = [
+        FailureListItem(
+            trace_id=r["trace_id"],
+            cluster_id=r["cluster_id"],
+            cluster_label=r["cluster_label"],
+            severity=r["severity"],
+            source=r["source"],
+            started_at=r["started_at"],
+            eval_case_id=r["eval_case_id"] if r["source"] == "eval" else None,
+            iteration_index=r["iteration_index"],
+        )
+        for r in rows
+    ]
+    return FailureList(workflow_id=workflow_id, items=items)
 
 
 @router.get(
@@ -1234,6 +1366,480 @@ async def try_workflow_one_case(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         trace=result.trace,
+    )
+
+
+# 9.2.3 — non-skill artifact proposal create endpoint. Currently only
+# `kind='metric'` is wired; description / sim / ui-primitive follow
+# the same shape. The proposal anchors to the workflow's latest
+# iteration (so the audit chain has a context to thread through) and
+# the gate's ordering-inversion check (re-scoring prior iterations
+# against the new metric) lands in a follow-up.
+@router.post(
+    "/{workflow_id}/proposals/metric",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_metric_proposal(
+    workflow_id: str,
+    body: MetricProposalCreate,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ProposalSummary:
+    """Create a kind='metric' proposal staged against the workflow.
+
+    The body's `proposed_metric` is the new MetricDefinitionShape JSONB.
+    Saved as `proposed_payload`, with `skill_id` and
+    `parent_version_id` null (metric proposals don't have a skill
+    version to fork).
+
+    404 when the workflow doesn't exist; 422 when no iteration has
+    been run yet (the proposal needs an iteration to anchor its audit
+    context); 422 when the proposed metric is missing the required
+    `name` field.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    if not isinstance(body.proposed_metric.get("name"), str):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="proposed_metric.name must be a non-empty string",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a metric edit so the proposal has audit "
+                "context."
+            ),
+        )
+
+
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'metric'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(body.proposed_metric),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "metric",
+                "rationale": body.rationale,
+            },
+            actor="api:create_metric_proposal",
+            related_id=proposal_row["id"],
+        )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="metric",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="gate-passed",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='sim' proposal. Proposed sim plan replaces the
+# workflow's existing tools / personas / data_sources / env_generators
+# on approval. Diff renderer reads added/removed by name.
+@router.post(
+    "/{workflow_id}/proposals/sim",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_sim_proposal(
+    workflow_id: str,
+    body: SimProposalCreate,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ProposalSummary:
+    """Create a kind='sim' proposal staged against the workflow."""
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a sim edit so the proposal has audit "
+                "context."
+            ),
+        )
+
+    # Require at least one of the sim-shaped sections so the proposal
+    # has something to diff against. An empty payload would create a
+    # no-signal queue row.
+    sim_keys = ("tools", "personas", "data_sources", "env_generators")
+    if not any(k in body.proposed_spec for k in sim_keys):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "proposed_spec must include at least one of: "
+                + ", ".join(sim_keys)
+            ),
+        )
+
+
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'sim'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(body.proposed_spec),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "sim",
+                "rationale": body.rationale,
+                "section_keys": [k for k in sim_keys if k in body.proposed_spec],
+            },
+            actor="api:create_sim_proposal",
+            related_id=proposal_row["id"],
+        )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="sim",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="gate-passed",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='description' proposal. The inline-edit on
+# Overview / Spec is the "quick edit" path (direct PATCH, cosmetic);
+# this endpoint is the "substantive change" path that flows through
+# the proposal review + audit chain just like a skill edit does.
+@router.post(
+    "/{workflow_id}/proposals/description",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_description_proposal(
+    workflow_id: str,
+    body: DescriptionProposalCreate,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ProposalSummary:
+    """Create a kind='description' proposal staged against the workflow."""
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a description edit so the proposal has "
+                "audit context."
+            ),
+        )
+
+    # Reject no-op proposals — the inline-edit's direct PATCH already
+    # handles cosmetic changes; a proposal whose proposed text equals
+    # the current text would create a no-signal queue row.
+    current_description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if (current_description or "").strip() == body.proposed_description.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Proposed description matches the current description. "
+                "Use the inline Quick edit for cosmetic tweaks; the "
+                "proposal flow is for substantive rewrites."
+            ),
+        )
+
+
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'description'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps(
+                {
+                    "description": body.proposed_description,
+                    "previous_description": current_description or "",
+                }
+            ),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "description",
+                "rationale": body.rationale,
+                "char_delta": len(body.proposed_description)
+                - len(current_description or ""),
+            },
+            actor="api:create_description_proposal",
+            related_id=proposal_row["id"],
+        )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="description",
+        workflow_id=workflow_id,
+        workflow_description=current_description or "",
+        state="gate-passed",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='ui-primitive' proposal. Parallel to the metric
+# flow: anchor to the workflow's latest iteration, persist the new
+# primitive list in `proposed_payload`, return a ProposalSummary so
+# the web client can route to the proposal-detail page.
+@router.post(
+    "/{workflow_id}/proposals/ui-primitive",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_ui_primitive_proposal(
+    workflow_id: str,
+    body: UIPrimitiveProposalCreate,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ProposalSummary:
+    """Create a kind='ui-primitive' proposal staged against the workflow.
+
+    `proposed_primitives` is the new operate-tab primitive list; every
+    entry must carry a `type` string. 422 when any entry is missing
+    `type` so the diff renderer + post-approval write have a clean
+    invariant to rely on.
+    """
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    for i, prim in enumerate(body.proposed_primitives):
+        t = prim.get("type")
+        if not isinstance(t, str) or not t.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"proposed_primitives[{i}] is missing a non-empty "
+                    "`type` field"
+                ),
+            )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a UI-primitive edit so the proposal has "
+                "audit context."
+            ),
+        )
+
+
+    async with conn.transaction():
+        proposal_row = await conn.fetchrow(
+            """
+            INSERT INTO proposals (
+                iteration_id, skill_id, parent_version_id,
+                proposed_content, proposed_payload, plain_language_summary,
+                kind, state
+            )
+            VALUES (
+                $1, NULL, NULL,
+                '', $2::jsonb, $3,
+                'ui-primitive'::proposal_kind, 'gate-passed'::proposal_state
+            )
+            RETURNING id, created_at, state_updated_at
+            """,
+            iter_id,
+            json.dumps({"primitives": body.proposed_primitives}),
+            body.plain_language_summary,
+        )
+
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.PROPOSAL_CREATED,
+            payload={
+                "workflow_id": workflow_id,
+                "proposal_id": str(proposal_row["id"]),
+                "kind": "ui-primitive",
+                "rationale": body.rationale,
+                "primitive_types": [p["type"] for p in body.proposed_primitives],
+            },
+            actor="api:create_ui_primitive_proposal",
+            related_id=proposal_row["id"],
+        )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="ui-primitive",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="gate-passed",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
     )
 
 

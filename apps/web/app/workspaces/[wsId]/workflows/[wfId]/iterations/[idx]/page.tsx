@@ -154,7 +154,9 @@ export default async function IterationDetailPage({ params }: PageProps) {
       {proposal && (
         <section style={{ marginTop: 18 }}>
           <h2 className="section-title" style={{ marginBottom: 8 }}>
-            Skill diff · {proposal.skill_id}
+            {proposal.kind === 'skill'
+              ? `Skill diff · ${proposal.skill_id ?? ''}`
+              : `Artifact diff · ${proposal.kind ?? 'skill'}`}
             {proposal.parent_version_seq !== null
               ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
               : ' · initial version'}

@@ -38,12 +38,18 @@ class ProposalSummary(_Strict):
 
     Joined across `proposals` + `iterations` + `workflows` so the inbox
     page renders without N+1 fetches.
+
+    `kind` discriminates skill edits from non-skill artifact edits
+    (description / metric / sim / ui-primitive). For non-skill kinds
+    `skill_id` is null and the per-artifact payload lives on the
+    detail endpoint.
     """
 
     id: UUID
     iteration_id: UUID
     iteration_index: int
-    skill_id: str
+    skill_id: str | None
+    kind: str = "skill"
     workflow_id: str
     workflow_description: str
     state: str
@@ -128,10 +134,15 @@ class GateResultCases(_Strict):
 class ProposalDetail(_Strict):
     id: UUID
     iteration_id: UUID
-    skill_id: str
+    skill_id: str | None
+    kind: str = "skill"
     parent_version_id: UUID | None
     state: str
     proposed_content: str
+    # Non-skill artifact payload (description / metric / sim /
+    # ui-primitive). Null for kind='skill' where `proposed_content`
+    # carries the new skill body.
+    proposed_payload: dict[str, Any] | None = None
     parent_version_content: str | None  # null on the bootstrap iteration
     parent_version_seq: int | None
     plain_language_summary: str
@@ -228,7 +239,10 @@ class DeployResponse(_Strict):
 
     proposal_id: UUID
     state: Literal["deployed", "rolled-back"]
-    skill_id: str
+    # Null for non-skill artifact proposals (description / metric / sim /
+    # ui-primitive) added in Track 9.2.3 — those write directly to the
+    # workflow row and have no skill_id.
+    skill_id: str | None
     skill_deployed_version_id: UUID | None
 
 
@@ -711,14 +725,119 @@ class FailureClusterSummary(_Strict):
     # was built from. Resolved by picking any sample trace and reading
     # its `traces.iteration_id`. Null only when sample traces predate
     # the Tier-1 trace-persistence change (legacy clusters) or weren't
-    # produced by an iteration (production traces — not yet wired).
+    # produced by an iteration (production traces).
     spawning_iteration_index: int | None = None
     spawning_iteration_id: UUID | None = None
+    # Per-cluster source mix. Derived from `traces.iteration_id IS NULL`
+    # (production) vs `IS NOT NULL` (eval). A cluster reads as
+    # production-only, eval-only, or mixed depending on which side of
+    # the join its sample traces fall on. Sample traces with no matching
+    # row in `traces` (legacy clusters predating Tier-1 trace persistence)
+    # do not contribute to either count.
+    prod_count: int = 0
+    eval_count: int = 0
 
 
 class FailureClusterList(_Strict):
     workflow_id: str
     items: list[FailureClusterSummary]
+
+
+# 9.2.3 — non-skill artifact proposal create requests. One model per
+# kind so the body schema documents the artifact shape explicitly.
+# The endpoint mounts `/api/workflows/{wfId}/proposals/{kind}` and
+# returns the created proposal as a `ProposalSummary`.
+
+class MetricProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/metric`.
+
+    `proposed_metric` is the new `MetricDefinitionShape` — same shape
+    as the workflow's existing `metric_definition` JSONB. Required to
+    carry a `name` so the diff renderer can label the change.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_metric: dict[str, Any]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
+class DescriptionProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/description`.
+
+    The proposed description replaces the workflow's NL description
+    on approval. Separate from the direct `updateDescriptionAction`
+    PATCH used by the inline-edit on Overview / Spec — that PATCH
+    stays the cosmetic "quick edit" path; this endpoint is the
+    gate-routed path for substantive rewrites.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_description: str = Field(..., min_length=10, max_length=8000)
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
+class SimProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/sim`.
+
+    `proposed_spec` is a partial WorkflowSpec carrying the proposed
+    tools / personas / data_sources / env_generators / ui-primitives.
+    For 9.2.3 first-cut, the shape is just `dict[str, Any]` — the
+    sim plan schema is large and the approval handler does its own
+    validation before persisting. The diff renderer reads added /
+    removed entities by name from this payload.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_spec: dict[str, Any]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
+class UIPrimitiveProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/ui-primitive`.
+
+    `proposed_primitives` is the new operate-tab primitive list. Each
+    entry must carry at minimum a `type` string; additional props
+    survive untouched (today the agent-solver layer cares about
+    `type`, the operate resolver looks up `output_payload[key]` per
+    type — those keys are derived, not user-supplied).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_primitives: list[dict[str, Any]]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
+class FailureListItem(_Strict):
+    """One row in the flat-list view of failures (cluster-list toggle).
+
+    Each row is one sample trace from a cluster's `sample_trace_ids`,
+    decorated with the cluster's label/severity so a reviewer can scan
+    individual failures across clusters in a single sortable table.
+    """
+
+    trace_id: UUID
+    cluster_id: UUID
+    cluster_label: str
+    severity: str  # 'high' | 'medium' | 'low'
+    source: str  # 'production' | 'eval'
+    started_at: datetime | None
+    # Eval-case binding when source='eval'; null for production rows
+    # (production traces aren't attached to an eval case).
+    eval_case_id: UUID | None
+    iteration_index: int | None
+
+
+class FailureList(_Strict):
+    workflow_id: str
+    items: list[FailureListItem]
 
 
 # ---------------------------------------------------------------------------
@@ -944,6 +1063,12 @@ __all__ = [
     "DecideRequest",
     "FailureClusterList",
     "FailureClusterSummary",
+    "FailureList",
+    "FailureListItem",
+    "DescriptionProposalCreate",
+    "MetricProposalCreate",
+    "SimProposalCreate",
+    "UIPrimitiveProposalCreate",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

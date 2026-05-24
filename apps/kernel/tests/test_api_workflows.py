@@ -605,3 +605,539 @@ async def test_failure_clusters_latest_proposal_picks_newest(
     # second so it wins. The id is rendered as a UUID string.
     assert latest == str(prop_new)
     assert latest != str(prop_old)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.1 — failure provenance (prod_count / eval_count) + flat-list view
+# ---------------------------------------------------------------------------
+
+
+async def _seed_trace_with_iteration(
+    conn: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    iteration_id=None,
+):
+    """Insert a minimal `traces` row. `iteration_id=None` makes it a
+    production trace; passing one makes it an eval trace."""
+    return await conn.fetchval(
+        """
+        INSERT INTO traces
+            (workflow_id, iteration_id, events, started_at)
+        VALUES ($1, $2, '[]'::jsonb, now())
+        RETURNING id
+        """,
+        workflow_id,
+        iteration_id,
+    )
+
+
+async def _attach_sample_traces(
+    conn: asyncpg.Connection, *, cluster_id, trace_ids: list,
+) -> None:
+    await conn.execute(
+        "UPDATE failure_clusters SET sample_trace_ids = $1::uuid[] WHERE id = $2",
+        trace_ids,
+        cluster_id,
+    )
+
+
+async def test_failure_clusters_source_mix_counts(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A cluster with 2 production traces + 3 eval traces reports
+    prod_count=2, eval_count=3 on the cluster endpoint."""
+    await _seed_workflow(db, workflow_id="wf-mix")
+    iter_id = await _seed_iteration(db, workflow_id="wf-mix", iteration_index=0)
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-mix", label="mixed", severity="high",
+        cluster_size=5,
+    )
+    sample_ids = []
+    for _ in range(2):
+        sample_ids.append(
+            await _seed_trace_with_iteration(db, workflow_id="wf-mix")
+        )
+    for _ in range(3):
+        sample_ids.append(
+            await _seed_trace_with_iteration(
+                db, workflow_id="wf-mix", iteration_id=iter_id,
+            )
+        )
+    await _attach_sample_traces(db, cluster_id=cluster_id, trace_ids=sample_ids)
+
+    res = await api_client.get("/api/workflows/wf-mix/failure_clusters")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 1
+    assert items[0]["prod_count"] == 2
+    assert items[0]["eval_count"] == 3
+
+
+async def test_failure_clusters_source_counts_default_zero_for_legacy(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A cluster with empty sample_trace_ids (legacy) reports
+    prod_count=0, eval_count=0 — derivation is silent rather than
+    guessing."""
+    await _seed_workflow(db, workflow_id="wf-legacy")
+    await _seed_cluster(
+        db, workflow_id="wf-legacy", label="bare", severity="low", cluster_size=1,
+    )
+    res = await api_client.get("/api/workflows/wf-legacy/failure_clusters")
+    assert res.status_code == 200
+    item = res.json()["items"][0]
+    assert item["prod_count"] == 0
+    assert item["eval_count"] == 0
+
+
+async def test_failures_endpoint_404_on_unknown(api_client: httpx.AsyncClient):
+    res = await api_client.get("/api/workflows/nope/failures")
+    assert res.status_code == 404
+
+
+async def test_failures_endpoint_returns_flat_list_with_source(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-flat")
+    iter_id = await _seed_iteration(db, workflow_id="wf-flat", iteration_index=0)
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-flat", label="flat", severity="medium",
+        cluster_size=3,
+    )
+    prod_trace = await _seed_trace_with_iteration(db, workflow_id="wf-flat")
+    eval_trace_a = await _seed_trace_with_iteration(
+        db, workflow_id="wf-flat", iteration_id=iter_id,
+    )
+    eval_trace_b = await _seed_trace_with_iteration(
+        db, workflow_id="wf-flat", iteration_id=iter_id,
+    )
+    await _attach_sample_traces(
+        db, cluster_id=cluster_id,
+        trace_ids=[prod_trace, eval_trace_a, eval_trace_b],
+    )
+
+    res = await api_client.get("/api/workflows/wf-flat/failures")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 3
+    sources = sorted(r["source"] for r in items)
+    assert sources == ["eval", "eval", "production"]
+    # Every row carries cluster label + severity for table rendering.
+    for r in items:
+        assert r["cluster_label"] == "flat"
+        assert r["severity"] == "medium"
+    # Eval rows expose iteration_index; production rows don't.
+    for r in items:
+        if r["source"] == "eval":
+            assert r["iteration_index"] == 0
+        else:
+            assert r["iteration_index"] is None
+
+
+async def test_failures_endpoint_source_filter(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-filter")
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-filter", iteration_index=0,
+    )
+    cluster_id = await _seed_cluster(
+        db, workflow_id="wf-filter", label="cf", severity="high",
+        cluster_size=2,
+    )
+    prod_trace = await _seed_trace_with_iteration(db, workflow_id="wf-filter")
+    eval_trace = await _seed_trace_with_iteration(
+        db, workflow_id="wf-filter", iteration_id=iter_id,
+    )
+    await _attach_sample_traces(
+        db, cluster_id=cluster_id, trace_ids=[prod_trace, eval_trace],
+    )
+
+    res_prod = await api_client.get(
+        "/api/workflows/wf-filter/failures?source=production"
+    )
+    assert res_prod.status_code == 200
+    assert [r["source"] for r in res_prod.json()["items"]] == ["production"]
+
+    res_eval = await api_client.get(
+        "/api/workflows/wf-filter/failures?source=eval"
+    )
+    assert res_eval.status_code == 200
+    assert [r["source"] for r in res_eval.json()["items"]] == ["eval"]
+
+
+async def test_failures_endpoint_rejects_bad_source(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-bad")
+    res = await api_client.get("/api/workflows/wf-bad/failures?source=bogus")
+    assert res.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-metric-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_metric_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall.",
+            "proposed_metric": {"name": "recall", "direction": "higher"},
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_metric_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Metric proposals anchor to the latest iteration. A workflow
+    with no iterations has nothing to anchor to → 422."""
+    await _seed_workflow(db, workflow_id="wf-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-no-iter/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall.",
+            "proposed_metric": {"name": "recall", "direction": "higher"},
+        },
+    )
+    assert res.status_code == 422
+    assert "iteration" in res.json()["detail"].lower()
+
+
+async def test_create_metric_proposal_422_when_metric_name_missing(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-noname")
+    await _seed_iteration(db, workflow_id="wf-noname", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-noname/proposals/metric",
+        json={
+            "plain_language_summary": "Bad payload.",
+            "proposed_metric": {"family": "classification"},  # no name
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_metric_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-mp")
+    iter_id = await _seed_iteration(db, workflow_id="wf-mp", iteration_index=3)
+
+    res = await api_client.post(
+        "/api/workflows/wf-mp/proposals/metric",
+        json={
+            "plain_language_summary": "Switch from F1 to recall — recall-first.",
+            "proposed_metric": {
+                "name": "recall",
+                "family": "classification",
+                "direction": "higher",
+                "description": "True positive rate on alert_correct.",
+            },
+            "rationale": "Recall is the gating metric per design-agent answers.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "metric"
+    assert body["skill_id"] is None
+    assert body["iteration_index"] == 3
+    assert body["state"] == "gate-passed"
+    assert (
+        body["plain_language_summary"]
+        == "Switch from F1 to recall — recall-first."
+    )
+
+    # Round-trip via the proposal detail endpoint: kind + payload land
+    # in the response shape and `proposed_payload` round-trips the
+    # submitted metric definition exactly.
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "metric"
+    assert detail_body["proposed_payload"]["name"] == "recall"
+    assert detail_body["proposed_payload"]["direction"] == "higher"
+    # Anchored to the seeded iteration.
+    assert detail_body["iteration_id"] == str(iter_id)
+    # An audit entry was appended.
+    kinds = [e["kind"] for e in detail_body["audit_entries"]]
+    assert "proposal-created" in kinds
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-ui-primitive-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_ui_primitive_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/ui-primitive",
+        json={
+            "plain_language_summary": "Add TableView.",
+            "proposed_primitives": [{"type": "TableView"}],
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_ui_primitive_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-uip-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-uip-no-iter/proposals/ui-primitive",
+        json={
+            "plain_language_summary": "Add TableView.",
+            "proposed_primitives": [{"type": "TableView"}],
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_ui_primitive_proposal_422_when_type_missing(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-uip-bad")
+    await _seed_iteration(db, workflow_id="wf-uip-bad", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-uip-bad/proposals/ui-primitive",
+        json={
+            "plain_language_summary": "Bad payload.",
+            "proposed_primitives": [{"label": "no-type"}],
+        },
+    )
+    assert res.status_code == 422
+    assert "type" in res.json()["detail"]
+
+
+async def test_create_ui_primitive_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-uip")
+    iter_id = await _seed_iteration(db, workflow_id="wf-uip", iteration_index=2)
+
+    res = await api_client.post(
+        "/api/workflows/wf-uip/proposals/ui-primitive",
+        json={
+            "plain_language_summary": "Add AlertList alongside TableView.",
+            "proposed_primitives": [
+                {"type": "TableView"},
+                {"type": "AlertList"},
+            ],
+            "rationale": "Reviewer needs surfaced alerts at a glance.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "ui-primitive"
+    assert body["skill_id"] is None
+    assert body["iteration_index"] == 2
+
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "ui-primitive"
+    payload = detail_body["proposed_payload"]
+    assert payload["primitives"] == [
+        {"type": "TableView"},
+        {"type": "AlertList"},
+    ]
+    assert detail_body["iteration_id"] == str(iter_id)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-description-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_description_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/description",
+        json={
+            "plain_language_summary": "Rewrite past misses.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week. "
+                "Past misses include 2024 holiday markdowns."
+            ),
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_description_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-desc-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-desc-no-iter/proposals/description",
+        json={
+            "plain_language_summary": "Rewrite past misses.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week. "
+                "Past misses include 2024 holiday markdowns."
+            ),
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_description_proposal_422_when_no_op(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Proposing the current description verbatim → 422."""
+    await _seed_workflow(
+        db,
+        workflow_id="wf-desc-noop",
+        description="Predict demand for the upcoming planning week.",
+    )
+    await _seed_iteration(db, workflow_id="wf-desc-noop", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-desc-noop/proposals/description",
+        json={
+            "plain_language_summary": "Same text.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week."
+            ),
+        },
+    )
+    assert res.status_code == 422
+    assert "matches the current" in res.json()["detail"]
+
+
+async def test_create_description_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(
+        db,
+        workflow_id="wf-desc",
+        description="Predict demand for the upcoming planning week.",
+    )
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-desc", iteration_index=4,
+    )
+    proposed = (
+        "Predict demand for the upcoming planning week. Past misses: "
+        "2024 holiday markdowns (weeks 47-51), 2023 winter boot spike "
+        "in the Pacific Northwest."
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-desc/proposals/description",
+        json={
+            "plain_language_summary": (
+                "Add 2024 holiday markdowns + PNW boot spike to past misses."
+            ),
+            "proposed_description": proposed,
+            "rationale": "Recent operator review surfaced these gaps.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "description"
+    assert body["iteration_index"] == 4
+
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "description"
+    payload = detail_body["proposed_payload"]
+    assert payload["description"] == proposed
+    assert (
+        payload["previous_description"]
+        == "Predict demand for the upcoming planning week."
+    )
+    assert detail_body["iteration_id"] == str(iter_id)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-sim-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_sim_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/sim",
+        json={
+            "plain_language_summary": "Add tool.",
+            "proposed_spec": {"tools": [{"name": "foo"}]},
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_sim_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-sim-no-iter/proposals/sim",
+        json={
+            "plain_language_summary": "Add tool.",
+            "proposed_spec": {"tools": [{"name": "foo"}]},
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_sim_proposal_422_when_empty_payload(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim-empty")
+    await _seed_iteration(db, workflow_id="wf-sim-empty", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-sim-empty/proposals/sim",
+        json={
+            "plain_language_summary": "Nothing.",
+            "proposed_spec": {"unrelated_key": "v"},
+        },
+    )
+    assert res.status_code == 422
+    assert "at least one of" in res.json()["detail"]
+
+
+async def test_create_sim_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim")
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-sim", iteration_index=1,
+    )
+
+    proposed_spec = {
+        "tools": [
+            {"name": "lookup_velocity", "inputs": []},
+            {"name": "lookup_seasonal_index", "inputs": []},
+        ],
+        "personas": [{"role": "planner", "cadence": "weekly"}],
+    }
+    res = await api_client.post(
+        "/api/workflows/wf-sim/proposals/sim",
+        json={
+            "plain_language_summary": "Add seasonal-index tool + planner.",
+            "proposed_spec": proposed_spec,
+            "rationale": "Loop needs seasonal context.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "sim"
+    assert body["iteration_index"] == 1
+
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "sim"
+    assert detail_body["proposed_payload"] == proposed_spec
+    assert detail_body["iteration_id"] == str(iter_id)

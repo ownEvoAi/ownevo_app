@@ -206,6 +206,7 @@ async def _decide(
         proposal_row = await conn.fetchrow(
             """
             SELECT p.id, p.state::text AS state, p.iteration_id, p.skill_id,
+                   p.kind::text AS kind, p.proposed_payload,
                    i.workflow_id
             FROM proposals p
             JOIN iterations i ON i.id = p.iteration_id
@@ -226,6 +227,16 @@ async def _decide(
             )
 
         workflow_id: str = proposal_row["workflow_id"]
+        kind: str = proposal_row["kind"] or "skill"
+
+        # Non-skill artifact proposals follow the same two-step pattern
+        # as skill proposals (the A/B framing in Track 9.2.3): approve
+        # transitions to `approved-awaiting-deploy` and the workflow
+        # row stays unchanged; a separate deploy step (handled by
+        # `deploy_proposal`, which dispatches through `APPLY_BY_KIND`)
+        # does the actual UPDATE and lands the proposal in `deployed`.
+        # This gives the reviewer a "production interval" to validate
+        # against the current value before flipping the default.
 
         # 3. Insert approvals row. UNIQUE(proposal_id) means concurrent
         # callers race to be first; the row-lock above keeps the race
@@ -288,6 +299,8 @@ async def _decide(
             "decision": decision,
             "approver_type": approver_type.value,
             "decided_by": decided_by,
+            "kind": kind,
+            "terminal_state": target_state.value,
         }
         if normalized_comment is not None:
             audit_payload["comment"] = normalized_comment

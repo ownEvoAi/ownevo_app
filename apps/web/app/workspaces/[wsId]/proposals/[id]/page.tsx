@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
+  getOrderingInversionCheck,
   getProposal,
   getWorkflowAnatomy,
   KernelApiError,
   type GateResultCases,
+  type OrderingInversionCheck,
   type ProposalDetail,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
@@ -46,18 +48,47 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
   const canDecide = proposal.state === 'gate-passed'
   const canDeploy = proposal.state === 'approved-awaiting-deploy'
-  const canRollback = proposal.state === 'deployed'
+  // Rollback today only supports kind='skill' — the deploy_proposal
+  // helper walks the audit chain for prior skill_versions. Non-skill
+  // rollback is "create a new proposal with the prior value"
+  // (separate UX), so we hide the button rather than offer a 5xx.
+  const canRollback =
+    proposal.state === 'deployed' && proposal.kind === 'skill'
   const wfRoot = `/workspaces/${wsId}/workflows/${proposal.workflow.id}`
 
-  // Resolve isBenchmark so the WorkflowTabs hides the production-only
-  // tabs the workflow layout already hides. Soft-fail to false — a
-  // 404 here just means we show all tabs, which is the safer default.
+  // Resolve isBenchmark + (for ui-primitive proposals) the current
+  // primitive list so the diff can show added/removed types. Soft-
+  // fail to defaults on 404 — the page still renders, just without
+  // the side-by-side primitive comparison.
   let isBenchmark = false
+  let currentPrimitives: Array<{ type: string }> = []
+  let currentSpec: Record<string, unknown> | null = null
   try {
     const anatomy = await getWorkflowAnatomy(proposal.workflow.id)
     isBenchmark = anatomy.kind === 'benchmark'
+    const prims = anatomy.spec?.ui?.tabs?.[0]?.primitives ?? []
+    currentPrimitives = prims.filter(
+      (p): p is { type: string } =>
+        typeof p === 'object' &&
+        p !== null &&
+        typeof (p as { type?: unknown }).type === 'string',
+    )
+    currentSpec = (anatomy.spec as unknown as Record<string, unknown>) ?? null
   } catch {
     /* ignore — fall through with isBenchmark=false */
+  }
+
+  // For kind='metric' proposals, fetch the ordering-inversion check.
+  // Soft-fail: a check failure shouldn't block the proposal detail
+  // from rendering — the panel falls through to an "unavailable"
+  // state if anything goes wrong.
+  let inversionCheck: OrderingInversionCheck | null = null
+  if (proposal.kind === 'metric') {
+    try {
+      inversionCheck = await getOrderingInversionCheck(proposal.id)
+    } catch {
+      /* ignore — panel renders as unavailable */
+    }
   }
 
   return (
@@ -83,17 +114,32 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
       <div className="prop-grid">
         <div>
-          <h2 className="section-title">
-            Skill diff · {proposal.skill_id}
-            {proposal.parent_version_seq !== null
-              ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
-              : ' · initial version'}
-          </h2>
-          <SkillDiff
-            current={proposal.parent_version_content}
-            proposed={proposal.proposed_content}
-            parentVersionSeq={proposal.parent_version_seq}
-          />
+          {proposal.kind === 'skill' ? (
+            <>
+              <h2 className="section-title">
+                Skill diff · {proposal.skill_id}
+                {proposal.parent_version_seq !== null
+                  ? ` v${proposal.parent_version_seq} → v${proposal.parent_version_seq + 1}`
+                  : ' · initial version'}
+              </h2>
+              <SkillDiff
+                current={proposal.parent_version_content}
+                proposed={proposal.proposed_content}
+                parentVersionSeq={proposal.parent_version_seq}
+              />
+            </>
+          ) : (
+            <>
+              <ArtifactDiff
+                proposal={proposal}
+                currentPrimitives={currentPrimitives}
+                currentSpec={currentSpec}
+              />
+              {proposal.kind === 'metric' && (
+                <OrderingInversionPanel check={inversionCheck} />
+              )}
+            </>
+          )}
 
           <h2 className="section-title">Why this change</h2>
           <Rationale proposal={proposal} />
@@ -127,6 +173,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               wsId={wsId}
               workflowId={proposal.workflow.id}
               state={canDeploy ? 'approved-awaiting-deploy' : 'deployed'}
+              kind={proposal.kind}
               demoMode={isDemoMode()}
             />
           )}
@@ -155,7 +202,11 @@ function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
       <h1 className="prop-title">{proposal.plain_language_summary}</h1>
       <div className="prop-meta-row">
         <Meta label="Workflow" value={proposal.workflow.description} />
-        <Meta label="Skill" value={proposal.skill_id} />
+        {proposal.kind === 'skill' && proposal.skill_id ? (
+          <Meta label="Skill" value={proposal.skill_id} />
+        ) : (
+          <Meta label="Artifact" value={artifactLabel(proposal.kind)} />
+        )}
         <Meta
           label="Created"
           value={`${relativeTime(proposal.created_at)} · ${formatDateTime(proposal.created_at)}`}
@@ -164,6 +215,98 @@ function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
       </div>
     </div>
   )
+}
+
+function artifactLabel(kind: ProposalDetail['kind']): string {
+  switch (kind) {
+    case 'description':
+      return 'Description'
+    case 'metric':
+      return 'Success metric'
+    case 'sim':
+      return 'Agent environment'
+    case 'ui-primitive':
+      return 'Operate-view UI'
+    default:
+      return kind
+  }
+}
+
+// 9.2.3 — per-kind diff renderer for non-skill artifact proposals.
+// Renders a kind-specific summary of the proposed change. Metric and
+// ui-primitive have dedicated branches; description / sim fall back
+// to a pretty-printed payload until their flows ship.
+function ArtifactDiff({
+  proposal,
+  currentPrimitives,
+  currentSpec,
+}: {
+  proposal: ProposalDetail
+  currentPrimitives: Array<{ type: string }>
+  currentSpec: Record<string, unknown> | null
+}) {
+  const payload = proposal.proposed_payload ?? {}
+  if (proposal.kind === 'ui-primitive') {
+    return (
+      <UIPrimitiveDiff
+        payload={payload}
+        currentPrimitives={currentPrimitives}
+      />
+    )
+  }
+  if (proposal.kind === 'description') {
+    return <DescriptionDiff payload={payload} />
+  }
+  if (proposal.kind === 'sim') {
+    return <SimDiff payload={payload} currentSpec={currentSpec} />
+  }
+  if (proposal.kind === 'metric') {
+    const name = stringOrNull(payload.name) ?? '(unnamed)'
+    const family = stringOrNull(payload.family)
+    const direction = stringOrNull(payload.direction)
+    const description = stringOrNull(payload.description)
+    const rationale = stringOrNull(payload.rationale)
+    const metaLine = [family, direction].filter(Boolean).join(' · ')
+    return (
+      <>
+        <h2 className="section-title">
+          Success metric · proposed change
+        </h2>
+        <div className="artifact-diff metric-def">
+          <div>
+            <span className="key">metric:</span> {name}
+          </div>
+          {metaLine ? (
+            <div className="artifact-diff-meta">{metaLine}</div>
+          ) : null}
+          {description ? (
+            <div style={{ marginTop: 6, color: 'var(--text-3)' }}>
+              {description}
+            </div>
+          ) : null}
+          {rationale ? (
+            <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
+              <span className="key">rationale:</span> {rationale}
+            </div>
+          ) : null}
+        </div>
+      </>
+    )
+  }
+  return (
+    <>
+      <h2 className="section-title">
+        {artifactLabel(proposal.kind)} · proposed change
+      </h2>
+      <pre className="artifact-diff-payload">
+        {JSON.stringify(payload, null, 2)}
+      </pre>
+    </>
+  )
+}
+
+function stringOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
@@ -471,5 +614,363 @@ function AuditList({ entries }: { entries: ProposalDetail['audit_entries'] }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+// 9.2.3 — ordering-inversion check for kind='metric' proposals. Lands
+// above the approval form so a reviewer sees the consequence of
+// switching the metric (which prior iterations would flip pass/fail
+// under the new metric) before they click approve.
+function OrderingInversionPanel({
+  check,
+}: {
+  check: OrderingInversionCheck | null
+}) {
+  if (check === null) {
+    return (
+      <div className="inversion-panel inversion-unavailable">
+        <strong>Ordering-inversion check unavailable.</strong> The
+        kernel didn&apos;t return a result for this proposal — try
+        refreshing.
+      </div>
+    )
+  }
+  if (check.status !== 'ok') {
+    return (
+      <div className="inversion-panel inversion-unavailable">
+        <strong>Ordering-inversion check unavailable.</strong>{' '}
+        {check.reason ?? 'No reason supplied.'}
+      </div>
+    )
+  }
+
+  const nInverted = check.n_inverted
+  const nIterations = check.iterations.length
+
+  return (
+    <div
+      className={`inversion-panel ${nInverted > 0 ? 'inversion-warn' : 'inversion-ok'}`}
+    >
+      <h3 className="inversion-title">
+        Ordering-inversion check ·{' '}
+        <code>{check.current_metric_family}</code> →{' '}
+        <code>{check.proposed_metric_family}</code>
+      </h3>
+      <p className="inversion-headline">
+        {nInverted === 0 ? (
+          <>
+            Re-scored {nIterations} iteration
+            {nIterations === 1 ? '' : 's'} under the proposed metric —
+            no gate verdicts flip.
+          </>
+        ) : (
+          <>
+            <strong>
+              {nInverted} of {nIterations} iteration
+              {nIterations === 1 ? '' : 's'} would flip pass/fail
+            </strong>{' '}
+            under the proposed metric. Review the per-iteration deltas
+            before approving.
+          </>
+        )}
+      </p>
+
+      <table className="inversion-table">
+        <thead>
+          <tr>
+            <th>Iter</th>
+            <th>Cases</th>
+            <th>
+              <code>{check.current_metric_family}</code>
+            </th>
+            <th>
+              <code>{check.proposed_metric_family}</code>
+            </th>
+            <th>Δ</th>
+            <th>Old verdict</th>
+            <th>New verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {check.iterations.map((it) => (
+            <tr
+              key={it.iteration_index}
+              className={it.inverted ? 'inversion-row-flip' : ''}
+            >
+              <td>#{it.iteration_index}</td>
+              <td>{it.n_cases}</td>
+              <td>{formatScoreOrDash(it.old_score)}</td>
+              <td>{formatScoreOrDash(it.new_score)}</td>
+              <td>{formatDeltaOrDash(it.delta)}</td>
+              <td>{verdictPill(it.old_meets_target)}</td>
+              <td>{verdictPill(it.new_meets_target)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function formatScoreOrDash(v: number | null): string {
+  return formatScore(v, 3)
+}
+
+function formatDeltaOrDash(v: number | null): string {
+  if (v === null) return '—'
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(3)}`
+}
+
+function verdictPill(meets: boolean | null) {
+  if (meets === null) return <span className="failures-list-muted">—</span>
+  if (meets)
+    return <span className="pill source-prod">passes</span>
+  return <span className="pill red">fails</span>
+}
+
+// 9.2.3 — diff renderer for kind='description' proposals. Shows the
+// previous and proposed text side-by-side; the kernel-side payload
+// carries both so the page doesn't need a second fetch.
+function DescriptionDiff({
+  payload,
+}: {
+  payload: Record<string, unknown>
+}) {
+  const proposed =
+    typeof payload.description === 'string' ? payload.description : ''
+  const previous =
+    typeof payload.previous_description === 'string'
+      ? payload.previous_description
+      : ''
+  const charDelta = proposed.length - previous.length
+  return (
+    <>
+      <h2 className="section-title">Description · proposed change</h2>
+      <div className="description-diff-meta">
+        {charDelta === 0 ? (
+          <>0 net character change</>
+        ) : charDelta > 0 ? (
+          <>+{charDelta} characters</>
+        ) : (
+          <>{charDelta} characters</>
+        )}
+      </div>
+      <div className="description-diff-grid">
+        <div className="description-diff-col">
+          <div className="description-diff-head removed">Current</div>
+          <pre className="description-diff-body">{previous || '(empty)'}</pre>
+        </div>
+        <div className="description-diff-col">
+          <div className="description-diff-head added">Proposed</div>
+          <pre className="description-diff-body">{proposed || '(empty)'}</pre>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// 9.2.3 — diff renderer for kind='sim' proposals. Computes added /
+// removed entities across the four sim sections (tools, personas,
+// data_sources, env_generators) by their identifier field (`name`
+// for tools / generators, `role` for personas, `id` for data
+// sources). Unchanged entities aren't listed — only the deltas, so
+// the reviewer sees the impact at a glance.
+function SimDiff({
+  payload,
+  currentSpec,
+}: {
+  payload: Record<string, unknown>
+  currentSpec: Record<string, unknown> | null
+}) {
+  const sections: Array<{
+    key: string
+    label: string
+    idField: string
+  }> = [
+    { key: 'tools', label: 'Tools', idField: 'name' },
+    { key: 'personas', label: 'Personas', idField: 'role' },
+    { key: 'data_sources', label: 'Data sources', idField: 'id' },
+    { key: 'env_generators', label: 'Environment generators', idField: 'name' },
+  ]
+  const currentEnv =
+    (currentSpec?.environment as Record<string, unknown> | undefined) ?? {}
+  const currentBySection: Record<string, unknown> = {
+    tools: currentSpec?.tools ?? [],
+    personas: currentEnv.personas ?? [],
+    data_sources: currentEnv.data_sources ?? [],
+    env_generators: currentEnv.env_generators ?? [],
+  }
+
+  function idsFor(value: unknown, idField: string): string[] {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((v) => {
+        if (typeof v !== 'object' || v === null) return null
+        const id = (v as Record<string, unknown>)[idField]
+        return typeof id === 'string' ? id : null
+      })
+      .filter((s): s is string => s !== null)
+  }
+
+  return (
+    <>
+      <h2 className="section-title">Agent environment · proposed change</h2>
+      <div className="artifact-diff sim-diff">
+        {sections.map((s) => {
+          const currIds = new Set(idsFor(currentBySection[s.key], s.idField))
+          const propIds = new Set(idsFor(payload[s.key], s.idField))
+          // No section in the proposal → not changed.
+          if (!(s.key in payload)) return null
+          const added = [...propIds].filter((id) => !currIds.has(id))
+          const removed = [...currIds].filter((id) => !propIds.has(id))
+          if (added.length === 0 && removed.length === 0) {
+            return (
+              <div key={s.key} className="sim-diff-section">
+                <div className="sim-diff-section-head">{s.label}</div>
+                <div className="ui-primitive-diff-note">
+                  No additions or removals by identifier — the proposal
+                  may update props on existing entries.
+                </div>
+              </div>
+            )
+          }
+          return (
+            <div key={s.key} className="sim-diff-section">
+              <div className="sim-diff-section-head">{s.label}</div>
+              {added.length > 0 ? (
+                <div className="ui-primitive-diff-row">
+                  <span className="ui-primitive-diff-label added">
+                    Added · {added.length}
+                  </span>
+                  <div className="ui-primitive-diff-pills">
+                    {added.map((id) => (
+                      <span
+                        key={id}
+                        className="pill source-prod ui-primitive-pill"
+                      >
+                        + {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {removed.length > 0 ? (
+                <div className="ui-primitive-diff-row">
+                  <span className="ui-primitive-diff-label removed">
+                    Removed · {removed.length}
+                  </span>
+                  <div className="ui-primitive-diff-pills">
+                    {removed.map((id) => (
+                      <span
+                        key={id}
+                        className="pill red ui-primitive-pill"
+                      >
+                        − {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+// 9.2.3 — diff renderer for kind='ui-primitive' proposals. Compares
+// the current primitive list against `payload.primitives`, shows
+// the unchanged / added / removed types with shape-pills.
+function UIPrimitiveDiff({
+  payload,
+  currentPrimitives,
+}: {
+  payload: Record<string, unknown>
+  currentPrimitives: Array<{ type: string }>
+}) {
+  const proposedRaw = payload.primitives
+  const proposed: Array<{ type: string }> = Array.isArray(proposedRaw)
+    ? proposedRaw.filter(
+        (p): p is { type: string } =>
+          typeof p === 'object' &&
+          p !== null &&
+          typeof (p as { type?: unknown }).type === 'string',
+      )
+    : []
+
+  const currentSet = new Set(currentPrimitives.map((p) => p.type))
+  const proposedSet = new Set(proposed.map((p) => p.type))
+  const added = proposed.filter((p) => !currentSet.has(p.type))
+  const removed = currentPrimitives.filter((p) => !proposedSet.has(p.type))
+  const unchanged = currentPrimitives.filter((p) => proposedSet.has(p.type))
+
+  return (
+    <>
+      <h2 className="section-title">Operate-view UI · proposed change</h2>
+      <div className="artifact-diff ui-primitive-diff">
+        {added.length === 0 && removed.length === 0 ? (
+          <div className="ui-primitive-diff-note">
+            No primitive types added or removed. The proposal may
+            update per-primitive props on existing types.
+          </div>
+        ) : (
+          <>
+            {added.length > 0 ? (
+              <div className="ui-primitive-diff-row">
+                <span className="ui-primitive-diff-label added">
+                  Added · {added.length}
+                </span>
+                <div className="ui-primitive-diff-pills">
+                  {added.map((p) => (
+                    <span
+                      key={p.type}
+                      className="pill source-prod ui-primitive-pill"
+                    >
+                      + {p.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {removed.length > 0 ? (
+              <div className="ui-primitive-diff-row">
+                <span className="ui-primitive-diff-label removed">
+                  Removed · {removed.length}
+                </span>
+                <div className="ui-primitive-diff-pills">
+                  {removed.map((p) => (
+                    <span
+                      key={p.type}
+                      className="pill red ui-primitive-pill"
+                    >
+                      − {p.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+        {unchanged.length > 0 ? (
+          <div className="ui-primitive-diff-row">
+            <span className="ui-primitive-diff-label unchanged">
+              Unchanged · {unchanged.length}
+            </span>
+            <div className="ui-primitive-diff-pills">
+              {unchanged.map((p) => (
+                <span
+                  key={p.type}
+                  className="pill outline ui-primitive-pill"
+                >
+                  {p.type}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </>
   )
 }

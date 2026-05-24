@@ -25,11 +25,19 @@ export type ProposalState =
   | 'rolled-back'
   | 'changes-requested'
 
+export type ProposalKind =
+  | 'skill'
+  | 'description'
+  | 'metric'
+  | 'sim'
+  | 'ui-primitive'
+
 export interface ProposalSummary {
   id: string
   iteration_id: string
   iteration_index: number
-  skill_id: string
+  skill_id: string | null
+  kind: ProposalKind
   workflow_id: string
   workflow_description: string
   state: ProposalState
@@ -86,10 +94,12 @@ export interface ApprovalDetail {
 export interface ProposalDetail {
   id: string
   iteration_id: string
-  skill_id: string
+  skill_id: string | null
+  kind: ProposalKind
   parent_version_id: string | null
   state: ProposalState
   proposed_content: string
+  proposed_payload: Record<string, unknown> | null
   parent_version_content: string | null
   parent_version_seq: number | null
   plain_language_summary: string
@@ -227,6 +237,124 @@ export async function requestChangesProposal(
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+// 9.2.3 — create a kind='metric' proposal on a workflow. The new
+// metric definition lands in `proposed_payload` and the proposal
+// is anchored to the workflow's latest iteration.
+export interface CreateMetricProposalBody {
+  plain_language_summary: string
+  proposed_metric: Record<string, unknown>
+  rationale?: string | null
+}
+
+export async function createMetricProposal(
+  workflowId: string,
+  body: CreateMetricProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/metric`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+// 9.2.3 — create a kind='sim' proposal. `proposed_spec` is a partial
+// WorkflowSpec carrying any of: tools / personas / data_sources /
+// env_generators. At least one of those keys is required.
+export interface CreateSimProposalBody {
+  plain_language_summary: string
+  proposed_spec: Record<string, unknown>
+  rationale?: string | null
+}
+
+export async function createSimProposal(
+  workflowId: string,
+  body: CreateSimProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/sim`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+// 9.2.3 — create a kind='description' proposal. Separate from the
+// direct PATCH used by the inline description-edit: that path is for
+// cosmetic "quick edit"; this is the gate-routed path for
+// substantive rewrites.
+export interface CreateDescriptionProposalBody {
+  plain_language_summary: string
+  proposed_description: string
+  rationale?: string | null
+}
+
+export async function createDescriptionProposal(
+  workflowId: string,
+  body: CreateDescriptionProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/description`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+// 9.2.3 — create a kind='ui-primitive' proposal. `proposed_primitives`
+// is the new operate-tab primitive list; each entry must carry `type`.
+export interface CreateUIPrimitiveProposalBody {
+  plain_language_summary: string
+  proposed_primitives: Array<{ type: string; [k: string]: unknown }>
+  rationale?: string | null
+}
+
+export async function createUIPrimitiveProposal(
+  workflowId: string,
+  body: CreateUIPrimitiveProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/ui-primitive`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+// 9.2.3 — ordering-inversion check for kind='metric' proposals.
+// Returned shape mirrors `proposals.ordering_inversion.to_api_dict`.
+export interface InversionIterationDelta {
+  iteration_index: number
+  old_score: number | null
+  new_score: number | null
+  delta: number | null
+  old_meets_target: boolean | null
+  new_meets_target: boolean | null
+  inverted: boolean
+  n_cases: number
+}
+
+export interface OrderingInversionCheck {
+  status: 'ok' | 'unavailable' | 'error'
+  reason: string | null
+  current_metric_family: string | null
+  proposed_metric_family: string | null
+  n_inverted: number
+  iterations: InversionIterationDelta[]
+}
+
+export async function getOrderingInversionCheck(
+  proposalId: string,
+): Promise<OrderingInversionCheck> {
+  return jsonFetch<OrderingInversionCheck>(
+    `/api/proposals/${proposalId}/ordering-inversion-check`,
+  )
 }
 
 export interface GenerateWorkflowResponse {
@@ -891,6 +1019,9 @@ export interface FailureClusterSummary {
   latest_proposal_id: string | null
   spawning_iteration_index?: number | null
   spawning_iteration_id?: string | null
+  // 9.2.1 — per-cluster source mix derived from traces.iteration_id.
+  prod_count: number
+  eval_count: number
 }
 
 export interface FailureClusterList {
@@ -903,6 +1034,41 @@ export async function getWorkflowFailureClusters(
 ): Promise<FailureClusterList> {
   return jsonFetch<FailureClusterList>(
     `/api/workflows/${encodeURIComponent(workflowId)}/failure_clusters`,
+  )
+}
+
+// 9.2.1 — flat-list view of individual failures, one row per sample
+// trace across all active clusters. `source` may be 'production',
+// 'eval', or omitted (returns all).
+export type FailureSource = 'production' | 'eval'
+
+export interface FailureListItem {
+  trace_id: string
+  cluster_id: string
+  cluster_label: string
+  severity: ClusterSeverity
+  source: FailureSource
+  started_at: string | null
+  eval_case_id: string | null
+  iteration_index: number | null
+}
+
+export interface FailureList {
+  workflow_id: string
+  items: FailureListItem[]
+}
+
+export async function getWorkflowFailureList(
+  workflowId: string,
+  source?: FailureSource,
+  limit?: number,
+): Promise<FailureList> {
+  const params: string[] = []
+  if (source) params.push(`source=${source}`)
+  if (limit !== undefined) params.push(`limit=${limit}`)
+  const qs = params.length ? `?${params.join('&')}` : ''
+  return jsonFetch<FailureList>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/failures${qs}`,
   )
 }
 
@@ -1189,7 +1355,9 @@ export interface DeployRequest {
 export interface DeployResponse {
   proposal_id: string
   state: ProposalState
-  skill_id: string
+  // Null for non-skill artifact proposals (description / metric / sim /
+  // ui-primitive) — those write directly to the workflow row.
+  skill_id: string | null
   skill_deployed_version_id: string | null
 }
 

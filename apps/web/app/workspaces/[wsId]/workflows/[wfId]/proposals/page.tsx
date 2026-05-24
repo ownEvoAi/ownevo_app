@@ -141,9 +141,15 @@ function ProposalRow({
         <div className="proposal-row-foot">
           <span>Gate score: {formatScore(proposal.eval_score)}</span>
           <span className="proposal-row-dot">·</span>
-          <span>
-            Skill: <code>{proposal.skill_id}</code>
-          </span>
+          {proposal.kind === 'skill' && proposal.skill_id ? (
+            <span>
+              Skill: <code>{proposal.skill_id}</code>
+            </span>
+          ) : (
+            <span>
+              Artifact: <code>{proposal.kind ?? 'skill'}</code>
+            </span>
+          )}
         </div>
       </div>
       <div className="proposal-row-action">

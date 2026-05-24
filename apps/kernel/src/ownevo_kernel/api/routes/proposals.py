@@ -32,6 +32,12 @@ from ...approvals import (
     request_changes_proposal,
     rollback_proposal,
 )
+from ...proposals.ordering_inversion import (
+    check_metric_ordering_inversion,
+)
+from ...proposals.ordering_inversion import (
+    to_api_dict as inversion_check_to_dict,
+)
 from ...types import ApproverType
 from ..deps import ConnDep, DemoModeCheck
 from ..jsonb import decode_jsonb_obj
@@ -109,6 +115,7 @@ async def list_proposals(
             p.iteration_id,
             i.iteration_index,
             p.skill_id,
+            p.kind::text AS kind,
             i.workflow_id,
             w.description AS workflow_description,
             p.state::text AS state,
@@ -147,8 +154,10 @@ async def get_proposal(
             p.id,
             p.iteration_id,
             p.skill_id,
+            p.kind::text AS kind,
             p.parent_version_id,
             p.proposed_content,
+            p.proposed_payload,
             p.plain_language_summary,
             p.expected_impact,
             p.state::text AS state,
@@ -246,9 +255,11 @@ async def get_proposal(
         id=proposal_row["id"],
         iteration_id=proposal_row["iteration_id"],
         skill_id=proposal_row["skill_id"],
+        kind=proposal_row["kind"],
         parent_version_id=proposal_row["parent_version_id"],
         state=proposal_row["state"],
         proposed_content=proposal_row["proposed_content"],
+        proposed_payload=decode_jsonb_obj(proposal_row["proposed_payload"]),
         parent_version_content=parent_version_content,
         parent_version_seq=parent_version_seq,
         plain_language_summary=proposal_row["plain_language_summary"],
@@ -277,6 +288,62 @@ async def get_proposal(
         approval=_approval_from_row(approval_row) if approval_row else None,
         gate_result_cases=_gate_result_cases_from_audit(gate_audit_entries),
     )
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — ordering-inversion check for kind='metric' proposals
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{proposal_id}/ordering-inversion-check")
+async def get_metric_ordering_inversion_check(
+    proposal_id: UUID,
+    conn: ConnDep,
+) -> dict[str, Any]:
+    """Re-score every prior iteration under the proposed metric and
+    return per-iteration deltas + inversion flags.
+
+    Only meaningful for kind='metric' proposals. Returns a body shaped
+    by `proposals.ordering_inversion.to_api_dict`. The proposal-detail
+    surface renders this above the approval form so the reviewer sees
+    the consequence of approving the metric change before they click.
+
+    404 when the proposal id doesn't exist; 422 when the proposal is
+    not kind='metric'; otherwise 200 with `status='ok'` /
+    `'unavailable'` describing whether the check could run.
+    """
+    proposal_row = await conn.fetchrow(
+        """
+        SELECT p.id, p.kind::text AS kind, p.proposed_payload,
+               i.workflow_id
+        FROM proposals p
+        JOIN iterations i ON i.id = p.iteration_id
+        WHERE p.id = $1
+        """,
+        proposal_id,
+    )
+    if proposal_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proposal {proposal_id} not found",
+        )
+    if proposal_row["kind"] != "metric":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Ordering-inversion check applies to kind='metric' "
+                "proposals only."
+            ),
+        )
+
+    proposed = decode_jsonb_obj(proposal_row["proposed_payload"]) or {}
+
+    result = await check_metric_ordering_inversion(
+        conn,
+        workflow_id=proposal_row["workflow_id"],
+        proposed_metric_payload=proposed,
+    )
+    return inversion_check_to_dict(result)
 
 
 # ---------------------------------------------------------------------------
@@ -443,10 +510,12 @@ async def _deploy_or_rollback(
             detail=str(exc),
         ) from exc
 
-    skill_deployed_version_id = await conn.fetchval(
-        "SELECT deployed_version_id FROM skills WHERE id = $1",
-        proposal.skill_id,
-    )
+    skill_deployed_version_id: UUID | None = None
+    if proposal.skill_id is not None:
+        skill_deployed_version_id = await conn.fetchval(
+            "SELECT deployed_version_id FROM skills WHERE id = $1",
+            proposal.skill_id,
+        )
     return DeployResponse(
         proposal_id=proposal_id,
         state=proposal.state.value,
@@ -526,11 +595,20 @@ def _resolve_approver_type(raw: str | None) -> ApproverType:
 
 
 def _row_to_summary(row: asyncpg.Record) -> ProposalSummary:
+    # `kind` was added in migration 0017. Other callers of this helper
+    # (legacy fixtures, partial unit-test rows) may not select it; fall
+    # back to the historical 'skill' value rather than KeyError.
+    kind_val: str
+    try:
+        kind_val = row["kind"]
+    except (KeyError, IndexError):
+        kind_val = "skill"
     return ProposalSummary(
         id=row["id"],
         iteration_id=row["iteration_id"],
         iteration_index=row["iteration_index"],
         skill_id=row["skill_id"],
+        kind=kind_val,
         workflow_id=row["workflow_id"],
         workflow_description=row["workflow_description"],
         state=row["state"],
