@@ -816,11 +816,24 @@ async def test_approve_description_applies_change_and_deploys(
     )
     assert decide.status_code == 200, decide.text
 
-    # State transitioned straight to deployed (non-skill skips deploy).
+    # Approve stages the change — state advances but the workflow
+    # row is untouched until Deploy fires.
+    staged = await api_client.get(f"/api/proposals/{proposal_id}")
+    assert staged.json()["state"] == "approved-awaiting-deploy"
+    pre_desc = await db.fetchval(
+        "SELECT description FROM workflows WHERE id = 'wf-app-desc'"
+    )
+    assert pre_desc == "Original description text."
+
+    # Deploy applies the staged change.
+    deploy = await api_client.post(
+        f"/api/proposals/{proposal_id}/deploy",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert deploy.status_code == 200, deploy.text
     final = await api_client.get(f"/api/proposals/{proposal_id}")
     assert final.json()["state"] == "deployed"
 
-    # Workflow row received the new description.
     desc = await db.fetchval(
         "SELECT description FROM workflows WHERE id = 'wf-app-desc'"
     )
@@ -866,11 +879,25 @@ async def test_approve_metric_writes_inflated_definition(
         payload={"name": "recall", "family": "recall", "direction": "higher"},
     )
 
+    # Step 1: approve → stage. metric_definition stays at the seed.
     decide = await api_client.post(
         f"/api/proposals/{proposal['id']}/approve",
         json={"decided_by": "human:reviewer"},
     )
     assert decide.status_code == 200
+    pre = await db.fetchval(
+        "SELECT metric_definition FROM workflows WHERE id = 'wf-app-metric'"
+    )
+    pre_md = _json.loads(pre) if isinstance(pre, str) else pre
+    assert pre_md["name"] == "pass-rate"
+    assert pre_md["family"] == "pass_rate"
+
+    # Step 2: deploy → apply. New metric is now live.
+    deploy = await api_client.post(
+        f"/api/proposals/{proposal['id']}/deploy",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert deploy.status_code == 200, deploy.text
 
     raw = await db.fetchval(
         "SELECT metric_definition FROM workflows WHERE id = 'wf-app-metric'"
@@ -917,11 +944,25 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
         },
     )
     proposal_id = res.json()["id"]
+    # Approve stages — primitives list stays at the seed.
     decide = await api_client.post(
         f"/api/proposals/{proposal_id}/approve",
         json={"decided_by": "human:reviewer"},
     )
     assert decide.status_code == 200
+    pre = await db.fetchval(
+        "SELECT spec FROM workflows WHERE id = 'wf-app-uip'"
+    )
+    pre_parsed = _json.loads(pre) if isinstance(pre, str) else pre
+    assert [p["type"] for p in pre_parsed["ui"]["tabs"][0]["primitives"]] == [
+        "HeadlineMetrics",
+    ]
+    # Deploy applies.
+    deploy = await api_client.post(
+        f"/api/proposals/{proposal_id}/deploy",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert deploy.status_code == 200, deploy.text
 
     raw_spec = await db.fetchval(
         "SELECT spec FROM workflows WHERE id = 'wf-app-uip'"
@@ -966,11 +1007,23 @@ async def test_approve_sim_merges_sections_into_spec(
         },
     )
     proposal_id = res.json()["id"]
+    # Approve stages — tools list stays at the seed.
     decide = await api_client.post(
         f"/api/proposals/{proposal_id}/approve",
         json={"decided_by": "human:reviewer"},
     )
     assert decide.status_code == 200
+    pre = await db.fetchval(
+        "SELECT spec FROM workflows WHERE id = 'wf-app-sim'"
+    )
+    pre_parsed = _json.loads(pre) if isinstance(pre, str) else pre
+    assert [t["name"] for t in pre_parsed["tools"]] == ["lookup_velocity"]
+    # Deploy applies.
+    deploy = await api_client.post(
+        f"/api/proposals/{proposal_id}/deploy",
+        json={"decided_by": "human:reviewer"},
+    )
+    assert deploy.status_code == 200, deploy.text
 
     raw_spec = await db.fetchval(
         "SELECT spec FROM workflows WHERE id = 'wf-app-sim'"

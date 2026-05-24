@@ -239,7 +239,10 @@ class DeployResponse(_Strict):
 
     proposal_id: UUID
     state: Literal["deployed", "rolled-back"]
-    skill_id: str
+    # Null for non-skill artifact proposals (description / metric / sim /
+    # ui-primitive) added in Track 9.2.3 — those write directly to the
+    # workflow row and have no skill_id.
+    skill_id: str | None
     skill_deployed_version_id: UUID | None
 
 

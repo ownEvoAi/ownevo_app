@@ -34,12 +34,14 @@ from uuid import UUID
 
 import asyncpg
 
+from ..api.jsonb import decode_jsonb_obj
 from ..audit import append_audit_entry
 from ..types import (
     AuditKind,
     Proposal,
     ProposalState,
 )
+from .apply import APPLY_BY_KIND
 from .service import ApprovalStateError, ProposalNotFoundError
 
 
@@ -70,7 +72,8 @@ async def deploy_proposal(
         proposal_row = await conn.fetchrow(
             """
             SELECT p.id, p.state::text AS state, p.skill_id, p.iteration_id,
-                   i.proposed_skill_version_id
+                   p.kind::text AS kind, p.proposed_payload,
+                   i.proposed_skill_version_id, i.workflow_id
             FROM proposals p
             JOIN iterations i ON i.id = p.iteration_id
             WHERE p.id = $1
@@ -87,6 +90,48 @@ async def deploy_proposal(
                 f"Proposal {proposal_id} is in state {current_state.value!r}; "
                 f"only {ProposalState.APPROVED_AWAITING_DEPLOY.value!r} can be deployed",
             )
+
+        # Non-skill kinds dispatch to the per-kind apply functions.
+        # They have no skill_versions row to point at — the workflow
+        # row is the production surface, and the apply function does
+        # the actual UPDATE.
+        kind: str = proposal_row["kind"] or "skill"
+        if kind != "skill":
+            workflow_id: str = proposal_row["workflow_id"]
+            apply_fn = APPLY_BY_KIND.get(kind)
+            if apply_fn is None:
+                raise ApprovalStateError(
+                    f"Proposal {proposal_id} has unknown kind {kind!r}; "
+                    "no apply handler registered",
+                )
+            payload = decode_jsonb_obj(proposal_row["proposed_payload"]) or {}
+            apply_summary = await apply_fn(
+                conn,
+                workflow_id=workflow_id,
+                payload=payload,
+            )
+            await conn.execute(
+                """
+                UPDATE proposals
+                SET state            = 'deployed'::proposal_state,
+                    state_updated_at = now()
+                WHERE id = $1
+                """,
+                proposal_id,
+            )
+            await append_audit_entry(
+                conn,
+                kind=AuditKind.PROPOSAL_DEPLOYED,
+                payload={
+                    "proposal_id": str(proposal_id),
+                    "workflow_id": workflow_id,
+                    "kind": kind,
+                    "applied": apply_summary,
+                },
+                actor=decided_by,
+                related_id=proposal_id,
+            )
+            return await _fetch_proposal(conn, proposal_id)
 
         skill_id: str = proposal_row["skill_id"]
         proposed_version_id: UUID | None = proposal_row["proposed_skill_version_id"]

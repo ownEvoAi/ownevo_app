@@ -48,7 +48,12 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
   const canDecide = proposal.state === 'gate-passed'
   const canDeploy = proposal.state === 'approved-awaiting-deploy'
-  const canRollback = proposal.state === 'deployed'
+  // Rollback today only supports kind='skill' — the deploy_proposal
+  // helper walks the audit chain for prior skill_versions. Non-skill
+  // rollback is "create a new proposal with the prior value"
+  // (separate UX), so we hide the button rather than offer a 5xx.
+  const canRollback =
+    proposal.state === 'deployed' && proposal.kind === 'skill'
   const wfRoot = `/workspaces/${wsId}/workflows/${proposal.workflow.id}`
 
   // Resolve isBenchmark + (for ui-primitive proposals) the current
@@ -168,6 +173,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               wsId={wsId}
               workflowId={proposal.workflow.id}
               state={canDeploy ? 'approved-awaiting-deploy' : 'deployed'}
+              kind={proposal.kind}
               demoMode={isDemoMode()}
             />
           )}

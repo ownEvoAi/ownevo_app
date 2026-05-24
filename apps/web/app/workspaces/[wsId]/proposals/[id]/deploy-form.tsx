@@ -15,12 +15,14 @@ export function DeployForm({
   wsId,
   workflowId,
   state,
+  kind = 'skill',
   demoMode = false,
 }: {
   proposalId: string
   wsId: string
   workflowId: string
   state: 'approved-awaiting-deploy' | 'deployed'
+  kind?: 'skill' | 'description' | 'metric' | 'sim' | 'ui-primitive'
   demoMode?: boolean
 }) {
   const router = useRouter()
@@ -30,9 +32,16 @@ export function DeployForm({
 
   const isDeploy = state === 'approved-awaiting-deploy'
   const actionLabel = isDeploy ? 'Deploy' : 'Roll back'
+  // 9.2.3 — non-skill kinds write directly to the workflow row; the
+  // help text differs from the skill flow because there's no separate
+  // skill_versions pointer to flip.
   const helpText = isDeploy
-    ? 'Sets the skill\'s deployed_version_id to this proposal\'s version. Future workflow runs use this instruction.'
-    : 'Reverts the deployed_version_id. The skill returns to its previous deployed version (or null if this was the first deployment).'
+    ? kind === 'skill'
+      ? "Sets the skill's deployed_version_id to this proposal's version. Future workflow runs use this instruction."
+      : `Applies the proposed ${kind} change to the workflow row. The change is live as soon as Deploy fires.`
+    : kind === 'skill'
+      ? 'Reverts the deployed_version_id. The skill returns to its previous deployed version (or null if this was the first deployment).'
+      : `Rollback for non-skill artifact proposals isn't supported yet — create a new ${kind} proposal pointing at the previous value to revert.`
 
   function handle() {
     setError(null)

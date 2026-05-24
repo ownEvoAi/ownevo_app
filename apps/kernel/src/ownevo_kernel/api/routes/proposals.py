@@ -517,10 +517,12 @@ async def _deploy_or_rollback(
             detail=str(exc),
         ) from exc
 
-    skill_deployed_version_id = await conn.fetchval(
-        "SELECT deployed_version_id FROM skills WHERE id = $1",
-        proposal.skill_id,
-    )
+    skill_deployed_version_id: UUID | None = None
+    if proposal.skill_id is not None:
+        skill_deployed_version_id = await conn.fetchval(
+            "SELECT deployed_version_id FROM skills WHERE id = $1",
+            proposal.skill_id,
+        )
     return DeployResponse(
         proposal_id=proposal_id,
         state=proposal.state.value,
