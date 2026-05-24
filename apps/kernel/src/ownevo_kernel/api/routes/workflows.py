@@ -50,6 +50,7 @@ from ..models import (
     GenerateEvalCasesResponse,
     MetricProposalCreate,
     ProposalSummary,
+    SimProposalCreate,
     UIPrimitiveProposalCreate,
     IterationCaseRow,
     IterationDetailFull,
@@ -1466,6 +1467,118 @@ async def create_metric_proposal(
         iteration_index=iter_index,
         skill_id=None,
         kind="metric",
+        workflow_id=workflow_id,
+        workflow_description=description or "",
+        state="pending",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='sim' proposal. Proposed sim plan replaces the
+# workflow's existing tools / personas / data_sources / env_generators
+# on approval. Diff renderer reads added/removed by name.
+@router.post(
+    "/{workflow_id}/proposals/sim",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_sim_proposal(
+    workflow_id: str,
+    body: SimProposalCreate,
+    conn: ConnDep,
+) -> ProposalSummary:
+    """Create a kind='sim' proposal staged against the workflow."""
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a sim edit so the proposal has audit "
+                "context."
+            ),
+        )
+
+    # Require at least one of the sim-shaped sections so the proposal
+    # has something to diff against. An empty payload would create a
+    # no-signal queue row.
+    sim_keys = ("tools", "personas", "data_sources", "env_generators")
+    if not any(k in body.proposed_spec for k in sim_keys):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "proposed_spec must include at least one of: "
+                + ", ".join(sim_keys)
+            ),
+        )
+
+    import json as _json
+    proposal_row = await conn.fetchrow(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state
+        )
+        VALUES (
+            $1, NULL, NULL,
+            '', $2::jsonb, $3,
+            'sim'::proposal_kind, 'pending'::proposal_state
+        )
+        RETURNING id, created_at, state_updated_at
+        """,
+        iter_id,
+        _json.dumps(body.proposed_spec),
+        body.plain_language_summary,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.PROPOSAL_CREATED,
+        payload={
+            "workflow_id": workflow_id,
+            "proposal_id": str(proposal_row["id"]),
+            "kind": "sim",
+            "rationale": body.rationale,
+            "section_keys": [k for k in sim_keys if k in body.proposed_spec],
+        },
+        actor="api:create_sim_proposal",
+        related_id=proposal_row["id"],
+    )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="sim",
         workflow_id=workflow_id,
         workflow_description=description or "",
         state="pending",

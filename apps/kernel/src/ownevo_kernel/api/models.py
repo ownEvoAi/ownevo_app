@@ -777,6 +777,24 @@ class DescriptionProposalCreate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class SimProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/sim`.
+
+    `proposed_spec` is a partial WorkflowSpec carrying the proposed
+    tools / personas / data_sources / env_generators / ui-primitives.
+    For 9.2.3 first-cut, the shape is just `dict[str, Any]` — the
+    sim plan schema is large and the approval handler does its own
+    validation before persisting. The diff renderer reads added /
+    removed entities by name from this payload.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_spec: dict[str, Any]
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class UIPrimitiveProposalCreate(BaseModel):
     """Body for `POST /api/workflows/{wfId}/proposals/ui-primitive`.
 
@@ -1046,6 +1064,7 @@ __all__ = [
     "FailureListItem",
     "DescriptionProposalCreate",
     "MetricProposalCreate",
+    "SimProposalCreate",
     "UIPrimitiveProposalCreate",
     "GateResultCases",
     "HealthResponse",

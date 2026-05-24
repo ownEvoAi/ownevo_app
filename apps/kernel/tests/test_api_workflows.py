@@ -1057,3 +1057,87 @@ async def test_create_description_proposal_happy_path(
         == "Predict demand for the upcoming planning week."
     )
     assert detail_body["iteration_id"] == str(iter_id)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-sim-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_sim_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/sim",
+        json={
+            "plain_language_summary": "Add tool.",
+            "proposed_spec": {"tools": [{"name": "foo"}]},
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_sim_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-sim-no-iter/proposals/sim",
+        json={
+            "plain_language_summary": "Add tool.",
+            "proposed_spec": {"tools": [{"name": "foo"}]},
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_sim_proposal_422_when_empty_payload(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim-empty")
+    await _seed_iteration(db, workflow_id="wf-sim-empty", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-sim-empty/proposals/sim",
+        json={
+            "plain_language_summary": "Nothing.",
+            "proposed_spec": {"unrelated_key": "v"},
+        },
+    )
+    assert res.status_code == 422
+    assert "at least one of" in res.json()["detail"]
+
+
+async def test_create_sim_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-sim")
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-sim", iteration_index=1,
+    )
+
+    proposed_spec = {
+        "tools": [
+            {"name": "lookup_velocity", "inputs": []},
+            {"name": "lookup_seasonal_index", "inputs": []},
+        ],
+        "personas": [{"role": "planner", "cadence": "weekly"}],
+    }
+    res = await api_client.post(
+        "/api/workflows/wf-sim/proposals/sim",
+        json={
+            "plain_language_summary": "Add seasonal-index tool + planner.",
+            "proposed_spec": proposed_spec,
+            "rationale": "Loop needs seasonal context.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "sim"
+    assert body["iteration_index"] == 1
+
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "sim"
+    assert detail_body["proposed_payload"] == proposed_spec
+    assert detail_body["iteration_id"] == str(iter_id)

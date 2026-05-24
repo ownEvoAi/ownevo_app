@@ -57,6 +57,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
   // the side-by-side primitive comparison.
   let isBenchmark = false
   let currentPrimitives: Array<{ type: string }> = []
+  let currentSpec: Record<string, unknown> | null = null
   try {
     const anatomy = await getWorkflowAnatomy(proposal.workflow.id)
     isBenchmark = anatomy.kind === 'benchmark'
@@ -67,6 +68,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
         p !== null &&
         typeof (p as { type?: unknown }).type === 'string',
     )
+    currentSpec = (anatomy.spec as unknown as Record<string, unknown>) ?? null
   } catch {
     /* ignore — fall through with isBenchmark=false */
   }
@@ -126,6 +128,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               <ArtifactDiff
                 proposal={proposal}
                 currentPrimitives={currentPrimitives}
+                currentSpec={currentSpec}
               />
               {proposal.kind === 'metric' && (
                 <OrderingInversionPanel check={inversionCheck} />
@@ -230,9 +233,11 @@ function artifactLabel(kind: ProposalDetail['kind']): string {
 function ArtifactDiff({
   proposal,
   currentPrimitives,
+  currentSpec,
 }: {
   proposal: ProposalDetail
   currentPrimitives: Array<{ type: string }>
+  currentSpec: Record<string, unknown> | null
 }) {
   const payload = proposal.proposed_payload ?? {}
   if (proposal.kind === 'ui-primitive') {
@@ -245,6 +250,9 @@ function ArtifactDiff({
   }
   if (proposal.kind === 'description') {
     return <DescriptionDiff payload={payload} />
+  }
+  if (proposal.kind === 'sim') {
+    return <SimDiff payload={payload} currentSpec={currentSpec} />
   }
   if (proposal.kind === 'metric') {
     const name = stringOrNull(payload.name) ?? '(unnamed)'
@@ -751,6 +759,116 @@ function DescriptionDiff({
           <div className="description-diff-head added">Proposed</div>
           <pre className="description-diff-body">{proposed || '(empty)'}</pre>
         </div>
+      </div>
+    </>
+  )
+}
+
+// 9.2.3 — diff renderer for kind='sim' proposals. Computes added /
+// removed entities across the four sim sections (tools, personas,
+// data_sources, env_generators) by their identifier field (`name`
+// for tools / generators, `role` for personas, `id` for data
+// sources). Unchanged entities aren't listed — only the deltas, so
+// the reviewer sees the impact at a glance.
+function SimDiff({
+  payload,
+  currentSpec,
+}: {
+  payload: Record<string, unknown>
+  currentSpec: Record<string, unknown> | null
+}) {
+  const sections: Array<{
+    key: string
+    label: string
+    idField: string
+  }> = [
+    { key: 'tools', label: 'Tools', idField: 'name' },
+    { key: 'personas', label: 'Personas', idField: 'role' },
+    { key: 'data_sources', label: 'Data sources', idField: 'id' },
+    { key: 'env_generators', label: 'Environment generators', idField: 'name' },
+  ]
+  const currentEnv =
+    (currentSpec?.environment as Record<string, unknown> | undefined) ?? {}
+  const currentBySection: Record<string, unknown> = {
+    tools: currentSpec?.tools ?? [],
+    personas: currentEnv.personas ?? [],
+    data_sources: currentEnv.data_sources ?? [],
+    env_generators: currentEnv.env_generators ?? [],
+  }
+
+  function idsFor(value: unknown, idField: string): string[] {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((v) => {
+        if (typeof v !== 'object' || v === null) return null
+        const id = (v as Record<string, unknown>)[idField]
+        return typeof id === 'string' ? id : null
+      })
+      .filter((s): s is string => s !== null)
+  }
+
+  return (
+    <>
+      <h2 className="section-title">Simulator · proposed change</h2>
+      <div className="artifact-diff sim-diff">
+        {sections.map((s) => {
+          const currIds = new Set(idsFor(currentBySection[s.key], s.idField))
+          const propIds = new Set(idsFor(payload[s.key], s.idField))
+          // No section in the proposal → not changed.
+          if (!(s.key in payload)) return null
+          const added = [...propIds].filter((id) => !currIds.has(id))
+          const removed = [...currIds].filter((id) => !propIds.has(id))
+          if (added.length === 0 && removed.length === 0) {
+            return (
+              <div key={s.key} className="sim-diff-section">
+                <div className="sim-diff-section-head">{s.label}</div>
+                <div className="ui-primitive-diff-note">
+                  No additions or removals by identifier — the proposal
+                  may update props on existing entries.
+                </div>
+              </div>
+            )
+          }
+          return (
+            <div key={s.key} className="sim-diff-section">
+              <div className="sim-diff-section-head">{s.label}</div>
+              {added.length > 0 ? (
+                <div className="ui-primitive-diff-row">
+                  <span className="ui-primitive-diff-label added">
+                    Added · {added.length}
+                  </span>
+                  <div className="ui-primitive-diff-pills">
+                    {added.map((id) => (
+                      <span
+                        key={id}
+                        className="pill source-prod ui-primitive-pill"
+                      >
+                        + {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {removed.length > 0 ? (
+                <div className="ui-primitive-diff-row">
+                  <span className="ui-primitive-diff-label removed">
+                    Removed · {removed.length}
+                  </span>
+                  <div className="ui-primitive-diff-pills">
+                    {removed.map((id) => (
+                      <span
+                        key={id}
+                        className="pill red ui-primitive-pill"
+                      >
+                        − {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
     </>
   )

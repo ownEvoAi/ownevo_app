@@ -17,6 +17,7 @@ import {
 } from '@/app/components/workflow-spec-sections'
 import { InlineDescriptionBlock } from '../inline-description-edit'
 import { ProposeMetricEdit } from './propose-metric-edit'
+import { ProposeSimEdit } from './propose-sim-edit'
 import { ProposeUIPrimitiveEdit } from './propose-ui-primitive-edit'
 
 interface PageProps {
@@ -118,6 +119,16 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
         envGenerators={envGenerators}
         dataSources={dataSources}
         designLog={anatomy.design_agent_log ?? null}
+        action={
+          <ProposeSimEdit
+            wsId={wsId}
+            wfId={wfId}
+            tools={tools}
+            personas={personas}
+            envGenerators={envGenerators}
+            dataSources={dataSources}
+          />
+        }
       />
 
       <EvalCasesSection cases={evalCases} wsId={wsId} wfId={wfId} />

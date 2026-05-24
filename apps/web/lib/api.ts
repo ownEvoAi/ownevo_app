@@ -261,6 +261,28 @@ export async function createMetricProposal(
   )
 }
 
+// 9.2.3 — create a kind='sim' proposal. `proposed_spec` is a partial
+// WorkflowSpec carrying any of: tools / personas / data_sources /
+// env_generators. At least one of those keys is required.
+export interface CreateSimProposalBody {
+  plain_language_summary: string
+  proposed_spec: Record<string, unknown>
+  rationale?: string | null
+}
+
+export async function createSimProposal(
+  workflowId: string,
+  body: CreateSimProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/sim`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
 // 9.2.3 — create a kind='description' proposal. Separate from the
 // direct PATCH used by the inline description-edit: that path is for
 // cosmetic "quick edit"; this is the gate-routed path for
