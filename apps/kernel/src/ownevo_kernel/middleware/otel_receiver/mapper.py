@@ -696,7 +696,12 @@ def _extract_llm_text(attrs: dict[str, Any]) -> tuple[str, str]:
     `messages[*].parts[*].{type, content}` with role on the message;
     only assistant messages are walked here.
     """
-    messages = attrs.get("gen_ai.output.messages")
+    # OpenLLMetry / traceloop emit `gen_ai.output.messages` as a single
+    # JSON-encoded string attribute; the hand-crafted fixtures encode it
+    # as a nested OTLP arrayValue/kvlistValue (already a list after
+    # `_unwrap_anyvalue`). Decode the string form so both land here as a
+    # list of message dicts.
+    messages = _maybe_decode_json(attrs.get("gen_ai.output.messages"))
     if not isinstance(messages, list):
         return ("", "")
 
