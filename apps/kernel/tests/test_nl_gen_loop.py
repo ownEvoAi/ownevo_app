@@ -848,3 +848,59 @@ async def test_agent_openai_client_routes_agent_calls_through_openai():
     assert openai_client.calls == n
     # The Anthropic client received zero prediction calls.
     assert anthropic_client.proposer_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Mock-tier guards (Track 9.0.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loop_rejects_mock_config_without_iteration_index():
+    """Passing `mock_config` without `mock_iteration_index` is a caller
+    error — the accuracy curve is keyed by iteration, so the index is
+    mandatory when mock_config is set."""
+    from ownevo_kernel.sim_tier import MockSimConfig
+
+    spec, plan, case_set, metric = _fixture_bundle()
+    client = _ScriptedClient()
+    with pytest.raises(ValueError, match="mock_config provided without mock_iteration_index"):
+        await run_nl_gen_demo_loop(
+            spec=spec, plan=plan, case_set=case_set, metric=metric,
+            client=client,  # type: ignore[arg-type]
+            n_cycles=1,
+            mock_config=MockSimConfig(),
+            # mock_iteration_index deliberately omitted
+        )
+
+
+@pytest.mark.asyncio
+async def test_mock_tier_skips_proposer_and_makes_no_llm_calls():
+    """Mock tier must not call the LLM proposer — the loop is designed to
+    be LLM-free end-to-end when mock_config is set. Verify by using a client
+    that raises on any call."""
+    from ownevo_kernel.sim_tier import MockSimConfig
+
+    class _StrictNoCallClient:
+        """Raises if any LLM call is attempted."""
+        @property
+        def messages(self):
+            raise AssertionError("LLM call attempted in mock tier — should be LLM-free")
+
+    spec, plan, case_set, metric = _fixture_bundle()
+    config = MockSimConfig(default_accuracy=0.5, seed=0)
+
+    # Should complete without any LLM calls (proposer is gated out in mock mode).
+    report = await run_nl_gen_demo_loop(
+        spec=spec, plan=plan, case_set=case_set, metric=metric,
+        client=_StrictNoCallClient(),  # type: ignore[arg-type]
+        n_cycles=2,
+        mock_config=config,
+        mock_iteration_index=0,
+        clusterer_factory=_two_cluster_factory,
+        labeler=_FixedLabeler(),
+    )
+
+    assert len(report.cycles) == 2
+    # No instruction edit proposed in mock mode.
+    assert report.cycles[0].instruction_edit is None

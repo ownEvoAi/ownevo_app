@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
 
+    from ..sim_tier import MockSimConfig
     from .token_budget import TokenBudget
 
 
@@ -194,11 +195,11 @@ async def run_with_agent(
     spec: WorkflowSpec,
     metric: MetricDefinition,
     *,
-    client: "AsyncAnthropic",
+    client: AsyncAnthropic,
     model: str | None = None,
     max_tokens: int | None = None,
-    openai_client: "AsyncOpenAI | None" = None,
-    budget: "TokenBudget | None" = None,
+    openai_client: AsyncOpenAI | None = None,
+    budget: TokenBudget | None = None,
     per_workflow_instruction: str | None = None,
 ) -> EvalRunReport:
     """Same shape as `run_replay`, but `actual_value`s come from a Claude agent.
@@ -266,9 +267,57 @@ async def run_with_agent(
     return _pack_report(spec, metric, metric_result, outcomes)
 
 
+async def run_with_mock_agent(
+    case_set: EvalCaseSet,
+    plan: SimulationPlan,
+    spec: WorkflowSpec,
+    metric: MetricDefinition,
+    *,
+    mock_config: MockSimConfig,
+    iteration_index: int,
+) -> EvalRunReport:
+    """Same shape as `run_with_agent`, but predictions are synthesized
+    by `MockAgentSolver` against an accuracy curve — zero LLM calls.
+
+    Used when `workflows.sim_tier='mock'`. The iteration_runner picks
+    this path instead of `run_with_agent`; the rest of
+    `run_nl_gen_demo_loop` (clustering, proposer) is unchanged.
+
+    Returns:
+        An `EvalRunReport` whose `outcomes[i].actual_value` is the
+        mock solver's deterministic prediction. `report.value` should
+        equal `mock_config.accuracy_for(iteration_index)` for accuracy
+        metrics (modulo case-count rounding) — that's the contract
+        the smoketest pins.
+    """
+    # Lazy import — same reason as `run_with_agent`: the mock module
+    # has no heavy deps but keeping the import pattern consistent
+    # avoids a cycle if mock_solver ever grows shared imports.
+    from .mock_solver import solve_with_mock_agent
+
+    check_against_spec(metric, spec)
+
+    results = await solve_with_mock_agent(
+        case_set,
+        plan,
+        spec,
+        metric,
+        mock_config=mock_config,
+        iteration_index=iteration_index,
+    )
+    metric_result = compute_metric(metric, results)
+
+    is_test_fold_by_id = {c.case_id: c.is_test_fold for c in case_set.cases}
+    outcomes = tuple(
+        _outcome_for(r, is_test_fold=is_test_fold_by_id[r.case_id]) for r in results
+    )
+    return _pack_report(spec, metric, metric_result, outcomes)
+
+
 __all__ = [
     "EvalCaseOutcome",
     "EvalRunReport",
     "run_replay",
     "run_with_agent",
+    "run_with_mock_agent",
 ]

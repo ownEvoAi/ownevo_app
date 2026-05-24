@@ -5,7 +5,7 @@ plan, A4.1 eval cases, A4.2 metric) and the regression gate. Composes
 `replay_set` + `compute_metric` + `check_against_spec` into a single
 typed report.
 
-Four callable surfaces:
+Five callable surfaces:
 
   * `run_replay(case_set, plan, spec, metric)` — deterministic replay
     against the rendered sim. No model in the loop. A4.3 load-bearing
@@ -13,14 +13,18 @@ Four callable surfaces:
   * `run_with_agent(case_set, plan, spec, metric, *, client, ...)` —
     same shape as `run_replay` but `actual_value`s come from a Claude
     agent (single-turn forced tool-use). A4.4 smoke-test entrypoint.
+  * `run_with_mock_agent(case_set, plan, spec, metric, *, mock_config,
+    iteration_index)` — zero-LLM counterpart to `run_with_agent`.
+    Predictions come from a deterministic accuracy curve; returns the
+    same `EvalRunReport` shape. Used when `workflows.sim_tier='mock'`.
   * `verify_determinism(case_set, plan, spec, metric)` — runs
     `run_replay` twice and asserts identical outcomes; raises
     `NondeterminismError` on the first divergence. A4.5 guardrail.
   * `build_inspect_task(case_set, plan, spec)` — adapts the trio into
     an `inspect_ai.Task`. Lazy import (requires the `eval` extra).
 
-The three non-Inspect paths share `EvalRunReport` so the gate's
-downstream consumers don't care which path fed them.
+The non-Inspect paths share `EvalRunReport` so the gate's downstream
+consumers don't care which path fed them.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from .runner import (
     EvalRunReport,
     run_replay,
     run_with_agent,
+    run_with_mock_agent,
 )
 from .determinism import (
     NondeterminismError,
@@ -41,6 +46,7 @@ __all__ = [
     "EvalRunReport",
     "run_replay",
     "run_with_agent",
+    "run_with_mock_agent",
     "build_inspect_task",
     # A4.4 — re-exported lazily so installs without the `agent` extra
     # don't fail at import time.
