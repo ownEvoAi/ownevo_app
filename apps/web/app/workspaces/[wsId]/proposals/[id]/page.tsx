@@ -243,6 +243,9 @@ function ArtifactDiff({
       />
     )
   }
+  if (proposal.kind === 'description') {
+    return <DescriptionDiff payload={payload} />
+  }
   if (proposal.kind === 'metric') {
     const name = stringOrNull(payload.name) ?? '(unnamed)'
     const family = stringOrNull(payload.family)
@@ -710,6 +713,47 @@ function verdictPill(meets: boolean | null) {
   if (meets)
     return <span className="pill source-prod">passes</span>
   return <span className="pill red">fails</span>
+}
+
+// 9.2.3 — diff renderer for kind='description' proposals. Shows the
+// previous and proposed text side-by-side; the kernel-side payload
+// carries both so the page doesn't need a second fetch.
+function DescriptionDiff({
+  payload,
+}: {
+  payload: Record<string, unknown>
+}) {
+  const proposed =
+    typeof payload.description === 'string' ? payload.description : ''
+  const previous =
+    typeof payload.previous_description === 'string'
+      ? payload.previous_description
+      : ''
+  const charDelta = proposed.length - previous.length
+  return (
+    <>
+      <h2 className="section-title">Description · proposed change</h2>
+      <div className="description-diff-meta">
+        {charDelta === 0 ? (
+          <>0 net character change</>
+        ) : charDelta > 0 ? (
+          <>+{charDelta} characters</>
+        ) : (
+          <>{charDelta} characters</>
+        )}
+      </div>
+      <div className="description-diff-grid">
+        <div className="description-diff-col">
+          <div className="description-diff-head removed">Current</div>
+          <pre className="description-diff-body">{previous || '(empty)'}</pre>
+        </div>
+        <div className="description-diff-col">
+          <div className="description-diff-head added">Proposed</div>
+          <pre className="description-diff-body">{proposed || '(empty)'}</pre>
+        </div>
+      </div>
+    </>
+  )
 }
 
 // 9.2.3 — diff renderer for kind='ui-primitive' proposals. Compares

@@ -760,6 +760,23 @@ class MetricProposalCreate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class DescriptionProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/description`.
+
+    The proposed description replaces the workflow's NL description
+    on approval. Separate from the direct `updateDescriptionAction`
+    PATCH used by the inline-edit on Overview / Spec — that PATCH
+    stays the cosmetic "quick edit" path; this endpoint is the
+    gate-routed path for substantive rewrites.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plain_language_summary: str = Field(..., min_length=1, max_length=500)
+    proposed_description: str = Field(..., min_length=10, max_length=8000)
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class UIPrimitiveProposalCreate(BaseModel):
     """Body for `POST /api/workflows/{wfId}/proposals/ui-primitive`.
 
@@ -1027,6 +1044,7 @@ __all__ = [
     "FailureClusterSummary",
     "FailureList",
     "FailureListItem",
+    "DescriptionProposalCreate",
     "MetricProposalCreate",
     "UIPrimitiveProposalCreate",
     "GateResultCases",

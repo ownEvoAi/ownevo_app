@@ -952,3 +952,108 @@ async def test_create_ui_primitive_proposal_happy_path(
         {"type": "AlertList"},
     ]
     assert detail_body["iteration_id"] == str(iter_id)
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — create-description-proposal endpoint
+# ---------------------------------------------------------------------------
+
+
+async def test_create_description_proposal_404_on_unknown_workflow(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.post(
+        "/api/workflows/nope/proposals/description",
+        json={
+            "plain_language_summary": "Rewrite past misses.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week. "
+                "Past misses include 2024 holiday markdowns."
+            ),
+        },
+    )
+    assert res.status_code == 404
+
+
+async def test_create_description_proposal_422_when_no_iterations(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-desc-no-iter")
+    res = await api_client.post(
+        "/api/workflows/wf-desc-no-iter/proposals/description",
+        json={
+            "plain_language_summary": "Rewrite past misses.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week. "
+                "Past misses include 2024 holiday markdowns."
+            ),
+        },
+    )
+    assert res.status_code == 422
+
+
+async def test_create_description_proposal_422_when_no_op(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Proposing the current description verbatim → 422."""
+    await _seed_workflow(
+        db,
+        workflow_id="wf-desc-noop",
+        description="Predict demand for the upcoming planning week.",
+    )
+    await _seed_iteration(db, workflow_id="wf-desc-noop", iteration_index=0)
+    res = await api_client.post(
+        "/api/workflows/wf-desc-noop/proposals/description",
+        json={
+            "plain_language_summary": "Same text.",
+            "proposed_description": (
+                "Predict demand for the upcoming planning week."
+            ),
+        },
+    )
+    assert res.status_code == 422
+    assert "matches the current" in res.json()["detail"]
+
+
+async def test_create_description_proposal_happy_path(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(
+        db,
+        workflow_id="wf-desc",
+        description="Predict demand for the upcoming planning week.",
+    )
+    iter_id = await _seed_iteration(
+        db, workflow_id="wf-desc", iteration_index=4,
+    )
+    proposed = (
+        "Predict demand for the upcoming planning week. Past misses: "
+        "2024 holiday markdowns (weeks 47-51), 2023 winter boot spike "
+        "in the Pacific Northwest."
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-desc/proposals/description",
+        json={
+            "plain_language_summary": (
+                "Add 2024 holiday markdowns + PNW boot spike to past misses."
+            ),
+            "proposed_description": proposed,
+            "rationale": "Recent operator review surfaced these gaps.",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["kind"] == "description"
+    assert body["iteration_index"] == 4
+
+    detail = await api_client.get(f"/api/proposals/{body['id']}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["kind"] == "description"
+    payload = detail_body["proposed_payload"]
+    assert payload["description"] == proposed
+    assert (
+        payload["previous_description"]
+        == "Predict demand for the upcoming planning week."
+    )
+    assert detail_body["iteration_id"] == str(iter_id)

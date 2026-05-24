@@ -46,6 +46,7 @@ from ..models import (
     FailureClusterSummary,
     FailureList,
     FailureListItem,
+    DescriptionProposalCreate,
     GenerateEvalCasesResponse,
     MetricProposalCreate,
     ProposalSummary,
@@ -1467,6 +1468,125 @@ async def create_metric_proposal(
         kind="metric",
         workflow_id=workflow_id,
         workflow_description=description or "",
+        state="pending",
+        plain_language_summary=body.plain_language_summary,
+        eval_score=None,
+        eval_rationale=None,
+        expected_impact=None,
+        created_at=proposal_row["created_at"],
+        state_updated_at=proposal_row["state_updated_at"],
+    )
+
+
+# 9.2.3 — create kind='description' proposal. The inline-edit on
+# Overview / Spec is the "quick edit" path (direct PATCH, cosmetic);
+# this endpoint is the "substantive change" path that flows through
+# the proposal review + audit chain just like a skill edit does.
+@router.post(
+    "/{workflow_id}/proposals/description",
+    response_model=ProposalSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_description_proposal(
+    workflow_id: str,
+    body: DescriptionProposalCreate,
+    conn: ConnDep,
+) -> ProposalSummary:
+    """Create a kind='description' proposal staged against the workflow."""
+    workflow_exists = await conn.fetchval(
+        "SELECT 1 FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if not workflow_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    iter_id = await conn.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "ORDER BY iteration_index DESC LIMIT 1",
+        workflow_id,
+    )
+    if iter_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Workflow has no iterations yet. Run a baseline iteration "
+                "before proposing a description edit so the proposal has "
+                "audit context."
+            ),
+        )
+
+    # Reject no-op proposals — the inline-edit's direct PATCH already
+    # handles cosmetic changes; a proposal whose proposed text equals
+    # the current text would create a no-signal queue row.
+    current_description = await conn.fetchval(
+        "SELECT description FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if (current_description or "").strip() == body.proposed_description.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Proposed description matches the current description. "
+                "Use the inline Quick edit for cosmetic tweaks; the "
+                "proposal flow is for substantive rewrites."
+            ),
+        )
+
+    import json as _json
+    proposal_row = await conn.fetchrow(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state
+        )
+        VALUES (
+            $1, NULL, NULL,
+            '', $2::jsonb, $3,
+            'description'::proposal_kind, 'pending'::proposal_state
+        )
+        RETURNING id, created_at, state_updated_at
+        """,
+        iter_id,
+        _json.dumps(
+            {
+                "description": body.proposed_description,
+                "previous_description": current_description or "",
+            }
+        ),
+        body.plain_language_summary,
+    )
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.PROPOSAL_CREATED,
+        payload={
+            "workflow_id": workflow_id,
+            "proposal_id": str(proposal_row["id"]),
+            "kind": "description",
+            "rationale": body.rationale,
+            "char_delta": len(body.proposed_description)
+            - len(current_description or ""),
+        },
+        actor="api:create_description_proposal",
+        related_id=proposal_row["id"],
+    )
+
+    iter_index = await conn.fetchval(
+        "SELECT iteration_index FROM iterations WHERE id = $1",
+        iter_id,
+    )
+    return ProposalSummary(
+        id=proposal_row["id"],
+        iteration_id=iter_id,
+        iteration_index=iter_index,
+        skill_id=None,
+        kind="description",
+        workflow_id=workflow_id,
+        workflow_description=current_description or "",
         state="pending",
         plain_language_summary=body.plain_language_summary,
         eval_score=None,

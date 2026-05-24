@@ -261,6 +261,29 @@ export async function createMetricProposal(
   )
 }
 
+// 9.2.3 — create a kind='description' proposal. Separate from the
+// direct PATCH used by the inline description-edit: that path is for
+// cosmetic "quick edit"; this is the gate-routed path for
+// substantive rewrites.
+export interface CreateDescriptionProposalBody {
+  plain_language_summary: string
+  proposed_description: string
+  rationale?: string | null
+}
+
+export async function createDescriptionProposal(
+  workflowId: string,
+  body: CreateDescriptionProposalBody,
+): Promise<ProposalSummary> {
+  return jsonFetch<ProposalSummary>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/proposals/description`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+}
+
 // 9.2.3 — create a kind='ui-primitive' proposal. `proposed_primitives`
 // is the new operate-tab primitive list; each entry must carry `type`.
 export interface CreateUIPrimitiveProposalBody {

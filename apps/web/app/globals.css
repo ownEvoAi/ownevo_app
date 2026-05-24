@@ -1963,6 +1963,57 @@
   color: var(--text-muted);
 }
 
+.description-diff-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+}
+.description-diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.description-diff-col {
+  display: flex;
+  flex-direction: column;
+}
+.description-diff-head {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: rgba(0, 0, 0, 0.02);
+}
+.description-diff-head.added {
+  background: rgba(56, 161, 105, 0.08);
+  color: #2f855a;
+  border-color: rgba(56, 161, 105, 0.32);
+}
+.description-diff-head.removed {
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.28);
+}
+.description-diff-body {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  font-family: var(--font-sans, inherit);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  background: var(--bg);
+  min-height: 100px;
+}
+.propose-description-panel {
+  margin-top: 16px;
+}
+
 /* ---------------------------------------------------------------------
    9.2.2 — Spec tab header + inline description-edit.
    --------------------------------------------------------------------- */
@@ -1982,10 +2033,15 @@
   max-width: 720px;
 }
 
-.inline-desc-edit-btn {
+.inline-desc-actions-row {
   position: absolute;
   top: 10px;
   right: 12px;
+  display: flex;
+  gap: 6px;
+}
+.inline-desc-edit-btn,
+.inline-desc-propose-btn {
   font-size: 11px;
   background: transparent;
   border: 1px solid var(--border);
@@ -1993,11 +2049,15 @@
   padding: 3px 10px;
   border-radius: 4px;
   cursor: pointer;
-  transition: border-color 0.12s, color 0.12s;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.inline-desc-edit-btn:hover {
+.inline-desc-edit-btn:hover,
+.inline-desc-propose-btn:hover {
   border-color: var(--accent, #4f46e5);
   color: var(--accent, #4f46e5);
+}
+.inline-desc-propose-btn {
+  background: rgba(99, 102, 241, 0.05);
 }
 .inline-desc-textarea {
   width: 100%;

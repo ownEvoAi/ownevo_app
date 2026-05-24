@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { ProposeDescriptionEdit } from './propose-description-edit'
 import { updateDescriptionAction } from './settings/actions'
 
 interface Props {
@@ -69,14 +70,22 @@ export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
     >
       {!editing ? (
         <>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="inline-desc-edit-btn"
-            aria-label="Edit description"
-          >
-            Edit
-          </button>
+          <div className="inline-desc-actions-row">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-desc-edit-btn"
+              aria-label="Quick edit (cosmetic, direct save)"
+              title="Quick edit · cosmetic, direct save"
+            >
+              Quick edit
+            </button>
+            <ProposeDescriptionEdit
+              wsId={wsId}
+              wfId={wfId}
+              current={description}
+            />
+          </div>
           <p
             style={{
               fontSize: 14,
