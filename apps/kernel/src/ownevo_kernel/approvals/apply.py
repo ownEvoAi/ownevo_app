@@ -10,6 +10,38 @@ These helpers run inside the approve_proposal transaction, after
 the state row update and before the audit entry. A failure to apply
 the change raises, the transaction rolls back, and the proposal
 stays in `gate-passed` so the reviewer can retry or reject.
+
+Two "sims" — keep them straight
+-------------------------------
+The workflow row stores TWO sim-shaped artifacts and they serve
+different roles:
+
+  * `workflows.spec` — the agent's runtime environment: tools the
+    agent can call, user-simulator personas, env_generators, and
+    data_sources. Editable via `kind='sim'` proposals (this module).
+    Surfaced in the UI as "Agent environment" on the Spec tab.
+
+  * `workflows.simulation_plan` — the REPLAY sim: deterministic
+    `run_simulation(seed, n_steps) → trajectory` Python module
+    (init_state_code / step_code / event_fields). Eval cases bind
+    to its trajectories — every case is a (seed, step_index,
+    label_field, expected_value) pointer into one. The replay sim
+    has NO UI surface and NO proposal kind; it is frozen at NL-gen
+    time and cannot be edited in place.
+
+The split matters because the replay sim pins eval-case validity.
+Editing it would invalidate cases (their `expected_value` was
+recorded against the old trajectory at that seed). The agent
+environment is safe to edit — adding/removing tools or personas
+changes the agent's behaviour against the same cases, which is
+exactly what the regression gate is for.
+
+If we ever expose the replay sim for editing, we need a
+`simulation_plan_versions` table + per-eval-case `sim_version_id`
+FK + a replay-on-apply migration step (re-run each case against
+the proposed sim, drop/quarantine/re-label as needed). Until then
+`apply_sim_proposal` must NEVER write to `workflows.simulation_plan`
+— see the invariant test in tests/approvals/test_apply_sim.py.
 """
 
 from __future__ import annotations

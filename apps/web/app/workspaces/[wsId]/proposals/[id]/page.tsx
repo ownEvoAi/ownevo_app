@@ -224,7 +224,7 @@ function artifactLabel(kind: ProposalDetail['kind']): string {
     case 'metric':
       return 'Success metric'
     case 'sim':
-      return 'Simulator'
+      return 'Agent environment'
     case 'ui-primitive':
       return 'Operate-view UI'
     default:
@@ -815,7 +815,7 @@ function SimDiff({
 
   return (
     <>
-      <h2 className="section-title">Simulator · proposed change</h2>
+      <h2 className="section-title">Agent environment · proposed change</h2>
       <div className="artifact-diff sim-diff">
         {sections.map((s) => {
           const currIds = new Set(idsFor(currentBySection[s.key], s.idField))

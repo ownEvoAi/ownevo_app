@@ -1,15 +1,12 @@
 import { notFound } from 'next/navigation'
 import {
-  type EvalCaseSummary,
   getWorkflowAnatomy,
   getWorkflowSkills,
   KernelApiError,
-  listWorkflowEvalCases,
   type SkillSummary,
   type WorkflowAnatomy,
 } from '@/lib/api'
 import {
-  EvalCasesSection,
   MetricSection,
   PrimitivesSection,
   simulatorMeta,
@@ -24,34 +21,36 @@ interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
 }
 
-// Post-creation Spec tab — the same artifact view a reviewer sees at
-// authoring time (`/workflows/new/review/[wfId]`) but rendered against
-// the live workflow surface 30+ days later. Simulator + Eval cases +
-// Success metric + Operate-view UI primitives, every section editable.
+// Post-creation Spec tab — the artifact view rendered against the live
+// workflow 30+ days after authoring. Agent environment (tools / personas
+// / data sources / env generators) + Success metric + Operate-view UI
+// primitives, every section editable through the regression gate. The
+// description is editable in place (cosmetic; no gate flow).
 //
-// Read-only on the artifacts in this slice; the Edit affordances flow
-// through the regression gate as part of the next slice. The header
-// description IS editable in place — the existing
-// `updateDescriptionAction` is reused for an inline-edit, since
-// description edits are cosmetic on their own (they don't regenerate
-// the spec / sim / eval / metric).
+// "Agent environment" used to be labelled "Simulator" in the UI; the
+// proposal kind in the DB is still `sim` for storage continuity. The
+// replay sim (workflows.simulation_plan — init_state_code / step_code
+// that eval cases bind to) has no UI surface and is frozen at NL-gen
+// time. See approvals/apply.py for the invariant.
+//
+// Eval cases are intentionally NOT rendered here — they live on the
+// dedicated Eval cases tab where they pair with generate-from-failures
+// and ad-hoc CRUD. The authoring `/new/review/[wfId]` page still shows
+// them inline because that surface predates the per-workflow tab strip.
 export default async function WorkflowSpecPage({ params }: PageProps) {
   const { wsId, wfId } = await params
 
   let anatomy: WorkflowAnatomy | null = null
   let skills: SkillSummary[] = []
-  let evalCases: EvalCaseSummary[] = []
   let apiError: { title: string; detail: string } | null = null
 
   try {
-    const [anatomyRes, skillList, evalList] = await Promise.all([
+    const [anatomyRes, skillList] = await Promise.all([
       getWorkflowAnatomy(wfId),
       getWorkflowSkills(wfId),
-      listWorkflowEvalCases(wfId),
     ])
     anatomy = anatomyRes
     skills = skillList.items
-    evalCases = evalList.items
   } catch (err) {
     if (err instanceof KernelApiError && err.status === 404) {
       notFound()
@@ -97,9 +96,10 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
           <h2 className="section-title">Workflow spec</h2>
           <p className="spec-tab-sub">
             The generated artifacts that define this workflow. Edits to
-            the description are cosmetic; edits to the simulator,
-            success metric, eval cases, or operate-view primitives flow
-            through the regression gate.
+            the description are cosmetic; edits to the agent
+            environment, success metric, or operate-view primitives
+            flow through the regression gate. Eval cases live on their
+            own tab.
           </p>
         </div>
       </header>
@@ -129,8 +129,6 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
           />
         }
       />
-
-      <EvalCasesSection cases={evalCases} wsId={wsId} wfId={wfId} />
 
       <MetricSection
         metric={metricDef}

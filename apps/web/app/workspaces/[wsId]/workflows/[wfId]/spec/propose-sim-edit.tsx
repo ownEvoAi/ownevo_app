@@ -119,11 +119,12 @@ export function ProposeSimEdit({
   return (
     <div className="propose-edit-panel">
       <div className="propose-edit-head">
-        <strong>Propose sim plan edit</strong>
+        <strong>Propose agent environment edit</strong>
         <span className="propose-edit-help">
           Edit the JSON below — tools / personas / data_sources /
-          env_generators. Goes through proposal review + domain-expert
-          approval.
+          env_generators. This edits the agent&apos;s runtime
+          environment, not the replay simulator that pins eval cases.
+          Goes through proposal review + domain-expert approval.
         </span>
       </div>
       <textarea
@@ -141,7 +142,7 @@ export function ProposeSimEdit({
         <input
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
-          placeholder="e.g. Add seasonal_index lookup tool to the simulator."
+          placeholder="e.g. Add seasonal_index lookup tool to the agent."
           disabled={isPending}
         />
       </label>

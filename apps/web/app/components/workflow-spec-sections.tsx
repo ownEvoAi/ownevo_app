@@ -115,13 +115,13 @@ export function SimulatorSection(props: {
     envGenerators.length === 0 &&
     dataSources.length === 0
   return (
-    <SectionShell title="Simulator" meta={meta} action={action}>
+    <SectionShell title="Agent environment" meta={meta} action={action}>
       {attributionSlot}
       {empty ? (
         <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          The simulator hasn&apos;t been generated yet — Revise to edit
-          the description, or continue and the iteration runner will
-          generate it lazily.
+          The agent environment hasn&apos;t been generated yet — Revise
+          to edit the description, or continue and the iteration runner
+          will generate it lazily.
         </p>
       ) : (
         <>
@@ -489,12 +489,12 @@ export function simulatorMeta(
     personas.length +
     envGenerators.length +
     dataSources.length
-  if (totalSimItems === 0) return 'simulator not generated yet'
+  if (totalSimItems === 0) return 'environment not generated yet'
   const envCount = envGenerators.length + dataSources.length
   return (
     `${tools.length} tool${tools.length === 1 ? '' : 's'} · ` +
     `${personas.length} persona${personas.length === 1 ? '' : 's'} · ` +
-    `${envCount} environment source${envCount === 1 ? '' : 's'}` +
-    (hasSimPlan ? '' : ' · sim code pending')
+    `${envCount} data source${envCount === 1 ? '' : 's'}` +
+    (hasSimPlan ? '' : ' · replay sim pending')
   )
 }
