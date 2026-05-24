@@ -32,6 +32,10 @@ from ...approvals import (
     request_changes_proposal,
     rollback_proposal,
 )
+from ...proposals.ordering_inversion import (
+    check_metric_ordering_inversion,
+    to_api_dict as inversion_check_to_dict,
+)
 from ...types import ApproverType
 from ..deps import ConnDep, DemoModeCheck
 from ..jsonb import decode_jsonb_obj
@@ -282,6 +286,71 @@ async def get_proposal(
         approval=_approval_from_row(approval_row) if approval_row else None,
         gate_result_cases=_gate_result_cases_from_audit(gate_audit_entries),
     )
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — ordering-inversion check for kind='metric' proposals
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{proposal_id}/ordering-inversion-check")
+async def get_metric_ordering_inversion_check(
+    proposal_id: UUID,
+    conn: ConnDep,
+) -> dict[str, Any]:
+    """Re-score every prior iteration under the proposed metric and
+    return per-iteration deltas + inversion flags.
+
+    Only meaningful for kind='metric' proposals. Returns a body shaped
+    by `proposals.ordering_inversion.to_api_dict`. The proposal-detail
+    surface renders this above the approval form so the reviewer sees
+    the consequence of approving the metric change before they click.
+
+    404 when the proposal id doesn't exist; 422 when the proposal is
+    not kind='metric'; otherwise 200 with `status='ok'` /
+    `'unavailable'` describing whether the check could run.
+    """
+    proposal_row = await conn.fetchrow(
+        """
+        SELECT p.id, p.kind::text AS kind, p.proposed_payload,
+               i.workflow_id
+        FROM proposals p
+        JOIN iterations i ON i.id = p.iteration_id
+        WHERE p.id = $1
+        """,
+        proposal_id,
+    )
+    if proposal_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proposal {proposal_id} not found",
+        )
+    if proposal_row["kind"] != "metric":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Ordering-inversion check applies to kind='metric' "
+                "proposals only."
+            ),
+        )
+
+    proposed = proposal_row["proposed_payload"]
+    if isinstance(proposed, str):
+        import json as _json
+
+        try:
+            proposed = _json.loads(proposed)
+        except (ValueError, TypeError):
+            proposed = {}
+    if not isinstance(proposed, dict):
+        proposed = {}
+
+    result = await check_metric_ordering_inversion(
+        conn,
+        workflow_id=proposal_row["workflow_id"],
+        proposed_metric_payload=proposed,
+    )
+    return inversion_check_to_dict(result)
 
 
 # ---------------------------------------------------------------------------

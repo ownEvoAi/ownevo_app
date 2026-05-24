@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
+  getOrderingInversionCheck,
   getProposal,
   getWorkflowAnatomy,
   KernelApiError,
   type GateResultCases,
+  type OrderingInversionCheck,
   type ProposalDetail,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime } from '@/lib/format'
@@ -60,6 +62,19 @@ export default async function ProposalDetailPage({ params }: PageProps) {
     /* ignore — fall through with isBenchmark=false */
   }
 
+  // For kind='metric' proposals, fetch the ordering-inversion check.
+  // Soft-fail: a check failure shouldn't block the proposal detail
+  // from rendering — the panel falls through to an "unavailable"
+  // state if anything goes wrong.
+  let inversionCheck: OrderingInversionCheck | null = null
+  if (proposal.kind === 'metric') {
+    try {
+      inversionCheck = await getOrderingInversionCheck(proposal.id)
+    } catch {
+      /* ignore — panel renders as unavailable */
+    }
+  }
+
   return (
     <div>
       <nav className="crumb-row">
@@ -98,7 +113,12 @@ export default async function ProposalDetailPage({ params }: PageProps) {
               />
             </>
           ) : (
-            <ArtifactDiff proposal={proposal} />
+            <>
+              <ArtifactDiff proposal={proposal} />
+              {proposal.kind === 'metric' && (
+                <OrderingInversionPanel check={inversionCheck} />
+              )}
+            </>
           )}
 
           <h2 className="section-title">Why this change</h2>
@@ -228,11 +248,6 @@ function ArtifactDiff({ proposal }: { proposal: ProposalDetail }) {
               <span className="key">rationale:</span> {rationale}
             </div>
           ) : null}
-          <div className="artifact-diff-warning">
-            Ordering-inversion check against prior iterations is not
-            yet wired — approval applies the metric as-is. Re-scoring
-            lands in a follow-up.
-          </div>
         </div>
       </>
     )
@@ -559,4 +574,116 @@ function AuditList({ entries }: { entries: ProposalDetail['audit_entries'] }) {
       ))}
     </ol>
   )
+}
+
+// 9.2.3 — ordering-inversion check for kind='metric' proposals. Lands
+// above the approval form so a reviewer sees the consequence of
+// switching the metric (which prior iterations would flip pass/fail
+// under the new metric) before they click approve.
+function OrderingInversionPanel({
+  check,
+}: {
+  check: OrderingInversionCheck | null
+}) {
+  if (check === null) {
+    return (
+      <div className="inversion-panel inversion-unavailable">
+        <strong>Ordering-inversion check unavailable.</strong> The
+        kernel didn&apos;t return a result for this proposal — try
+        refreshing.
+      </div>
+    )
+  }
+  if (check.status !== 'ok') {
+    return (
+      <div className="inversion-panel inversion-unavailable">
+        <strong>Ordering-inversion check unavailable.</strong>{' '}
+        {check.reason ?? 'No reason supplied.'}
+      </div>
+    )
+  }
+
+  const nInverted = check.n_inverted
+  const nIterations = check.iterations.length
+
+  return (
+    <div
+      className={`inversion-panel ${nInverted > 0 ? 'inversion-warn' : 'inversion-ok'}`}
+    >
+      <h3 className="inversion-title">
+        Ordering-inversion check ·{' '}
+        <code>{check.current_metric_family}</code> →{' '}
+        <code>{check.proposed_metric_family}</code>
+      </h3>
+      <p className="inversion-headline">
+        {nInverted === 0 ? (
+          <>
+            Re-scored {nIterations} iteration
+            {nIterations === 1 ? '' : 's'} under the proposed metric —
+            no gate verdicts flip.
+          </>
+        ) : (
+          <>
+            <strong>
+              {nInverted} of {nIterations} iteration
+              {nIterations === 1 ? '' : 's'} would flip pass/fail
+            </strong>{' '}
+            under the proposed metric. Review the per-iteration deltas
+            before approving.
+          </>
+        )}
+      </p>
+
+      <table className="inversion-table">
+        <thead>
+          <tr>
+            <th>Iter</th>
+            <th>Cases</th>
+            <th>
+              <code>{check.current_metric_family}</code>
+            </th>
+            <th>
+              <code>{check.proposed_metric_family}</code>
+            </th>
+            <th>Δ</th>
+            <th>Old verdict</th>
+            <th>New verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {check.iterations.map((it) => (
+            <tr
+              key={it.iteration_index}
+              className={it.inverted ? 'inversion-row-flip' : ''}
+            >
+              <td>#{it.iteration_index}</td>
+              <td>{it.n_cases}</td>
+              <td>{formatScoreOrDash(it.old_score)}</td>
+              <td>{formatScoreOrDash(it.new_score)}</td>
+              <td>{formatDeltaOrDash(it.delta)}</td>
+              <td>{verdictPill(it.old_meets_target)}</td>
+              <td>{verdictPill(it.new_meets_target)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function formatScoreOrDash(v: number | null): string {
+  return v === null ? '—' : v.toFixed(3)
+}
+
+function formatDeltaOrDash(v: number | null): string {
+  if (v === null) return '—'
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(3)}`
+}
+
+function verdictPill(meets: boolean | null) {
+  if (meets === null) return <span className="failures-list-muted">—</span>
+  if (meets)
+    return <span className="pill source-prod">passes</span>
+  return <span className="pill red">fails</span>
 }

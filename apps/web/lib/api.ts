@@ -261,6 +261,36 @@ export async function createMetricProposal(
   )
 }
 
+// 9.2.3 — ordering-inversion check for kind='metric' proposals.
+// Returned shape mirrors `proposals.ordering_inversion.to_api_dict`.
+export interface InversionIterationDelta {
+  iteration_index: number
+  old_score: number | null
+  new_score: number | null
+  delta: number | null
+  old_meets_target: boolean | null
+  new_meets_target: boolean | null
+  inverted: boolean
+  n_cases: number
+}
+
+export interface OrderingInversionCheck {
+  status: 'ok' | 'unavailable' | 'error'
+  reason: string | null
+  current_metric_family: string | null
+  proposed_metric_family: string | null
+  n_inverted: number
+  iterations: InversionIterationDelta[]
+}
+
+export async function getOrderingInversionCheck(
+  proposalId: string,
+): Promise<OrderingInversionCheck> {
+  return jsonFetch<OrderingInversionCheck>(
+    `/api/proposals/${proposalId}/ordering-inversion-check`,
+  )
+}
+
 export interface GenerateWorkflowResponse {
   workflow_id: string
   description: string

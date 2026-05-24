@@ -496,3 +496,266 @@ async def test_list_proposals_filter_by_changes_requested(
     ids = [item["id"] for item in body["items"]]
     assert str(seeded_cr["proposal_id"]) in ids
     assert all(item["state"] == "changes-requested" for item in body["items"])
+
+
+# ---------------------------------------------------------------------------
+# 9.2.3 — ordering-inversion check for metric proposals
+# ---------------------------------------------------------------------------
+
+
+async def _seed_metric_workflow_with_outputs(
+    db: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    target_label_field: str = "alert_correct",
+    cases: list[dict] | None = None,
+    iterations: list[list[bool]] | None = None,
+):
+    """Seed workflow + metric_definition + eval cases + iterations
+    each with iteration_case_outputs.
+
+    `cases` is a list of {case_id, expected_value}. `iterations` is
+    a list-of-list of bools: iterations[i][j] is the j-th case's
+    predicted value in iteration i.
+    """
+    cases = cases or [
+        {"case_id": "c1", "expected_value": True},
+        {"case_id": "c2", "expected_value": True},
+        {"case_id": "c3", "expected_value": False},
+        {"case_id": "c4", "expected_value": False},
+    ]
+    iterations = iterations or [[True, False, True, False]]
+    metric_definition = {
+        "schema_version": "0.1",
+        "workflow_spec_id": workflow_id,
+        "name": "pass-rate",
+        "family": "pass_rate",
+        "direction": "maximize",
+        "lower_bound": 0.0,
+        "upper_bound": 1.0,
+        "target_value": 0.75,
+        "description": "Fraction of cases passing.",
+        "rationale": "Demo seed.",
+        "provenance": {"kind": "derived", "source": "test fixture"},
+    }
+    await db.execute(
+        """
+        INSERT INTO workflows (id, description, spec, metric_definition)
+        VALUES ($1, $2, '{}'::jsonb, $3::jsonb)
+        ON CONFLICT (id) DO UPDATE SET metric_definition = EXCLUDED.metric_definition
+        """,
+        workflow_id,
+        f"Inversion test {workflow_id}",
+        __import__("json").dumps(metric_definition),
+    )
+
+    case_ids = []
+    for c in cases:
+        case_id = await db.fetchval(
+            """
+            INSERT INTO eval_cases (workflow_id, provenance, input, expected_behavior)
+            VALUES ($1, 'cluster-derived', '{}'::jsonb, $2::jsonb)
+            RETURNING id
+            """,
+            workflow_id,
+            __import__("json").dumps(
+                {
+                    "case_id": c["case_id"],
+                    "target_label_field": target_label_field,
+                    "expected_value": c["expected_value"],
+                }
+            ),
+        )
+        case_ids.append(case_id)
+
+    for iter_idx, predictions in enumerate(iterations):
+        iter_id = await db.fetchval(
+            """
+            INSERT INTO iterations
+                (workflow_id, iteration_index, state, val_score,
+                 best_ever_score_after, ended_at)
+            VALUES ($1, $2, 'gate-pass'::iteration_state, 0.5, 0.5, now())
+            RETURNING id
+            """,
+            workflow_id,
+            iter_idx,
+        )
+        for case_id, expected, predicted in zip(
+            case_ids,
+            [c["expected_value"] for c in cases],
+            predictions,
+            strict=True,
+        ):
+            await db.execute(
+                """
+                INSERT INTO iteration_case_outputs
+                    (iteration_id, eval_case_id, output_json, passed)
+                VALUES ($1, $2, $3::jsonb, $4)
+                """,
+                iter_id,
+                case_id,
+                __import__("json").dumps({target_label_field: predicted}),
+                expected == predicted,
+            )
+
+
+async def _seed_metric_proposal(
+    db: asyncpg.Connection,
+    *,
+    workflow_id: str,
+    iteration_index: int = 0,
+    payload: dict | None = None,
+):
+    iter_id = await db.fetchval(
+        "SELECT id FROM iterations WHERE workflow_id = $1 "
+        "AND iteration_index = $2",
+        workflow_id,
+        iteration_index,
+    )
+    payload = payload or {"name": "recall", "family": "recall"}
+    proposal_id = await db.fetchval(
+        """
+        INSERT INTO proposals (
+            iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state
+        )
+        VALUES ($1, NULL, NULL, '', $2::jsonb, 'Switch metric',
+                'metric'::proposal_kind, 'pending'::proposal_state)
+        RETURNING id
+        """,
+        iter_id,
+        __import__("json").dumps(payload),
+    )
+    return proposal_id
+
+
+async def test_inversion_check_404_on_unknown_proposal(
+    api_client: httpx.AsyncClient,
+):
+    res = await api_client.get(
+        f"/api/proposals/{uuid4()}/ordering-inversion-check"
+    )
+    assert res.status_code == 404
+
+
+async def test_inversion_check_422_on_skill_proposal(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    seeded = await _seed_proposal(db)
+    res = await api_client.get(
+        f"/api/proposals/{seeded['proposal_id']}/ordering-inversion-check"
+    )
+    assert res.status_code == 422
+
+
+async def test_inversion_check_unavailable_without_metric_definition(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A workflow with no metric_definition can't anchor the check —
+    status='unavailable'."""
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) VALUES "
+        "($1, 'no-metric', '{}'::jsonb) ON CONFLICT DO NOTHING",
+        "wf-no-metric",
+    )
+    iter_id = await db.fetchval(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES "
+        "($1, 0, 'gate-pass'::iteration_state, 0.5, 0.5, now()) RETURNING id",
+        "wf-no-metric",
+    )
+    proposal_id = await db.fetchval(
+        """
+        INSERT INTO proposals (iteration_id, skill_id, parent_version_id,
+            proposed_content, proposed_payload, plain_language_summary,
+            kind, state)
+        VALUES ($1, NULL, NULL, '', '{"name":"x"}'::jsonb, 's',
+                'metric'::proposal_kind, 'pending'::proposal_state)
+        RETURNING id
+        """,
+        iter_id,
+    )
+    res = await api_client.get(
+        f"/api/proposals/{proposal_id}/ordering-inversion-check"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "unavailable"
+    assert "metric definition" in (body["reason"] or "").lower()
+
+
+async def test_inversion_check_ok_per_iteration_deltas(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """One iteration where the agent over-predicts True (good recall,
+    bad precision). Switching from pass_rate to recall should bump
+    new_score above old_score for that iteration; no inversion if
+    target_value is permissive."""
+    await _seed_metric_workflow_with_outputs(
+        db,
+        workflow_id="wf-inv-ok",
+        iterations=[
+            # expected: T, T, F, F. predictions: T, T, T, T.
+            # pass_rate = 2/4 = 0.5; recall = 2/2 = 1.0.
+            [True, True, True, True],
+        ],
+    )
+    proposal_id = await _seed_metric_proposal(
+        db,
+        workflow_id="wf-inv-ok",
+        payload={"name": "recall", "family": "recall"},
+    )
+    res = await api_client.get(
+        f"/api/proposals/{proposal_id}/ordering-inversion-check"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok", body.get("reason")
+    assert body["current_metric_family"] == "pass_rate"
+    assert body["proposed_metric_family"] == "recall"
+    assert len(body["iterations"]) == 1
+    it = body["iterations"][0]
+    assert it["old_score"] == 0.5
+    assert it["new_score"] == 1.0
+    assert it["delta"] == 0.5
+    assert it["n_cases"] == 4
+
+
+async def test_inversion_check_flags_gate_verdict_flip(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """Two iterations: iter 0 passes pass_rate (target 0.75 met) but
+    fails recall; the check flags an inversion."""
+    await _seed_metric_workflow_with_outputs(
+        db,
+        workflow_id="wf-inv-flip",
+        iterations=[
+            # expected: T, T, F, F. predictions: F, F, F, F.
+            # pass_rate = 2/4 = 0.5 (< 0.75 — fails); recall = 0/2 = 0 (fails too).
+            # Pick predictions where the gate verdict actually flips:
+            # F, T, F, F → expected match: TN,FN(F),TN,TN. Hmm.
+            # Easier: predictions all match expected for iter 0 → pass_rate=1.0
+            # (passes target), recall = 2/2 = 1.0 (passes too) — no flip.
+            # Construct a real flip: expected T,T,F,F predictions T,F,F,F.
+            # pass_rate = 3/4 = 0.75 (meets target 0.75 with maximize);
+            # recall = 1/2 = 0.5 (with target 0.75 -> fails).
+            [True, False, False, False],
+        ],
+    )
+    proposal_id = await _seed_metric_proposal(
+        db,
+        workflow_id="wf-inv-flip",
+        payload={"name": "recall", "family": "recall"},
+    )
+    res = await api_client.get(
+        f"/api/proposals/{proposal_id}/ordering-inversion-check"
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["n_inverted"] >= 1
+    it = body["iterations"][0]
+    assert it["inverted"] is True
+    assert it["old_meets_target"] is True
+    assert it["new_meets_target"] is False
