@@ -116,6 +116,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "approver_type",
             "audit_kind",
             "iteration_state",
+            "proposal_kind",
             "proposal_state",
             "provenance_kind",
             "sandbox_error_class",

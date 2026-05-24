@@ -109,6 +109,7 @@ async def list_proposals(
             p.iteration_id,
             i.iteration_index,
             p.skill_id,
+            p.kind::text AS kind,
             i.workflow_id,
             w.description AS workflow_description,
             p.state::text AS state,
@@ -147,8 +148,10 @@ async def get_proposal(
             p.id,
             p.iteration_id,
             p.skill_id,
+            p.kind::text AS kind,
             p.parent_version_id,
             p.proposed_content,
+            p.proposed_payload,
             p.plain_language_summary,
             p.expected_impact,
             p.state::text AS state,
@@ -246,9 +249,11 @@ async def get_proposal(
         id=proposal_row["id"],
         iteration_id=proposal_row["iteration_id"],
         skill_id=proposal_row["skill_id"],
+        kind=proposal_row["kind"],
         parent_version_id=proposal_row["parent_version_id"],
         state=proposal_row["state"],
         proposed_content=proposal_row["proposed_content"],
+        proposed_payload=decode_jsonb_obj(proposal_row["proposed_payload"]),
         parent_version_content=parent_version_content,
         parent_version_seq=parent_version_seq,
         plain_language_summary=proposal_row["plain_language_summary"],
@@ -526,11 +531,20 @@ def _resolve_approver_type(raw: str | None) -> ApproverType:
 
 
 def _row_to_summary(row: asyncpg.Record) -> ProposalSummary:
+    # `kind` was added in migration 0017. Other callers of this helper
+    # (legacy fixtures, partial unit-test rows) may not select it; fall
+    # back to the historical 'skill' value rather than KeyError.
+    kind_val: str
+    try:
+        kind_val = row["kind"]
+    except (KeyError, IndexError):
+        kind_val = "skill"
     return ProposalSummary(
         id=row["id"],
         iteration_id=row["iteration_id"],
         iteration_index=row["iteration_index"],
         skill_id=row["skill_id"],
+        kind=kind_val,
         workflow_id=row["workflow_id"],
         workflow_description=row["workflow_description"],
         state=row["state"],

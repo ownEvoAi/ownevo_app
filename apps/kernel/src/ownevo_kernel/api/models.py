@@ -38,12 +38,18 @@ class ProposalSummary(_Strict):
 
     Joined across `proposals` + `iterations` + `workflows` so the inbox
     page renders without N+1 fetches.
+
+    `kind` discriminates skill edits from non-skill artifact edits
+    (description / metric / sim / ui-primitive). For non-skill kinds
+    `skill_id` is null and the per-artifact payload lives on the
+    detail endpoint.
     """
 
     id: UUID
     iteration_id: UUID
     iteration_index: int
-    skill_id: str
+    skill_id: str | None
+    kind: str = "skill"
     workflow_id: str
     workflow_description: str
     state: str
@@ -128,10 +134,15 @@ class GateResultCases(_Strict):
 class ProposalDetail(_Strict):
     id: UUID
     iteration_id: UUID
-    skill_id: str
+    skill_id: str | None
+    kind: str = "skill"
     parent_version_id: UUID | None
     state: str
     proposed_content: str
+    # Non-skill artifact payload (description / metric / sim /
+    # ui-primitive). Null for kind='skill' where `proposed_content`
+    # carries the new skill body.
+    proposed_payload: dict[str, Any] | None = None
     parent_version_content: str | None  # null on the bootstrap iteration
     parent_version_seq: int | None
     plain_language_summary: str
