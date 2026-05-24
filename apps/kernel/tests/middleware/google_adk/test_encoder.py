@@ -152,3 +152,10 @@ def test_encodes_kind_correctly(
     payload = readable_spans_to_otlp_json(spans)
     encoded_span = payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     assert encoded_span["kind"] == 1  # SpanKind.INTERNAL → 1
+
+
+def test_empty_spans_produces_valid_envelope() -> None:
+    """readable_spans_to_otlp_json([]) must return a well-formed envelope
+    with an empty spans list — not raise or omit the spans key."""
+    payload = readable_spans_to_otlp_json([])
+    assert payload["resourceSpans"][0]["scopeSpans"][0]["spans"] == []

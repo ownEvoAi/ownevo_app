@@ -20,14 +20,18 @@ Out of scope for this slice:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
+from ...middleware.google_adk import translate_otlp_json_for_adk
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
+    DecodedBatch,
     OtelDecodeError,
     OversizedPayloadError,
     decode_otlp_payload,
@@ -38,6 +42,29 @@ from ..deps import ConnDep
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/otel", tags=["otel-ingest"])
+
+
+def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
+    """Parse raw OTLP-JSON bytes, apply the ADK vendor-key translator, then decode.
+
+    `translate_otlp_json_for_adk` rewrites `gcp.vertex.agent.*` attribute keys
+    onto the standard `gen_ai.*` semconv equivalents so ADK-emitted traces
+    decode identically to OpenLLMetry / LangChain traces. The translator is
+    conditional (no-op when the standard keys are already present) and
+    non-destructive (operates on a deep copy), so non-ADK payloads are
+    unaffected at negligible cost.
+
+    JSON parse errors are promoted to `OtelDecodeError` so the route handler's
+    existing 400 path handles them without a separate except clause.
+    """
+    try:
+        parsed: dict[str, Any] = json.loads(raw)
+    except ValueError as exc:
+        raise OtelDecodeError(f"invalid JSON: {exc}") from exc
+    return decode_otlp_payload(
+        translate_otlp_json_for_adk(parsed),
+        max_body_bytes=max_body_bytes,
+    )
 
 
 class IngestWarning(BaseModel):
@@ -134,7 +161,7 @@ async def ingest_otlp_traces(
 
     try:
         batch = await asyncio.to_thread(
-            decode_otlp_payload, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+            _parse_translate_decode, raw, DEFAULT_MAX_BODY_BYTES
         )
     except OversizedPayloadError as exc:
         # Second-line cap guard — catches the rare case where the
