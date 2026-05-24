@@ -18,8 +18,10 @@ import pytest
 from ownevo_kernel.design_agent.prompts import (
     DISCOVERY_QUESTION_KINDS,
     GENERIC_DISCOVERY_QUESTIONS,
+    TRACE_IMPORT_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
     get_discovery_questions,
+    get_trace_import_discovery_questions,
     known_template_ids,
 )
 from pydantic import ValidationError
@@ -158,3 +160,87 @@ def test_design_agent_prompts_all_exports_are_importable() -> None:
 def test_discovery_question_rejects_invalid_inputs(bad_kwargs: dict) -> None:
     with pytest.raises(ValidationError):
         DiscoveryQuestion(**bad_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Trace-import discovery prompts (separate entry point from the
+# per-template registry — the operator is importing an existing
+# agent's traces, not picking a vertical template).
+# ---------------------------------------------------------------------------
+
+
+def test_trace_import_accessor_returns_the_canonical_tuple() -> None:
+    assert get_trace_import_discovery_questions() is TRACE_IMPORT_DISCOVERY_QUESTIONS
+
+
+def test_trace_import_set_is_non_empty() -> None:
+    assert len(TRACE_IMPORT_DISCOVERY_QUESTIONS) >= 2
+
+
+def test_trace_import_includes_metric_negotiation_question() -> None:
+    """The trace-import spec requires ≥1 metric-negotiation question."""
+    metric_qs = [q for q in TRACE_IMPORT_DISCOVERY_QUESTIONS if q.kind == "metric"]
+    assert metric_qs, "trace-import prompts missing a metric-negotiation question"
+
+
+def test_trace_import_includes_ambiguity_surfacing_question() -> None:
+    """The trace-import spec requires ≥1 ambiguity-surfacing question."""
+    ambiguity_qs = [
+        q for q in TRACE_IMPORT_DISCOVERY_QUESTIONS if q.kind == "ambiguity"
+    ]
+    assert ambiguity_qs, "trace-import prompts missing an ambiguity-surfacing question"
+
+
+def test_trace_import_questions_have_non_empty_rationale() -> None:
+    for q in TRACE_IMPORT_DISCOVERY_QUESTIONS:
+        assert q.rationale and q.rationale.strip(), (
+            f"trace-import question has no rationale: {q.question!r}"
+        )
+
+
+def test_trace_import_questions_round_trip_through_pydantic() -> None:
+    for q in TRACE_IMPORT_DISCOVERY_QUESTIONS:
+        roundtripped = DiscoveryQuestion.model_validate_json(q.model_dump_json())
+        assert roundtripped == q
+
+
+def test_trace_import_kinds_are_subset_of_declared_literal() -> None:
+    kinds = {q.kind for q in TRACE_IMPORT_DISCOVERY_QUESTIONS}
+    assert kinds.issubset(set(DISCOVERY_QUESTION_KINDS))
+
+
+def test_trace_import_framing_is_observational_not_interrogative() -> None:
+    """The opening framing differs from authoring-time prompts.
+
+    Trace-import questions should sound like "I see this agent does X;
+    what should success look like" rather than the authoring-time
+    "describe the workflow". This is enforced loosely: at least one
+    question must contain an observational lead ("I see", "Looking at",
+    "your trace", etc.) — the trace-import surface starts from
+    observed material, not a blank slate.
+    """
+    observational_leads = (
+        "i see",
+        "looking at",
+        "your trace",
+        "the imported trace",
+        "i can",
+    )
+    bodies = [q.question.lower() for q in TRACE_IMPORT_DISCOVERY_QUESTIONS]
+    matched = [b for b in bodies if any(lead in b for lead in observational_leads)]
+    assert matched, (
+        "no trace-import question opens observationally; framing should "
+        "anchor to the imported material, not a free-form description"
+    )
+
+
+def test_trace_import_is_not_in_per_template_registry() -> None:
+    """Trace-import is a distinct entry point, not a vertical template.
+
+    The web `templates.ts` slugs key the per-template registry; the
+    trace-import path must not collide with that namespace.
+    """
+    assert "trace-import" not in known_template_ids()
+    # And the trace-import accessor must not return the generic fallback
+    # — it ships its own framing-specific set.
+    assert get_trace_import_discovery_questions() is not GENERIC_DISCOVERY_QUESTIONS

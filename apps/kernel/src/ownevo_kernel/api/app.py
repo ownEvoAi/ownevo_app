@@ -36,6 +36,7 @@ from .routes import (
     design_agent_ambiguity,
     models,
     nl_gen,
+    otel_ingest,
     proposals,
     skills,
     traces,
@@ -124,6 +125,7 @@ def create_app(
     api.include_router(skills.skill_router)
     api.include_router(skills.workflow_skills_router)
     api.include_router(demo.router)
+    api.include_router(otel_ingest.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:

@@ -1,0 +1,28 @@
+{
+  "resourceSpans": [
+    {
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000000100000000",
+              "spanId": "1111111111111111",
+              "startTimeUnixNano": "1700000000000000000",
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

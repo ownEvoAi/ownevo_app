@@ -52,9 +52,11 @@ from .log import (
 from .prompts import (
     DISCOVERY_QUESTION_KINDS,
     GENERIC_DISCOVERY_QUESTIONS,
+    TRACE_IMPORT_DISCOVERY_QUESTIONS,
     DiscoveryQuestion,
     DiscoveryQuestionKind,
     get_discovery_questions,
+    get_trace_import_discovery_questions,
     known_template_ids,
 )
 
@@ -76,6 +78,7 @@ __all__ = [
     "DiscoveryQuestionKind",
     "GENERIC_DISCOVERY_QUESTIONS",
     "InterviewerError",
+    "TRACE_IMPORT_DISCOVERY_QUESTIONS",
     "OptionBrief",
     "PriorAnswer",
     "QuestionBrief",
@@ -85,6 +88,7 @@ __all__ = [
     "find_inferred_artifacts",
     "find_metric_direction_conflicts",
     "get_discovery_questions",
+    "get_trace_import_discovery_questions",
     "known_template_ids",
     "load_design_agent_log",
     "persist_design_agent_log",
