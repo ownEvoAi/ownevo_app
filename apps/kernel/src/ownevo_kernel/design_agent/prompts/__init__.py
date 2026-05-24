@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from . import clinical_trial, credit_risk, generic, retail_demand
+from . import clinical_trial, credit_risk, generic, retail_demand, trace_import
 from ._types import (
     DISCOVERY_QUESTION_KINDS,
     DiscoveryQuestion,
@@ -23,6 +23,16 @@ _REGISTRY: MappingProxyType[str, tuple[DiscoveryQuestion, ...]] = MappingProxyTy
 })
 
 GENERIC_DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = generic.DISCOVERY_QUESTIONS
+
+# Trace-import discovery prompts. Kept outside the per-template
+# registry because the entry point is different (the operator is
+# importing an existing agent's traces rather than picking a vertical
+# template). The conversational stance is observational
+# ("I see this agent does X") rather than interrogative; see
+# `trace_import.py` for the framing rationale.
+TRACE_IMPORT_DISCOVERY_QUESTIONS: tuple[DiscoveryQuestion, ...] = (
+    trace_import.DISCOVERY_QUESTIONS
+)
 
 
 def get_discovery_questions(
@@ -40,6 +50,18 @@ def get_discovery_questions(
     return _REGISTRY.get(template_id, GENERIC_DISCOVERY_QUESTIONS)
 
 
+def get_trace_import_discovery_questions() -> tuple[DiscoveryQuestion, ...]:
+    """Return the prompt set for the trace-import design entry point.
+
+    Kept as a dedicated accessor (rather than a `template_id` key) so
+    the trace-import surface stays distinct from the
+    vertical-template surface — the web app keys per-template prompts
+    by `templates.ts` slug; trace-import is keyed by the import event,
+    not by a vertical.
+    """
+    return TRACE_IMPORT_DISCOVERY_QUESTIONS
+
+
 def known_template_ids() -> tuple[str, ...]:
     """Stable-sorted tuple of template ids the kernel has prompts for."""
     return tuple(sorted(_REGISTRY.keys()))
@@ -50,6 +72,8 @@ __all__ = [
     "DiscoveryQuestion",
     "DiscoveryQuestionKind",
     "GENERIC_DISCOVERY_QUESTIONS",
+    "TRACE_IMPORT_DISCOVERY_QUESTIONS",
     "get_discovery_questions",
+    "get_trace_import_discovery_questions",
     "known_template_ids",
 ]
