@@ -54,10 +54,9 @@ def get_trace_import_discovery_questions() -> tuple[DiscoveryQuestion, ...]:
     """Return the prompt set for the trace-import design entry point.
 
     Kept as a dedicated accessor (rather than a `template_id` key) so
-    the trace-import surface stays distinct from the
-    vertical-template surface — the web app keys per-template prompts
-    by `templates.ts` slug; trace-import is keyed by the import event,
-    not by a vertical.
+    the trace-import surface stays distinct from the per-template
+    registry surface — per-template prompts are keyed by vertical slug;
+    trace-import is keyed by the import event, not by a vertical.
     """
     return TRACE_IMPORT_DISCOVERY_QUESTIONS
 

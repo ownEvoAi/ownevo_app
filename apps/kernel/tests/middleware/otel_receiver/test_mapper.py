@@ -107,8 +107,8 @@ def test_decode_from_json_bytes(case: FixtureCase) -> None:
 
 
 def test_fixture_set_size() -> None:
-    """The PLAN explicitly requires ≥20 fixtures."""
-    assert len(CASES) >= 20, f"only {len(CASES)} fixtures; PLAN demands ≥20"
+    """Fixture set must cover every documented operation variant (≥20 cases)."""
+    assert len(CASES) >= 20, f"only {len(CASES)} fixture cases; need ≥20 to cover all op variants"
 
 
 def test_fixture_names_unique() -> None:
@@ -129,6 +129,97 @@ def test_empty_batch_decodes_to_zero_events() -> None:
     batch = decode_otlp_payload({"resourceSpans": []})
     assert batch.events == []
     assert batch.warnings == []
+
+
+def test_str_payload_path_is_accepted() -> None:
+    """str payloads (not bytes) go through the string decode branch."""
+    import json as _json
+
+    payload_dict = {"resourceSpans": []}
+    batch = decode_otlp_payload(_json.dumps(payload_dict))
+    assert batch.events == []
+    assert batch.warnings == []
+
+
+def test_str_payload_oversize_raises() -> None:
+    """OversizedPayloadError is raised for oversized str payloads."""
+    import json as _json
+
+    small = _json.dumps({"resourceSpans": []})
+    with pytest.raises(OversizedPayloadError):
+        decode_otlp_payload(small, max_body_bytes=5)
+
+
+def test_tool_status_unset_emits_warning() -> None:
+    """STATUS_CODE_UNSET (numeric 0) on a tool span maps to 'ok' with a warning."""
+    from ._fixture_helpers import make_span, str_attr, wrap_batch
+
+    span = make_span(
+        span_id="a1b2c3d4e5f60001",
+        trace_id="a1b2c3d4e5f6000100000000000000aa",
+        name="gen_ai.execute_tool",
+        attributes=[
+            str_attr("gen_ai.operation.name", "execute_tool"),
+            str_attr("gen_ai.tool.call.id", "c_unset"),
+            str_attr("gen_ai.tool.name", "unset_tool"),
+            str_attr("gen_ai.tool.call.arguments", "{}"),
+            str_attr("gen_ai.tool.call.result", "null"),
+        ],
+        status_code=0,  # STATUS_CODE_UNSET
+    )
+    batch = decode_otlp_payload(wrap_batch([span]))
+    result = next((e for e in batch.events if e.type == "tool_call_result"), None)
+    assert result is not None
+    assert result.status == "ok"
+    assert any("UNSET" in w.reason for w in batch.warnings)
+
+
+def test_external_error_class_emits_warning() -> None:
+    """ownevo.error_class received over external OTLP ingest emits a warning."""
+    from ._fixture_helpers import make_span, str_attr, wrap_batch
+
+    span = make_span(
+        span_id="b2c3d4e5f6700001",
+        trace_id="b2c3d4e5f670000100000000000000bb",
+        name="gen_ai.execute_tool",
+        attributes=[
+            str_attr("gen_ai.operation.name", "execute_tool"),
+            str_attr("gen_ai.tool.call.id", "c_ext"),
+            str_attr("gen_ai.tool.name", "ext_tool"),
+            str_attr("gen_ai.tool.call.arguments", "{}"),
+            str_attr("gen_ai.tool.call.result", "null"),
+            str_attr("ownevo.error_class", "Timeout"),
+        ],
+        status_code=2,  # STATUS_CODE_ERROR
+        status_message="sandbox timeout",
+    )
+    batch = decode_otlp_payload(wrap_batch([span]))
+    assert any("unattested" in w.reason.lower() for w in batch.warnings)
+
+
+def test_retrieval_documents_cap() -> None:
+    """Retrieval spans with > _MAX_RETRIEVAL_DOCS_PER_SPAN docs are truncated."""
+    from ownevo_kernel.middleware.otel_receiver.mapper import _MAX_RETRIEVAL_DOCS_PER_SPAN
+
+    from ._fixture_helpers import kvlist_value, make_span, str_attr, wrap_batch
+
+    doc = kvlist_value([str_attr("id", "d"), str_attr("content", "x")])
+    over_limit = _MAX_RETRIEVAL_DOCS_PER_SPAN + 1
+    span = make_span(
+        span_id="c3d4e5f670800001",
+        trace_id="c3d4e5f67080000100000000000000cc",
+        name="gen_ai.retrieval",
+        attributes=[
+            str_attr("gen_ai.operation.name", "retrieval"),
+            {
+                "key": "gen_ai.retrieval.documents",
+                "value": {"arrayValue": {"values": [doc] * over_limit}},
+            },
+        ],
+    )
+    batch = decode_otlp_payload(wrap_batch([span]))
+    assert len(batch.events) == _MAX_RETRIEVAL_DOCS_PER_SPAN
+    assert any("capping" in w.reason.lower() for w in batch.warnings)
 
 
 def test_unicode_text_passes_through() -> None:

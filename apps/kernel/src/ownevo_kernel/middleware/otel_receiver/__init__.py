@@ -28,6 +28,7 @@ module imports from here.
 """
 
 from .mapper import (
+    DEFAULT_MAX_BODY_BYTES,
     DecodedBatch,
     DecodeWarning,
     OtelDecodeError,
@@ -36,6 +37,7 @@ from .mapper import (
 )
 
 __all__ = [
+    "DEFAULT_MAX_BODY_BYTES",
     "DecodeWarning",
     "DecodedBatch",
     "OtelDecodeError",

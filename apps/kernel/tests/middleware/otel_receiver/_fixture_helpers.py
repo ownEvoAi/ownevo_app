@@ -23,13 +23,6 @@ def int_attr(key: str, value: int) -> dict[str, Any]:
     return {"key": key, "value": {"intValue": str(value)}}
 
 
-def bool_attr(key: str, value: bool) -> dict[str, Any]:
-    return {"key": key, "value": {"boolValue": value}}
-
-
-def array_attr(key: str, values: list[Any]) -> dict[str, Any]:
-    return {"key": key, "value": {"arrayValue": {"values": values}}}
-
 
 def kvlist_value(pairs: list[dict[str, Any]]) -> dict[str, Any]:
     return {"kvlistValue": {"values": pairs}}

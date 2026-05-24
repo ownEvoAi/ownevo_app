@@ -28,6 +28,7 @@ adds when ownEvo also speaks OTel egress.
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import UTC, datetime
 from typing import Any
@@ -90,14 +91,12 @@ def _encode_tool_pair(
     *,
     trace_id_hex: str,
 ) -> dict[str, Any]:
-    import json as _json
-
     attrs = [
         str_attr("gen_ai.operation.name", "execute_tool"),
         str_attr("gen_ai.tool.call.id", start_ev["call_id"]),
         str_attr("gen_ai.tool.name", start_ev["name"]),
-        str_attr("gen_ai.tool.call.arguments", _json.dumps(start_ev["args"])),
-        str_attr("gen_ai.tool.call.result", _json.dumps(result_ev["output"])),
+        str_attr("gen_ai.tool.call.arguments", json.dumps(start_ev["args"])),
+        str_attr("gen_ai.tool.call.result", json.dumps(result_ev["output"])),
     ]
     if result_ev.get("error_class"):
         attrs.append(str_attr("ownevo.error_class", result_ev["error_class"]))
@@ -361,3 +360,23 @@ def test_every_sandbox_error_class_round_trips(error_class: str) -> None:
     result = batch.events[1]
     assert result.error_class is not None
     assert result.error_class.value == error_class
+
+
+async def test_receive_otlp_batch_async_wrapper() -> None:
+    """receive_otlp_batch is the async seam for non-HTTP callers.
+
+    It must return a DecodedBatch equivalent to decode_otlp_payload
+    for the same input — the async wrapper adds no transformation.
+    """
+    from ownevo_kernel.middleware.otel_receiver.receiver import receive_otlp_batch
+
+    native = _make_native_stream()
+    payload = _encode_native_stream_as_otlp(native)
+
+    sync_batch = decode_otlp_payload(payload)
+    async_batch = await receive_otlp_batch(payload)
+
+    assert [e.type for e in async_batch.events] == [e.type for e in sync_batch.events]
+    assert [str(e.trace_id) for e in async_batch.events] == [
+        str(e.trace_id) for e in sync_batch.events
+    ]

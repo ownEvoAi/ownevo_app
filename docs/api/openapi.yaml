@@ -36,6 +36,8 @@ tags:
     description: Agent event streams
   - name: design-agent
     description: Authoring-time discovery interview
+  - name: otel-ingest
+    description: OTLP-JSON trace ingest (external agent collectors)
 
 paths:
   # ---------- workflows ----------
@@ -634,6 +636,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TraceListResponse'
+
+  # ---------- otel-ingest ----------
+  /api/otel/v1/traces:
+    post:
+      tags: [otel-ingest]
+      summary: Ingest one OTLP-JSON ResourceSpans batch
+      description: |
+        Accepts a single OTLP `ResourceSpans` batch encoded as JSON
+        (the default encoding for LangSmith `langsmith-collector-proxy`
+        and OpenLLMetry exporters targeting a non-gRPC sink).
+
+        The body is decoded into typed `AgentEvent` objects; DB
+        persistence is deferred to a follow-on slice. The response
+        always uses HTTP 200 — even when some spans were skipped.
+        Callers must inspect `warnings[]` to detect partial acceptance.
+
+        gRPC / protobuf OTLP is not supported in this slice; sending
+        `Content-Type: application/x-protobuf` will return 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: OTLP ExportTraceServiceRequest (JSON encoding)
+              required: [resourceSpans]
+              properties:
+                resourceSpans:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Batch accepted (possibly with per-span warnings)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtelIngestResponse'
+        '400':
+          description: Payload is malformed JSON, not a JSON object, or missing resourceSpans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Payload exceeds the 8 MiB size cap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ---------- design-agent ----------
   /api/design-agent/next-question:
@@ -1535,6 +1587,27 @@ components:
         type: { type: string, enum: [sim_generated] }
         workflow_id: { type: string }
         sim_skill_id: { type: string }
+
+    # ---------- otel-ingest ----------
+    OtelIngestWarning:
+      type: object
+      required: [reason]
+      properties:
+        span_id: { type: string, nullable: true }
+        reason: { type: string }
+
+    OtelIngestResponse:
+      type: object
+      required: [accepted_events, warnings]
+      properties:
+        accepted_events:
+          type: integer
+          description: Number of AgentEvents decoded from the batch
+        warnings:
+          type: array
+          description: Per-span warnings for skipped or partially-decoded spans
+          items:
+            $ref: '#/components/schemas/OtelIngestWarning'
 
     # ---------- errors ----------
     Error:

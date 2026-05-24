@@ -133,14 +133,16 @@ The receiver returns HTTP responses in line with OTLP/HTTP conventions:
   but do not affect the response).
 - `400 Bad Request` with `{ "error": "..." }` — JSON malformed,
   `ResourceSpans` field missing, or required ID fields absent.
-- `413 Payload Too Large` — payload exceeds the configured size cap
-  (default 8 MiB; configurable via `OWNEVO_OTEL_MAX_BODY_BYTES`).
-- `422 Unprocessable Entity` — payload structurally valid but a
-  GenAI span carries inconsistent fields (e.g. `gen_ai.tool.name` on
-  a span whose `operation.name=chat`). The response lists the offending
-  span ids.
-- `500 Internal Server Error` — bug in the receiver / mapper. Never
-  returned for caller-driven errors.
+- `413 Payload Too Large` — payload exceeds the 8 MiB size cap
+  (hardcoded via `DEFAULT_MAX_BODY_BYTES` in `mapper.py`; per-instance
+  configuration via env var is deferred to a later slice).
+- `200 OK` with non-empty `warnings[]` — payload accepted but one or
+  more spans were skipped (unknown operation name, missing required
+  fields, schema validation failure). Callers must inspect `warnings[]`
+  to detect partial acceptance; there is no 422 or 207 variant.
+- `500 Internal Server Error` — unexpected bug in the receiver or
+  mapper. Caller-driven bad data always produces 400 or a warning, not
+  a 500.
 
 ## Tenant isolation (sketch — full impl in a later slice)
 

@@ -16,6 +16,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 from ownevo_kernel.api.routes.otel_ingest import router
+from ownevo_kernel.middleware.otel_receiver import DEFAULT_MAX_BODY_BYTES
 
 from ._fixture_cases import CASES
 
@@ -59,7 +60,7 @@ async def test_payload_array_returns_400(client: httpx.AsyncClient) -> None:
 
 
 async def test_oversize_payload_returns_413(client: httpx.AsyncClient) -> None:
-    huge = b'{"resourceSpans":[]}' + b" " * (9 * 1024 * 1024)
+    huge = b'{"resourceSpans":[]}' + b" " * (DEFAULT_MAX_BODY_BYTES + 1024 * 1024)
     resp = await client.post(
         "/api/otel/v1/traces",
         content=huge,

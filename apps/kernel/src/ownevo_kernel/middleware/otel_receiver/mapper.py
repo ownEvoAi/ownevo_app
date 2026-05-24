@@ -72,6 +72,7 @@ from ownevo_format import (
     AgentEventAdapter,
     SandboxErrorClass,
 )
+from pydantic import ValidationError as PydanticValidationError
 
 # ---------------------------------------------------------------------------
 # Defaults / configuration
@@ -100,8 +101,35 @@ _RETRIEVAL_OPS = frozenset({_OP_RETRIEVAL, _OP_EMBEDDINGS})
 
 # OTel span status codes. Numeric per the protobuf encoding; OTLP-JSON
 # also accepts the string form ("STATUS_CODE_OK").
-_STATUS_OK_VALUES = frozenset({0, 1, "STATUS_CODE_OK", "STATUS_CODE_UNSET", "OK", "UNSET"})
+#
+# UNSET (numeric 0) is deliberately separated from OK (numeric 1).
+# Many OTLP exporters (including some LangSmith configurations) emit
+# status_code=0 for all spans, even failed ones, because they do not
+# explicitly call Span.set_status(). Mapping UNSET to 'ok' silently
+# causes the failure clustering to miss those spans. When a tool span
+# carries UNSET, the mapper emits a warning so the operator can see the
+# ambiguity in the ingest log; the status still defaults to 'ok' so the
+# event validates through the AgentEvent schema.
+_STATUS_UNSET_VALUES = frozenset({0, "STATUS_CODE_UNSET", "UNSET"})
+_STATUS_OK_VALUES = frozenset({1, "STATUS_CODE_OK", "OK"})
 _STATUS_ERR_VALUES = frozenset({2, "STATUS_CODE_ERROR", "ERROR"})
+
+# Pre-computed frozenset of valid SandboxErrorClass values. Used in
+# _emit_tool_events to avoid a generator scan on every error span.
+_SANDBOX_ERROR_CLASS_VALUES: frozenset[str] = frozenset(
+    e.value for e in SandboxErrorClass
+)
+
+# Maximum characters kept from a retrieval document quote. Matches the
+# downstream citation field width in the trace schema.
+_MAX_CITATION_QUOTE_CHARS = 2048
+
+# Maximum number of retrieval documents processed per span. An 8 MiB
+# payload can carry ~160k minimal doc entries; each decoded Citation
+# event object takes ~1 KB in memory — unbounded processing would
+# amplify a maximally-compact input by ~20x. The cap keeps peak memory
+# within 2x of the raw payload.
+_MAX_RETRIEVAL_DOCS_PER_SPAN = 1_000
 
 
 # ---------------------------------------------------------------------------
@@ -215,12 +243,15 @@ def _parse_payload(
         except UnicodeDecodeError as exc:
             raise OtelDecodeError(f"OTLP payload is not valid UTF-8: {exc}") from exc
     if isinstance(payload, str):
-        if len(payload.encode("utf-8")) > max_body_bytes:
+        # Encode once to get the exact byte count and reuse the bytes for
+        # parsing — avoids a redundant encode-to-measure-then-encode-again.
+        encoded = payload.encode("utf-8")
+        if len(encoded) > max_body_bytes:
             raise OversizedPayloadError(
-                f"payload exceeds cap {max_body_bytes} bytes",
+                f"payload {len(encoded)} bytes exceeds cap {max_body_bytes}",
             )
         try:
-            return json.loads(payload)
+            return json.loads(encoded)
         except json.JSONDecodeError as exc:
             raise OtelDecodeError(f"OTLP payload is not valid JSON: {exc}") from exc
     raise OtelDecodeError(
@@ -247,6 +278,14 @@ def _decode_resource_spans(rs: Any, out: DecodedBatch) -> None:
         for span in spans:
             try:
                 _decode_span(span, out)
+            except PydanticValidationError as exc:
+                # Pydantic validation failure inside _build_event — the span
+                # data passed mapper logic but was rejected by the AgentEvent
+                # schema. Degrade to a warning rather than letting the
+                # ValidationError bubble up as a 500.
+                out.warnings.append(
+                    DecodeWarning(_safe_span_id(span), f"schema validation error: {exc}"),
+                )
             except OtelDecodeError as exc:
                 # Per-span hard errors degrade to warnings — one bad span
                 # must not poison the whole batch. The HTTP layer only
@@ -275,8 +314,8 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
         return
 
     try:
-        event_uuid = _hex_to_uuid(span_id_hex)
-        trace_uuid = _hex_to_uuid(trace_id_hex)
+        event_uuid = _hex_to_uuid(span_id_hex, expected_bytes=8)
+        trace_uuid = _hex_to_uuid(trace_id_hex, expected_bytes=16)
     except ValueError as exc:
         out.warnings.append(DecodeWarning(span_id_hex, f"id decode failed: {exc}"))
         return
@@ -285,7 +324,7 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
     parent_uuid: UUID | None
     if parent_hex:
         try:
-            parent_uuid = _hex_to_uuid(parent_hex)
+            parent_uuid = _hex_to_uuid(parent_hex, expected_bytes=8)
         except ValueError:
             parent_uuid = None
     else:
@@ -322,7 +361,10 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
         )
     else:
         out.warnings.append(
-            DecodeWarning(span_id_hex, f"unrecognised gen_ai.operation.name={op_name!r}"),
+            DecodeWarning(
+                span_id_hex,
+                f"unrecognised gen_ai.operation.name={str(op_name)[:128]!r}",
+            ),
         )
 
 
@@ -451,11 +493,41 @@ def _emit_tool_events(
 
     status_code = (span.get("status") or {}).get("code")
     status_message = (span.get("status") or {}).get("message")
-    status = "ok" if status_code in _STATUS_OK_VALUES else (
-        "error" if status_code in _STATUS_ERR_VALUES else "ok"
-    )
+    if status_code in _STATUS_ERR_VALUES:
+        status = "error"
+    elif status_code in _STATUS_UNSET_VALUES:
+        # UNSET means the exporter did not call Span.set_status() — it is
+        # not the same as an explicit OK. Warn so operators know their
+        # exporter should be configured to set explicit status codes;
+        # default to 'ok' so the event validates.
+        out.warnings.append(
+            DecodeWarning(
+                span.get("spanId"),
+                "tool span status UNSET (code 0) — defaulting to ok; "
+                "configure your OTLP exporter to set explicit status codes",
+            ),
+        )
+        status = "ok"
+    else:
+        status = "ok"
     duration_ms = _duration_ms(start_ns, end_ns)
+    # ownevo.error_class is a vendor extension that the ownEvo sandbox
+    # sets when an agent tool run fails at the infrastructure level
+    # (Timeout, OOM, Crash). When it arrives over the external OTLP
+    # ingest path it cannot be attested — an untrusted caller could set
+    # it on any span to reclassify a real agent failure as an
+    # infrastructure timeout, gaming the failure clustering signal.
+    # Emit a warning and accept the value for now; when multi-tenant
+    # auth lands, the acceptance rule narrows to workspace-attested spans.
     error_class_raw = attrs.get("ownevo.error_class")
+    if error_class_raw is not None:
+        out.warnings.append(
+            DecodeWarning(
+                span.get("spanId"),
+                "ownevo.error_class received from external OTLP ingest — "
+                "value is unattested and will be accepted as-is until auth lands",
+            ),
+        )
 
     result_payload: dict[str, Any] = {
         "type": "tool_call_result",
@@ -473,7 +545,7 @@ def _emit_tool_events(
     }
     if status == "error":
         result_payload["error"] = status_message or "tool error"
-        if error_class_raw in (e.value for e in SandboxErrorClass):
+        if error_class_raw in _SANDBOX_ERROR_CLASS_VALUES:
             result_payload["error_class"] = error_class_raw
     # status=="ok" → leave error / error_class as their default None
     out.events.append(_build_event(result_payload))
@@ -489,6 +561,15 @@ def _emit_retrieval_events(
         # Per MAPPING.md: skipped when the doc list is missing. No
         # warning — many emitters omit it by design.
         return
+    if len(docs) > _MAX_RETRIEVAL_DOCS_PER_SPAN:
+        out.warnings.append(
+            DecodeWarning(
+                str(common.event_id),
+                f"retrieval span has {len(docs)} documents; "
+                f"capping at {_MAX_RETRIEVAL_DOCS_PER_SPAN} to bound memory use",
+            ),
+        )
+        docs = docs[:_MAX_RETRIEVAL_DOCS_PER_SPAN]
     for i, doc in enumerate(docs, start=1):
         if not isinstance(doc, dict):
             continue
@@ -509,7 +590,7 @@ def _emit_retrieval_events(
                     "timestamp": common.timestamp.isoformat(),
                     "ref": i,
                     "source": str(source),
-                    "quote": str(quote)[:2048],
+                    "quote": str(quote)[:_MAX_CITATION_QUOTE_CHARS],
                 },
             ),
         )
@@ -637,17 +718,33 @@ def _extract_llm_text(attrs: dict[str, Any]) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _hex_to_uuid(hex_id: str) -> UUID:
-    """Pad an 8-byte OTel span id to UUID width and parse.
+def _hex_to_uuid(hex_id: str, *, expected_bytes: int | None = None) -> UUID:
+    """Pad or validate a hex OTel ID and parse it as a UUID.
 
-    OTel trace_ids are 16 bytes (UUID-width); span_ids are 8 bytes.
-    Padding span_ids with a zero prefix gives a stable, collision-free
-    UUID — the round-trip test pins it.
+    OTel trace_ids are 16 bytes (32 hex chars); span_ids are 8 bytes
+    (16 hex chars). Padding 8-byte span_ids with a zero prefix gives a
+    stable UUID — the round-trip test pins it.
+
+    `expected_bytes` sets a strict width check:
+      - 16 → span_id (8 bytes). Padded to 32 hex chars.
+      - 32 → trace_id (16 bytes). No padding.
+      - None → accepts both widths (legacy, no field context).
+
+    A non-compliant width raises ValueError so the caller can emit a
+    DecodeWarning rather than silently aliasing IDs from different
+    address spaces.
     """
     raw = hex_id.strip().lower()
     if not raw:
         raise ValueError("empty hex id")
-    if len(raw) == 16:  # span id
+    if expected_bytes is not None:
+        expected_hex_len = expected_bytes * 2
+        if len(raw) != expected_hex_len:
+            raise ValueError(
+                f"expected {expected_hex_len}-char hex id ({expected_bytes} bytes), "
+                f"got {len(raw)} chars: {hex_id!r}",
+            )
+    if len(raw) == 16:  # 8-byte span_id
         raw = ("0" * 16) + raw
     if len(raw) != 32:
         raise ValueError(f"unexpected hex id length {len(raw)}: {hex_id!r}")

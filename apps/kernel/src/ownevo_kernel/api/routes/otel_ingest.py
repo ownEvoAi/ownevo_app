@@ -21,17 +21,18 @@ Out of scope for this slice:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from ...middleware.otel_receiver import (
+    DEFAULT_MAX_BODY_BYTES,
     OtelDecodeError,
     OversizedPayloadError,
     decode_otlp_payload,
 )
-from ...middleware.otel_receiver.mapper import DEFAULT_MAX_BODY_BYTES
 
 _log = logging.getLogger(__name__)
 
@@ -54,6 +55,39 @@ class IngestResponse(BaseModel):
     warnings: list[IngestWarning]
 
 
+async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
+    """Stream the request body up to `max_bytes`.
+
+    Starlette's `request.body()` buffers the entire body in memory
+    before returning, which means chunked-transfer payloads can exhaust
+    RAM before the byte-cap is enforced. This helper reads in chunks and
+    aborts as soon as the running total exceeds the cap.
+
+    A fast path checks the declared `Content-Length` header first so
+    well-behaved callers get an immediate 413 without streaming any data.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > max_bytes:
+                raise OversizedPayloadError(
+                    f"Content-Length {content_length} bytes exceeds cap {max_bytes}",
+                )
+        except ValueError:
+            pass  # malformed header — let the body read decide
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > max_bytes:
+            raise OversizedPayloadError(
+                f"payload exceeds cap {max_bytes} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post(
     "/v1/traces",
     response_model=IngestResponse,
@@ -63,15 +97,30 @@ async def ingest_otlp_traces(request: Request) -> IngestResponse:
     """Accept one OTLP-JSON ResourceSpans batch.
 
     Returns the decoded-event count and per-span warnings. The body is
-    consumed as raw bytes so the size cap can be enforced before JSON
-    parsing.
+    streamed with a byte cap to prevent unbounded memory accumulation
+    from chunked-transfer payloads. The CPU-bound JSON decode is
+    offloaded to a thread-pool executor so the event loop stays free
+    during large-batch processing.
     """
-    raw = await request.body()
     try:
-        batch = decode_otlp_payload(raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES)
+        raw = await _read_body_with_limit(request, DEFAULT_MAX_BODY_BYTES)
     except OversizedPayloadError as exc:
-        # 413 — the OTLP-HTTP spec mandates this for body-size rejects.
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        batch = await asyncio.to_thread(
+            decode_otlp_payload, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+        )
+    except OversizedPayloadError as exc:
+        # Second-line cap guard — catches the rare case where the
+        # streaming limit was bypassed (e.g. direct function calls in tests).
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
     except OtelDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

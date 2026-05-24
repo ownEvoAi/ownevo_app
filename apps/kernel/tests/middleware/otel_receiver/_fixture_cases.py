@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ownevo_kernel.middleware.otel_receiver import DEFAULT_MAX_BODY_BYTES
+
 from ._fixture_helpers import (
     assistant_text_and_reasoning_messages,
     assistant_text_messages,
@@ -600,7 +602,7 @@ def _build_cases() -> list[FixtureCase]:
     cases.append(
         FixtureCase(
             name="20_oversized_payload",
-            payload=b'{"resourceSpans":[]}' + b" " * (9 * 1024 * 1024),
+            payload=b'{"resourceSpans":[]}' + b" " * (DEFAULT_MAX_BODY_BYTES + 1024 * 1024),
             raises="OversizedPayloadError",
         ),
     )
@@ -638,6 +640,117 @@ def _build_cases() -> list[FixtureCase]:
         FixtureCase(
             name="22_payload_is_array",
             payload=b"[]",
+            raises="OtelDecodeError",
+        ),
+    )
+
+    # ---- create_agent op: member of _AGENT_ROOT_OPS → silent, 0 events ----
+
+    cases.append(
+        FixtureCase(
+            name="23_create_agent_root",
+            payload=wrap_batch(
+                [
+                    make_span(
+                        span_id=SP1,
+                        trace_id=T1,
+                        name="gen_ai.create_agent",
+                        attributes=[
+                            str_attr("gen_ai.operation.name", "create_agent"),
+                        ],
+                    ),
+                ],
+            ),
+            expected_events=[],
+            max_warnings=0,
+        ),
+    )
+
+    # ---- embeddings op: member of _RETRIEVAL_OPS, no documents → 0 events, no warning ----
+
+    cases.append(
+        FixtureCase(
+            name="24_embeddings_no_documents",
+            payload=wrap_batch(
+                [
+                    make_span(
+                        span_id=SP1,
+                        trace_id=T1,
+                        name="gen_ai.embeddings",
+                        attributes=[
+                            str_attr("gen_ai.operation.name", "embeddings"),
+                        ],
+                    ),
+                ],
+            ),
+            expected_events=[],
+            max_warnings=0,
+        ),
+    )
+
+    # ---- string-form OTel status codes (STATUS_CODE_OK / STATUS_CODE_ERROR) ----
+    # OTLP-JSON allows both numeric (0/1/2) and string-form status codes.
+
+    def _tool_span_with_str_status(
+        call_id: str,
+        name: str,
+        status_code_str: str,
+        status_message: str = "",
+    ) -> dict[str, Any]:
+        span = make_span(
+            span_id=SP7,
+            trace_id=T3,
+            name="gen_ai.execute_tool",
+            attributes=[
+                str_attr("gen_ai.operation.name", "execute_tool"),
+                str_attr("gen_ai.tool.call.id", call_id),
+                str_attr("gen_ai.tool.name", name),
+                str_attr("gen_ai.tool.call.arguments", "{}"),
+                str_attr("gen_ai.tool.call.result", "null"),
+            ],
+        )
+        span["status"] = {"code": status_code_str, "message": status_message}
+        return span
+
+    cases.append(
+        FixtureCase(
+            name="25_tool_status_code_ok_string",
+            payload=wrap_batch(
+                [_tool_span_with_str_status("toolu_str_ok", "str_status_tool", "STATUS_CODE_OK")],
+            ),
+            expected_events=[
+                ExpectedEvent("tool_call_start", {}),
+                ExpectedEvent("tool_call_result", {"status": "ok"}),
+            ],
+        ),
+    )
+
+    cases.append(
+        FixtureCase(
+            name="26_tool_status_code_error_string",
+            payload=wrap_batch(
+                [
+                    _tool_span_with_str_status(
+                        "toolu_str_err",
+                        "str_err_tool",
+                        "STATUS_CODE_ERROR",
+                        "tool crashed",
+                    ),
+                ],
+            ),
+            expected_events=[
+                ExpectedEvent("tool_call_start", {}),
+                ExpectedEvent("tool_call_result", {"status": "error"}),
+            ],
+        ),
+    )
+
+    # ---- resourceSpans is not a list → hard error (OtelDecodeError) ----
+
+    cases.append(
+        FixtureCase(
+            name="27_resource_spans_not_a_list",
+            payload={"resourceSpans": 42},
             raises="OtelDecodeError",
         ),
     )
