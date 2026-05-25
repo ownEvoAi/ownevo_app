@@ -39,16 +39,30 @@ async def get_pool(request: Request) -> asyncpg.Pool:
 PoolDep = Annotated[asyncpg.Pool, Depends(get_pool)]
 
 
-async def get_conn(pool: PoolDep) -> AsyncGenerator[asyncpg.Connection, None]:
+def get_workspace_id() -> str:
+    """Resolve the workspace the current request operates in.
+
+    Single-tenant today: every request resolves to the ``default`` workspace.
+    When the auth layer lands this derives the workspace from the authenticated
+    principal. Routes that spawn background work depend on this directly so the
+    same workspace id flows into ``acquire_workspace_conn`` off-request.
+    """
+    return DEFAULT_WORKSPACE_ID
+
+
+WorkspaceIdDep = Annotated[str, Depends(get_workspace_id)]
+
+
+async def get_conn(
+    pool: PoolDep, workspace_id: WorkspaceIdDep
+) -> AsyncGenerator[asyncpg.Connection, None]:
     """Acquire one connection from the pool for the request's duration.
 
-    Each connection is bound to the active workspace before it is handed to
-    the route, so workspace-scoped row-level security applies once enabled.
-    Today every request resolves to the single ``default`` workspace;
-    per-request resolution lands with the auth layer.
+    Each connection is bound to the request's workspace before it is handed to
+    the route, so workspace-scoped row-level security scopes every query.
     """
     async with pool.acquire() as conn:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+        await set_workspace(conn, workspace_id)
         yield conn
 
 

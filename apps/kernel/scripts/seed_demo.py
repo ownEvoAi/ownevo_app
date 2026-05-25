@@ -35,6 +35,8 @@ import os
 import sys
 from dataclasses import dataclass
 
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 ENV_API_KEY = "ANTHROPIC_API_KEY"
 
@@ -519,7 +521,10 @@ async def seed_demo(
     for w in seeded:
         try:
             outcome = await run_one_iteration_for_workflow(
-                _pool, workflow_id=w.id, client=client,
+                _pool,
+                workflow_id=w.id,
+                workspace_id=DEFAULT_WORKSPACE_ID,
+                client=client,
             )
             updated.append(
                 SeededWorkflow(
@@ -567,6 +572,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
         try:
             async with pool.acquire() as conn:
+                await set_workspace(conn, DEFAULT_WORKSPACE_ID)
                 seeded = await seed_demo(conn, with_iterations=True, _pool=pool)
         finally:
             await pool.close()
@@ -578,6 +584,7 @@ async def main_async(args: argparse.Namespace) -> int:
             return 4
 
         try:
+            await set_workspace(conn, DEFAULT_WORKSPACE_ID)
             seeded = await seed_demo(conn, with_iterations=False)
         finally:
             await conn.close()

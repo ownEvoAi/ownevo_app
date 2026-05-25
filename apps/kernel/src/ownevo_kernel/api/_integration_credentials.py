@@ -46,7 +46,7 @@ async def set_credential(
         """
         INSERT INTO integration_credentials (provider, ciphertext, updated_at)
         VALUES ($1, $2, now())
-        ON CONFLICT (provider) DO UPDATE SET
+        ON CONFLICT (workspace_id, provider) DO UPDATE SET
             ciphertext        = EXCLUDED.ciphertext,
             last_validated_at = NULL,
             validation_status = NULL,

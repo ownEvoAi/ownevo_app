@@ -15,6 +15,7 @@ from httpx import ASGITransport
 from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR, migrate
 from ownevo_kernel.replay import CycleSummary
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 
 def _is_local_port_open(port: int, *, timeout: float = 0.25) -> bool:
@@ -129,6 +130,12 @@ async def db():
     try:
         conn = await asyncpg.connect(test_url)
         await migrate(conn)
+        # Bind the connection to the default workspace, mirroring what
+        # get_conn does for every request connection. Migration 0034 forces
+        # row-level security on every scoped table, so an unbound connection
+        # would see no rows and reject every insert. Isolation tests that need
+        # a different tenant call set_workspace explicitly to switch.
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         yield conn
     finally:
         if conn is not None:
@@ -143,6 +150,46 @@ async def db():
             await admin.execute(f'DROP DATABASE "{dbname}"')
         finally:
             await admin.close()
+
+
+@pytest.fixture
+async def rls_db(db: asyncpg.Connection):
+    """A connection that genuinely exercises row-level security.
+
+    The `db` fixture connects as the local owning/superuser role, and Postgres
+    exempts superusers (and BYPASSRLS roles) from RLS even when a table is
+    FORCE'd — so isolation can only be proven from a plain, unprivileged role.
+    This fixture creates one, grants it table/sequence access, and SET ROLEs a
+    fresh connection to it. That mirrors production, where the kernel connects
+    as a non-superuser application role.
+    """
+    dbname = await db.fetchval("SELECT current_database()")
+    role = f"rls_test_{dbname.rsplit('_', 1)[-1]}"
+    await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
+    await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
+    await db.execute(
+        f"GRANT SELECT, INSERT, UPDATE, DELETE "
+        f'ON ALL TABLES IN SCHEMA public TO "{role}"'
+    )
+    await db.execute(
+        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}"'
+    )
+
+    parsed = urlparse(os.environ[ENV_VAR])
+    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(f'SET ROLE "{role}"')
+        # Bind the default workspace, mirroring get_conn / the db fixture so
+        # the connection can read and write before a test switches workspaces.
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+        yield conn
+    finally:
+        await conn.close()
+        # A role can't be dropped while it still holds GRANTs; DROP OWNED BY
+        # revokes them (and drops anything it owns) in this database first.
+        await db.execute(f'DROP OWNED BY "{role}"')
+        await db.execute(f'DROP ROLE IF EXISTS "{role}"')
 
 
 @pytest.fixture

@@ -40,10 +40,11 @@ from ..nl_gen.eval_replay import exec_sim_module
 from ..nl_gen.metric_def import MetricDefinition
 from ..nl_gen.sim_plan import SimulationPlan
 from ..nl_gen.spec import Provenance, WorkflowSpec
+from ..tenant_session import acquire_workspace_conn
 from .agent_solver import (
-    AgentSolverError,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
+    AgentSolverError,
     predict_one,
 )
 from .token_budget import TokenBudget
@@ -199,6 +200,7 @@ async def try_one_eval_case(
     workflow_id: str,
     eval_case_id: UUID,
     *,
+    workspace_id: str,
     client: "AsyncAnthropic",
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -213,7 +215,7 @@ async def try_one_eval_case(
         AgentSolverError: the agent call failed (LLM error, tool-use
             validation, etc.) — caller maps to 502.
     """
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         row = await conn.fetchrow(
             """
             SELECT spec, simulation_plan, metric_definition

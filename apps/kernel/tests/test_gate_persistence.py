@@ -24,6 +24,7 @@ from ownevo_kernel.benchmark import SyntheticBenchmarkRunner, SyntheticTask
 from ownevo_kernel.benchmark.types import BenchmarkResult
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.gate import GateDecision, persist_gate_run
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 from ownevo_kernel.types import (
     AuditKind,
     IterationState,
@@ -520,6 +521,7 @@ async def test_concurrent_persist_gate_run_produces_unique_indices(
     dbname = await db.fetchval("SELECT current_database()")
     test_url = urlunparse(urlparse(os.environ[ENV_VAR])._replace(path=f"/{dbname}"))
     conn2 = await asyncpg.connect(test_url)
+    await set_workspace(conn2, DEFAULT_WORKSPACE_ID)
     try:
         results = await asyncio.gather(
             persist_gate_run(

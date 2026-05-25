@@ -24,11 +24,32 @@ class _FakeAcquire:
         return False
 
 
+class _FakeConn:
+    """Sentinel conn that satisfies set_workspace (workspace lookup + GUC set).
+
+    `acquire_workspace_conn` binds the workspace before yielding, so the conn
+    the runner receives must answer the `workspaces` lookup (live row) and the
+    set_config call. Records bound workspaces so a test can assert the run was
+    scoped correctly.
+    """
+
+    def __init__(self) -> None:
+        self.bound_workspaces: list[str] = []
+
+    async def fetchrow(self, sql: str, *args: object) -> dict[str, object]:
+        return {"deleted_at": None}
+
+    async def execute(self, sql: str, *args: object) -> str:
+        if "set_config" in sql:
+            self.bound_workspaces.append(args[1])  # type: ignore[arg-type]
+        return "SELECT 1"
+
+
 class _FakePool:
     """Stands in for an asyncpg pool — `acquire()` yields a sentinel conn."""
 
     def __init__(self) -> None:
-        self.conn = object()
+        self.conn = _FakeConn()
 
     def acquire(self) -> _FakeAcquire:
         return _FakeAcquire(self.conn)
@@ -58,9 +79,9 @@ async def test_debounce_coalesces_a_burst_into_one_run() -> None:
     trig = _trigger(debounce=30.0, runner=runner, clock=lambda: now[0])
 
     # A burst of signals (wave-flushes) keeps resetting the debounce timer.
-    trig.signal("wf1")
+    trig.signal("default", "wf1")
     now[0] = 10.0
-    trig.signal("wf1")
+    trig.signal("default", "wf1")
 
     # 10s after the last signal — not yet quiet for the full window.
     now[0] = 20.0
@@ -87,13 +108,13 @@ async def test_signal_during_run_requeues_for_next_cycle() -> None:
         calls.append(workflow_id)
         if len(calls) == 1:
             # A trace lands mid-run; it must not be lost.
-            trig_holder[0].signal(workflow_id)
+            trig_holder[0].signal("default", workflow_id)
         return []
 
     trig = _trigger(debounce=30.0, runner=runner, clock=lambda: now[0])
     trig_holder.append(trig)
 
-    trig.signal("wf")
+    trig.signal("default", "wf")
     now[0] = 100.0
     await trig._drain_due()  # due → runs, re-signals at t=100
     assert calls == ["wf"]
@@ -116,8 +137,8 @@ async def test_multiple_workflows_each_run_once() -> None:
         return []
 
     trig = _trigger(debounce=10.0, runner=runner, clock=lambda: now[0])
-    trig.signal("a")
-    trig.signal("b")
+    trig.signal("default", "a")
+    trig.signal("default", "b")
     now[0] = 15.0
     await trig._drain_due()
     assert sorted(calls) == ["a", "b"]
@@ -131,12 +152,12 @@ async def test_importerror_disables_the_trigger() -> None:
         raise ImportError("clustering extras not installed")
 
     trig = _trigger(debounce=0.0, runner=runner, clock=lambda: 0.0)
-    trig.signal("wf")
+    trig.signal("default", "wf")
     await trig._drain_due()
 
     assert trig._disabled is True
     # Further signals are ignored — no per-ingest log spam.
-    trig.signal("wf2")
+    trig.signal("default", "wf2")
     assert trig._pending == {}
 
 
@@ -145,7 +166,7 @@ async def test_runner_exception_is_swallowed_and_workflow_dropped() -> None:
         raise ValueError("transient clustering failure")
 
     trig = _trigger(debounce=0.0, runner=runner, clock=lambda: 0.0)
-    trig.signal("wf")
+    trig.signal("default", "wf")
     # Must not propagate — a background job can't take down the event loop.
     await trig._drain_due()
     assert trig._pending == {}
@@ -165,7 +186,7 @@ async def test_start_processes_signals_and_stop_halts_the_task() -> None:
 
     trig = _trigger(debounce=0.0, runner=runner, clock=lambda: now[0])
     await trig.start()
-    trig.signal("wf")
+    trig.signal("default", "wf")
 
     # Give the loop a few poll cycles to pick up the (immediately-due) signal.
     for _ in range(50):
@@ -187,5 +208,5 @@ async def test_stop_is_safe_without_start() -> None:
 async def test_signal_is_noop_when_disabled() -> None:
     trig = _trigger(debounce=0.0, runner=None, clock=lambda: 0.0)
     trig._disabled = True
-    trig.signal("wf")
+    trig.signal("default", "wf")
     assert trig._pending == {}

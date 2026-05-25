@@ -13,19 +13,20 @@ The reference implementation of ownEvo — an improvement loop for core agents. 
 Why not pure TS: clustering ecosystem is Python-first at the quality bar required.
 Why not pure Python: web UI is unavoidably TS/Next.
 
-## Multi-tenant retrofit (in progress)
+## Multi-tenant retrofit
 
-Migration `0033_workspace_substrate.sql` added a `workspaces` table and a `workspace_id` column (non-null, default `'default'`) to every workspace-scoped domain table (17 tables). Row-level security is **not yet enabled** — that is the deliberate next step.
+Two migrations, both landed:
 
-`tenant_session.py` sets the Postgres session GUC `app.workspace_id` on every request-scoped connection via `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`.
+- `0033_workspace_substrate.sql` (step 1) added a `workspaces` table and a `workspace_id` column (non-null) to every workspace-scoped domain table (17 tables), backfilled to a single `'default'` workspace — non-enforcing.
+- `0034_workspace_rls_enforcement.sql` (step 2) turns enforcement on: `ENABLE` + `FORCE ROW LEVEL SECURITY` and a per-table isolation policy on all 17 tables, scoping reads (`USING`) and writes (`WITH CHECK`) to the session workspace. The `workspace_id` column default was changed from the literal `'default'` to `current_setting('app.workspace_id', true)`, so an insert auto-stamps the active workspace and an unscoped connection (GUC unset → NULL) fails closed against the NOT NULL column.
 
-**Pre-conditions for the RLS enforcement migration (step 2):**
+`FORCE` is required because the kernel connects as the table owner, and a plain `ENABLE` leaves the owner exempt. Superusers and `BYPASSRLS` roles bypass RLS regardless — the production app role must be neither (the isolation tests run under a dedicated non-superuser role via the `rls_db` fixture to exercise the policies for real).
 
-1. **`pool.acquire()` call sites** — ~22 direct `pool.acquire()` uses in background workers (`iteration_runner.py`, `clustering/auto_trigger.py`, `eval_runner/try_runner.py`, `sandbox/capturing.py`, etc.) bypass `get_conn` and therefore never call `set_workspace`. Under RLS these connections will operate without the workspace GUC set and will silently read/write the wrong tenant. All of these must call `set_workspace(conn, workspace_id)` before RLS is enabled. Introduce `acquire_workspace_conn(pool, workspace_id)` as a shared helper.
+`tenant_session.py` is the single chokepoint that binds the GUC: `set_workspace` (used by the request-scoped `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`) and `acquire_workspace_conn(pool, workspace_id)` (used by background workers and scripts that acquire connections directly). Both refuse to bind a missing or soft-deleted workspace.
 
-2. **`integration_credentials` primary key** — the PK is currently `(provider)`. Migration 0022 notes it must be widened to `(workspace_id, provider)` before the second workspace is provisioned. Add this to the enforcement migration.
+**Workspace deletion is soft delete**, not a cascade: `soft_delete_workspace` sets `workspaces.deleted_at`, after which `set_workspace` refuses to bind it, so its rows become unreachable while staying physically present (the append-only `audit_entries` cannot be row-deleted, and retention keeps the operation reversible).
 
-3. **`failure_clusters_fingerprint_unique` index** — the partial unique index on `(fingerprint)` is not scoped by `workspace_id`. Add `workspace_id` to the index or include it in the fingerprint before enabling RLS.
+The three step-2 pre-conditions called out in migration 0033 were resolved here: the `pool.acquire()` background-worker call sites now route through `acquire_workspace_conn`; the `integration_credentials` PK was widened to `(workspace_id, provider)`; and `failure_clusters_fingerprint_unique` is now scoped by `workspace_id`. Per-request workspace resolution is still a stub (`get_workspace_id` returns `'default'`) pending the auth layer; dev/benchmark scripts that open their own connections must call `set_workspace(conn, DEFAULT_WORKSPACE_ID)` before touching scoped tables under RLS.
 
 ## Append-only audit log
 

@@ -14,6 +14,7 @@ Usage pattern (benchmark runners — M5 / τ³):
         pool=pool,
         workflow_id=workflow_id,
         iteration_id=iteration_id,
+        workspace_id=workspace_id,
     )
     # Pass `sandbox` wherever the runner currently passes the bare
     # LocalDockerSandbox. Every .run() through it gets captured.
@@ -39,6 +40,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..tenant_session import acquire_workspace_conn
 from .types import SandboxResult
 
 if TYPE_CHECKING:
@@ -71,6 +73,7 @@ class CapturingSandbox:
     pool: asyncpg.Pool
     workflow_id: str
     iteration_id: UUID
+    workspace_id: str
     _call_idx: int = field(default=0, init=False)
     capture_failures: int = field(default=0, init=False)
 
@@ -124,7 +127,7 @@ class CapturingSandbox:
         # IntegrityError here is caught by the caller's broad except block,
         # logged, and counted as a capture_failure — the error is loud and
         # traceable rather than silently overwriting prior captures.
-        async with self.pool.acquire() as conn:
+        async with acquire_workspace_conn(self.pool, self.workspace_id) as conn:
             await conn.execute(
                 """
                 INSERT INTO captured_sandbox_runs (
