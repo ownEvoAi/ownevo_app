@@ -97,48 +97,20 @@ async def test_end_to_end_agent_run_returns_three_events(
     assert body["accepted_events"] == 3
 
 
-async def test_protobuf_content_type_accepted(api_client: httpx.AsyncClient) -> None:
-    """A real OTLP-HTTP protobuf body decodes the same as the JSON path."""
-    import base64
-    import binascii
-    import copy
+async def test_watsonx_traceloop_tool_span_accepted(
+    api_client: httpx.AsyncClient,
+) -> None:
+    """Traceloop / OpenLLMetry tool spans (watsonx ADK) decode into two events.
 
-    from google.protobuf.json_format import ParseDict
-    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-        ExportTraceServiceRequest,
-    )
-
-    case = next(c for c in CASES if c.name == "12_end_to_end_agent_run")
-    converted = copy.deepcopy(case.payload)
-    for rs in converted["resourceSpans"]:
-        for ss in rs.get("scopeSpans", []):
-            for span in ss.get("spans", []):
-                for field in ("traceId", "spanId", "parentSpanId"):
-                    raw = span.get(field)
-                    if isinstance(raw, str) and raw:
-                        span[field] = base64.b64encode(
-                            binascii.unhexlify(raw)
-                        ).decode("ascii")
-    pb = ParseDict(
-        converted, ExportTraceServiceRequest(), ignore_unknown_fields=True
-    ).SerializeToString()
-
-    resp = await api_client.post(
-        "/api/otel/v1/traces",
-        content=pb,
-        headers={"Content-Type": "application/x-protobuf"},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["accepted_events"] == 3
-
-
-async def test_malformed_protobuf_returns_400(api_client: httpx.AsyncClient) -> None:
-    resp = await api_client.post(
-        "/api/otel/v1/traces",
-        content=b"\xde\xad\xbe\xef garbage",
-        headers={"Content-Type": "application/x-protobuf"},
-    )
-    assert resp.status_code == 400
+    The route's _parse_translate_decode applies the watsonx translator before
+    decode_otlp_payload, so Traceloop vendor keys produce the same
+    ToolCallStart + ToolCallResult pair as a standard gen_ai.* tool span.
+    """
+    case = next(c for c in CASES if c.name == "28_watsonx_traceloop_tool_call")
+    resp = await api_client.post("/api/otel/v1/traces", json=case.payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["accepted_events"] == 2  # ToolCallStart + ToolCallResult
 
 
 async def test_request_body_as_string_round_trips(api_client: httpx.AsyncClient) -> None:

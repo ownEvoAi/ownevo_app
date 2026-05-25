@@ -1,25 +1,26 @@
-"""`/api/otel/v1/traces` — OTLP-JSON ingest entry point.
+"""`/api/otel/v1/traces` — OTLP-JSON/protobuf ingest entry point.
 
-Accepts a single OTLP `ResourceSpans` batch as JSON (the encoding
-LangSmith's `langsmith-collector-proxy` and OpenLLMetry exporters
-emit by default when targeting a non-OTLP/gRPC sink), decodes it into
-typed `AgentEvent`s via `middleware.otel_receiver.decode_otlp_payload`,
-and writes one `traces` row per unique `trace_id` in the batch (via
-`middleware.otel_receiver.persist_decoded_batch`). After this call
-returns, the ingested traces are first-class citizens for the failure
-clustering pipeline, the inspection UI, and the rest of the kernel.
+Accepts a single OTLP `ResourceSpans` batch as JSON or protobuf (the encodings
+LangSmith's `langsmith-collector-proxy` and OpenLLMetry exporters emit by
+default) and decodes it into typed `AgentEvent`s via
+`middleware.otel_receiver`, then writes one `traces` row per unique `trace_id`
+in the batch. After this call returns, the ingested traces are first-class
+citizens for the failure clustering pipeline, the inspection UI, and the rest
+of the kernel.
 
-Auth: the route requires a `Authorization: Bearer ownevo_rt_...` token
-minted via `apps/kernel/scripts/mint_receiver_token.py`. The token's
-bound workflow (if any) determines `traces.workflow_id` on the
-ingested rows. Tests and local-dev flows can opt out by setting
-`OWNEVO_OTLP_AUTH_OPTIONAL=true` — see `middleware/otel_receiver/auth.py`.
+Auth: the route requires an `Authorization: Bearer ownevo_rt_...` token minted
+via `apps/kernel/scripts/mint_receiver_token.py`. The token's bound workflow
+(if any) determines `traces.workflow_id` on the ingested rows. Tests and
+local-dev flows can opt out by setting `OWNEVO_OTLP_AUTH_OPTIONAL=true` — see
+`middleware/otel_receiver/auth.py`.
 
-Both OTLP-HTTP encodings are accepted: JSON (the default for
-`langsmith-collector-proxy`) and protobuf (`Content-Type:
-application/x-protobuf`, the default for OpenLLMetry / traceloop and
-most stock OTel SDKs). The protobuf body is converted to the same
-object model the JSON path uses, then handed to the shared mapper.
+Both OTLP-HTTP encodings are accepted:
+  * JSON — the default for `langsmith-collector-proxy`; Google ADK and
+    watsonx / traceloop vendor keys are translated to `gen_ai.*` semconv
+    before decode.
+  * Protobuf (`Content-Type: application/x-protobuf`) — the default for
+    OpenLLMetry / traceloop and most stock OTel SDKs. Already in standard
+    semconv; vendor-key translation is skipped.
 
 Out of scope for this slice:
 
@@ -29,14 +30,19 @@ Out of scope for this slice:
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
+from ...middleware.google_adk.translator import _walk_and_rewrite_inplace as _adk_rewrite_inplace
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
+    DecodedBatch,
     OtelDecodeError,
     OversizedPayloadError,
     ReceiverTokenAuth,
@@ -46,11 +52,45 @@ from ...middleware.otel_receiver import (
     persist_decoded_batch,
     verify_request_token,
 )
+from ...middleware.watsonx_adk.translator import (
+    _walk_and_rewrite_inplace as _watsonx_rewrite_inplace,
+)
 from ..deps import ConnDep
 
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/otel", tags=["otel-ingest"])
+
+
+def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
+    """Parse raw OTLP-JSON bytes, apply vendor-key translators, then decode.
+
+    Two translators run in sequence on a single shared deep-copy:
+      * `_adk_rewrite_inplace` rewrites Google ADK's
+        `gcp.vertex.agent.*` keys onto the standard `gen_ai.*` semconv.
+      * `_watsonx_rewrite_inplace` rewrites Traceloop / OpenLLMetry
+        `traceloop.*` keys (emitted by watsonx Orchestrate ADK and any
+        OpenLLMetry-instrumented agent) onto the same `gen_ai.*` semconv.
+
+    Both translators are conditional (no-op when standard keys are already
+    present). Order does not matter because each targets a disjoint vendor
+    namespace. The single deep-copy is shared so non-vendor payloads pay
+    only one allocation + two attribute-list walks instead of two allocations.
+
+    JSON parse errors are promoted to `OtelDecodeError` so the route handler's
+    existing 400 path handles them without a separate except clause.
+    """
+    try:
+        parsed: dict[str, Any] = json.loads(raw)
+    except ValueError as exc:
+        raise OtelDecodeError(f"invalid JSON: {exc}") from exc
+    out: dict[str, Any] = copy.deepcopy(parsed) if isinstance(parsed, dict) else parsed
+    _adk_rewrite_inplace(out)
+    _watsonx_rewrite_inplace(out)
+    return decode_otlp_payload(
+        out,
+        max_body_bytes=max_body_bytes,
+    )
 
 
 class IngestWarning(BaseModel):
@@ -160,7 +200,7 @@ async def _resolve_workflow_id(
 async def _apply_provenance_hints(
     conn: ConnDep,
     workflow_id: str,
-    batch,  # DecodedBatch
+    batch: DecodedBatch,
 ) -> None:
     """Auto-tag workflow.origin and back-fill skills.langsmith_prompt_id.
 
@@ -227,22 +267,22 @@ async def ingest_otlp_traces(
     authorization: str | None = Header(default=None),
     workflow_id: str | None = Query(default=None),
 ) -> IngestResponse:
-    """Accept one OTLP-JSON ResourceSpans batch and persist it.
+    """Accept one OTLP-JSON or OTLP-protobuf ResourceSpans batch and persist it.
 
     Decoded events land in the `traces` table — one row per unique
-    `AgentEvent.trace_id`, bound to the workflow resolved from the
-    receiver token (or the `?workflow_id=` query param for
-    workflow-agnostic tokens). Subsequent batches for the same trace_id
-    append onto the existing row's JSONB events array (the common
-    pattern when an external collector flushes spans in waves).
+    `AgentEvent.trace_id`, bound to the workflow resolved from the receiver
+    token (or the `?workflow_id=` query param for workflow-agnostic tokens).
+    Subsequent batches for the same trace_id append onto the existing row's
+    JSONB events array (the common pattern when an external collector flushes
+    spans in waves).
 
     The body is streamed with a byte cap to prevent unbounded memory
-    accumulation from chunked-transfer payloads. The CPU-bound JSON
-    decode is offloaded to a thread-pool executor so the event loop
-    stays free during large-batch processing.
+    accumulation from chunked-transfer payloads. The CPU-bound decode is
+    offloaded to a thread-pool executor so the event loop stays free during
+    large-batch processing.
 
-    Authentication happens before body read so a bad token rejects
-    cheaply without consuming a multi-MiB upload.
+    Authentication happens before body read so a bad token rejects cheaply
+    without consuming a multi-MiB upload.
     """
     try:
         auth = await verify_request_token(conn, authorization)
@@ -272,19 +312,20 @@ async def ingest_otlp_traces(
             detail=str(exc),
         ) from exc
 
-    # OpenLLMetry / traceloop and most OTel SDKs emit OTLP-HTTP protobuf
-    # by default; langsmith-collector-proxy emits OTLP-JSON. Branch on the
-    # declared Content-Type — anything that isn't protobuf is treated as
-    # JSON (the receiver's original contract).
+    # OpenLLMetry / traceloop and most OTel SDKs emit OTLP-HTTP protobuf by
+    # default; langsmith-collector-proxy emits OTLP-JSON. Branch on the
+    # declared Content-Type — anything that isn't protobuf is treated as JSON.
+    # Protobuf payloads already use standard OTel semconv; vendor-key
+    # translation via ADK/watsonx rewriters is skipped for that path.
     content_type = request.headers.get("content-type", "").lower()
     is_protobuf = "application/x-protobuf" in content_type or (
         "application/protobuf" in content_type
     )
-    decode = decode_otlp_protobuf if is_protobuf else decode_otlp_payload
+    decode_fn = decode_otlp_protobuf if is_protobuf else _parse_translate_decode
 
     try:
         batch = await asyncio.to_thread(
-            decode, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+            decode_fn, raw, DEFAULT_MAX_BODY_BYTES
         )
     except OversizedPayloadError as exc:
         # Second-line cap guard — catches the rare case where the

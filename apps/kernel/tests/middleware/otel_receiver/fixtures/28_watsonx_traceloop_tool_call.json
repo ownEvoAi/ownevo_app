@@ -1,0 +1,57 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": []
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "test-fixture"
+          },
+          "spans": [
+            {
+              "attributes": [
+                {
+                  "key": "traceloop.span.kind",
+                  "value": {
+                    "stringValue": "tool"
+                  }
+                },
+                {
+                  "key": "traceloop.entity.name",
+                  "value": {
+                    "stringValue": "add"
+                  }
+                },
+                {
+                  "key": "traceloop.entity.input",
+                  "value": {
+                    "stringValue": "{\"a\": 17, \"b\": 25}"
+                  }
+                },
+                {
+                  "key": "traceloop.entity.output",
+                  "value": {
+                    "stringValue": "42"
+                  }
+                }
+              ],
+              "endTimeUnixNano": "1700000000500000000",
+              "kind": 1,
+              "name": "add.tool",
+              "parentSpanId": "",
+              "spanId": "1111111111111111",
+              "startTimeUnixNano": "1700000000000000000",
+              "status": {
+                "code": 1,
+                "message": ""
+              },
+              "traceId": "11111111111111111111111111111111"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

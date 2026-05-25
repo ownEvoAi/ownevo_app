@@ -14,13 +14,11 @@ attribute and event namespace).
 
 ## Scope of the receiver
 
-This receiver accepts OTLP payloads over HTTP (one OTel `ResourceSpans`
-batch per request), in either encoding: JSON (the default for the
-LangSmith `langsmith-collector-proxy`) and protobuf (`Content-Type:
-application/x-protobuf`, the default for OpenLLMetry / traceloop and
-most stock OTel SDKs). Protobuf bodies are decoded into the same object
-model as the JSON path and run through the identical mapper. gRPC OTLP
-is not implemented — HTTP transport only.
+This receiver accepts OTLP-JSON payloads over HTTP (one OTel `ResourceSpans`
+batch per request) and decodes them into a stream of typed `AgentEvent`
+objects. gRPC + protobuf-OTLP are not implemented in this slice — the
+JSON-over-HTTP path is sufficient for the LangSmith / langsmith-collector-proxy
+dry-run loop and for the round-trip replay test against existing M5 traces.
 
 The mapping is intentionally lossy: OTel carries operational metadata
 (durations, timestamps, model usage) that AgentEvent compresses or
@@ -198,9 +196,36 @@ when multi-tenant lands, the receiver will require either a
 carry neither. For now the receiver tags every decoded AgentEvent with
 the workspace currently configured on the kernel.
 
+## Vendor-specific adapters
+
+Some platforms emit OTel that mostly follows the GenAI Semantic
+Conventions but uses a few vendor-prefixed attribute keys for
+payloads the spec hasn't pinned. Those platforms ship a thin
+translator alongside the receiver rather than complicating the
+receiver itself:
+
+- **Google Agent Development Kit (ADK).** ADK puts tool-call args and
+  results under `gcp.vertex.agent.tool_call_args` and
+  `gcp.vertex.agent.tool_response`, not the standard
+  `gen_ai.tool.call.arguments` / `gen_ai.tool.call.result`. The
+  adapter at `middleware/google_adk/` rewrites those keys before the
+  payload hits the receiver; see that module's docstring for the
+  full divergence list.
+
+- **IBM watsonx Orchestrate ADK / OpenLLMetry.** watsonx Orchestrate
+  emits OTel via the Traceloop / OpenLLMetry SDK, which uses
+  `traceloop.span.kind` instead of `gen_ai.operation.name` and stores
+  tool args / results under `traceloop.entity.input` /
+  `traceloop.entity.output`. The adapter at `middleware/watsonx_adk/`
+  bridges those keys onto the standard semconv (and synthesises a
+  deterministic `gen_ai.tool.call.id` from the span id, which
+  OpenLLMetry does not emit). The translator is shape-only — any
+  OpenLLMetry-instrumented agent traces through the same path, not
+  just watsonx-emitted ones.
+
 ## What this mapping deliberately does not do
 
-- No gRPC OTLP. HTTP transport only (JSON and protobuf both accepted).
+- No protobuf / gRPC OTLP. JSON-over-HTTP only.
 - No span-link traversal. OTel `links` are dropped.
 - No span-event ingestion outside the `gen_ai.*` event namespace
   (e.g. the deprecated `gen_ai.user.message` event-shape is not
