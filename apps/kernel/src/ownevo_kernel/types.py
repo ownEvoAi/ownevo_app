@@ -112,6 +112,11 @@ class AuditKind(StrEnum):
     # Records when an approved fix was shipped back to the
     # customer's LangSmith workspace as a new prompt commit.
     FIX_SHIPPED_LANGSMITH = "fix-shipped-langsmith"
+    # Records when an approved fix was delivered to a Copilot Studio
+    # workflow as a plain-language diff. Microsoft exposes no
+    # fix-feedback API, so the customer applies the diff manually in the
+    # Copilot Studio UI; this entry captures the delivered diff text.
+    FIX_EXPORTED_COPILOT_STUDIO = "fix-exported-copilot-studio"
 
 
 # ---------------------------------------------------------------------------

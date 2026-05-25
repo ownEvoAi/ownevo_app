@@ -1,14 +1,18 @@
-"""`/api/integrations/langsmith` — manage the LangSmith API credential.
+"""`/api/integrations/{langsmith,copilot-studio}` — manage vendor credentials.
 
-Backs the Settings → Integrations → LangSmith page. The API key is
-stored encrypted at rest (`integration_credentials`, migration 0022)
-and is never returned to the client — GET reports only whether one is
-configured and the last connection-test result.
+Backs the Settings → Integrations pages. Credentials are stored encrypted
+at rest (`integration_credentials`, migration 0022) and are never returned
+to the client — GET reports only whether one is configured and the last
+connection-test result.
 
-The "test connection" action validates the stored key against LangSmith
-with one cheap authenticated read and records the outcome, so the UI can
-show whether the key still works without re-hitting the vendor on every
-page load.
+LangSmith stores one scalar secret (an API key); Copilot Studio stores a
+structured Entra service-principal credential (tenant / client id /
+secret / environment URL) sealed as a JSON blob into the same column.
+
+The "test connection" action validates the stored credential against the
+vendor with one cheap authenticated round-trip and records the outcome,
+so the UI can show whether the credential still works without re-hitting
+the vendor on every page load.
 """
 
 from __future__ import annotations
@@ -20,6 +24,10 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from .._copilot_studio_credentials import (
+    get_copilot_studio_credential,
+    set_copilot_studio_credential,
+)
 from .._integration_credentials import (
     delete_credential,
     get_credential_plaintext,
@@ -32,6 +40,7 @@ from ..deps import ConnDep, DemoModeCheck
 _log = logging.getLogger(__name__)
 
 _PROVIDER = "langsmith"
+_COPILOT_PROVIDER = "copilot_studio"
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -151,3 +160,145 @@ async def test_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> Lang
 
     await record_validation(conn, _PROVIDER, "ok")
     return LangSmithTestResult(status="ok")
+
+
+# ---------------------------------------------------------------------------
+# Copilot Studio — structured Entra service-principal credential
+# ---------------------------------------------------------------------------
+
+
+class CopilotStudioCredentialSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # GUIDs and an org URL; 4096 each is generous while blocking junk payloads.
+    tenant_id: str = Field(min_length=1, max_length=4096)
+    client_id: str = Field(min_length=1, max_length=4096)
+    client_secret: str = Field(min_length=1, max_length=4096)
+    environment_url: str = Field(min_length=1, max_length=4096)
+    # Optional override for sovereign clouds (US Gov / China). Omitted →
+    # the adapter's public-cloud default.
+    authority_host: str | None = Field(default=None, max_length=4096)
+
+
+class CopilotStudioStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    configured: bool
+    last_validated_at: str | None
+    validation_status: str | None
+
+
+class CopilotStudioTestResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "invalid", "error"]
+    detail: str | None = None
+
+
+@router.get("/copilot-studio", response_model=CopilotStudioStatus)
+async def get_copilot_studio_status(conn: ConnDep) -> CopilotStudioStatus:
+    """Report whether a Copilot Studio credential is configured + last test."""
+    s = await get_credential_status(conn, _COPILOT_PROVIDER)
+    return CopilotStudioStatus(
+        configured=s.configured,
+        last_validated_at=s.last_validated_at.isoformat() if s.last_validated_at else None,
+        validation_status=s.validation_status,
+    )
+
+
+@router.post(
+    "/copilot-studio",
+    response_model=CopilotStudioStatus,
+    status_code=status.HTTP_200_OK,
+)
+async def set_copilot_studio_credential_route(
+    body: CopilotStudioCredentialSet,
+    conn: ConnDep,
+    _demo: DemoModeCheck,
+) -> CopilotStudioStatus:
+    """Store (encrypt) the Copilot Studio service-principal credential.
+
+    503 when the server-side master encryption key is not configured
+    (`OWNEVO_CREDENTIALS_MASTER_KEY` unset). The credential is sealed as a
+    JSON blob at rest before it touches the database.
+    """
+    from ...middleware.copilot_studio import CopilotStudioCredentials
+    from ...middleware.copilot_studio.auth import DEFAULT_AUTHORITY_HOST
+    from ...secrets import CredentialsKeyMissingError
+
+    cred = CopilotStudioCredentials(
+        tenant_id=body.tenant_id.strip(),
+        client_id=body.client_id.strip(),
+        client_secret=body.client_secret.strip(),
+        environment_url=body.environment_url.strip(),
+        authority_host=(body.authority_host or DEFAULT_AUTHORITY_HOST).strip(),
+    )
+    try:
+        await set_copilot_studio_credential(conn, cred)
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
+    return await get_copilot_studio_status(conn)
+
+
+@router.delete("/copilot-studio", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_copilot_studio_credential(conn: ConnDep, _demo: DemoModeCheck) -> None:
+    """Remove the stored Copilot Studio credential. Idempotent (204 even if absent)."""
+    await delete_credential(conn, _COPILOT_PROVIDER)
+
+
+@router.post("/copilot-studio/test", response_model=CopilotStudioTestResult)
+async def test_copilot_studio_credential(
+    conn: ConnDep, _demo: DemoModeCheck
+) -> CopilotStudioTestResult:
+    """Validate the stored credential against Entra and record the result.
+
+    404 when no credential is configured. 503 when the master encryption
+    key is not configured on the server. Otherwise returns 'ok' (Entra
+    minted a token), 'invalid' (service principal rejected), or 'error'
+    (network / API failure) and stamps `validation_status` for the UI.
+    """
+    from ...middleware.copilot_studio import (
+        CopilotStudioAuthError,
+        CopilotStudioConfigError,
+        CopilotStudioError,
+        verify_connection,
+    )
+    from ...secrets import CredentialsDecryptError, CredentialsKeyMissingError
+
+    try:
+        cred = await get_copilot_studio_credential(conn)
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
+    except CredentialsDecryptError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored credential could not be decrypted — re-enter it in Settings",
+        ) from None
+    except CopilotStudioConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Stored credential is malformed — re-enter it in Settings: {exc}",
+        ) from None
+    if cred is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No Copilot Studio credential configured",
+        )
+
+    try:
+        await verify_connection(cred)
+    except CopilotStudioAuthError as exc:
+        await record_validation(conn, _COPILOT_PROVIDER, "invalid")
+        return CopilotStudioTestResult(status="invalid", detail=str(exc)[:200])
+    except CopilotStudioError as exc:
+        await record_validation(conn, _COPILOT_PROVIDER, "error")
+        return CopilotStudioTestResult(status="error", detail=str(exc)[:200])
+
+    await record_validation(conn, _COPILOT_PROVIDER, "ok")
+    return CopilotStudioTestResult(status="ok")

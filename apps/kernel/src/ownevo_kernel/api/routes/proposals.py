@@ -752,6 +752,156 @@ async def ship_langsmith(
     )
 
 
+class ShipCopilotStudioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shipped_by: str = Field(default="human", max_length=128)
+
+
+class ShipCopilotStudioResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: UUID
+    summary: str
+    instruction_text: str
+    already_delivered: bool
+
+
+@router.post(
+    "/{proposal_id}/ship-copilot-studio",
+    response_model=ShipCopilotStudioResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def ship_copilot_studio(
+    proposal_id: UUID,
+    body: ShipCopilotStudioRequest,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ShipCopilotStudioResponse:
+    """Deliver a deployed fix to a Copilot Studio workflow as a diff to apply.
+
+    Microsoft exposes no programmatic fix-feedback API, so unlike
+    `ship-langsmith` this makes **no external call**: it records the
+    plain-language summary + the new instruction text to the audit chain
+    (`fix-exported-copilot-studio`) for the customer to apply by hand in
+    the Copilot Studio UI, and returns that text for the approval card to
+    render.
+
+    Preconditions (422 unless met): the proposal is `kind='skill'`, in
+    state `deployed`, on a workflow with `origin='copilot_studio'`, with a
+    deployed skill version to deliver.
+
+    Idempotent: a prior `fix-exported-copilot-studio` audit entry is
+    returned (`already_delivered=true`) without re-recording. The partial
+    unique index (migration 0027) makes the concurrent-double-deliver race
+    fail closed; the savepoint below converts that into the idempotent
+    repeat.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT p.state::text   AS state,
+               p.kind::text     AS kind,
+               p.plain_language_summary,
+               i.workflow_id,
+               w.origin         AS workflow_origin,
+               sv.content       AS deployed_content
+        FROM proposals p
+        JOIN iterations i ON i.id = p.iteration_id
+        JOIN workflows w ON w.id = i.workflow_id
+        LEFT JOIN skills s ON s.id = p.skill_id
+        LEFT JOIN skill_versions sv ON sv.id = s.deployed_version_id
+        WHERE p.id = $1
+        """,
+        proposal_id,
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
+    existing = await conn.fetchrow(
+        "SELECT payload FROM audit_entries "
+        "WHERE kind = 'fix-exported-copilot-studio' AND related_id = $1 "
+        "ORDER BY created_at DESC LIMIT 1",
+        proposal_id,
+    )
+    if existing is not None:
+        payload = decode_jsonb_obj(existing["payload"])
+        return ShipCopilotStudioResponse(
+            proposal_id=proposal_id,
+            summary=payload.get("summary", ""),
+            instruction_text=payload.get("instruction_text", ""),
+            already_delivered=True,
+        )
+
+    if (row["kind"] or "skill") != "skill":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only skill proposals can be delivered to Copilot Studio",
+        )
+    if row["state"] != "deployed":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Proposal must be deployed before delivering",
+        )
+    if row["workflow_origin"] != "copilot_studio":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Workflow is not Copilot Studio-originated",
+        )
+    content = row["deployed_content"]
+    if not content:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No deployed skill version to deliver",
+        )
+
+    summary = row["plain_language_summary"] or "Approved fix"
+
+    # No external side effect to dedupe (unlike ship-langsmith's push), so
+    # the partial unique index alone guards the concurrent-double-deliver
+    # race. Write inside a savepoint so the unique violation is recoverable.
+    try:
+        async with conn.transaction():  # savepoint
+            await append_audit_entry(
+                conn,
+                kind=AuditKind.FIX_EXPORTED_COPILOT_STUDIO,
+                payload={
+                    "summary": summary,
+                    "instruction_text": content,
+                    "workflow_id": row["workflow_id"],
+                },
+                actor=body.shipped_by,
+                related_id=proposal_id,
+            )
+    except asyncpg.UniqueViolationError as exc:
+        if getattr(exc, "constraint_name", None) != "audit_entries_ship_copilot_studio_once_idx":
+            raise
+        winner = await conn.fetchrow(
+            "SELECT payload FROM audit_entries "
+            "WHERE kind = 'fix-exported-copilot-studio' AND related_id = $1 "
+            "ORDER BY created_at DESC LIMIT 1",
+            proposal_id,
+        )
+        if winner is not None:
+            winner_payload = decode_jsonb_obj(winner["payload"])
+            return ShipCopilotStudioResponse(
+                proposal_id=proposal_id,
+                summary=winner_payload.get("summary", ""),
+                instruction_text=winner_payload.get("instruction_text", ""),
+                already_delivered=True,
+            )
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Audit write conflicted but no entry found — retry to re-record",
+        ) from exc
+
+    return ShipCopilotStudioResponse(
+        proposal_id=proposal_id,
+        summary=summary,
+        instruction_text=content,
+        already_delivered=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------

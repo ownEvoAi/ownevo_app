@@ -1573,3 +1573,66 @@ export async function setSkillLangSmithBinding(
     { method: 'PATCH', body: JSON.stringify({ langsmith_prompt_id: promptId }) },
   )
 }
+
+// ---------------------------------------------------------------------------
+// Copilot Studio integration (13.0.3) — Entra credential + fix delivery
+// ---------------------------------------------------------------------------
+
+export interface CopilotStudioStatus {
+  configured: boolean
+  last_validated_at: string | null
+  validation_status: string | null
+}
+
+export interface CopilotStudioCredentialInput {
+  tenant_id: string
+  client_id: string
+  client_secret: string
+  environment_url: string
+  authority_host?: string | null
+}
+
+export interface CopilotStudioTestResult {
+  status: 'ok' | 'invalid' | 'error'
+  detail: string | null
+}
+
+export interface ShipCopilotStudioResponse {
+  proposal_id: string
+  summary: string
+  instruction_text: string
+  already_delivered: boolean
+}
+
+export async function getCopilotStudioStatus(): Promise<CopilotStudioStatus> {
+  return jsonFetch<CopilotStudioStatus>('/api/integrations/copilot-studio')
+}
+
+export async function setCopilotStudioCredential(
+  cred: CopilotStudioCredentialInput,
+): Promise<CopilotStudioStatus> {
+  return jsonFetch<CopilotStudioStatus>('/api/integrations/copilot-studio', {
+    method: 'POST',
+    body: JSON.stringify(cred),
+  })
+}
+
+export async function deleteCopilotStudioCredential(): Promise<void> {
+  await jsonFetch<unknown>('/api/integrations/copilot-studio', { method: 'DELETE' })
+}
+
+export async function testCopilotStudioConnection(): Promise<CopilotStudioTestResult> {
+  return jsonFetch<CopilotStudioTestResult>('/api/integrations/copilot-studio/test', {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export async function shipFixToCopilotStudio(
+  proposalId: string,
+): Promise<ShipCopilotStudioResponse> {
+  return jsonFetch<ShipCopilotStudioResponse>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/ship-copilot-studio`,
+    { method: 'POST', body: '{}' },
+  )
+}

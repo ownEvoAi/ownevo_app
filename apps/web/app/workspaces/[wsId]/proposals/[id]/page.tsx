@@ -15,6 +15,7 @@ import { isDemoMode } from '@/lib/demo-mode'
 import { WorkflowTabs } from '@/app/workspaces/[wsId]/workflows/[wfId]/workflow-tabs'
 import { DecideForm } from './decide-form'
 import { DeployForm } from './deploy-form'
+import { ShipCopilotStudioForm } from './ship-copilot-studio-form'
 import { ShipLangSmithForm } from './ship-langsmith-form'
 
 interface PageProps {
@@ -180,6 +181,13 @@ export default async function ProposalDetailPage({ params }: PageProps) {
           )}
           {proposal.state === 'deployed' && proposal.kind === 'skill' && (
             <ShipLangSmithForm
+              proposalId={proposal.id}
+              wsId={wsId}
+              demoMode={isDemoMode()}
+            />
+          )}
+          {proposal.state === 'deployed' && proposal.kind === 'skill' && (
+            <ShipCopilotStudioForm
               proposalId={proposal.id}
               wsId={wsId}
               demoMode={isDemoMode()}
