@@ -182,14 +182,31 @@ async def _apply_provenance_hints(
     prompt_ids = batch.detected_prompt_ids
     if len(prompt_ids) == 1:
         (prompt_id,) = tuple(prompt_ids)
-        # Fill any skill on this workflow that doesn't already carry a
-        # binding (per the agreed rule for multi-skill workflows).
-        await conn.execute(
-            "UPDATE skills SET langsmith_prompt_id = $1 "
-            "WHERE workflow_id = $2 AND langsmith_prompt_id IS NULL",
-            prompt_id,
+        # Auto-bind only when the workflow has exactly ONE skill. With
+        # multiple skills, one prompt ID is ambiguous (different skills may
+        # map to different LangSmith prompts), and stamping all unbound skills
+        # with the same id would cause ship-langsmith to push to the wrong
+        # prompt for any secondary skill. Leave multi-skill workflows to the
+        # manual binding picker.
+        skill_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM skills WHERE workflow_id = $1",
             workflow_id,
         )
+        if skill_count == 1:
+            await conn.execute(
+                "UPDATE skills SET langsmith_prompt_id = $1 "
+                "WHERE workflow_id = $2 AND langsmith_prompt_id IS NULL",
+                prompt_id,
+                workflow_id,
+            )
+        else:
+            _log.info(
+                "otel-ingest: 1 distinct prompt id but %d skills on workflow %s — "
+                "skipping auto-bind (ambiguous for multi-skill workflows); "
+                "use the manual binding picker",
+                skill_count,
+                workflow_id,
+            )
     elif len(prompt_ids) > 1:
         _log.info(
             "otel-ingest: %d distinct prompt ids in batch for workflow %s — "

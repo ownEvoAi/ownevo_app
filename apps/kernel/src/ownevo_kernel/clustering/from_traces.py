@@ -38,6 +38,7 @@ unit tests can substitute deterministic stubs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -136,23 +137,34 @@ def extract_failure_snapshots(
     return out
 
 
+# Cap on how many production traces to load per clustering run. Unbounded
+# reads can pull gigabytes for high-volume workflows; the 2000 most-recent
+# failing traces cover realistic cluster diversity while keeping memory and
+# UMAP runtime bounded. Operators can lower this via a future config field.
+_MAX_PRODUCTION_TRACES = 2000
+
+
 async def _fetch_production_traces(
     conn: asyncpg.Connection,
     workflow_id: str,
 ) -> list[tuple[UUID, list[dict[str, Any]]]]:
-    """Read a workflow's production traces (iteration_id IS NULL).
+    """Read a workflow's most-recent production traces (iteration_id IS NULL).
 
-    Eval traces (iteration_id set) are excluded — they cluster through
-    the eval-case path and would double-count here.
+    Capped at _MAX_PRODUCTION_TRACES rows (most-recent by started_at) to
+    bound memory and UMAP runtime. Eval traces (iteration_id set) are
+    excluded — they cluster through the eval-case path and would
+    double-count here.
     """
     rows = await conn.fetch(
         """
         SELECT id, events
         FROM traces
         WHERE workflow_id = $1 AND iteration_id IS NULL
-        ORDER BY started_at
+        ORDER BY started_at DESC
+        LIMIT $2
         """,
         workflow_id,
+        _MAX_PRODUCTION_TRACES,
     )
     result: list[tuple[UUID, list[dict[str, Any]]]] = []
     for row in rows:
@@ -188,7 +200,11 @@ async def cluster_production_failures(
     trace_ids = [tid for tid, _ in snapshots_with_ids]
     snapshots = [snap for _, snap in snapshots_with_ids]
 
-    result = cluster_failures(
+    # cluster_failures is CPU-bound (sentence-transformers + UMAP + HDBSCAN
+    # + a synchronous LLM labeler call). Running it directly on the event
+    # loop would stall every concurrent request for the duration.
+    result = await asyncio.to_thread(
+        cluster_failures,
         snapshots,
         embedder=embedder,
         reducer=reducer,

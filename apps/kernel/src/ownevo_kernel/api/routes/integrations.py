@@ -17,7 +17,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .._integration_credentials import (
     delete_credential,
@@ -38,7 +38,8 @@ router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 class LangSmithCredentialSet(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    api_key: str
+    # LangSmith keys are ~50 chars; 4096 is generous while blocking multi-MB payloads.
+    api_key: str = Field(min_length=1, max_length=4096)
 
 
 class LangSmithStatus(BaseModel):

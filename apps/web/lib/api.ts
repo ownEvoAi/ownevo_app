@@ -191,6 +191,8 @@ async function jsonFetch<T>(
     }
     throw new KernelApiError(res.status, detail)
   }
+  // 204 No Content — no body to parse.
+  if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
 
@@ -1344,7 +1346,7 @@ export interface SkillDetail {
   deployable_proposal_id: string | null
   deployable_proposal_version_seq: number | null
   deployed_proposal_id: string | null
-  langsmith_prompt_id?: string | null
+  langsmith_prompt_id: string | null
   versions: SkillVersionSummary[]
   related_eval_cases: SkillRelatedEvalCase[]
 }
@@ -1411,7 +1413,7 @@ export interface LangSmithStatus {
 }
 
 export interface LangSmithTestResult {
-  status: string // 'ok' | 'invalid' | 'error'
+  status: 'ok' | 'invalid' | 'error'
   detail: string | null
 }
 

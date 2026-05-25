@@ -23,7 +23,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...approvals import (
     ApprovalStateError,
@@ -482,7 +482,7 @@ async def rollback(
 class ShipLangSmithRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    shipped_by: str = "human"
+    shipped_by: str = Field(default="human", max_length=128)
 
 
 class ShipLangSmithResponse(BaseModel):
@@ -611,18 +611,39 @@ async def ship_langsmith(
     except (LangSmithNetworkError, LangSmithPushError) as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
 
-    await append_audit_entry(
-        conn,
-        kind=AuditKind.FIX_SHIPPED_LANGSMITH,
-        payload={
-            "prompt_id": result.prompt_id,
-            "commit_hash": result.commit_hash,
-            "commit_url": result.commit_url,
-            "workflow_id": row["workflow_id"],
-        },
-        actor=body.shipped_by,
-        related_id=proposal_id,
-    )
+    try:
+        await append_audit_entry(
+            conn,
+            kind=AuditKind.FIX_SHIPPED_LANGSMITH,
+            payload={
+                "prompt_id": result.prompt_id,
+                "commit_hash": result.commit_hash,
+                "commit_url": result.commit_url,
+                "workflow_id": row["workflow_id"],
+            },
+            actor=body.shipped_by,
+            related_id=proposal_id,
+        )
+    except asyncpg.UniqueViolationError:
+        # Concurrent request raced past the idempotency check and already
+        # wrote the audit entry (migration 0022 enforces uniqueness on
+        # fix-shipped-langsmith per related_id). Fetch and return the winner's
+        # entry rather than failing — the push already succeeded.
+        winner = await conn.fetchrow(
+            "SELECT payload FROM audit_entries "
+            "WHERE kind = 'fix-shipped-langsmith' AND related_id = $1 "
+            "ORDER BY created_at DESC LIMIT 1",
+            proposal_id,
+        )
+        if winner is not None:
+            payload = decode_jsonb_obj(winner["payload"])
+            return ShipLangSmithResponse(
+                proposal_id=proposal_id,
+                prompt_id=payload.get("prompt_id", ""),
+                commit_hash=payload.get("commit_hash", ""),
+                commit_url=payload.get("commit_url", ""),
+                already_shipped=True,
+            )
 
     return ShipLangSmithResponse(
         proposal_id=proposal_id,
