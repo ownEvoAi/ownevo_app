@@ -30,6 +30,7 @@ from ...nl_gen.design_brief_context import (
     format_dimensions_block,
 )
 from ...nl_gen.eval_generator import generate_eval_case_set
+from ...nl_gen.input_pool import build_input_pool_block
 from ...nl_gen.eval_persistence import persist_eval_case_set
 from ...nl_gen.metric_generator import generate_metric_definition
 from ...nl_gen.sim_generator import generate_simulation_plan
@@ -1286,9 +1287,40 @@ async def generate_workflow_eval_cases(
         sim_plan = await generate_simulation_plan(
             client, workflow_spec, design_brief_block=sim_brief
         )
+        input_pool_block = await build_input_pool_block(conn, workflow_spec)
         case_set = await generate_eval_case_set(
-            client, workflow_spec, sim_plan, design_brief_block=eval_brief
+            client,
+            workflow_spec,
+            sim_plan,
+            design_brief_block=eval_brief,
+            input_pool_block=input_pool_block,
         )
+        # Guard: the model can invent an input_source id that wasn't in the
+        # pool block. Cross-check and null-out any id that isn't a declared
+        # data source so the replay harness never receives a phantom source.
+        declared_source_ids = {
+            ds.id for ds in workflow_spec.environment.data_sources
+        }
+        cleaned: list = []
+        changed = False
+        for generated_case in case_set.cases:
+            if (
+                generated_case.input_source is not None
+                and generated_case.input_source not in declared_source_ids
+            ):
+                _log.warning(
+                    "eval-case generator invented input_source %r not in %r; "
+                    "clearing to None",
+                    generated_case.input_source,
+                    declared_source_ids,
+                )
+                generated_case = generated_case.model_copy(
+                    update={"input_source": None}
+                )
+                changed = True
+            cleaned.append(generated_case)
+        if changed:
+            case_set = case_set.model_copy(update={"cases": cleaned})
         # Backfill metric_definition too when the workflow was created
         # without one — historical rows (PR #85-era nl-gen) sometimes
         # landed with simulation_plan/metric_definition NULL and the

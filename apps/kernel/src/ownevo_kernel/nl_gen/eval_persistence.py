@@ -35,11 +35,16 @@ from .eval_case_set import EvalCaseSet, GeneratedEvalCase
 
 def _input_payload(case: GeneratedEvalCase) -> dict[str, Any]:
     """Replay parameters — what the replay helper reads off `EvalCase.input`."""
-    return {
+    payload: dict[str, Any] = {
         "sim_seed": case.sim_seed,
         "n_steps": case.n_steps,
         "target_step_index": case.target_step_index,
     }
+    # Connector-backed cases (Track 17.0) record which declared data source
+    # they draw on, so the replay harness knows to provide that upload/MCP data.
+    if case.input_source:
+        payload["input_source"] = case.input_source
+    return payload
 
 
 def _expected_behavior_payload(case: GeneratedEvalCase) -> dict[str, Any]:

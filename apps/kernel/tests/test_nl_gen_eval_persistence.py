@@ -146,3 +146,32 @@ async def test_transaction_rolls_back_on_failure(db: asyncpg.Connection):
         db, workflow_id=case_set.workflow_spec_id
     )
     assert all_rows == []
+
+
+# ---------------------------------------------------------------------------
+# Connector input_source carry-through (Track 17.0)
+# ---------------------------------------------------------------------------
+
+
+def test_input_payload_carries_input_source():
+    """A connector-backed case records its input_source on EvalCase.input."""
+    from ownevo_kernel.nl_gen.eval_case_set import GeneratedEvalCase
+    from ownevo_kernel.nl_gen.eval_persistence import _input_payload
+    from ownevo_kernel.nl_gen.spec import Provenance
+
+    base = dict(
+        case_id="upload-grounded-case",
+        provenance=Provenance(kind="inferred", source="credit-risk DTI pattern"),
+        sim_seed=7,
+        n_steps=10,
+        target_step_index=3,
+        target_label_field="default_label",
+        expected_value=True,
+        rationale="draws on the uploaded D&B external scores",
+    )
+    tagged = GeneratedEvalCase(**base, input_source="dnb_external")
+    untagged = GeneratedEvalCase(**base)
+
+    assert _input_payload(tagged)["input_source"] == "dnb_external"
+    # Untagged cases keep the lean replay-only payload (no stray key).
+    assert "input_source" not in _input_payload(untagged)

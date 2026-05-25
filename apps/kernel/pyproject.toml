@@ -46,6 +46,34 @@ api = [
     # Encryption-at-rest for third-party integration credentials
     # (e.g. the LangSmith API key) via Fernet. See secrets/encrypted_field.py.
     "cryptography>=42,<46",
+    # Multipart parsing for file uploads (POST /api/uploads). Small + pure
+    # Python; kept in the API extra so the upload route works wherever the
+    # API runs. The heavy parsing libs live in the `data-ingest` extra below.
+    "python-multipart>=0.0.9,<0.1",
+]
+# Direct-upload ingestion (Track 17.0.3 / 17.0.4): parse spreadsheets and
+# documents into the parsed form the agent reads. Heavy + optional so the
+# kernel core stays pandas-free (per the repo convention); the parsers
+# lazy-import these, and the API process that serves uploads installs the
+# extra. openpyxl backs pandas' xlsx reader.
+#
+# Parquet needs a pandas parquet engine (pyarrow or fastparquet). It is NOT
+# pinned here because pyarrow has no wheels on the newest CPython yet and
+# building it from source needs a toolchain; install one separately where
+# parquet support is required (`pip install pyarrow`, Python <=3.13). The
+# spreadsheet parser surfaces a clear error if no engine is present.
+data-ingest = [
+    "pandas>=2.2,<3",
+    "openpyxl>=3.1,<4",
+    "pypdf>=4,<6",
+    "python-docx>=1.1,<2",
+]
+# MCP-client framework (Track 17.0). Optional because the kernel core,
+# the auth/registry logic, and the unit tests all run against a fake
+# transport and never import the SDK; only a process that actually talks
+# to a live MCP server needs the official client installed.
+mcp = [
+    "mcp>=1.2,<2",
 ]
 # Inspect AI Task adapter (A4.3). Optional because the load-bearing
 # `make eval-replay` path uses `eval_runner.run_replay`, which is

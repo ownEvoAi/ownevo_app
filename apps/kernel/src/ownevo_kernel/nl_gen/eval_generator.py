@@ -111,7 +111,13 @@ SYSTEM_PROMPT = (
     "WorkflowSpec's id verbatim.\n"
     "12. Emit between 10 and 30 cases. Suites smaller than 10 give the "
     "gate too little signal; suites larger than 30 cap replay cost when "
-    "the loop turns over many sim variants."
+    "the loop turns over many sim variants.\n"
+    "13. If a 'Connector data sources (the input pool)' block is provided, "
+    "you may ground cases in that real data. For any case that draws on one "
+    "of those sources, set `input_source` to that source's id exactly as "
+    "listed (e.g. `dnb_external`). Leave `input_source` null for cases that "
+    "rely only on the simulator. Never invent an `input_source` id that is "
+    "not in the block."
 )
 
 
@@ -215,6 +221,7 @@ async def generate_eval_case_set(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_retries: int = DEFAULT_MAX_RETRIES,
     design_brief_block: str | None = None,
+    input_pool_block: str | None = None,
 ) -> EvalCaseSet:
     """Generate a typed EvalCaseSet from a WorkflowSpec + SimulationPlan.
 
@@ -249,6 +256,8 @@ async def generate_eval_case_set(
     user_message = _format_user_message(workflow_spec, simulation_plan)
     if design_brief_block:
         user_message = f"{user_message}\n\n{design_brief_block}"
+    if input_pool_block:
+        user_message = f"{user_message}\n\n{input_pool_block}"
     try:
         case_set, _raw = await call_with_validation_retry(
             client=client,

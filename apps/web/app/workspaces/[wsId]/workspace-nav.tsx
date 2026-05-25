@@ -173,6 +173,18 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
         <span className="nav-label">Audit</span>
       </a>
 
+      <div className="nav-section">Settings</div>
+      <a
+        href={`${root}/settings/integrations`}
+        className={cls(`${root}/settings/integrations`)}
+      >
+        <svg className="nav-icon" viewBox="0 0 16 16">
+          <path d="M6 2 L10 2 L10 4 L13 5 L12 8 L14 10 L11 12 L10 14 L6 14 L5 12 L2 10 L4 8 L3 5 L6 4 Z" />
+          <circle cx="8" cy="8" r="2" />
+        </svg>
+        <span className="nav-label">Integrations</span>
+      </a>
+
       <div className="nav-footer">{themeToggle}</div>
     </aside>
   )

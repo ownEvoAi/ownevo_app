@@ -139,6 +139,16 @@ class GeneratedEvalCase(_Base):
             "rows for training (W2.3 train/test discipline)."
         ),
     )
+    input_source: str | None = Field(
+        default=None,
+        description=(
+            "When this case draws on a connector data source (an uploaded file "
+            "or MCP server), the `id` of that source as declared in the "
+            "WorkflowSpec's `environment.data_sources`. Tells the replay "
+            "harness which data to provide. None for purely simulator-backed "
+            "cases."
+        ),
+    )
 
     @model_validator(mode="after")
     def _step_index_within_n_steps(self) -> GeneratedEvalCase:
