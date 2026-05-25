@@ -5264,3 +5264,106 @@ a.anatomy-row-name:hover {
   margin-top: 8px;
   text-align: center;
 }
+
+/* Agent registry (/workspaces/[wsId]/agents) */
+.agent-row {
+  display: grid;
+  grid-template-columns: 2.6fr 1fr 0.9fr 0.7fr 0.7fr 1.2fr 1.1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+}
+.agent-row:last-child {
+  border-bottom: 0;
+}
+.agent-row.head {
+  background: var(--bg);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 18px;
+}
+.agent-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+.agent-name-cell:hover .agent-name {
+  color: var(--accent);
+}
+.agent-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-sub {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-origin {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.agent-origin.langsmith {
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--border));
+  color: #b45309;
+}
+.agent-origin.copilot_studio {
+  border-color: color-mix(in srgb, #3b82f6 50%, var(--border));
+  color: #1d4ed8;
+}
+.agent-metric {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.agent-status-control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agent-status-select {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.agent-status-select.active {
+  border-color: color-mix(in srgb, #10b981 55%, var(--border));
+  color: #047857;
+}
+.agent-status-select.paused {
+  border-color: color-mix(in srgb, #f59e0b 55%, var(--border));
+  color: #b45309;
+}
+.agent-status-select.archived {
+  color: var(--text-muted);
+}
+.agent-status-error {
+  font-size: 11px;
+  color: #dc2626;
+}
