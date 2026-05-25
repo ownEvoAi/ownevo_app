@@ -39,6 +39,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
+from ...agents import register_agent_for_workflow
 from ...middleware.google_adk.translator import _walk_and_rewrite_inplace as _adk_rewrite_inplace
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
@@ -367,7 +368,20 @@ async def ingest_otlp_traces(
     )
 
     if bound_workflow_id is not None:
+        # Provenance hints first: this writes `workflows.origin` from span
+        # attributes if it is currently NULL. The agent registration below
+        # reads `workflows.origin` to derive the agent's origin, so the
+        # provenance write must come first — otherwise an OTLP-first agent
+        # (one that streams traces before going through the import flow)
+        # would be permanently stamped 'greenfield' regardless of what the
+        # spans say. Idempotent: `_apply_provenance_hints` uses
+        # `WHERE origin IS NULL`, so an already-set origin is never overwritten.
         await _apply_provenance_hints(conn, bound_workflow_id, batch)
+
+        # Register the agent on first ingestion — an imported agent that
+        # streams traces without ever going through the kernel's creation
+        # flow still earns a registry row. Idempotent.
+        await register_agent_for_workflow(conn, bound_workflow_id)
 
         # Nudge the debounced auto-clustering trigger when this batch landed a
         # tool failure. No-op when the trigger is disabled (the default) or the

@@ -1691,3 +1691,45 @@ export async function pushEvalCasesCopilotStudio(
     { method: 'POST', body: JSON.stringify(body) },
   )
 }
+
+// Agent registry — workspace-wide index of connected agents across origins.
+
+export type AgentOrigin = 'greenfield' | 'langsmith' | 'copilot_studio'
+export type AgentStatus = 'active' | 'paused' | 'archived'
+
+export interface Agent {
+  id: string
+  workflow_id: string
+  name: string
+  origin: AgentOrigin
+  owner: string | null
+  status: AgentStatus
+  identity_hash: string
+  created_at: string
+  status_updated_at: string
+  last_iteration_at: string | null
+  eval_coverage_count: number
+  iteration_count: number
+}
+
+export interface AgentList {
+  items: Agent[]
+  total: number
+}
+
+export async function listAgents(): Promise<AgentList> {
+  return jsonFetch<AgentList>('/api/agents')
+}
+
+export async function setAgentStatus(
+  agentId: string,
+  status: AgentStatus,
+): Promise<Agent> {
+  return jsonFetch<Agent>(
+    `/api/agents/${encodeURIComponent(agentId)}/status`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    },
+  )
+}

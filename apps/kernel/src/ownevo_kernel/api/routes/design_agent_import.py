@@ -35,6 +35,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ...agents import register_agent
 from ...design_agent import (
     DIMENSION_SPECS,
     InterviewerError,
@@ -550,6 +551,13 @@ async def import_generate(
                 workflow_id=workflow_id,
                 log=import_log,
             )
+
+        await register_agent(
+            conn,
+            workflow_id=workflow_id,
+            description=description,
+            workflow_origin=req.origin,
+        )
 
     return ImportGenerateResponse(
         workflow_id=workflow_id,
