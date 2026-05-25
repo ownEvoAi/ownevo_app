@@ -559,6 +559,23 @@ function renderEntry(
           ? `/workspaces/${wsId}/proposals/${entry.related_id}`
           : `/workspaces/${wsId}/audit`,
       }
+    case 'eval-cases-pushed-copilot-studio': {
+      const caseCount = typeof p.case_count === 'number' ? p.case_count : null
+      return {
+        glyph: '↗',
+        tone: 'accent',
+        text: (
+          <>
+            {caseCount !== null ? `${caseCount} eval case${caseCount === 1 ? '' : 's'}` : 'Eval cases'}
+            {' '}pushed to Copilot Studio
+            {wfLabel ? <> (<code>{wfLabel}</code>)</> : null}
+          </>
+        ),
+        href: workflowId
+          ? `/workspaces/${wsId}/workflows/${workflowId}`
+          : `/workspaces/${wsId}/audit`,
+      }
+    }
     case 'schema-migration':
       return {
         glyph: '⚠',

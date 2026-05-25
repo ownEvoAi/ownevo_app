@@ -117,6 +117,11 @@ class AuditKind(StrEnum):
     # fix-feedback API, so the customer applies the diff manually in the
     # Copilot Studio UI; this entry captures the delivered diff text.
     FIX_EXPORTED_COPILOT_STUDIO = "fix-exported-copilot-studio"
+    # Records when a workflow's eval cases were pushed into Copilot Studio
+    # as a Power Platform Evaluation API test set (the only enterprise
+    # platform with an external eval-push API). Captures the created
+    # test-set id + case count.
+    EVAL_CASES_PUSHED_COPILOT_STUDIO = "eval-cases-pushed-copilot-studio"
 
 
 # ---------------------------------------------------------------------------
