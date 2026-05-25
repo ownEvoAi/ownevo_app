@@ -17,6 +17,8 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-05-25
+
 ### Added
 - **OTLP receiver authentication.** `POST /api/otel/v1/traces` now requires a bearer token (`Authorization: Bearer ownevo_rt_…`) minted by an operator via `apps/kernel/scripts/mint_receiver_token.py` (`make mint-receiver-token`). Tokens are random 32-byte secrets stored only as SHA-256 hashes in a new `receiver_tokens` table (migration `0019`); the plaintext is printed exactly once. A token may bind to a specific workflow (its batches can only write there) or be workflow-agnostic. Verification rejects missing / malformed / unknown / revoked tokens with a uniform 401 (no information leak). `OWNEVO_OTLP_AUTH_OPTIONAL=true` opts out for local-dev / tests, but a present-but-invalid token still fails.
 - **Workflow binding for ingested traces.** Ingested traces no longer land with `workflow_id IS NULL`. The workflow is resolved from the receiver token's binding, or from a `?workflow_id=` query parameter for workflow-agnostic tokens (validated to exist; 404 otherwise; 403 if a workflow-bound token targets a different workflow). On append, an existing binding is preserved (`COALESCE`) so a later workflow-agnostic flush can't orphan a bound trace. Bound traces show on the workflow's Failures / Overview tabs and are scoped by the clustering pipeline through the existing read path.
