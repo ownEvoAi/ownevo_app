@@ -41,6 +41,7 @@ def test_parse_csv_schema_and_rows() -> None:
 
 
 def test_parse_excel() -> None:
+    pytest.importorskip("openpyxl", reason="data-ingest extra (openpyxl) not installed")
     buf = io.BytesIO()
     _frame().to_excel(buf, index=False)
     parsed = parse_spreadsheet(buf.getvalue(), UploadKind.EXCEL)
