@@ -155,8 +155,13 @@ type ShipCopilotResult =
 // and records the delivery to the audit chain. Backend enforces the
 // preconditions (origin, deployed state) and returns a clear 4xx the
 // form surfaces inline.
+// Shaped identically to ShipLangSmithInput — both need only proposalId + wsId —
+// but kept as a separate type so that changes to either action's contract don't
+// silently widen the other.
+type ShipCopilotInput = { proposalId: string; wsId: string }
+
 export async function shipCopilotStudioAction(
-  input: ShipLangSmithInput,
+  input: ShipCopilotInput,
 ): Promise<ShipCopilotResult> {
   try {
     const res = await shipFixToCopilotStudio(input.proposalId)

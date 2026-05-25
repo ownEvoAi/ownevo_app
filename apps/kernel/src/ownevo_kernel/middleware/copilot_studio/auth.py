@@ -117,7 +117,9 @@ async def acquire_token(
         # `expires_in` is seconds-from-now; convert to a monotonic deadline
         # with skew so the cache re-mints before the real expiry.
         expires_in = float(payload.get("expires_in", 3600))
-        expires_at = time.monotonic() + max(0.0, expires_in - _EXPIRY_SKEW_SECONDS)
+        # Floor at 30 s so a very short-lived token (expires_in < skew) still
+        # caches briefly rather than being treated as permanently stale.
+        expires_at = time.monotonic() + max(30.0, expires_in - _EXPIRY_SKEW_SECONDS)
         return AccessToken(token=access_token, expires_at=expires_at)
 
     # Entra returns 400/401 with an OAuth error body for bad credentials.

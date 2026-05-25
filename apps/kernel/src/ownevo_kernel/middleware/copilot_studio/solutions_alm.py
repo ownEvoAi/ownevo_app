@@ -38,9 +38,18 @@ from .evaluation_api import (
 _DATAVERSE_API_VERSION = "v9.2"
 _EXPORT_TIMEOUT_SECONDS = 120.0  # solution export can be slow for large agents
 
+# Maximum size (bytes) we'll base64-decode from the ExportSolution response.
+# Power Platform solutions are typically < 1 MB; 50 MB is a generous ceiling
+# that prevents an abnormally large response from exhausting kernel memory.
+_MAX_SOLUTION_BYTES = 50 * 1024 * 1024  # 50 MB
+
 # JSON keys a Copilot Studio bot component uses to hold its instruction /
 # system-prompt text. Checked in order; the first non-empty string wins.
-_INSTRUCTION_KEYS = ("instructions", "systemPrompt", "content", "description")
+# Deliberately narrow: "instructions" and "systemPrompt" are the fields
+# Copilot Studio uses for agent-level instruction text. Broader keys like
+# "content" or "description" appear in many non-instruction Dataverse
+# metadata files and produce false positives.
+_INSTRUCTION_KEYS = ("instructions", "systemPrompt")
 
 
 def _export_endpoint(environment_url: str) -> str:
@@ -91,6 +100,13 @@ async def export_solution(
     encoded = payload.get("ExportSolutionFile")
     if not encoded:
         raise CopilotStudioError("ExportSolution returned no ExportSolutionFile")
+    # Guard against oversized responses before decoding. The base64 payload is
+    # ~4/3 the size of the raw zip; cap the encoded string length accordingly.
+    encoded_limit = (_MAX_SOLUTION_BYTES * 4) // 3
+    if len(encoded) > encoded_limit:
+        raise CopilotStudioError(
+            f"ExportSolution response exceeds the {_MAX_SOLUTION_BYTES // (1024 * 1024)} MB limit"
+        )
     try:
         return base64.b64decode(encoded)
     except (ValueError, TypeError) as exc:
@@ -112,16 +128,17 @@ def extract_agent_definition(solution_zip: bytes) -> str | None:
         return None
 
     texts: list[str] = []
-    for entry in archive.namelist():
-        if not entry.lower().endswith(".json"):
-            continue
-        try:
-            raw = archive.read(entry)
-        except (KeyError, RuntimeError):
-            continue
-        found = _instruction_from_json(raw)
-        if found:
-            texts.append(found)
+    with archive:
+        for entry in archive.namelist():
+            if not entry.lower().endswith(".json"):
+                continue
+            try:
+                raw = archive.read(entry)
+            except (KeyError, RuntimeError):
+                continue
+            found = _instruction_from_json(raw)
+            if found:
+                texts.append(found)
 
     if not texts:
         return None
@@ -141,7 +158,10 @@ def _instruction_from_json(raw: bytes) -> str | None:
         doc = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return None
-    return _search_instruction(doc)
+    try:
+        return _search_instruction(doc)
+    except RecursionError:
+        return None
 
 
 def _search_instruction(node: object) -> str | None:

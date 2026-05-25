@@ -819,9 +819,10 @@ async def ship_copilot_studio(
 
     existing = await conn.fetchrow(
         "SELECT payload FROM audit_entries "
-        "WHERE kind = 'fix-exported-copilot-studio' AND related_id = $1 "
+        "WHERE kind = $2::audit_kind AND related_id = $1 "
         "ORDER BY created_at DESC LIMIT 1",
         proposal_id,
+        AuditKind.FIX_EXPORTED_COPILOT_STUDIO.value,
     )
     if existing is not None:
         payload = decode_jsonb_obj(existing["payload"])
@@ -877,9 +878,10 @@ async def ship_copilot_studio(
             raise
         winner = await conn.fetchrow(
             "SELECT payload FROM audit_entries "
-            "WHERE kind = 'fix-exported-copilot-studio' AND related_id = $1 "
+            "WHERE kind = $2::audit_kind AND related_id = $1 "
             "ORDER BY created_at DESC LIMIT 1",
             proposal_id,
+            AuditKind.FIX_EXPORTED_COPILOT_STUDIO.value,
         )
         if winner is not None:
             winner_payload = decode_jsonb_obj(winner["payload"])

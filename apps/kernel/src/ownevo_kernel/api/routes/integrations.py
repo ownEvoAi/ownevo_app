@@ -22,7 +22,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .._copilot_studio_credentials import (
     get_copilot_studio_credential,
@@ -167,6 +167,22 @@ async def test_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> Lang
 # ---------------------------------------------------------------------------
 
 
+def _require_https(value: str | None) -> str | None:
+    """Reject non-HTTPS URLs to prevent SSRF via http:// or other schemes.
+
+    `environment_url` and `authority_host` are used verbatim to construct
+    Power Platform API endpoints and Entra token-request URLs; an
+    `http://` value would allow an admin to redirect those calls to an
+    internal network address. HTTPS-only is the minimum required gate.
+    """
+    if value is None:
+        return value
+    stripped = value.strip()
+    if stripped and not stripped.lower().startswith("https://"):
+        raise ValueError("URL must start with https://")
+    return stripped
+
+
 class CopilotStudioCredentialSet(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +194,18 @@ class CopilotStudioCredentialSet(BaseModel):
     # Optional override for sovereign clouds (US Gov / China). Omitted →
     # the adapter's public-cloud default.
     authority_host: str | None = Field(default=None, max_length=4096)
+
+    @field_validator("environment_url", mode="before")
+    @classmethod
+    def _validate_environment_url(cls, v: str) -> str:
+        result = _require_https(v)
+        assert result is not None  # field is required
+        return result
+
+    @field_validator("authority_host", mode="before")
+    @classmethod
+    def _validate_authority_host(cls, v: str | None) -> str | None:
+        return _require_https(v)
 
 
 class CopilotStudioStatus(BaseModel):
@@ -352,6 +380,7 @@ async def export_copilot_studio_definition(
         CopilotStudioAuthError,
         CopilotStudioError,
         CopilotStudioNotFoundError,
+        CopilotStudioRateLimitError,
         export_solution,
         extract_agent_definition,
     )
@@ -364,6 +393,8 @@ async def export_copilot_studio_definition(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
     except CopilotStudioNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
+    except CopilotStudioRateLimitError as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)[:200]) from exc
     except CopilotStudioError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
 
