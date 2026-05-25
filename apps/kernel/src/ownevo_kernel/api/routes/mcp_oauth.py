@@ -19,7 +19,9 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...mcp_client import (
     MCPServerRegistration,
@@ -187,6 +189,18 @@ class StartRequest(BaseModel):
     scopes: list[str] | None = None
     endpoint_url: str | None = Field(default=None, max_length=2048)
 
+    @field_validator("endpoint_url")
+    @classmethod
+    def _endpoint_url_must_be_http(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        scheme = urlparse(v).scheme
+        if scheme not in {"http", "https"}:
+            raise ValueError(
+                f"endpoint_url must use http or https; got scheme {scheme!r}"
+            )
+        return v
+
 
 class StartResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -245,8 +259,11 @@ async def callback(
     """
     preset = _preset_or_404(provider)
     if error:
+        # Truncate the provider-supplied error string before reflecting it into
+        # the Location header — an unbounded value from a misconfigured provider
+        # can exceed HTTP stack header limits and turn the redirect into a 500.
         return RedirectResponse(
-            _settings_url(provider, error=error), status_code=status.HTTP_302_FOUND
+            _settings_url(provider, error=error[:256]), status_code=status.HTTP_302_FOUND
         )
     if not state or not code:
         return RedirectResponse(

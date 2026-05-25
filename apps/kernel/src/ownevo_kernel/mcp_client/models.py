@@ -12,7 +12,9 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Base(BaseModel):
@@ -80,6 +82,16 @@ class MCPServerRegistration(_Base):
     auth_kind: AuthKind = AuthKind.NONE
     auth_config: dict[str, Any] = Field(default_factory=dict)
     auth_secret: dict[str, Any] | None = None
+
+    @field_validator("endpoint_url")
+    @classmethod
+    def _endpoint_url_must_be_http(cls, v: str) -> str:
+        scheme = urlparse(v).scheme
+        if scheme not in {"http", "https"}:
+            raise ValueError(
+                f"endpoint_url must use http or https; got scheme {scheme!r}"
+            )
+        return v
 
 
 class MCPTool(_Base):

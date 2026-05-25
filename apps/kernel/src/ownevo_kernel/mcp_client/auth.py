@@ -26,7 +26,7 @@ from .models import AuthKind
 _EXPIRY_MARGIN_SECONDS = 60
 
 # Fallback lifetime when a token response omits `expires_in`.
-_DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
+DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
 
 TokenFetcher = Callable[[str, dict[str, str]], Awaitable[dict[str, Any]]]
 """Posts form-encoded `data` to a token endpoint, returns the parsed JSON
@@ -103,7 +103,7 @@ def _token_response_to_secret(
     seconds = (
         int(lifetime)
         if isinstance(lifetime, (int, float))
-        else _DEFAULT_TOKEN_LIFETIME_SECONDS
+        else DEFAULT_TOKEN_LIFETIME_SECONDS
     )
     expires_at = (now + timedelta(seconds=seconds)).isoformat()
     secret: dict[str, Any] = {"access_token": access_token, "expires_at": expires_at}

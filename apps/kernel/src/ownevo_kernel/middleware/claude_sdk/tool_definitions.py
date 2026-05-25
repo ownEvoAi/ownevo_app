@@ -961,7 +961,9 @@ def _coerce_max_rows(raw: Any) -> int:
 
 def _required_upload_id(args: dict[str, Any], ctx: KernelContext) -> UUID:
     raw = _required_str(args, "upload_id")
-    if ctx.upload_ids and raw not in ctx.upload_ids:
+    # Empty upload_ids means the tool was not advertised for this run; deny
+    # access rather than silently allowing all uploads.
+    if not ctx.upload_ids or raw not in ctx.upload_ids:
         raise ValueError(
             f"upload_id {raw!r} is not a declared data source for this workflow"
         )
@@ -982,7 +984,9 @@ def _require_mcp_client(ctx: KernelContext) -> MCPClient:
 
 def _required_mcp_server_id(args: dict[str, Any], ctx: KernelContext) -> UUID:
     raw = _required_str(args, "server_id")
-    if ctx.mcp_server_ids and raw not in ctx.mcp_server_ids:
+    # Empty mcp_server_ids means the tool was not advertised for this run;
+    # deny access rather than silently allowing all registered servers.
+    if not ctx.mcp_server_ids or raw not in ctx.mcp_server_ids:
         raise ValueError(
             f"server_id {raw!r} is not a declared MCP data source for this "
             "workflow"

@@ -69,7 +69,11 @@ async def _describe_source(conn, ds, *, max_rows: int) -> str:
 async def _describe_upload(conn, ds, *, max_rows: int) -> str:
     if not ds.upload_id:
         return f"- {ds.id} (upload): no upload_id declared"
-    upload = await get_upload(conn, UUID(ds.upload_id))
+    try:
+        upload_uuid = UUID(ds.upload_id)
+    except ValueError:
+        return f"- {ds.id} (upload): invalid upload_id {ds.upload_id!r}"
+    upload = await get_upload(conn, upload_uuid)
     if upload is None:
         return f"- {ds.id} (upload): upload {ds.upload_id} not found"
 
@@ -104,7 +108,11 @@ async def _describe_mcp(conn, ds) -> str:
     # eval-case generation touches it.
     from ..mcp_client import registry as mcp_registry
 
-    server = await mcp_registry.get_server(conn, UUID(ds.mcp_server_id))
+    try:
+        server_uuid = UUID(ds.mcp_server_id)
+    except ValueError:
+        return f"- {ds.id} (mcp): invalid mcp_server_id {ds.mcp_server_id!r}"
+    server = await mcp_registry.get_server(conn, server_uuid)
     if server is None:
         return f"- {ds.id} (mcp): server {ds.mcp_server_id} not found"
     return (

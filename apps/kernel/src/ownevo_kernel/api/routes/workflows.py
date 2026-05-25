@@ -1295,6 +1295,32 @@ async def generate_workflow_eval_cases(
             design_brief_block=eval_brief,
             input_pool_block=input_pool_block,
         )
+        # Guard: the model can invent an input_source id that wasn't in the
+        # pool block. Cross-check and null-out any id that isn't a declared
+        # data source so the replay harness never receives a phantom source.
+        declared_source_ids = {
+            ds.id for ds in workflow_spec.environment.data_sources
+        }
+        cleaned: list = []
+        changed = False
+        for generated_case in case_set.cases:
+            if (
+                generated_case.input_source is not None
+                and generated_case.input_source not in declared_source_ids
+            ):
+                _log.warning(
+                    "eval-case generator invented input_source %r not in %r; "
+                    "clearing to None",
+                    generated_case.input_source,
+                    declared_source_ids,
+                )
+                generated_case = generated_case.model_copy(
+                    update={"input_source": None}
+                )
+                changed = True
+            cleaned.append(generated_case)
+        if changed:
+            case_set = case_set.model_copy(update={"cases": cleaned})
         # Backfill metric_definition too when the workflow was created
         # without one — historical rows (PR #85-era nl-gen) sometimes
         # landed with simulation_plan/metric_definition NULL and the

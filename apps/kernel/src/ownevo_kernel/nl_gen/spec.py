@@ -32,7 +32,7 @@ from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1.3"
-"""Frozen at v1.0 — 2026-05-04.
+"""Schema version history.
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
 `UIPrimitive` discriminated union (9 primitives, was 8) to close the

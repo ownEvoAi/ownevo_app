@@ -21,19 +21,18 @@ from __future__ import annotations
 import json
 import secrets as _secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from ..secrets import decrypt, encrypt
-from .auth import TokenFetcher
+from .auth import DEFAULT_TOKEN_LIFETIME_SECONDS, TokenFetcher
 from .models import AuthKind
 from .providers import ProviderPreset, resolve_url
 
 if TYPE_CHECKING:
     import asyncpg
 
-_DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
 # Authorization codes are exchanged within seconds of issue; a generous TTL
 # still bounds how long an unused state row lingers.
 _STATE_TTL_SECONDS = 600
@@ -261,9 +260,9 @@ async def exchange_code(
         seconds = (
             int(lifetime)
             if isinstance(lifetime, (int, float))
-            else _DEFAULT_TOKEN_LIFETIME_SECONDS
+            else DEFAULT_TOKEN_LIFETIME_SECONDS
         )
-        current = now or datetime.now()
+        current = now or datetime.now(UTC)
         expires_at = (current + timedelta(seconds=seconds)).isoformat()
         return ExchangeResult(
             auth_kind=AuthKind.OAUTH,

@@ -10,9 +10,14 @@ Protocol pattern: swapping the underlying client stays bounded.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Protocol
 
 from .models import MCPTool, MCPToolResult, Transport
+
+# Per-call deadline for MCP server operations. A stalled server should not
+# hold a uvicorn worker and its DB connection open indefinitely.
+_MCP_TIMEOUT_SECONDS = 30
 
 
 class MCPTransport(Protocol):
@@ -77,20 +82,23 @@ class SdkStreamableHttpTransport:
         headers: dict[str, str],
         transport: Transport,
     ) -> list[MCPTool]:
-        client_cm, ClientSession = await self._session(endpoint_url, headers, transport)
-        async with client_cm as streams:
-            read, write = streams[0], streams[1]
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.list_tools()
-                return [
-                    MCPTool(
-                        name=t.name,
-                        description=t.description or "",
-                        input_schema=t.inputSchema or {},
-                    )
-                    for t in result.tools
-                ]
+        async def _run() -> list[MCPTool]:
+            client_cm, ClientSession = await self._session(endpoint_url, headers, transport)
+            async with client_cm as streams:
+                read, write = streams[0], streams[1]
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.list_tools()
+                    return [
+                        MCPTool(
+                            name=t.name,
+                            description=t.description or "",
+                            input_schema=t.inputSchema or {},
+                        )
+                        for t in result.tools
+                    ]
+
+        return await asyncio.wait_for(_run(), timeout=_MCP_TIMEOUT_SECONDS)
 
     async def call_tool(
         self,
@@ -101,14 +109,17 @@ class SdkStreamableHttpTransport:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> MCPToolResult:
-        client_cm, ClientSession = await self._session(endpoint_url, headers, transport)
-        async with client_cm as streams:
-            read, write = streams[0], streams[1]
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-                content = [block.model_dump() for block in result.content]
-                return MCPToolResult(content=content, is_error=bool(result.isError))
+        async def _run() -> MCPToolResult:
+            client_cm, ClientSession = await self._session(endpoint_url, headers, transport)
+            async with client_cm as streams:
+                read, write = streams[0], streams[1]
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(tool_name, arguments)
+                    content = [block.model_dump() for block in result.content]
+                    return MCPToolResult(content=content, is_error=bool(result.isError))
+
+        return await asyncio.wait_for(_run(), timeout=_MCP_TIMEOUT_SECONDS)
 
 
 __all__ = ["MCPTransport", "SdkStreamableHttpTransport"]

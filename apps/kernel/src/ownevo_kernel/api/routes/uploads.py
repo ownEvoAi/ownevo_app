@@ -12,7 +12,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 
 from ...data_ingest import (
     DataUpload,
@@ -41,11 +41,24 @@ async def list_data_uploads(conn: ConnDep) -> list[DataUpload]:
 
 @router.post("", response_model=DataUpload, status_code=status.HTTP_201_CREATED)
 async def upload_file(
+    request: Request,
     conn: ConnDep,
     _demo: DemoModeCheck,
     file: UploadFile,
 ) -> DataUpload:
     """Upload + parse a file. 415 for an unsupported type, 422 for parse errors."""
+    # Reject oversized uploads before buffering the body. Content-Length is
+    # advisory (clients may omit it), so we also re-check after the read.
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > _MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"file exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit",
+                )
+        except ValueError:
+            pass  # malformed Content-Length — fall through to the post-read check
     data = await file.read()
     if not data:
         raise HTTPException(
