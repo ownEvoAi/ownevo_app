@@ -163,6 +163,43 @@ async def test_generator_passes_spec_and_plan_in_user_message():
     assert kw["tools"][0]["name"] == TOOL_NAME
 
 
+async def test_input_pool_block_appended_to_user_message():
+    """A declared input pool reaches the model as extra context."""
+    spec = FIXTURES["demand-prediction"]
+    plan = SIM_PLAN_FIXTURES["demand-prediction"]
+    case_set = EVAL_CASE_SET_FIXTURES["demand-prediction"]
+    payload = json.loads(case_set.model_dump_json())
+    client = _FakeClient(
+        _ScriptedResponse(
+            content=[_tool_use_block(TOOL_NAME, {"eval_case_set": payload})]
+        )
+    )
+    pool = "Connector data sources (the input pool):\n- dnb_external (upload `dnb.csv`)"
+    await generate_eval_case_set(client, spec, plan, input_pool_block=pool)
+    user_content = client.messages.last_kwargs["messages"][0]["content"]
+    assert "dnb_external" in user_content
+
+
+async def test_system_prompt_documents_input_source_rule():
+    assert "input_source" in SYSTEM_PROMPT
+    assert "input pool" in SYSTEM_PROMPT
+
+
+async def test_input_source_round_trips_through_generation():
+    spec = FIXTURES["demand-prediction"]
+    plan = SIM_PLAN_FIXTURES["demand-prediction"]
+    case_set = EVAL_CASE_SET_FIXTURES["demand-prediction"]
+    payload = json.loads(case_set.model_dump_json())
+    payload["cases"][0]["input_source"] = "dnb_external"
+    client = _FakeClient(
+        _ScriptedResponse(content=[_tool_use_block(TOOL_NAME, payload)])
+    )
+    result = await generate_eval_case_set(client, spec, plan)
+    assert result.cases[0].input_source == "dnb_external"
+    # Untagged cases stay None.
+    assert result.cases[1].input_source is None
+
+
 async def test_flat_tool_input_without_wrapper_round_trips():
     """Some models emit the case set un-wrapped — accept either shape."""
     spec = FIXTURES["demand-prediction"]
