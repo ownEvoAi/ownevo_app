@@ -546,3 +546,21 @@ demo-budget-cap:
 
 demo-budget-clear:
 	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/demo_admin.py budget-clear
+
+# Receiver tokens — authenticate POST /api/otel/v1/traces from an external
+# OTLP collector (LangSmith, OpenLLMetry, etc.). The plaintext is printed
+# exactly once; only its SHA-256 hash lands in the DB.
+#
+#   make mint-receiver-token LABEL="acme-prod"                  # workflow-agnostic
+#   make mint-receiver-token LABEL="acme-prod" WORKFLOW=wf-id   # bound to one workflow
+
+mint-receiver-token:
+	@if [ -z "$(LABEL)" ]; then echo "usage: make mint-receiver-token LABEL=... [WORKFLOW=workflow_id]"; exit 2; fi
+	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/mint_receiver_token.py \
+	    --label "$(LABEL)" $(if $(WORKFLOW),--workflow "$(WORKFLOW)")
+
+# Generate a credentials master key for OWNEVO_CREDENTIALS_MASTER_KEY.
+# Store the printed value in the deployment's secret manager; it seals
+# third-party integration API keys (LangSmith, etc.) at rest.
+gen-credentials-key:
+	@uv run --package ownevo-kernel --extra api python -c "from ownevo_kernel.secrets import generate_master_key; print(generate_master_key())"

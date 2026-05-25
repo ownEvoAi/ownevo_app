@@ -16,7 +16,12 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("opentelemetry")
+# Guard on opentelemetry.sdk, not the bare `opentelemetry` namespace:
+# opentelemetry-proto (pulled in by the `api` extra) populates the
+# `opentelemetry` namespace package without providing the SDK, so a bare
+# importorskip("opentelemetry") would pass and the SDK imports below would
+# then hard-fail at collection.
+pytest.importorskip("opentelemetry.sdk")
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource

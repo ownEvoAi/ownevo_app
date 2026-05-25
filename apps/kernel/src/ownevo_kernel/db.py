@@ -72,25 +72,61 @@ def migration_files(directory: Path = MIGRATIONS_DIR) -> list[Path]:
     return sorted(directory.glob("*.sql"))
 
 
+def split_sql_statements(sql: str) -> list[str]:
+    """Split a migration file into individual statements.
+
+    Needed only for `-- ownevo:no-txn` migrations: asyncpg sends a
+    multi-statement string via the simple query protocol, which Postgres
+    wraps in an implicit transaction block. `CREATE INDEX CONCURRENTLY`
+    and `VALIDATE CONSTRAINT` then fail or silently lose their lighter
+    lock. Executing each statement on its own keeps every one in
+    autocommit.
+
+    The splitter strips `--` line comments and splits on `;`. Migration
+    SQL in this repo is deliberately simple (no semicolons inside string
+    literals or dollar-quoted bodies), so a naive split is safe here —
+    it is NOT a general-purpose SQL parser.
+    """
+    no_comments = "\n".join(
+        line for line in sql.splitlines() if not line.lstrip().startswith("--")
+    )
+    return [stmt.strip() for stmt in no_comments.split(";") if stmt.strip()]
+
+
 async def migrate(conn: asyncpg.Connection, directory: Path = MIGRATIONS_DIR) -> list[str]:
     """Run all migrations against `conn`. Returns the list of files applied.
 
     Used by tests to bootstrap a fresh database. Production migration runner
-    will track applied versions in a `schema_migrations` table — out of
-    scope for the W1 substrate.
+    (`apps/kernel/scripts/migrate.py`) additionally tracks applied versions
+    in a `schema_migrations` table; that's overkill for the per-test fresh-DB
+    pattern, so we re-apply every file from scratch each time.
 
-    Files containing `ALTER TYPE ... ADD VALUE` must run outside a transaction
-    block (Postgres requirement). Those files are executed directly; all other
-    files run via conn.execute() which asyncpg wraps in an implicit transaction.
+    Two file shapes require running outside a transaction block:
+
+      * `ALTER TYPE ... ADD VALUE` — Postgres < 16 forbids enum value
+        additions inside a transaction.
+      * `-- ownevo:no-txn` annotated migrations — VALIDATE CONSTRAINT and
+        CREATE INDEX CONCURRENTLY also cannot run inside a transaction
+        (or only get the lighter SHARE UPDATE EXCLUSIVE lock when they
+        don't). The annotation marks the file as needing autocommit.
+
+    Both cases are detected up-front; for those files we COMMIT any
+    implicit transaction asyncpg has open before executing.
     """
     applied: list[str] = []
     for path in migration_files(directory):
         sql = path.read_text()
-        if "ADD VALUE" in sql.upper():
-            # ALTER TYPE ... ADD VALUE cannot run inside a transaction block.
-            # Use autocommit by executing outside any transaction context.
+        needs_no_txn = (
+            "ADD VALUE" in sql.upper()
+            or "-- ownevo:no-txn" in sql
+        )
+        if needs_no_txn:
+            # Run each statement on its own so none is wrapped in an
+            # implicit transaction (CREATE INDEX CONCURRENTLY refuses to
+            # run inside one; VALIDATE CONSTRAINT loses its lighter lock).
             await conn.execute("COMMIT")
-            await conn.execute(sql)
+            for statement in split_sql_statements(sql):
+                await conn.execute(statement)
         else:
             await conn.execute(sql)
         applied.append(path.name)

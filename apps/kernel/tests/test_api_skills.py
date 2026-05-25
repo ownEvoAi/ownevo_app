@@ -173,7 +173,11 @@ async def test_get_python_skill_returns_parent_content_for_diff(
     )
     v2 = await _seed_version(
         db, skill_id="py.engineer", version_seq=2,
-        content="def feature_engineer(df):\n    df['weekend'] = df.dt.weekday >= 5\n    return df\n",
+        content=(
+            "def feature_engineer(df):\n"
+            "    df['weekend'] = df.dt.weekday >= 5\n"
+            "    return df\n"
+        ),
         parent_version_id=v1,
         diff_summary="add weekend feature",
     )
@@ -298,3 +302,45 @@ async def test_list_skills_workflow_filter_empty_for_unknown_workflow(
     res = await api_client.get("/api/skills?workflow_id=does-not-exist-xyz")
     assert res.status_code == 200
     assert res.json()["items"] == []
+
+
+async def test_set_langsmith_binding(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-bind")
+    await _seed_skill(db, skill_id="bind.skill", kind="python", workflow_id="wf-bind")
+
+    res = await api_client.patch(
+        "/api/skills/bind.skill/langsmith-binding",
+        json={"langsmith_prompt_id": "demand-forecast"},
+    )
+    assert res.status_code == 200
+    assert res.json()["langsmith_prompt_id"] == "demand-forecast"
+
+    detail = await api_client.get("/api/skills/bind.skill")
+    assert detail.json()["langsmith_prompt_id"] == "demand-forecast"
+
+
+async def test_clear_langsmith_binding(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-bind2")
+    await _seed_skill(db, skill_id="bind.skill2", kind="python", workflow_id="wf-bind2")
+    await db.execute(
+        "UPDATE skills SET langsmith_prompt_id = 'x' WHERE id = 'bind.skill2'"
+    )
+
+    res = await api_client.patch(
+        "/api/skills/bind.skill2/langsmith-binding",
+        json={"langsmith_prompt_id": "   "},
+    )
+    assert res.status_code == 200
+    assert res.json()["langsmith_prompt_id"] is None
+
+
+async def test_set_binding_404_unknown_skill(api_client: httpx.AsyncClient):
+    res = await api_client.patch(
+        "/api/skills/nope/langsmith-binding",
+        json={"langsmith_prompt_id": "x"},
+    )
+    assert res.status_code == 404

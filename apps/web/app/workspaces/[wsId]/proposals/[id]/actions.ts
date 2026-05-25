@@ -8,6 +8,7 @@ import {
   rejectProposal,
   requestChangesProposal,
   rollbackProposal,
+  shipFixToLangSmith,
 } from '@/lib/api'
 
 interface DecideInput {
@@ -105,5 +106,39 @@ export async function deployAction(input: DeployInput): Promise<DeployResult> {
       ok: false,
       error: err instanceof Error ? err.message : 'Unknown error',
     }
+  }
+}
+
+interface ShipLangSmithInput {
+  proposalId: string
+  wsId: string
+}
+
+type ShipResult =
+  | { ok: true; commitUrl: string; commitHash: string; alreadyShipped: boolean }
+  | { ok: false; error: string }
+
+// Pushes a deployed fix back to LangSmith. Backend enforces the
+// preconditions (origin, binding, deployed state, credential) and
+// returns a clear 4xx the form surfaces inline — so the button can be
+// shown for any deployed skill proposal without the page pre-fetching
+// all the gating data.
+export async function shipLangSmithAction(
+  input: ShipLangSmithInput,
+): Promise<ShipResult> {
+  try {
+    const res = await shipFixToLangSmith(input.proposalId)
+    revalidatePath(`/workspaces/${input.wsId}/proposals/${input.proposalId}`)
+    return {
+      ok: true,
+      commitUrl: res.commit_url,
+      commitHash: res.commit_hash,
+      alreadyShipped: res.already_shipped,
+    }
+  } catch (err) {
+    if (err instanceof KernelApiError) {
+      return { ok: false, error: err.detail }
+    }
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }

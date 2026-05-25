@@ -20,6 +20,7 @@ const KIND_TONE: Record<string, string> = {
   'proposal-deployed': 'green',
   'proposal-rejected': 'red',
   'proposal-rolled-back': 'red',
+  'fix-shipped-langsmith': 'green',
   'gate-run-completed': 'accent',
   'gate-run-started': 'outline',
   'cluster-created': 'amber',

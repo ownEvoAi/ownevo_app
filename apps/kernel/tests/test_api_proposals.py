@@ -488,7 +488,13 @@ async def test_list_proposals_filter_by_changes_requested(
 ):
     """?state=changes-requested returns only proposals in that state."""
     seeded_cr = await _seed_proposal(db, state=ProposalState.CHANGES_REQUESTED)
-    await _seed_proposal(db, state=ProposalState.GATE_PASSED)
+    await _seed_proposal(
+        db,
+        state=ProposalState.GATE_PASSED,
+        workflow_id="wf-api-test-2",
+        skill_id="test.skill.api2",
+        iteration_index=1,
+    )
 
     resp = await api_client.get("/api/proposals?state=changes-requested")
     assert resp.status_code == 200

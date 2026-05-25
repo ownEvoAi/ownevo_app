@@ -13,6 +13,11 @@ Public surface (everything an outside caller needs):
       AgentEvents extracted from it, alongside a list of warnings for
       spans that were skipped or partially decoded.
 
+  decode_otlp_protobuf(raw, *, max_body_bytes=...) -> DecodedBatch
+      Parse one OTLP-protobuf `ResourceSpans` batch. The protobuf body
+      is normalised to the same dict shape the JSON path uses, then
+      handed to the shared mapper.
+
   DecodedBatch
       Result envelope: `events: list[AgentEvent]` plus
       `warnings: list[DecodeWarning]`. The receiver responds 200 even
@@ -25,10 +30,16 @@ Public surface (everything an outside caller needs):
       for the body-size case — the HTTP layer maps that to 413 rather
       than 400.
 
+  ReceiverTokenAuth / ReceiverTokenAuthError
+      Auth result type and base exception for the bearer-token gate.
+      Use `verify_request_token(conn, authorization_header)` to verify
+      an incoming OTLP request.
+
 The HTTP entry point is wired in `api/routes/otel_ingest.py`; that
 module imports from here.
 """
 
+from .auth import ReceiverTokenAuth, ReceiverTokenAuthError, verify_request_token
 from .mapper import (
     DEFAULT_MAX_BODY_BYTES,
     DecodedBatch,
@@ -38,6 +49,7 @@ from .mapper import (
     decode_otlp_payload,
 )
 from .persist import PersistResult, persist_decoded_batch
+from .protobuf_decode import decode_otlp_protobuf
 
 __all__ = [
     "DEFAULT_MAX_BODY_BYTES",
@@ -46,6 +58,10 @@ __all__ = [
     "OtelDecodeError",
     "OversizedPayloadError",
     "PersistResult",
+    "ReceiverTokenAuth",
+    "ReceiverTokenAuthError",
     "decode_otlp_payload",
+    "decode_otlp_protobuf",
     "persist_decoded_batch",
+    "verify_request_token",
 ]

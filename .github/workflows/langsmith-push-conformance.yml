@@ -1,0 +1,104 @@
+# LangSmith push_prompt conformance — weekly, secret-gated.
+#
+# Exercises the REAL LangSmith Prompt Hub API end-to-end so we catch
+# vendor-side drift (auth, request shape, return URL) that the mocked
+# unit tests in tests/middleware/langsmith_push/ cannot. Pushes a
+# throwaway prompt under a unique-per-run name, asserts the returned
+# commit URL is reachable, then deletes the prompt.
+#
+# GATED on the OWNEVO_LANGSMITH_TEST_API_KEY secret. Until a LangSmith
+# account is provisioned (the sandbox/test org is a paid feature), the
+# secret is absent and every step no-ops with a clear log line — the job
+# stays green and is NOT a release blocker while dormant. When the secret
+# is added, the conformance check activates automatically with no code
+# change. Forks never have the secret, so they no-op too.
+#
+# Why weekly: vendor APIs drift slowly; a weekly cadence catches breaks
+# without burning CI minutes or API quota on every PR.
+
+name: langsmith-push-conformance
+
+on:
+  schedule:
+    # 05:00 UTC every Monday.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    # Manual trigger for re-checking after touching the push adapter.
+
+concurrency:
+  group: langsmith-push-conformance
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OWNEVO_LANGSMITH_TEST_API_KEY: ${{ secrets.OWNEVO_LANGSMITH_TEST_API_KEY }}
+
+    steps:
+      - name: Check for credential
+        id: gate
+        run: |
+          if [ -z "$OWNEVO_LANGSMITH_TEST_API_KEY" ]; then
+            echo "OWNEVO_LANGSMITH_TEST_API_KEY not set — LangSmith conformance is"
+            echo "dormant (no account provisioned). Skipping; this is expected and"
+            echo "not a failure. Add the secret to activate."
+            echo "active=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        if: steps.gate.outputs.active == 'true'
+
+      - name: Set up uv
+        if: steps.gate.outputs.active == 'true'
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python
+        if: steps.gate.outputs.active == 'true'
+        run: uv python install 3.13
+
+      - name: Install workspace (langsmith extra)
+        if: steps.gate.outputs.active == 'true'
+        run: uv sync --extra api --extra langsmith
+
+      - name: Push, verify, and delete a throwaway prompt
+        if: steps.gate.outputs.active == 'true'
+        run: |
+          uv run python - <<'PY'
+          import os
+          import time
+          import urllib.request
+
+          from ownevo_kernel.middleware.langsmith_push import push_fix
+
+          api_key = os.environ["OWNEVO_LANGSMITH_TEST_API_KEY"]
+          # Unique per run so concurrent / repeated runs don't collide.
+          prompt_id = f"ownevo-conformance-{int(time.time())}"
+
+          result = push_fix(
+              api_key=api_key,
+              prompt_id=prompt_id,
+              instruction_text="ownEvo conformance probe — safe to delete.",
+              commit_description="ownEvo weekly conformance probe",
+          )
+          print(f"pushed: {result.commit_url} (hash={result.commit_hash})")
+          assert result.commit_url, "push_fix returned no URL"
+
+          # Best-effort cleanup so the test org doesn't accumulate probes.
+          try:
+              from langsmith import Client
+
+              Client(api_key=api_key).delete_prompt(prompt_id)
+              print(f"deleted throwaway prompt {prompt_id}")
+          except Exception as exc:  # noqa: BLE001 - cleanup is best-effort
+              print(f"warning: could not delete probe prompt {prompt_id}: {exc}")
+          PY

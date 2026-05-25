@@ -122,7 +122,7 @@ async def _seed_workflow_and_iteration(
     iteration_id: UUID = await db.fetchval(
         """
         INSERT INTO iterations (workflow_id, iteration_index, state, started_at)
-        VALUES ($1, 0, 'gate-passed'::iteration_state, now())
+        VALUES ($1, 0, 'gate-pass'::iteration_state, now())
         RETURNING id
         """,
         workflow_id,
@@ -135,9 +135,12 @@ async def _seed_workflow_and_iteration(
         eval_case_uuid: UUID = await db.fetchval(
             """
             INSERT INTO eval_cases (
-                workflow_id, input, expected_behavior, is_test_fold
+                workflow_id, input, expected_behavior, is_test_fold, provenance
             )
-            VALUES ($1, '{}'::jsonb, jsonb_build_object('case_id', $2), false)
+            VALUES (
+                $1, '{}'::jsonb, jsonb_build_object('case_id', $2::text), false,
+                'hand-authored'::provenance_kind
+            )
             RETURNING id
             """,
             workflow_id,

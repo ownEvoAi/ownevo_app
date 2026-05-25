@@ -192,11 +192,12 @@ async def test_try_one_case_happy_path(
     assert body["trace"][0]["type"] == "tool_call_start"
     assert body["trace"][1]["type"] == "tool_call_result"
     assert body["trace"][1]["status"] == "ok"
-    # Cost compute used the scripted usage (120 in, 42 out @ haiku rates).
-    # 120 × 0.80 + 42 × 4.00 = 96 + 168 = 264; / 1_000_000 = 0.000264.
+    # Cost compute used the scripted usage (120 in, 42 out) at the
+    # default workflow model rate (claude-sonnet-4-6 @ 3.00 / 15.00 per MTok).
+    # 120 × 3.00 + 42 × 15.00 = 360 + 630 = 990; / 1_000_000 = 0.00099.
     assert body["input_tokens"] == 120
     assert body["output_tokens"] == 42
-    assert body["cost_usd"] == pytest.approx(0.000264, rel=1e-6)
+    assert body["cost_usd"] == pytest.approx(0.00099, rel=1e-6)
 
 
 async def test_try_one_case_failed_prediction(

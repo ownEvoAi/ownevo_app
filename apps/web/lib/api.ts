@@ -191,6 +191,8 @@ async function jsonFetch<T>(
     }
     throw new KernelApiError(res.status, detail)
   }
+  // 204 No Content — no body to parse.
+  if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
 
@@ -1344,6 +1346,7 @@ export interface SkillDetail {
   deployable_proposal_id: string | null
   deployable_proposal_version_seq: number | null
   deployed_proposal_id: string | null
+  langsmith_prompt_id: string | null
   versions: SkillVersionSummary[]
   related_eval_cases: SkillRelatedEvalCase[]
 }
@@ -1397,4 +1400,73 @@ export async function listSkills(): Promise<SkillList> {
 
 export async function getSkill(skillId: string): Promise<SkillDetail> {
   return jsonFetch<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}`)
+}
+
+// ---------------------------------------------------------------------------
+// LangSmith integration (13.0.2) — credentials + fix delivery
+// ---------------------------------------------------------------------------
+
+export interface LangSmithStatus {
+  configured: boolean
+  last_validated_at: string | null
+  validation_status: string | null
+}
+
+export interface LangSmithTestResult {
+  status: 'ok' | 'invalid' | 'error'
+  detail: string | null
+}
+
+export interface ShipLangSmithResponse {
+  proposal_id: string
+  prompt_id: string
+  commit_hash: string
+  commit_url: string
+  already_shipped: boolean
+}
+
+export interface LangSmithBindingResponse {
+  skill_id: string
+  langsmith_prompt_id: string | null
+}
+
+export async function getLangSmithStatus(): Promise<LangSmithStatus> {
+  return jsonFetch<LangSmithStatus>('/api/integrations/langsmith')
+}
+
+export async function setLangSmithCredential(apiKey: string): Promise<LangSmithStatus> {
+  return jsonFetch<LangSmithStatus>('/api/integrations/langsmith', {
+    method: 'POST',
+    body: JSON.stringify({ api_key: apiKey }),
+  })
+}
+
+export async function deleteLangSmithCredential(): Promise<void> {
+  await jsonFetch<unknown>('/api/integrations/langsmith', { method: 'DELETE' })
+}
+
+export async function testLangSmithConnection(): Promise<LangSmithTestResult> {
+  return jsonFetch<LangSmithTestResult>('/api/integrations/langsmith/test', {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export async function shipFixToLangSmith(
+  proposalId: string,
+): Promise<ShipLangSmithResponse> {
+  return jsonFetch<ShipLangSmithResponse>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/ship-langsmith`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
+export async function setSkillLangSmithBinding(
+  skillId: string,
+  promptId: string | null,
+): Promise<LangSmithBindingResponse> {
+  return jsonFetch<LangSmithBindingResponse>(
+    `/api/skills/${encodeURIComponent(skillId)}/langsmith-binding`,
+    { method: 'PATCH', body: JSON.stringify({ langsmith_prompt_id: promptId }) },
+  )
 }
