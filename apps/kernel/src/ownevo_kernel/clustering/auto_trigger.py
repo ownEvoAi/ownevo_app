@@ -137,32 +137,16 @@ class ClusterAutoTrigger:
         self._stopping.clear()
         self._task = asyncio.create_task(self._loop(), name="cluster-auto-trigger")
 
-    async def stop(self, timeout: float = 60.0) -> None:
+    async def stop(self) -> None:
         """Signal the loop to stop and await it.
 
-        Waits up to `timeout` seconds for any in-flight clustering run to
-        finish so the DB write isn't torn in half. If the run is still going
-        after the timeout (sentence-transformers + UMAP can take longer than
-        uvicorn's default 5-second graceful-shutdown window), the task is
-        cancelled and a warning is logged — the OS thread running the
-        embedder/clusterer continues to completion in the background but
-        stops blocking the process exit. Nothing is lost permanently: the
-        next ingest re-signals the workflow and clustering re-derives from
-        the traces table.
+        Waits for any in-flight clustering run to finish (the loop checks
+        the stop flag between workflows, not mid-pipeline) so the DB write
+        isn't torn in half.
         """
         self._stopping.set()
         if self._task is not None:
-            try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=timeout)
-            except TimeoutError:
-                _log.warning(
-                    "cluster auto-trigger: stop() timed out after %.0fs "
-                    "(clustering run still in flight; cancelling task)",
-                    timeout,
-                )
-                self._task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await self._task
+            await self._task
             self._task = None
 
     async def _loop(self) -> None:
