@@ -12,6 +12,7 @@ from __future__ import annotations
 from .models import AgentOrigin, AgentRecord, AgentStatus
 from .registry import (
     get_agent,
+    get_agent_by_workflow,
     list_agents,
     register_agent,
     register_agent_for_workflow,
@@ -23,6 +24,7 @@ __all__ = [
     "AgentRecord",
     "AgentStatus",
     "get_agent",
+    "get_agent_by_workflow",
     "list_agents",
     "register_agent",
     "register_agent_for_workflow",
