@@ -72,6 +72,15 @@ clustering = [
 otel-integration = [
     "traceloop-sdk>=0.30,<1",
 ]
+# LangSmith fix-delivery (13.0.2). The push adapter wraps the langsmith
+# SDK's push_prompt; langchain-core supplies the ChatPromptTemplate the
+# API expects as the pushed object. Optional so the core kernel install
+# stays free of the LangChain tree; the API process installs it when the
+# LangSmith integration is enabled.
+langsmith = [
+    "langsmith>=0.8,<1",
+    "langchain-core>=0.3,<1",
+]
 # Note: τ³-bench (Sierra tau2-bench) is NOT exposed as a kernel extra.
 # Same pattern as `baselines-m5`: deps live in the sandbox image
 # (`apps/kernel/sandbox/Dockerfile.tau3`), not in the host install.
