@@ -26,8 +26,10 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR
 from ..llm.router import check_provider_api_keys
+from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
     audit,
@@ -46,6 +48,55 @@ from .routes import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Opt-in: auto-clustering loads sentence-transformers and calls the Anthropic
+# labeler (cost + ANTHROPIC_API_KEY), so it stays off unless explicitly enabled
+# rather than changing `make api` behaviour for everyone. The on-demand
+# `POST /api/workflows/{id}/cluster-production-failures` endpoint works either way.
+_AUTOTRIGGER_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER"
+_AUTOTRIGGER_DEBOUNCE_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER_DEBOUNCE_SECONDS"
+
+
+def _autotrigger_enabled() -> bool:
+    return os.environ.get(_AUTOTRIGGER_ENV, "").strip().lower() in ("1", "true", "yes")
+
+
+def _autotrigger_debounce_seconds() -> float:
+    raw = os.environ.get(_AUTOTRIGGER_DEBOUNCE_ENV)
+    if raw is None:
+        return DEFAULT_DEBOUNCE_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if value <= 0:
+        logger.warning(
+            "%s=%r is not a positive number; using default %.0fs",
+            _AUTOTRIGGER_DEBOUNCE_ENV,
+            raw,
+            DEFAULT_DEBOUNCE_SECONDS,
+        )
+        return DEFAULT_DEBOUNCE_SECONDS
+    return value
+
+
+async def _maybe_start_auto_trigger(pool: asyncpg.Pool) -> ClusterAutoTrigger | None:
+    """Start the debounced cluster auto-trigger when enabled and not in demo mode.
+
+    Returns the running trigger (so the lifespan can stop it on shutdown),
+    or None when disabled — in which case the ingest route's signal call
+    is a no-op.
+    """
+    if not _autotrigger_enabled():
+        return None
+    if is_demo_mode():
+        logger.info("cluster auto-trigger: not started (DEMO_MODE)")
+        return None
+    debounce = _autotrigger_debounce_seconds()
+    trigger = ClusterAutoTrigger(pool, debounce_seconds=debounce)
+    await trigger.start()
+    logger.info("cluster auto-trigger: enabled (debounce %.0fs)", debounce)
+    return trigger
 
 
 def create_app(
@@ -68,27 +119,31 @@ def create_app(
         for warning in check_provider_api_keys():
             logger.warning("llm-router: %s", warning)
 
-        if pool is not None:
+        own_pool = pool is None
+        if own_pool:
+            db_url = os.environ.get(ENV_VAR)
+            if not db_url:
+                raise RuntimeError(
+                    f"{ENV_VAR} is not set. Either export it or call "
+                    "create_app(pool=...) with a pre-built asyncpg pool.",
+                )
+            # min_size=1 keeps a warm connection so the first request doesn't
+            # pay the handshake cost. max_size=10 fits a single Next.js dev server.
+            app.state.pool = await asyncpg.create_pool(
+                db_url, min_size=1, max_size=10,
+            )
+        else:
             # Caller-managed pool — don't open or close it here.
             app.state.pool = pool
-            yield
-            return
 
-        db_url = os.environ.get(ENV_VAR)
-        if not db_url:
-            raise RuntimeError(
-                f"{ENV_VAR} is not set. Either export it or call "
-                "create_app(pool=...) with a pre-built asyncpg pool.",
-            )
-        # min_size=1 keeps a warm connection so the first request doesn't pay
-        # the handshake cost. max_size=10 fits a single Next.js dev server.
-        app.state.pool = await asyncpg.create_pool(
-            db_url, min_size=1, max_size=10,
-        )
+        app.state.cluster_auto_trigger = await _maybe_start_auto_trigger(app.state.pool)
         try:
             yield
         finally:
-            await app.state.pool.close()
+            if app.state.cluster_auto_trigger is not None:
+                await app.state.cluster_auto_trigger.stop()
+            if own_pool:
+                await app.state.pool.close()
 
     api = FastAPI(
         title="ownEvo approval API",
