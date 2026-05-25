@@ -20,6 +20,7 @@ Out of scope for this slice:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 from typing import Any
@@ -28,7 +29,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from ...middleware.google_adk import translate_otlp_json_for_adk
+from ...middleware.google_adk.translator import _walk_and_rewrite_inplace as _adk_rewrite_inplace
 from ...middleware.otel_receiver import (
     DEFAULT_MAX_BODY_BYTES,
     DecodedBatch,
@@ -37,7 +38,9 @@ from ...middleware.otel_receiver import (
     decode_otlp_payload,
     persist_decoded_batch,
 )
-from ...middleware.watsonx_adk import translate_otlp_json_for_watsonx
+from ...middleware.watsonx_adk.translator import (
+    _walk_and_rewrite_inplace as _watsonx_rewrite_inplace,
+)
 from ..deps import ConnDep
 
 _log = logging.getLogger(__name__)
@@ -48,17 +51,17 @@ router = APIRouter(prefix="/api/otel", tags=["otel-ingest"])
 def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
     """Parse raw OTLP-JSON bytes, apply vendor-key translators, then decode.
 
-    Two translators run in sequence:
-      * `translate_otlp_json_for_adk` rewrites Google ADK's
+    Two translators run in sequence on a single shared deep-copy:
+      * `_adk_rewrite_inplace` rewrites Google ADK's
         `gcp.vertex.agent.*` keys onto the standard `gen_ai.*` semconv.
-      * `translate_otlp_json_for_watsonx` rewrites Traceloop / OpenLLMetry
+      * `_watsonx_rewrite_inplace` rewrites Traceloop / OpenLLMetry
         `traceloop.*` keys (emitted by watsonx Orchestrate ADK and any
         OpenLLMetry-instrumented agent) onto the same `gen_ai.*` semconv.
 
     Both translators are conditional (no-op when standard keys are already
-    present) and non-destructive (operate on a deep copy). Order does not
-    matter because each targets a disjoint vendor namespace. Non-vendor
-    payloads pay only the deep-copy + attribute-walk cost.
+    present). Order does not matter because each targets a disjoint vendor
+    namespace. The single deep-copy is shared so non-vendor payloads pay
+    only one allocation + two attribute-list walks instead of two allocations.
 
     JSON parse errors are promoted to `OtelDecodeError` so the route handler's
     existing 400 path handles them without a separate except clause.
@@ -67,9 +70,11 @@ def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
         parsed: dict[str, Any] = json.loads(raw)
     except ValueError as exc:
         raise OtelDecodeError(f"invalid JSON: {exc}") from exc
-    translated = translate_otlp_json_for_watsonx(translate_otlp_json_for_adk(parsed))
+    out: dict[str, Any] = copy.deepcopy(parsed) if isinstance(parsed, dict) else parsed
+    _adk_rewrite_inplace(out)
+    _watsonx_rewrite_inplace(out)
     return decode_otlp_payload(
-        translated,
+        out,
         max_body_bytes=max_body_bytes,
     )
 
@@ -144,7 +149,8 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
     status_code=status.HTTP_200_OK,
 )
 async def ingest_otlp_traces(
-    request: Request, conn: ConnDep,
+    request: Request,
+    conn: ConnDep,
 ) -> IngestResponse:
     """Accept one OTLP-JSON ResourceSpans batch and persist it.
 
@@ -167,9 +173,7 @@ async def ingest_otlp_traces(
         ) from exc
 
     try:
-        batch = await asyncio.to_thread(
-            _parse_translate_decode, raw, DEFAULT_MAX_BODY_BYTES
-        )
+        batch = await asyncio.to_thread(_parse_translate_decode, raw, DEFAULT_MAX_BODY_BYTES)
     except OversizedPayloadError as exc:
         # Second-line cap guard — catches the rare case where the
         # streaming limit was bypassed (e.g. direct function calls in tests).

@@ -755,6 +755,41 @@ def _build_cases() -> list[FixtureCase]:
         ),
     )
 
+    # ---- Traceloop / OpenLLMetry (watsonx ADK) tool span ----
+    # The Traceloop SDK emits vendor-prefixed keys instead of standard
+    # gen_ai.* semconv. The watsonx translator (wired into the route's
+    # _parse_translate_decode) rewrites them before the receiver sees
+    # the payload, so the route should decode two events: ToolCallStart
+    # + ToolCallResult.
+
+    cases.append(
+        FixtureCase(
+            name="28_watsonx_traceloop_tool_call",
+            payload=wrap_batch(
+                [
+                    make_span(
+                        span_id=SP1,
+                        trace_id=T1,
+                        name="add.tool",
+                        kind=1,  # SPAN_KIND_INTERNAL
+                        attributes=[
+                            str_attr("traceloop.span.kind", "tool"),
+                            str_attr("traceloop.entity.name", "add"),
+                            str_attr("traceloop.entity.input", '{"a": 17, "b": 25}'),
+                            str_attr("traceloop.entity.output", "42"),
+                        ],
+                    ),
+                ],
+            ),
+            # The mapper receives raw Traceloop vendor keys with no
+            # gen_ai.operation.name, so it skips the span with a warning.
+            # The route test (test_route_otel_ingest.py) exercises the full
+            # pipeline (translator → mapper) and expects accepted_events == 2.
+            expected_events=[],
+            min_warnings=1,
+        ),
+    )
+
     return cases
 
 

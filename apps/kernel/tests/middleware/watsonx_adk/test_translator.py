@@ -362,3 +362,111 @@ def test_chain_workflow_span_produces_no_events() -> None:
 
     assert decoded.events == []
     assert decoded.warnings == []
+
+
+def test_translator_unknown_traceloop_kind_passes_through_unchanged() -> None:
+    """An unrecognised `traceloop.span.kind` (e.g. a future "retrieval"
+    or "embedding" kind not yet in _TL_KIND_TO_OP_NAME) must pass through
+    without crashing and without synthesising any `gen_ai.*` attribute.
+    This pins the silent-pass-through contract so that adding a new
+    Traceloop kind to the map is a deliberate opt-in, not an accident."""
+    payload: dict[str, Any] = {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "traceloop.workflow"},
+                        "spans": [
+                            {
+                                "traceId": "1" * 32,
+                                "spanId": "c" * 16,
+                                "parentSpanId": "a" * 16,
+                                "name": "retrieval.span",
+                                "kind": 1,
+                                "startTimeUnixNano": "1700000001000000000",
+                                "endTimeUnixNano": "1700000001500000000",
+                                "attributes": [
+                                    {
+                                        "key": "traceloop.span.kind",
+                                        "value": {"stringValue": "retrieval"},
+                                    },
+                                    {
+                                        "key": "traceloop.entity.name",
+                                        "value": {"stringValue": "vector_search"},
+                                    },
+                                ],
+                                "status": {"code": 1, "message": ""},
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+    rewritten = translate_otlp_json_for_watsonx(payload)
+    attrs = rewritten["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+    keys = {kv["key"] for kv in attrs}
+    # No standard gen_ai.* keys must be synthesised for an unknown kind.
+    assert "gen_ai.operation.name" not in keys
+    assert "gen_ai.tool.name" not in keys
+    assert "gen_ai.tool.call.id" not in keys
+
+
+def test_translator_absent_span_id_produces_no_call_id() -> None:
+    """When a tool span has no `spanId` / `span_id` field, the translator
+    must NOT append `gen_ai.tool.call.id` — returning None from
+    `_synthesise_call_id` is the expected path and the absence of the
+    call-id attribute is the contract this test pins."""
+    payload: dict[str, Any] = {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "traceloop.workflow"},
+                        "spans": [
+                            {
+                                "traceId": "1" * 32,
+                                # No spanId / span_id field — simulates a
+                                # malformed or partially-decoded span.
+                                "parentSpanId": "3" * 16,
+                                "name": "add.tool",
+                                "kind": 1,
+                                "startTimeUnixNano": "1700000001000000000",
+                                "endTimeUnixNano": "1700000001420000000",
+                                "attributes": [
+                                    {
+                                        "key": "traceloop.span.kind",
+                                        "value": {"stringValue": "tool"},
+                                    },
+                                    {
+                                        "key": "traceloop.entity.name",
+                                        "value": {"stringValue": "add"},
+                                    },
+                                    {
+                                        "key": "traceloop.entity.input",
+                                        "value": {"stringValue": '{"a":1}'},
+                                    },
+                                    {
+                                        "key": "traceloop.entity.output",
+                                        "value": {"stringValue": "2"},
+                                    },
+                                ],
+                                "status": {"code": 1, "message": ""},
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+    rewritten = translate_otlp_json_for_watsonx(payload)
+    attrs = rewritten["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+    keys = {kv["key"] for kv in attrs}
+    # All other rewrites fire (entity keys are present).
+    assert "gen_ai.operation.name" in keys
+    assert "gen_ai.tool.name" in keys
+    assert "gen_ai.tool.call.arguments" in keys
+    # But call_id must be absent — _synthesise_call_id returns None with no spanId.
+    assert "gen_ai.tool.call.id" not in keys

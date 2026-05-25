@@ -40,6 +40,11 @@ _SEMCONV_TOOL_RESULT_KEY = "gen_ai.tool.call.result"
 # vocabulary. workflow / agent / task are all silently consumed by the
 # receiver as orchestration anchors; tool is the only kind that
 # produces AgentEvents.
+#
+# Unmapped kinds (e.g. a future "retrieval" or "embedding" span kind)
+# return None from dict.get(), so _rewrite_span_attributes skips the
+# op-name synthesis and leaves the span unchanged. No error is raised;
+# the span passes through with its original Traceloop attributes intact.
 _TL_KIND_TO_OP_NAME = {
     "tool": "execute_tool",
     "workflow": "invoke_workflow",
@@ -71,10 +76,21 @@ def translate_otlp_json_for_watsonx(payload: dict[str, Any]) -> dict[str, Any]:
         return payload
 
     out = copy.deepcopy(payload)
+    _walk_and_rewrite_inplace(out)
+    return out
 
+
+def _walk_and_rewrite_inplace(out: dict[str, Any]) -> None:
+    """Walk the OTLP span tree and apply watsonx rewrites in-place.
+
+    Internal helper shared with the ingest route, which performs a
+    single deep-copy across multiple translation passes instead of one
+    per translator. The public ``translate_otlp_json_for_watsonx``
+    wrapper is the preferred interface for standalone callers.
+    """
     resource_spans = out.get("resourceSpans") or out.get("resource_spans")
     if not isinstance(resource_spans, list):
-        return out
+        return
 
     for rs in resource_spans:
         if not isinstance(rs, dict):
@@ -91,8 +107,6 @@ def translate_otlp_json_for_watsonx(payload: dict[str, Any]) -> dict[str, Any]:
             for span in spans:
                 if isinstance(span, dict):
                     _rewrite_span_attributes(span)
-
-    return out
 
 
 def _rewrite_span_attributes(span: dict[str, Any]) -> None:
@@ -112,9 +126,14 @@ def _rewrite_span_attributes(span: dict[str, Any]) -> None:
             continue
         present_keys.add(key)
         if key == _TL_SPAN_KIND_KEY:
-            raw_value = kv.get("value")
-            if isinstance(raw_value, dict):
-                tl_kind = raw_value.get("stringValue")
+            # Take the first occurrence only — duplicate span-kind
+            # entries (e.g. from a malformed or crafted payload) are
+            # ignored so the translator cannot be flipped to a
+            # different kind by appending a second attribute.
+            if tl_kind is None:
+                raw_value = kv.get("value")
+                if isinstance(raw_value, dict):
+                    tl_kind = raw_value.get("stringValue")
         elif key in (
             _TL_ENTITY_NAME_KEY,
             _TL_ENTITY_INPUT_KEY,
@@ -137,7 +156,7 @@ def _rewrite_span_attributes(span: dict[str, Any]) -> None:
         attrs.append(
             {"key": _SEMCONV_OP_NAME_KEY, "value": {"stringValue": op_name}},
         )
-        present_keys.add(_SEMCONV_OP_NAME_KEY)
+        present_keys.add(_SEMCONV_OP_NAME_KEY)  # keep set consistent for any future guards
 
     # Tool-only rewrites: name, args, result, and a synthetic call_id.
     # Workflow / agent / task spans don't need the entity payloads
