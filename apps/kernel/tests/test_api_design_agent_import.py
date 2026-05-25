@@ -221,6 +221,68 @@ async def test_unknown_trace_ids_404(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/design-agent/import-summary tests
+# ---------------------------------------------------------------------------
+
+
+async def test_import_summary_fallback_without_llm(client: httpx.AsyncClient):
+    """No ANTHROPIC_API_KEY → deterministic fallback summary."""
+    resp = await client.post(
+        "/api/design-agent/import-summary",
+        json={"trace_ids": [str(uuid4())]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "fallback"
+    assert body["basis"] == "traces"
+    # Fallback names the observed tool from _TRACE_EVENTS.
+    assert "forecast_demand" in body["summary"]
+
+
+async def test_import_summary_basis_with_definition(client: httpx.AsyncClient):
+    resp = await client.post(
+        "/api/design-agent/import-summary",
+        json={
+            "trace_ids": [str(uuid4())],
+            "agent_definition": "You are a demand-planning assistant.",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["basis"] == "definition+traces"
+
+
+async def test_import_summary_unknown_trace_ids_404(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    class _EmptyConn:
+        async def fetch(self, *_):
+            return []
+
+    class _EmptyAcquire:
+        async def __aenter__(self):
+            return _EmptyConn()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _EmptyPool:
+        def acquire(self):
+            return _EmptyAcquire()
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.pool = _EmptyPool()
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-summary",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # POST /api/design-agent/import-generate tests
 # ---------------------------------------------------------------------------
 

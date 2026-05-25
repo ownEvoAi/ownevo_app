@@ -557,6 +557,37 @@ export async function fetchImportNextQuestion(
   )
 }
 
+export interface ImportSummaryResponse {
+  /** One-to-two-sentence "this agent appears to do X" inference. */
+  summary: string
+  /** "traces" | "definition+traces" — what evidence it was drawn from. */
+  basis: string
+  /** "llm" | "fallback" — whether it was generated or rendered deterministically. */
+  source: string
+}
+
+// Open the trace-import conversation with a reverse-discovery summary the
+// reviewer confirms or corrects before the dimension interview begins.
+export async function fetchImportSummary(
+  traceIds: string[],
+  agentDefinition: string | null,
+  signal?: AbortSignal,
+  cookieHeader?: string,
+): Promise<ImportSummaryResponse> {
+  return jsonFetch<ImportSummaryResponse>(
+    '/api/design-agent/import-summary',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trace_ids: traceIds,
+        agent_definition: agentDefinition,
+      }),
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+      signal,
+    },
+  )
+}
+
 export interface ImportGenerateResponse {
   workflow_id: string
   description: string

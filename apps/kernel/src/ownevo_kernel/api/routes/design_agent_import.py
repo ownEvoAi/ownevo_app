@@ -40,6 +40,11 @@ from ...design_agent import (
     get_trace_import_discovery_questions,
 )
 from ...design_agent.log import DesignAgentLog, persist_design_agent_log
+from ...design_agent.reverse_discovery import (
+    ReverseDiscoverySummary,
+    fallback_reverse_discovery_summary,
+    generate_reverse_discovery_summary,
+)
 from ...design_agent.trace_interviewer import pick_next_question_from_traces
 from ...design_agent.trace_summary import (
     TraceSummary,
@@ -116,6 +121,23 @@ class ImportGenerateResponse(BaseModel):
     spec: dict
 
 
+class ImportSummaryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_ids: list[UUID] = Field(default_factory=list, max_length=_MAX_TRACE_IDS)
+    agent_definition: str | None = Field(
+        default=None, max_length=_AGENT_DEFINITION_MAX_LEN
+    )
+
+
+class ImportSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    basis: str
+    source: str  # "llm" | "fallback"
+
+
 async def _summarize(request: Request, trace_ids: list[UUID]) -> TraceSummary:
     """Load + summarise the imported traces, or 404 when none resolve."""
     pool = request.app.state.pool
@@ -171,6 +193,73 @@ def _llm_client_or_none():
         return build_async_anthropic(api_key)
     except Exception:
         return None
+
+
+def _summary_to_response(summary: ReverseDiscoverySummary) -> ImportSummaryResponse:
+    return ImportSummaryResponse(
+        summary=summary.summary,
+        basis=summary.basis,
+        source="fallback" if summary.is_fallback else "llm",
+    )
+
+
+@router.post(
+    "/import-summary",
+    response_model=ImportSummaryResponse,
+    response_model_exclude_none=True,
+)
+async def import_summary(
+    req: ImportSummaryRequest,
+    request: Request,
+    demo: DemoGateDep,
+) -> ImportSummaryResponse:
+    """Open the discovery conversation with a "this agent does X" inference.
+
+    Reverse-engineers a one-to-two-sentence summary of the imported
+    agent's observed behaviour (and exported definition, if supplied) so
+    the operator confirms or corrects it before the dimension interview
+    begins. Falls back to a deterministic render of the trace summary
+    when no LLM is available or the LLM call fails — the conversation is
+    never blocked.
+    """
+    trace_summary = await _summarize(request, req.trace_ids)
+
+    client = _llm_client_or_none()
+    if client is None:
+        return _summary_to_response(
+            fallback_reverse_discovery_summary(trace_summary, req.agent_definition)
+        )
+
+    accountant = TokenAccountant()
+    if demo is not None:
+        wrap_client_for_accounting(client, accountant)
+    try:
+        try:
+            rd_summary = await generate_reverse_discovery_summary(
+                summary=trace_summary,
+                agent_definition=req.agent_definition,
+                client=client,
+            )
+        except InterviewerError as _ie:
+            _log.warning(
+                "reverse discovery failed; using deterministic fallback: %s", _ie
+            )
+            rd_summary = fallback_reverse_discovery_summary(
+                trace_summary, req.agent_definition
+            )
+        return _summary_to_response(rd_summary)
+    finally:
+        if demo is not None and (accountant.input_tokens or accountant.output_tokens):
+            try:
+                async with request.app.state.pool.acquire() as _usage_conn:
+                    await record_demo_usage(
+                        _usage_conn,
+                        demo,
+                        input_tokens=accountant.input_tokens,
+                        output_tokens=accountant.output_tokens,
+                    )
+            except Exception as _exc:  # noqa: BLE001
+                _log.warning("demo usage recording failed (best-effort): %s", _exc)
 
 
 @router.post(
@@ -375,7 +464,10 @@ __all__ = [
     "ImportGenerateRequest",
     "ImportGenerateResponse",
     "ImportNextQuestionRequest",
+    "ImportSummaryRequest",
+    "ImportSummaryResponse",
     "import_generate",
     "import_next_question",
+    "import_summary",
     "router",
 ]
