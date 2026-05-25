@@ -104,6 +104,51 @@ _AGENT_ROOT_OPS = frozenset({_OP_AGENT_INVOKE, _OP_AGENT_CREATE, _OP_AGENT_WORKF
 _RETRIEVAL_OPS = frozenset({_OP_RETRIEVAL, _OP_EMBEDDINGS})
 
 
+# --- provenance detection (auto-tag workflow.origin / skill prompt-id) -----
+#
+# Best-effort heuristics, NOT authoritative. We can't validate these
+# against a live LangSmith account, so the key sets are deliberately
+# explicit and easy to extend as real-world payloads are observed. An
+# attribute key whose presence implies the trace came from LangSmith:
+_ORIGIN_SIGNATURE_KEYS = frozenset(
+    {
+        "langsmith.span.kind",
+        "langsmith.session.name",
+        "langsmith.session.id",
+        "langsmith.project.name",
+        "langsmith.trace.name",
+    }
+)
+# A resource/span attribute whose key prefix marks LangSmith provenance.
+_ORIGIN_SIGNATURE_PREFIX = "langsmith."
+_ORIGIN_LANGSMITH = "langsmith"
+
+# Attribute keys that carry the LangSmith Prompt Hub identifier a span
+# was produced from. Checked on LLM spans; the first non-empty wins.
+_PROMPT_ID_KEYS = (
+    "langsmith.prompt.name",
+    "gen_ai.prompt.template_id",
+    "gen_ai.request.prompt.id",
+)
+
+
+def _attrs_signal_langsmith(attrs: dict[str, Any]) -> bool:
+    """True if the flattened attributes carry a LangSmith provenance marker."""
+    for key in attrs:
+        if key in _ORIGIN_SIGNATURE_KEYS or key.startswith(_ORIGIN_SIGNATURE_PREFIX):
+            return True
+    return False
+
+
+def _detect_prompt_id(attrs: dict[str, Any]) -> str | None:
+    """Return the LangSmith prompt id from a span's attributes, if present."""
+    for key in _PROMPT_ID_KEYS:
+        value = attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 # OTel span status codes. Numeric per the protobuf encoding; OTLP-JSON
 # also accepts the string form ("STATUS_CODE_OK").
 #
@@ -171,10 +216,20 @@ class DecodeWarning:
 
 @dataclass
 class DecodedBatch:
-    """Result envelope returned by `decode_otlp_payload`."""
+    """Result envelope returned by `decode_otlp_payload`.
+
+    `detected_origin` / `detected_prompt_ids` are best-effort provenance
+    hints read off the OTLP attributes (see `_ORIGIN_SIGNATURE_KEYS` /
+    `_PROMPT_ID_KEYS`). The receiver applies them post-persist to
+    auto-tag `workflows.origin` and back-fill `skills.langsmith_prompt_id`
+    for a bound workflow. They are hints, not authoritative — the manual
+    binding picker overrides them.
+    """
 
     events: list[AgentEvent] = field(default_factory=list)
     warnings: list[DecodeWarning] = field(default_factory=list)
+    detected_origin: str | None = None
+    detected_prompt_ids: set[str] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +323,13 @@ def _decode_resource_spans(rs: Any, out: DecodedBatch) -> None:
     if not isinstance(rs, dict):
         out.warnings.append(DecodeWarning(None, "resourceSpans entry is not an object"))
         return
+    # Provenance hint from the resource-level attributes (collector
+    # identity often lives here, e.g. langsmith-collector-proxy).
+    resource = rs.get("resource")
+    if isinstance(resource, dict):
+        resource_attrs = _flatten_attributes(resource.get("attributes") or [])
+        if out.detected_origin is None and _attrs_signal_langsmith(resource_attrs):
+            out.detected_origin = _ORIGIN_LANGSMITH
     scope_spans = rs.get("scopeSpans") or rs.get("scope_spans") or []
     if not isinstance(scope_spans, list):
         out.warnings.append(DecodeWarning(None, "scopeSpans is not a list"))
@@ -349,6 +411,15 @@ def _decode_span(span: Any, out: DecodedBatch) -> None:
 
     attrs = _flatten_attributes(span.get("attributes") or [])
     op_name = attrs.get("gen_ai.operation.name")
+
+    # Provenance hints (best-effort): a LangSmith signature attribute on
+    # any span tags the batch's origin; a prompt-id attribute records the
+    # Prompt Hub identifier the span came from.
+    if out.detected_origin is None and _attrs_signal_langsmith(attrs):
+        out.detected_origin = _ORIGIN_LANGSMITH
+    prompt_id = _detect_prompt_id(attrs)
+    if prompt_id is not None:
+        out.detected_prompt_ids.add(prompt_id)
 
     common = _CommonFields(
         event_id=event_uuid,

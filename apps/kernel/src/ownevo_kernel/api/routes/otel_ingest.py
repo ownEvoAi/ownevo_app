@@ -157,6 +157,48 @@ async def _resolve_workflow_id(
     return None
 
 
+async def _apply_provenance_hints(
+    conn: ConnDep,
+    workflow_id: str,
+    batch,  # DecodedBatch
+) -> None:
+    """Auto-tag workflow.origin and back-fill skills.langsmith_prompt_id.
+
+    Both use COALESCE / `IS NULL` guards so a value already set (manually
+    or by an earlier batch) is never overwritten — the first signal wins
+    and the manual binding picker stays authoritative.
+
+    Prompt-id binding only fires when the batch carried exactly one
+    distinct prompt id; multiple distinct ids are ambiguous (which skill
+    maps to which?) so we skip and leave it to the manual picker.
+    """
+    if batch.detected_origin is not None:
+        await conn.execute(
+            "UPDATE workflows SET origin = $1 WHERE id = $2 AND origin IS NULL",
+            batch.detected_origin,
+            workflow_id,
+        )
+
+    prompt_ids = batch.detected_prompt_ids
+    if len(prompt_ids) == 1:
+        (prompt_id,) = tuple(prompt_ids)
+        # Fill any skill on this workflow that doesn't already carry a
+        # binding (per the agreed rule for multi-skill workflows).
+        await conn.execute(
+            "UPDATE skills SET langsmith_prompt_id = $1 "
+            "WHERE workflow_id = $2 AND langsmith_prompt_id IS NULL",
+            prompt_id,
+            workflow_id,
+        )
+    elif len(prompt_ids) > 1:
+        _log.info(
+            "otel-ingest: %d distinct prompt ids in batch for workflow %s — "
+            "skipping auto-bind (ambiguous); use the manual binding picker",
+            len(prompt_ids),
+            workflow_id,
+        )
+
+
 @router.post(
     "/v1/traces",
     response_model=IngestResponse,
@@ -243,6 +285,9 @@ async def ingest_otlp_traces(
     persisted = await persist_decoded_batch(
         conn, batch, workflow_id=bound_workflow_id
     )
+
+    if bound_workflow_id is not None:
+        await _apply_provenance_hints(conn, bound_workflow_id, batch)
 
     _log.info(
         "otel-ingest: accepted %d events, %d warnings, "
