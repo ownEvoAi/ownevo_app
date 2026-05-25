@@ -81,7 +81,7 @@ clustering = [
 otel-integration = [
     "traceloop-sdk>=0.30,<1",
 ]
-# LangSmith fix-delivery (13.0.2). The push adapter wraps the langsmith
+# LangSmith fix-delivery adapter. The push adapter wraps the langsmith
 # SDK's push_prompt; langchain-core supplies the ChatPromptTemplate the
 # API expects as the pushed object. Optional so the core kernel install
 # stays free of the LangChain tree; the API process installs it when the

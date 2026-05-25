@@ -77,7 +77,12 @@ def push_fix(
             "(langsmith + langchain-core).",
         ) from exc
 
-    client = Client(api_key=api_key, api_url=api_url)
+    # Explicit timeout so a slow or unresponsive LangSmith endpoint doesn't
+    # block the thread-pool executor indefinitely. asyncio.to_thread cannot
+    # cancel in-flight threads, so a missing timeout here stalls every
+    # subsequent to_thread call (protobuf decode, clustering) once the pool
+    # fills under concurrent ship requests.
+    client = Client(api_key=api_key, api_url=api_url, timeout_ms=30_000)
     template = ChatPromptTemplate.from_messages([("system", instruction_text)])
 
     try:
@@ -123,7 +128,7 @@ def verify_api_key(*, api_key: str, api_url: str | None = None) -> None:
             "LangSmith integration requires the `langsmith` extra.",
         ) from exc
 
-    client = Client(api_key=api_key, api_url=api_url)
+    client = Client(api_key=api_key, api_url=api_url, timeout_ms=30_000)
     try:
         # Force a single *authenticated* request against a tenant-scoped
         # endpoint. `list_datasets` requires a valid key — an invalid one

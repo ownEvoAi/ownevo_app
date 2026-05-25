@@ -193,6 +193,9 @@ async def _resolve_workflow_id(
         the workflow exists (404 otherwise). Absent → unbound (None).
     """
     token_wf = auth.workflow_id if auth is not None else None
+    # Normalise empty string to None — FastAPI passes ?workflow_id= as ""
+    # and an empty string is never a valid workflow id.
+    query_workflow_id = query_workflow_id or None
 
     if token_wf is not None:
         if query_workflow_id is not None and query_workflow_id != token_wf:

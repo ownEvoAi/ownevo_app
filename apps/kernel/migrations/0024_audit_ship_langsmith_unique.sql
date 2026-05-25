@@ -1,4 +1,4 @@
--- 0022_audit_ship_langsmith_unique.sql — prevent double-push to LangSmith.
+-- 0024_audit_ship_langsmith_unique.sql — prevent double-push to LangSmith.
 --
 -- The ship-langsmith endpoint is idempotent by design: a second POST on the
 -- same proposal detects a prior 'fix-shipped-langsmith' audit entry and

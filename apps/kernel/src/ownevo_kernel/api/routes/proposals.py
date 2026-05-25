@@ -18,6 +18,7 @@ Status code conventions
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Literal
 from uuid import UUID
 
@@ -61,6 +62,8 @@ from ..models import (
 )
 
 router = APIRouter(prefix="/api/proposals", tags=["proposals"])
+
+_log = logging.getLogger(__name__)
 
 # Hard-cap on list-endpoint pagination so a misconfigured client can't
 # request the entire history in one call. The W5 polish UI will paginate
@@ -558,21 +561,47 @@ async def ship_langsmith(
         )
 
     if (row["kind"] or "skill") != "skill":
-        raise HTTPException(422, detail="Only skill proposals can ship to LangSmith")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only skill proposals can ship to LangSmith",
+        )
     if row["state"] != "deployed":
-        raise HTTPException(422, detail="Proposal must be deployed before shipping")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Proposal must be deployed before shipping",
+        )
     if row["workflow_origin"] != "langsmith":
-        raise HTTPException(422, detail="Workflow is not LangSmith-originated")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Workflow is not LangSmith-originated",
+        )
     prompt_id = row["langsmith_prompt_id"]
     if not prompt_id:
         raise HTTPException(
-            422, detail="Skill has no langsmith_prompt_id; bind it first"
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Skill has no langsmith_prompt_id; bind it first",
         )
     content = row["deployed_content"]
     if not content:
-        raise HTTPException(422, detail="No deployed skill version to ship")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No deployed skill version to ship",
+        )
 
-    api_key = await get_credential_plaintext(conn, "langsmith")
+    from ...secrets import CredentialsDecryptError, CredentialsKeyMissingError
+
+    try:
+        api_key = await get_credential_plaintext(conn, "langsmith")
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
+    except CredentialsDecryptError:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored credential could not be decrypted — re-enter the key in Settings",
+        ) from None
     if api_key is None:
         raise HTTPException(
             status.HTTP_424_FAILED_DEPENDENCY,
@@ -611,6 +640,19 @@ async def ship_langsmith(
     except (LangSmithNetworkError, LangSmithPushError) as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
 
+    # Sanitise the URL before writing it to the append-only audit log and
+    # returning it to the browser (where it becomes an <a href>). React does
+    # not strip javascript: hrefs; a self-hosted or compromised LangSmith
+    # server could inject a XSS payload that executes on click.
+    commit_url = result.commit_url
+    if not commit_url.startswith("https://"):
+        _log.warning(
+            "ship-langsmith: push_fix returned unexpected commit_url scheme %r; "
+            "clearing URL from response to prevent XSS",
+            commit_url[:60],
+        )
+        commit_url = ""
+
     try:
         await append_audit_entry(
             conn,
@@ -618,17 +660,21 @@ async def ship_langsmith(
             payload={
                 "prompt_id": result.prompt_id,
                 "commit_hash": result.commit_hash,
-                "commit_url": result.commit_url,
+                "commit_url": commit_url,
                 "workflow_id": row["workflow_id"],
             },
             actor=body.shipped_by,
             related_id=proposal_id,
         )
-    except asyncpg.UniqueViolationError:
+    except asyncpg.UniqueViolationError as exc:
         # Concurrent request raced past the idempotency check and already
-        # wrote the audit entry (migration 0022 enforces uniqueness on
+        # wrote the audit entry (migration 0024 enforces uniqueness on
         # fix-shipped-langsmith per related_id). Fetch and return the winner's
         # entry rather than failing — the push already succeeded.
+        # Guard: only treat this as the expected race when it's our index that
+        # fired; any other unique violation should propagate.
+        if getattr(exc, "constraint_name", None) != "audit_entries_ship_langsmith_once_idx":
+            raise
         winner = await conn.fetchrow(
             "SELECT payload FROM audit_entries "
             "WHERE kind = 'fix-shipped-langsmith' AND related_id = $1 "
@@ -644,12 +690,18 @@ async def ship_langsmith(
                 commit_url=payload.get("commit_url", ""),
                 already_shipped=True,
             )
+        # Theoretically impossible: unique violation but no row found —
+        # means the winning transaction rolled back. Surface this loudly.
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LangSmith push succeeded but audit write failed — retry to re-record",
+        ) from exc
 
     return ShipLangSmithResponse(
         proposal_id=proposal_id,
         prompt_id=result.prompt_id,
         commit_hash=result.commit_hash,
-        commit_url=result.commit_url,
+        commit_url=commit_url,
         already_shipped=False,
     )
 

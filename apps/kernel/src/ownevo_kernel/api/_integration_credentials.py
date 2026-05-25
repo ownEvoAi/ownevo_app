@@ -1,6 +1,6 @@
 """DB-backed store for third-party integration credentials.
 
-Wraps the `integration_credentials` table (migration 0020): one row per
+Wraps the `integration_credentials` table (migration 0022): one row per
 provider, the API key sealed at rest via `secrets.encrypted_field`. The
 plaintext key only exists transiently — written through `encrypt` on
 set, read back through `decrypt` when the push adapter needs it, and
