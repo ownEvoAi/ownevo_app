@@ -148,6 +148,13 @@ class ImportGenerateRequest(BaseModel):
     agent_definition: str | None = Field(
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
+    # Vendor the imported agent came from, tagged onto the created workflow so
+    # the right fix-delivery action appears later (ship-langsmith /
+    # ship-copilot-studio). None = greenfield / undetermined source. The
+    # OTLP receiver auto-tags origin on *bound* ingest; the trace-import flow
+    # creates a fresh workflow from unbound traces, so the source is passed
+    # explicitly here instead.
+    origin: Literal["langsmith", "copilot_studio"] | None = None
     reverse_discovery: ReverseDiscoveryIn | None = None
     design_agent_log: DesignAgentLog | None = None
     workflow_id: str | None = Field(
@@ -499,8 +506,8 @@ async def import_generate(
             """
                 INSERT INTO workflows (id, description, spec,
                                        simulation_plan, metric_definition,
-                                       created_from_template)
-                VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, NULL)
+                                       created_from_template, origin)
+                VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, NULL, $6)
                 ON CONFLICT (id) DO NOTHING
                 RETURNING id
                 """,
@@ -509,6 +516,7 @@ async def import_generate(
             spec.model_dump_json(),
             sim_plan.model_dump_json(),
             metric_def.model_dump_json(),
+            req.origin,
         )
         if row is None:
             raise HTTPException(

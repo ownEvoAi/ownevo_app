@@ -13,6 +13,7 @@ import {
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
   type ReverseDiscoveryInput,
+  type WorkflowOrigin,
 } from '@/lib/api-server'
 
 const _DISCOVERY_KINDS: ReadonlySet<DiscoveryQuestionKind> = new Set([
@@ -129,6 +130,7 @@ export interface GenerateFromImportInput {
   wsId: string
   traceIds: string[]
   agentDefinition: string | null
+  origin: WorkflowOrigin | null
   reverseDiscovery: ReverseDiscoveryInput | null
   transcript: DiscoveryTranscriptEntry[]
 }
@@ -164,6 +166,7 @@ export async function generateFromImportAction(
       input.agentDefinition,
       log,
       input.reverseDiscovery,
+      input.origin,
     )
   } catch (err) {
     if (err instanceof KernelApiError) {

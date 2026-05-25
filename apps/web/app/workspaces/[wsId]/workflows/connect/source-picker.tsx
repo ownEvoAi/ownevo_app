@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-type SourceKey = 'otel' | 'upload' | 'manual'
+type SourceKey = 'otel' | 'copilot-studio' | 'upload' | 'manual'
 
 interface SourceDef {
   key: SourceKey
@@ -19,6 +19,13 @@ const SOURCES: SourceDef[] = [
     title: 'OpenTelemetry endpoint',
     body: 'Point your existing OTel collector at our OTLP endpoint. Use the gen-ai semantic conventions. No code changes if you already have OTel.',
     tags: ['recommended', 'live stream'],
+    status: 'wired',
+  },
+  {
+    key: 'copilot-studio',
+    title: 'Microsoft Copilot Studio',
+    body: "Import the agent's instructions from a Power Platform solution export so discovery opens grounded in what it's told to do. Configure the credential in Settings → Integrations first.",
+    tags: ['definition export'],
     status: 'wired',
   },
   {
@@ -46,10 +53,18 @@ const SOURCES: SourceDef[] = [
 export function SourcePicker({ wsId }: { wsId: string }) {
   const router = useRouter()
   const [selected, setSelected] = useState<SourceKey>('manual')
+  const [solution, setSolution] = useState('')
 
   function advance() {
     if (selected === 'manual') {
       router.push(`/workspaces/${wsId}/workflows/new?from=connect`)
+    } else if (selected === 'copilot-studio') {
+      const q = solution.trim()
+        ? `&solution=${encodeURIComponent(solution.trim())}`
+        : ''
+      router.push(
+        `/workspaces/${wsId}/workflows/connect/design?source=copilot-studio${q}`,
+      )
     } else {
       router.push(
         `/workspaces/${wsId}/workflows/connect/design?source=${selected}`,
@@ -87,6 +102,38 @@ export function SourcePicker({ wsId }: { wsId: string }) {
           </button>
         ))}
       </div>
+
+      {selected === 'copilot-studio' && (
+        <div style={{ marginTop: 16 }}>
+          <label
+            htmlFor="cs-solution"
+            style={{ fontSize: 12.5, color: 'var(--text-muted)' }}
+          >
+            Solution name <span style={{ opacity: 0.7 }}>(optional)</span> — the
+            unmanaged Power Platform solution packaging the agent. Leave blank to
+            skip definition import and run discovery on traces alone.
+          </label>
+          <input
+            id="cs-solution"
+            type="text"
+            value={solution}
+            placeholder="e.g. ContosoSupportAgent"
+            onChange={(e) => setSolution(e.target.value)}
+            autoComplete="off"
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              fontSize: 13,
+              fontFamily: 'inherit',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              background: 'var(--bg)',
+              color: 'var(--text)',
+              marginTop: 6,
+            }}
+          />
+        </div>
+      )}
 
       <div className="connect-step-footer">
         <button

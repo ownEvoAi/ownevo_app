@@ -66,11 +66,14 @@ class _FakeGenerateConn:
             if fetchrow_result is self.__class__._MISSING
             else fetchrow_result
         )
+        # Positional args of the workflow INSERT (fetchrow), for assertions.
+        self.fetchrow_args: tuple[Any, ...] = ()
 
     async def fetch(self, _query: str, trace_ids: Any, _limit: Any) -> list[dict]:
         return [{"id": tid, "events": _TRACE_EVENTS} for tid in trace_ids]
 
-    async def fetchrow(self, *_args: Any) -> dict | None:
+    async def fetchrow(self, *args: Any) -> dict | None:
+        self.fetchrow_args = args
         return self._fetchrow_result
 
     async def execute(self, *_args: Any, **_kw: Any) -> str:
@@ -502,6 +505,98 @@ async def test_import_generate_happy_path(monkeypatch):
     assert body["workflow_id"] == "demand-forecast"
     assert "description" in body
     assert isinstance(body["spec"], dict)
+
+
+async def test_import_generate_persists_origin(monkeypatch):
+    """An explicit `origin` is tagged onto the created workflow row.
+
+    The workflow INSERT carries origin as its last positional arg; without
+    it a Copilot Studio-imported workflow stays NULL-origin and the
+    ship-copilot-studio precondition would later reject it.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    async def _ok_spec(*_a: Any, **_kw: Any) -> _FakeSpec:
+        return _FakeSpec(id="demand-forecast")
+
+    async def _ok_plan(*_a: Any, **_kw: Any) -> _FakePlan:
+        return _FakePlan()
+
+    async def _ok_metric(*_a: Any, **_kw: Any) -> _FakeMetric:
+        return _FakeMetric()
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_workflow_spec_from_traces",
+        _ok_spec,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_simulation_plan",
+        _ok_plan,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_metric_definition",
+        _ok_metric,
+    )
+
+    pool = _FakeGeneratePool(fetchrow_result={"id": "demand-forecast"})
+    app = _gen_app(pool)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-generate",
+            json={"trace_ids": [str(uuid4())], "origin": "copilot_studio"},
+        )
+    assert resp.status_code == 200
+    # origin is the final positional arg of the workflow INSERT.
+    assert pool._conn.fetchrow_args[-1] == "copilot_studio"
+
+
+async def test_import_generate_origin_defaults_none(monkeypatch):
+    """Omitting `origin` leaves the workflow greenfield (NULL origin)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    async def _ok_spec(*_a: Any, **_kw: Any) -> _FakeSpec:
+        return _FakeSpec(id="demand-forecast")
+
+    async def _ok_plan(*_a: Any, **_kw: Any) -> _FakePlan:
+        return _FakePlan()
+
+    async def _ok_metric(*_a: Any, **_kw: Any) -> _FakeMetric:
+        return _FakeMetric()
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_workflow_spec_from_traces",
+        _ok_spec,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_simulation_plan",
+        _ok_plan,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_metric_definition",
+        _ok_metric,
+    )
+
+    pool = _FakeGeneratePool(fetchrow_result={"id": "demand-forecast"})
+    app = _gen_app(pool)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-generate",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 200
+    assert pool._conn.fetchrow_args[-1] is None
 
 
 async def test_import_generate_persists_reverse_discovery(monkeypatch):

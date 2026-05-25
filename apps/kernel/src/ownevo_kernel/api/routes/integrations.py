@@ -262,10 +262,33 @@ async def test_copilot_studio_credential(
     """
     from ...middleware.copilot_studio import (
         CopilotStudioAuthError,
-        CopilotStudioConfigError,
         CopilotStudioError,
         verify_connection,
     )
+
+    cred = await _load_copilot_credential_or_raise(conn)
+
+    try:
+        await verify_connection(cred)
+    except CopilotStudioAuthError as exc:
+        await record_validation(conn, _COPILOT_PROVIDER, "invalid")
+        return CopilotStudioTestResult(status="invalid", detail=str(exc)[:200])
+    except CopilotStudioError as exc:
+        await record_validation(conn, _COPILOT_PROVIDER, "error")
+        return CopilotStudioTestResult(status="error", detail=str(exc)[:200])
+
+    await record_validation(conn, _COPILOT_PROVIDER, "ok")
+    return CopilotStudioTestResult(status="ok")
+
+
+async def _load_copilot_credential_or_raise(conn: ConnDep):  # noqa: ANN202
+    """Decrypt the stored Copilot Studio credential or raise the right HTTP error.
+
+    503 when the master key is unset, 500 when the blob can't be decrypted
+    or is malformed, 404 when no credential is configured. Shared by the
+    test-connection and export-definition endpoints.
+    """
+    from ...middleware.copilot_studio import CopilotStudioConfigError
     from ...secrets import CredentialsDecryptError, CredentialsKeyMissingError
 
     try:
@@ -290,15 +313,62 @@ async def test_copilot_studio_credential(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No Copilot Studio credential configured",
         )
+    return cred
+
+
+class CopilotStudioDefinitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The Power Platform solution (unmanaged) packaging the agent to export.
+    solution_name: str = Field(min_length=1, max_length=256)
+
+
+class CopilotStudioDefinitionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The extracted instruction text, or None when the solution carries no
+    # recognisable agent definition (best-effort extraction — see MAPPING.md).
+    agent_definition: str | None
+    found: bool
+
+
+@router.post("/copilot-studio/export-definition", response_model=CopilotStudioDefinitionResult)
+async def export_copilot_studio_definition(
+    body: CopilotStudioDefinitionRequest,
+    conn: ConnDep,
+    _demo: DemoModeCheck,
+) -> CopilotStudioDefinitionResult:
+    """Export a solution and extract the agent's instruction text.
+
+    Backs the trace-import connect flow: the extracted definition grounds
+    the design agent's reverse-discovery turn ("this agent appears to do
+    X"). 404 when no credential is configured, 401 when the service
+    principal is rejected, 404 when the solution doesn't exist, 502 on a
+    Power Platform / network failure. A solution with no recognisable
+    definition returns `found=false` (not an error) — the caller falls
+    back to the trace-only summary.
+    """
+    from ...middleware.copilot_studio import (
+        CopilotStudioAuthError,
+        CopilotStudioError,
+        CopilotStudioNotFoundError,
+        export_solution,
+        extract_agent_definition,
+    )
+
+    cred = await _load_copilot_credential_or_raise(conn)
 
     try:
-        await verify_connection(cred)
+        solution_zip = await export_solution(cred, solution_name=body.solution_name)
     except CopilotStudioAuthError as exc:
-        await record_validation(conn, _COPILOT_PROVIDER, "invalid")
-        return CopilotStudioTestResult(status="invalid", detail=str(exc)[:200])
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
+    except CopilotStudioNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
     except CopilotStudioError as exc:
-        await record_validation(conn, _COPILOT_PROVIDER, "error")
-        return CopilotStudioTestResult(status="error", detail=str(exc)[:200])
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
 
-    await record_validation(conn, _COPILOT_PROVIDER, "ok")
-    return CopilotStudioTestResult(status="ok")
+    definition = extract_agent_definition(solution_zip)
+    return CopilotStudioDefinitionResult(
+        agent_definition=definition,
+        found=definition is not None,
+    )
