@@ -21,6 +21,11 @@ const INTEGRATIONS = [
     blurb: 'OneDrive, Word, Excel, and Outlook as agent data sources (MCP, OAuth).',
   },
   {
+    slug: 'upload',
+    name: 'File upload',
+    blurb: 'Upload CSV / Excel / Parquet spreadsheets and PDF / DOCX documents as data sources.',
+  },
+  {
     slug: 'langsmith',
     name: 'LangSmith',
     blurb: 'Ship approved fixes back to a LangSmith workspace as prompt versions.',

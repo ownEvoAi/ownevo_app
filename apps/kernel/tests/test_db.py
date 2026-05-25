@@ -93,6 +93,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "approvals",
             "audit_entries",
             "captured_sandbox_runs",
+            "data_uploads",
             "demo_budget_state",
             "demo_invite_revocations",
             "demo_usage",

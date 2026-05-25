@@ -31,7 +31,7 @@ from typing import Literal
 from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 """Frozen at v1.0 — 2026-05-04.
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
@@ -43,8 +43,12 @@ narrowed.
 v1.1 → v1.2 (Track 17.0): added `kind` + `mcp_server_id` to `DataSource`
 so a workflow can declare an MCP-server-backed data source. Additive and
 backward-compatible — the new fields default to the existing
-simulator-backed behaviour, and `schema_version` is a `Literal["1.1",
-"1.2"]` union so specs still tagged "1.1" keep validating.
+simulator-backed behaviour, and `schema_version` is a `Literal[...]`
+union so specs still tagged with an older version keep validating.
+
+v1.2 → v1.3 (Track 17.0): added `kind="upload"` + `upload_id` to
+`DataSource` so a workflow can declare a parsed-file-upload data source.
+Same additive, union-widening shape as the v1.2 change.
 
 Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
 against the snapshot at `nl_gen/schemas/workflow_spec.v1.1.json`. To
@@ -110,20 +114,28 @@ class DataSource(_Base):
     description: str = ""
     entity: str | None = None
     provenance: Provenance | None = None
-    # MCP data sources (Track 17.0): kind="mcp" points the agent runtime at a
-    # registered MCP server (the `mcp_servers` row identified by
-    # `mcp_server_id`), whose tools are listed and invoked transparently at
-    # run time. kind="standard" (the default) is the simulator-backed source
-    # every existing spec already uses.
-    kind: Literal["standard", "mcp"] = "standard"
+    # Connector data sources (Track 17.0):
+    #   kind="mcp"    — a registered MCP server (the `mcp_servers` row
+    #                   identified by `mcp_server_id`), whose tools the agent
+    #                   runtime lists + invokes transparently at run time.
+    #   kind="upload" — a parsed file upload (the `data_uploads` row identified
+    #                   by `upload_id`) the agent reads by id each iteration.
+    #   kind="standard" (default) — the simulator-backed source every existing
+    #                   spec already uses.
+    kind: Literal["standard", "mcp", "upload"] = "standard"
     mcp_server_id: str | None = None
+    upload_id: str | None = None
 
     @model_validator(mode="after")
-    def _mcp_requires_server_id(self) -> DataSource:
+    def _connector_ids_match_kind(self) -> DataSource:
         if self.kind == "mcp" and not self.mcp_server_id:
             raise ValueError("data source with kind='mcp' requires mcp_server_id")
-        if self.kind == "standard" and self.mcp_server_id is not None:
+        if self.kind == "upload" and not self.upload_id:
+            raise ValueError("data source with kind='upload' requires upload_id")
+        if self.kind != "mcp" and self.mcp_server_id is not None:
             raise ValueError("mcp_server_id is only valid when kind='mcp'")
+        if self.kind != "upload" and self.upload_id is not None:
+            raise ValueError("upload_id is only valid when kind='upload'")
         return self
 
 
@@ -270,7 +282,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["1.1", "1.2"] = SCHEMA_VERSION
+    schema_version: Literal["1.1", "1.2", "1.3"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment

@@ -153,6 +153,10 @@ class KernelContext:
             sources for this run, as strings. `mcp_*` tool calls are
             confined to this set, so the agent can't reach a server the
             workflow didn't declare.
+        upload_ids: The set of `data_uploads` ids declared as data
+            sources for this run, as strings. `read_upload` is confined to
+            this set, so the agent can't read an upload the workflow
+            didn't declare.
     """
 
     conn: asyncpg.Connection
@@ -161,6 +165,7 @@ class KernelContext:
     default_workflow_id: str | None = None
     mcp_client: MCPClient | None = None
     mcp_server_ids: tuple[str, ...] = field(default_factory=tuple)
+    upload_ids: tuple[str, ...] = field(default_factory=tuple)
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +239,54 @@ def mcp_tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
-def kernel_tool_definitions(*, include_mcp: bool = False) -> list[dict[str, Any]]:
+def upload_tool_definitions() -> list[dict[str, Any]]:
+    """Return the `read_upload` tool as Anthropic API tool params.
+
+    Only spliced in when the workflow declares an upload data source. The
+    `upload_id` must be one the workflow declared — the dispatcher refuses
+    ids outside the run's scope."""
+    return [
+        {
+            "name": "read_upload",
+            "description": (
+                "Read a parsed file upload declared as a data source for this "
+                "workflow. Spreadsheets (csv/excel/parquet) return the detected "
+                "schema plus rows; documents (pdf/docx) return the extracted "
+                "text plus structured metadata (title, sections, tables). "
+                "`upload_id` must be one of the uploads declared on this "
+                "workflow."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The data_uploads id of a declared upload.",
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": (
+                            "For spreadsheets, cap on rows returned (defaults "
+                            "to 200; the schema + row_count always reflect the "
+                            "full file)."
+                        ),
+                    },
+                },
+                "required": ["upload_id"],
+            },
+        },
+    ]
+
+
+def kernel_tool_definitions(
+    *, include_mcp: bool = False, include_uploads: bool = False
+) -> list[dict[str, Any]]:
     """Return the kernel tools as Anthropic API tool params.
 
     The 5 core tools are always present. When `include_mcp` is set (a run
     whose workflow declares MCP data sources), the two `mcp_*` tools are
-    appended so the agent can read those sources transparently.
+    appended; when `include_uploads` is set, the `read_upload` tool is
+    appended — so the agent can read those sources transparently.
 
     Returned as plain dicts so the call sites can splice them into
     `messages.create(tools=...)` without an SDK type import — the
@@ -248,6 +295,8 @@ def kernel_tool_definitions(*, include_mcp: bool = False) -> list[dict[str, Any]
     tools = _core_tool_definitions()
     if include_mcp:
         tools.extend(mcp_tool_definitions())
+    if include_uploads:
+        tools.extend(upload_tool_definitions())
     return tools
 
 
@@ -523,6 +572,8 @@ async def dispatch_tool(
             return await _dispatch_mcp_list_tools(args, ctx)
         if name == "mcp_call":
             return await _dispatch_mcp_call(args, ctx)
+        if name == "read_upload":
+            return await _dispatch_read_upload(args, ctx)
     except (
         SkillFormatError,
         TestFoldAccessRefused,
@@ -845,9 +896,79 @@ async def _dispatch_mcp_call(
     )
 
 
+_DEFAULT_UPLOAD_MAX_ROWS = 200
+_MAX_UPLOAD_ROWS = 2000
+"""Hard cap on rows returned from read_upload so a huge upload can't dump the
+whole file into the agent's context."""
+
+
+async def _dispatch_read_upload(
+    args: dict[str, Any],
+    ctx: KernelContext,
+) -> ToolDispatchResult:
+    from ...data_ingest import get_upload, get_upload_content
+    from ...data_ingest.models import SPREADSHEET_KINDS
+
+    upload_id = _required_upload_id(args, ctx)
+    upload = await get_upload(ctx.conn, upload_id)
+    if upload is None:
+        return ToolDispatchResult(
+            output={"upload_id": str(upload_id), "found": False},
+            is_error=True,
+            error_class=None,
+            duration_ms=None,
+        )
+    content = await get_upload_content(ctx.conn, upload_id) or {}
+
+    output: dict[str, Any] = {
+        "upload_id": str(upload_id),
+        "found": True,
+        "name": upload.name,
+        "kind": upload.kind.value,
+        "schema": upload.schema_,
+    }
+    if upload.kind in SPREADSHEET_KINDS:
+        rows = content.get("rows", [])
+        max_rows = _coerce_max_rows(args.get("max_rows"))
+        output["row_count"] = upload.row_count
+        output["rows"] = rows[:max_rows]
+        output["truncated"] = len(rows) > max_rows
+    else:
+        output["text"] = content.get("text", "")
+        output["sections"] = content.get("sections", [])
+        output["tables"] = content.get("tables", [])
+    return ToolDispatchResult(
+        output=output, is_error=False, error_class=None, duration_ms=None
+    )
+
+
+def _coerce_max_rows(raw: Any) -> int:
+    if raw is None:
+        return _DEFAULT_UPLOAD_MAX_ROWS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"max_rows must be an int; got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"max_rows must be positive; got {value}")
+    return min(value, _MAX_UPLOAD_ROWS)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _required_upload_id(args: dict[str, Any], ctx: KernelContext) -> UUID:
+    raw = _required_str(args, "upload_id")
+    if ctx.upload_ids and raw not in ctx.upload_ids:
+        raise ValueError(
+            f"upload_id {raw!r} is not a declared data source for this workflow"
+        )
+    try:
+        return UUID(raw)
+    except ValueError as exc:
+        raise ValueError(f"upload_id is not a valid UUID: {raw!r}") from exc
 
 
 def _require_mcp_client(ctx: KernelContext) -> MCPClient:
@@ -906,13 +1027,15 @@ def _shape_exception(exc: BaseException) -> ToolDispatchResult:
     )
 
 
-def kernel_tool_definitions_openai(*, include_mcp: bool = False) -> list[dict[str, Any]]:
+def kernel_tool_definitions_openai(
+    *, include_mcp: bool = False, include_uploads: bool = False
+) -> list[dict[str, Any]]:
     """Return the kernel tools in OpenAI function-calling format.
 
     Converts from Anthropic's `input_schema` shape to OpenAI's
     `parameters` shape so the same tool surfaces work with any
     OpenAI-compatible backend (Ollama, LM Studio, LiteLLM proxy).
-    `include_mcp` mirrors `kernel_tool_definitions`.
+    `include_mcp` / `include_uploads` mirror `kernel_tool_definitions`.
     """
     return [
         {
@@ -923,7 +1046,9 @@ def kernel_tool_definitions_openai(*, include_mcp: bool = False) -> list[dict[st
                 "parameters": t["input_schema"],
             },
         }
-        for t in kernel_tool_definitions(include_mcp=include_mcp)
+        for t in kernel_tool_definitions(
+            include_mcp=include_mcp, include_uploads=include_uploads
+        )
     ]
 
 
@@ -934,4 +1059,5 @@ __all__ = [
     "kernel_tool_definitions",
     "kernel_tool_definitions_openai",
     "mcp_tool_definitions",
+    "upload_tool_definitions",
 ]

@@ -1828,3 +1828,56 @@ export async function startMcpOAuth(
     { method: 'POST', body: JSON.stringify(body) },
   )
 }
+
+// ---------------------------------------------------------------------------
+// Direct file uploads (Track 17.0.3 / 17.0.4) — spreadsheets + documents.
+// ---------------------------------------------------------------------------
+
+export type UploadKind = 'csv' | 'excel' | 'parquet' | 'pdf' | 'docx'
+
+export interface DataUpload {
+  id: string
+  name: string
+  kind: UploadKind
+  content_type: string | null
+  size_bytes: number
+  sha256: string
+  schema: Record<string, unknown>
+  row_count: number | null
+  uploaded_at: string
+  retention_expires_at: string | null
+}
+
+export async function listDataUploads(): Promise<DataUpload[]> {
+  return jsonFetch<DataUpload[]>('/api/uploads')
+}
+
+export async function deleteDataUpload(id: string): Promise<void> {
+  await jsonFetch<unknown>(`/api/uploads/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+// Multipart upload — can't go through jsonFetch (which forces a JSON
+// content-type). Forwards the browser File to the kernel and reuses the
+// KernelApiError shape on failure.
+export async function uploadDataFile(file: File): Promise<DataUpload> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_URL}/api/uploads`, {
+    method: 'POST',
+    body: form,
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { detail?: string }
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // non-JSON body — keep statusText
+    }
+    throw new KernelApiError(res.status, detail)
+  }
+  return (await res.json()) as DataUpload
+}
