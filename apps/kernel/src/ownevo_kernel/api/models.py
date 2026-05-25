@@ -473,6 +473,10 @@ class WorkflowAnatomy(_Strict):
     # provider+model allowlist on PATCH. Phase 2 will thread this through
     # the iteration runner so the loop dispatches to the chosen provider.
     agent_model_id: str = "anthropic:claude-sonnet-4-6"
+    # Vendor the workflow was imported from (`langsmith` | `copilot_studio`),
+    # or null for greenfield workflows. Gates origin-specific actions in the
+    # web UI (e.g. pushing eval cases to a Copilot Studio agent).
+    origin: str | None = None
 
 
 class EvalCaseCreate(_Strict):

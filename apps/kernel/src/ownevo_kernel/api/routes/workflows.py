@@ -18,7 +18,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...audit import append_audit_entry
 from ...design_agent.log import load_design_agent_log
@@ -164,7 +164,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         SELECT id, description, mode::text AS mode, kind, spec,
                simulation_plan, metric_definition,
                created_from_template, design_agent_log,
-               agent_model_id
+               agent_model_id, origin
         FROM workflows
         WHERE id = $1
         """,
@@ -195,6 +195,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         agent_model_id=row["agent_model_id"],
         created_from_template=row["created_from_template"],
         design_agent_log=decode_jsonb_obj(row["design_agent_log"]),
+        origin=row["origin"],
     )
 
 
@@ -585,6 +586,46 @@ class ClusterProductionFailuresResponse(BaseModel):
     cluster_ids: list[UUID]
 
 
+class PushEvalCasesCopilotStudioRequest(BaseModel):
+    """Push a workflow's eval cases into Copilot Studio as a test set.
+
+    `agent_id` identifies the customer's deployed Copilot Studio agent the
+    test set runs against. It is supplied per-request rather than read off
+    the workflow: nothing auto-populates it yet (Copilot Studio has no OTel
+    trace egress, so the trace-ingest funnel that would tag it is not built
+    yet). `cluster_id` narrows the push to one failure cluster's
+    cases; `test_fold_only` pushes only held-out (test-fold) cases.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1, max_length=256)
+    test_set_name: str | None = Field(default=None, max_length=256)
+    cluster_id: UUID | None = None
+    test_fold_only: bool = False
+    pushed_by: str = Field(default="human", min_length=1, max_length=128)
+    # Safety cap before the MSFT API call. The Power Platform Evaluation API's
+    # limit per test set is unpublished (shapes are preview/unpinned); 500 is
+    # conservative. Use cluster_id to push a targeted subset when a workflow
+    # has more cases than the cap.
+    max_cases: int = Field(default=500, ge=1, le=2000)
+
+
+class PushEvalCasesCopilotStudioResponse(BaseModel):
+    """Result of creating a Copilot Studio test set from eval cases.
+
+    `test_set_id` is the id Power Platform assigned the created test set
+    (may be empty if the Evaluation API response omitted it); `case_count`
+    is how many eval cases were pushed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: str
+    test_set_id: str
+    case_count: int
+
+
 @router.post(
     "/{workflow_id}/cluster-production-failures",
     response_model=ClusterProductionFailuresResponse,
@@ -651,6 +692,127 @@ async def cluster_production_failures_route(
         clustered_failures=sum(len(p.summary.member_indices) for p in persisted),
         clusters_created=len(persisted),
         cluster_ids=cluster_ids,
+    )
+
+
+@router.post(
+    "/{workflow_id}/push-eval-cases-copilot-studio",
+    response_model=PushEvalCasesCopilotStudioResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def push_eval_cases_copilot_studio(
+    workflow_id: str,
+    body: PushEvalCasesCopilotStudioRequest,
+    conn: ConnDep,
+    _demo: DemoModeCheck,
+) -> PushEvalCasesCopilotStudioResponse:
+    """Push a workflow's eval cases into Copilot Studio as a test set.
+
+    Turns the workflow's (or one failure cluster's) eval cases into a
+    Power Platform Evaluation API test set against the customer's deployed
+    agent — the only enterprise platform with an external eval-push API.
+
+    Preconditions (422 unless met): the workflow exists and is
+    `origin='copilot_studio'`, and it has at least one matching eval case.
+    A configured Copilot Studio credential is required (404 when absent,
+    503 when the master encryption key is unset, 500 when the stored
+    credential is malformed or cannot be decrypted). Adapter failures map
+    to their HTTP status (401 auth, 404 not-found, 429 throttled, 502 other).
+
+    Success writes a hash-chained `eval-cases-pushed-copilot-studio` audit
+    entry recording the created test-set id + case count.
+
+    Note: the eval-case run/poll lifecycle is not invoked here — those
+    Evaluation API shapes are preview and unpinned (see the adapter's
+    `evaluation_api.py` / MAPPING.md). This creates the test set only.
+    """
+    row = await conn.fetchrow(
+        "SELECT origin FROM workflows WHERE id = $1",
+        workflow_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+    if row["origin"] != "copilot_studio":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Workflow is not Copilot Studio-originated",
+        )
+
+    from ...eval_cases.registry import list_eval_cases
+
+    cases = await list_eval_cases(
+        conn,
+        workflow_id=workflow_id,
+        cluster_id=body.cluster_id,
+        is_test_fold=True if body.test_fold_only else None,
+        limit=body.max_cases,
+    )
+    if not cases:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No matching eval cases to push",
+        )
+
+    # The Evaluation API takes cases already shaped as {input, expected_output};
+    # ownEvo stores the expected side as `expected_behavior`.
+    test_cases = [
+        {"input": c.input, "expected_output": c.expected_behavior} for c in cases
+    ]
+    test_set_name = (body.test_set_name or f"ownEvo · {workflow_id}")[:256]
+
+    from .integrations import load_copilot_credential_or_raise
+
+    cred = await load_copilot_credential_or_raise(conn)
+
+    from ...middleware.copilot_studio import (
+        CopilotStudioAuthError,
+        CopilotStudioError,
+        CopilotStudioNotFoundError,
+        CopilotStudioRateLimitError,
+        create_test_set,
+    )
+
+    try:
+        result = await create_test_set(
+            cred,
+            agent_id=body.agent_id,
+            name=test_set_name,
+            cases=test_cases,
+        )
+    except CopilotStudioAuthError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
+    except CopilotStudioNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
+    except CopilotStudioRateLimitError as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)[:200]) from exc
+    except CopilotStudioError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.EVAL_CASES_PUSHED_COPILOT_STUDIO,
+        payload={
+            "workflow_id": workflow_id,
+            "agent_id": body.agent_id,
+            "test_set_id": result.test_set_id,
+            "test_set_name": test_set_name,
+            "case_count": result.case_count,
+            "cluster_id": str(body.cluster_id) if body.cluster_id else None,
+        },
+        actor=body.pushed_by,
+        # related_id is a uuid column; workflow ids are text, so the
+        # workflow id lives in the payload and the cluster id (when the
+        # push was cluster-scoped) is the uuid anchor.
+        related_id=body.cluster_id,
+    )
+
+    return PushEvalCasesCopilotStudioResponse(
+        workflow_id=workflow_id,
+        test_set_id=result.test_set_id,
+        case_count=result.case_count,
     )
 
 

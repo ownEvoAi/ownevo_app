@@ -1,4 +1,5 @@
 import {
+  getWorkflowAnatomy,
   kernelError,
   KernelApiError,
   listWorkflowEvalCases,
@@ -7,6 +8,7 @@ import {
 import { AddEvalCaseForm } from './add-form'
 import { DeleteEvalCaseButton } from './delete-button'
 import { GenerateEvalCasesButton } from './generate-button'
+import { PushEvalCasesCopilotStudioButton } from './push-copilot-studio-button'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -18,15 +20,25 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
   let items: EvalCaseSummary[] = []
   let apiError: { title: string; detail: string } | null = null
   let notFound = false
-  try {
-    const list = await listWorkflowEvalCases(wfId)
-    items = list.items
-  } catch (err) {
-    if (err instanceof KernelApiError && err.status === 404) {
-      notFound = true
-    } else {
-      apiError = kernelError(err)
-    }
+  let origin: string | null = null
+
+  // Run both fetches in parallel; anatomy is best-effort — a transient error
+  // there must not blank the eval-cases list.
+  const [listResult, anatomyResult] = await Promise.allSettled([
+    listWorkflowEvalCases(wfId),
+    getWorkflowAnatomy(wfId),
+  ])
+
+  if (listResult.status === 'fulfilled') {
+    items = listResult.value.items
+  } else if (listResult.reason instanceof KernelApiError && listResult.reason.status === 404) {
+    notFound = true
+  } else {
+    apiError = kernelError(listResult.reason)
+  }
+
+  if (!notFound && anatomyResult.status === 'fulfilled') {
+    origin = anatomyResult.value.origin
   }
 
   const train = items.filter((c) => !c.is_test_fold)
@@ -50,6 +62,9 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
               defaultTargetLabel={items[0]?.target_label_field || 'label'}
             />
             <GenerateEvalCasesButton wsId={wsId} wfId={wfId} hasExisting={items.length > 0} />
+            {origin === 'copilot_studio' && items.length > 0 ? (
+              <PushEvalCasesCopilotStudioButton wsId={wsId} wfId={wfId} />
+            ) : null}
           </div>
         ) : null}
       </header>

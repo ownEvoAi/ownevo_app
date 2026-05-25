@@ -22,6 +22,7 @@ const KIND_TONE: Record<string, string> = {
   'proposal-rolled-back': 'red',
   'fix-shipped-langsmith': 'green',
   'fix-exported-copilot-studio': 'green',
+  'eval-cases-pushed-copilot-studio': 'accent',
   'gate-run-completed': 'accent',
   'gate-run-started': 'outline',
   'cluster-created': 'amber',

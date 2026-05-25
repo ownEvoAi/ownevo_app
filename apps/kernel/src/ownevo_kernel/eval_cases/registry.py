@@ -96,12 +96,17 @@ async def list_eval_cases(
     provenance: ProvenanceKind | str | None = None,
     is_test_fold: bool | None = None,
     cluster_id: UUID | None = None,
+    limit: int | None = None,
 ) -> list[EvalCase]:
     """Filter by any combination of fields. No filter = full table.
 
     Ordered by `created_at ASC` so the gate runner sees cases in
     promotion order — older cases (more likely the load-bearing ones)
     fail-fast first.
+
+    `limit` caps the result set (e.g. before pushing to an external API).
+    No limit = all matching rows (safe for the gate runner; callers that
+    push to upstream APIs should pass an explicit cap).
     """
     clauses: list[str] = []
     params: list[Any] = []
@@ -122,6 +127,10 @@ async def list_eval_cases(
         clauses.append(f"cluster_id = ${len(params)}")
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    limit_clause = ""
+    if limit is not None:
+        params.append(limit)
+        limit_clause = f"LIMIT ${len(params)}"
     rows = await conn.fetch(
         f"""
         SELECT id, workflow_id, provenance::text AS provenance, cluster_id,
@@ -130,6 +139,7 @@ async def list_eval_cases(
         FROM eval_cases
         {where}
         ORDER BY created_at ASC, id ASC
+        {limit_clause}
         """,
         *params,
     )

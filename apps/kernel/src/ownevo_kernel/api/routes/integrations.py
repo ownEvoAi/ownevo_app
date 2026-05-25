@@ -294,7 +294,7 @@ async def test_copilot_studio_credential(
         verify_connection,
     )
 
-    cred = await _load_copilot_credential_or_raise(conn)
+    cred = await load_copilot_credential_or_raise(conn)
 
     try:
         await verify_connection(cred)
@@ -309,7 +309,7 @@ async def test_copilot_studio_credential(
     return CopilotStudioTestResult(status="ok")
 
 
-async def _load_copilot_credential_or_raise(conn: ConnDep):  # noqa: ANN202
+async def load_copilot_credential_or_raise(conn: ConnDep):  # noqa: ANN202
     """Decrypt the stored Copilot Studio credential or raise the right HTTP error.
 
     503 when the master key is unset, 500 when the blob can't be decrypted
@@ -385,7 +385,7 @@ async def export_copilot_studio_definition(
         extract_agent_definition,
     )
 
-    cred = await _load_copilot_credential_or_raise(conn)
+    cred = await load_copilot_credential_or_raise(conn)
 
     try:
         solution_zip = await export_solution(cred, solution_name=body.solution_name)
