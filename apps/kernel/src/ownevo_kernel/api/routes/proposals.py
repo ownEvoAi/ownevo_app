@@ -17,11 +17,13 @@ Status code conventions
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
 
 from ...approvals import (
     ApprovalStateError,
@@ -32,13 +34,15 @@ from ...approvals import (
     request_changes_proposal,
     rollback_proposal,
 )
+from ...audit import append_audit_entry
 from ...proposals.ordering_inversion import (
     check_metric_ordering_inversion,
 )
 from ...proposals.ordering_inversion import (
     to_api_dict as inversion_check_to_dict,
 )
-from ...types import ApproverType
+from ...types import ApproverType, AuditKind
+from .._integration_credentials import get_credential_plaintext
 from ..deps import ConnDep, DemoModeCheck
 from ..jsonb import decode_jsonb_obj
 from ..models import (
@@ -472,6 +476,160 @@ async def rollback(
         proposal_id=proposal_id,
         decided_by=body.decided_by,
         action="rollback",
+    )
+
+
+class ShipLangSmithRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shipped_by: str = "human"
+
+
+class ShipLangSmithResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: UUID
+    prompt_id: str
+    commit_hash: str
+    commit_url: str
+    already_shipped: bool
+
+
+@router.post(
+    "/{proposal_id}/ship-langsmith",
+    response_model=ShipLangSmithResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def ship_langsmith(
+    proposal_id: UUID,
+    body: ShipLangSmithRequest,
+    conn: ConnDep,
+    _: DemoModeCheck,
+) -> ShipLangSmithResponse:
+    """Push a deployed fix back to the customer's LangSmith workspace.
+
+    Preconditions (422 unless met): the proposal is `kind='skill'`, in
+    state `deployed`, on a workflow with `origin='langsmith'`, whose
+    skill carries a `langsmith_prompt_id`. A configured LangSmith
+    credential is required (424 when absent).
+
+    Idempotent: if this proposal already has a `fix-shipped-langsmith`
+    audit entry, the existing commit is returned (`already_shipped=true`)
+    without a second push. Adapter failures map to their HTTP status and
+    do NOT roll back the deploy — retry is just another POST.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT p.state::text   AS state,
+               p.kind::text     AS kind,
+               p.skill_id,
+               p.plain_language_summary,
+               i.workflow_id,
+               w.origin         AS workflow_origin,
+               s.langsmith_prompt_id,
+               sv.content       AS deployed_content
+        FROM proposals p
+        JOIN iterations i ON i.id = p.iteration_id
+        JOIN workflows w ON w.id = i.workflow_id
+        LEFT JOIN skills s ON s.id = p.skill_id
+        LEFT JOIN skill_versions sv ON sv.id = s.deployed_version_id
+        WHERE p.id = $1
+        """,
+        proposal_id,
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
+    # Idempotency: a prior successful ship left an audit row.
+    existing = await conn.fetchrow(
+        "SELECT payload FROM audit_entries "
+        "WHERE kind = 'fix-shipped-langsmith' AND related_id = $1 "
+        "ORDER BY created_at DESC LIMIT 1",
+        proposal_id,
+    )
+    if existing is not None:
+        payload = decode_jsonb_obj(existing["payload"])
+        return ShipLangSmithResponse(
+            proposal_id=proposal_id,
+            prompt_id=payload.get("prompt_id", ""),
+            commit_hash=payload.get("commit_hash", ""),
+            commit_url=payload.get("commit_url", ""),
+            already_shipped=True,
+        )
+
+    if (row["kind"] or "skill") != "skill":
+        raise HTTPException(422, detail="Only skill proposals can ship to LangSmith")
+    if row["state"] != "deployed":
+        raise HTTPException(422, detail="Proposal must be deployed before shipping")
+    if row["workflow_origin"] != "langsmith":
+        raise HTTPException(422, detail="Workflow is not LangSmith-originated")
+    prompt_id = row["langsmith_prompt_id"]
+    if not prompt_id:
+        raise HTTPException(
+            422, detail="Skill has no langsmith_prompt_id; bind it first"
+        )
+    content = row["deployed_content"]
+    if not content:
+        raise HTTPException(422, detail="No deployed skill version to ship")
+
+    api_key = await get_credential_plaintext(conn, "langsmith")
+    if api_key is None:
+        raise HTTPException(
+            status.HTTP_424_FAILED_DEPENDENCY,
+            detail="No LangSmith credential configured",
+        )
+
+    from ...middleware.langsmith_push import (
+        LangSmithAuthError,
+        LangSmithConflictError,
+        LangSmithNetworkError,
+        LangSmithNotFoundError,
+        LangSmithPushError,
+        LangSmithRateLimitError,
+        push_fix,
+    )
+
+    summary = row["plain_language_summary"] or "Approved fix"
+    try:
+        result = await asyncio.to_thread(
+            push_fix,
+            api_key=api_key,
+            prompt_id=prompt_id,
+            instruction_text=content,
+            commit_description=summary,
+        )
+    except LangSmithAuthError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
+    except LangSmithNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
+    except LangSmithConflictError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)[:200]) from exc
+    except LangSmithRateLimitError as exc:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)[:200]
+        ) from exc
+    except (LangSmithNetworkError, LangSmithPushError) as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
+
+    await append_audit_entry(
+        conn,
+        kind=AuditKind.FIX_SHIPPED_LANGSMITH,
+        payload={
+            "prompt_id": result.prompt_id,
+            "commit_hash": result.commit_hash,
+            "commit_url": result.commit_url,
+            "workflow_id": row["workflow_id"],
+        },
+        actor=body.shipped_by,
+        related_id=proposal_id,
+    )
+
+    return ShipLangSmithResponse(
+        proposal_id=proposal_id,
+        prompt_id=result.prompt_id,
+        commit_hash=result.commit_hash,
+        commit_url=result.commit_url,
+        already_shipped=False,
     )
 
 

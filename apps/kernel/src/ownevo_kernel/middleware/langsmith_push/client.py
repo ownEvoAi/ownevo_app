@@ -104,3 +104,33 @@ def push_fix(
         commit_url=url,
         commit_hash=_parse_commit_hash(url),
     )
+
+
+def verify_api_key(*, api_key: str, api_url: str | None = None) -> None:
+    """Check that the key authenticates against LangSmith.
+
+    Performs one cheap authenticated read. Returns None on success;
+    raises `LangSmithAuthError` when the key is rejected, or another
+    adapter error on network / API failure. Used by the Settings
+    "test connection" action so a stored key can be validated without
+    pushing anything.
+    """
+    try:
+        from langsmith import Client
+        from langsmith import utils as ls_utils
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise LangSmithPushError(
+            "LangSmith integration requires the `langsmith` extra.",
+        ) from exc
+
+    client = Client(api_key=api_key, api_url=api_url)
+    try:
+        # Force a single authenticated request. list_prompts is paginated
+        # and lazy, so we pull one item to actually hit the API.
+        next(iter(client.list_prompts(limit=1)), None)
+    except ls_utils.LangSmithAuthError as exc:
+        raise LangSmithAuthError(str(exc)) from exc
+    except ls_utils.LangSmithConnectionError as exc:
+        raise LangSmithNetworkError(str(exc)) from exc
+    except ls_utils.LangSmithError as exc:
+        raise LangSmithPushError(str(exc)) from exc

@@ -8,7 +8,7 @@ decrypting the API key, writing the audit entry) lives in the
 for the API contract.
 """
 
-from .client import PushResult, push_fix
+from .client import PushResult, push_fix, verify_api_key
 from .errors import (
     LangSmithAuthError,
     LangSmithConflictError,
@@ -27,4 +27,5 @@ __all__ = [
     "LangSmithRateLimitError",
     "PushResult",
     "push_fix",
+    "verify_api_key",
 ]
