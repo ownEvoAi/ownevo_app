@@ -34,6 +34,7 @@ from .routes import (
     demo,
     design_agent,
     design_agent_ambiguity,
+    design_agent_import,
     integrations,
     models,
     nl_gen,
@@ -118,6 +119,7 @@ def create_app(
     api.include_router(nl_gen.router)
     api.include_router(design_agent.router)
     api.include_router(design_agent_ambiguity.router)
+    api.include_router(design_agent_import.router)
     api.include_router(workflows.router)
     api.include_router(models.router)
     api.include_router(audit.router)

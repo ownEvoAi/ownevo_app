@@ -530,6 +530,64 @@ export async function fetchDescriptionConflicts(
   )
 }
 
+// Trace-import design surface. The discovery interview
+// runs over imported agent traces instead of a written description; the
+// kernel's LLM interviewer reads a summary of the traces (+ optional
+// exported agent definition) and returns the same NextDiscoveryQuestion
+// brief shape the authoring surface uses.
+export async function fetchImportNextQuestion(
+  traceIds: string[],
+  agentDefinition: string | null,
+  priorAnswers: PriorDiscoveryAnswer[],
+  signal?: AbortSignal,
+  cookieHeader?: string,
+): Promise<NextDiscoveryQuestionResponse> {
+  return jsonFetch<NextDiscoveryQuestionResponse>(
+    '/api/design-agent/import-next-question',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trace_ids: traceIds,
+        agent_definition: agentDefinition,
+        prior_answers: priorAnswers,
+      }),
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+      signal,
+    },
+  )
+}
+
+export interface ImportGenerateResponse {
+  workflow_id: string
+  description: string
+  spec: Record<string, unknown>
+}
+
+// Reverse-engineer a WorkflowSpec from imported traces + the negotiated
+// discovery answers, persist the workflow, and mirror the transcript
+// into the audit chain. Returns the new workflow id for redirect.
+export async function generateFromImport(
+  traceIds: string[],
+  agentDefinition: string | null,
+  designAgentLog: DesignAgentLog | null,
+  workflowId?: string,
+  cookieHeader?: string,
+): Promise<ImportGenerateResponse> {
+  return jsonFetch<ImportGenerateResponse>(
+    '/api/design-agent/import-generate',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trace_ids: traceIds,
+        agent_definition: agentDefinition,
+        design_agent_log: designAgentLog,
+        workflow_id: workflowId,
+      }),
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    },
+  )
+}
+
 export interface EvalCaseProvenance {
   /** 'derived' = verbatim user-flagged miss; 'inferred' = named pattern. */
   kind: string
