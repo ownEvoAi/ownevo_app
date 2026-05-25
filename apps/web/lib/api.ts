@@ -596,13 +596,24 @@ export interface ImportGenerateResponse {
   spec: Record<string, unknown>
 }
 
+// The reverse-discovery turn + the reviewer's decision, echoed back at
+// generate time so the kernel can persist it to the import audit log.
+export interface ReverseDiscoveryInput {
+  inferred_summary: string
+  basis: 'traces' | 'definition+traces'
+  source: 'llm' | 'fallback'
+  decision: 'confirmed' | 'corrected' | 'skipped'
+  final_definition: string | null
+}
+
 // Reverse-engineer a WorkflowSpec from imported traces + the negotiated
-// discovery answers, persist the workflow, and mirror the transcript
-// into the audit chain. Returns the new workflow id for redirect.
+// discovery answers, persist the workflow, and mirror the reverse-discovery
+// turn + transcript into the audit chain. Returns the new workflow id.
 export async function generateFromImport(
   traceIds: string[],
   agentDefinition: string | null,
   designAgentLog: DesignAgentLog | null,
+  reverseDiscovery: ReverseDiscoveryInput | null,
   workflowId?: string,
   cookieHeader?: string,
 ): Promise<ImportGenerateResponse> {
@@ -613,6 +624,7 @@ export async function generateFromImport(
       body: JSON.stringify({
         trace_ids: traceIds,
         agent_definition: agentDefinition,
+        reverse_discovery: reverseDiscovery,
         design_agent_log: designAgentLog,
         workflow_id: workflowId,
       }),

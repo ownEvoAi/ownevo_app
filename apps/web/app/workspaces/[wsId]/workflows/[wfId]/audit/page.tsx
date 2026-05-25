@@ -33,6 +33,7 @@ const KIND_TONE: Record<string, string> = {
   'deployment-created': 'green',
   'deployment-updated': 'amber',
   'design-agent-negotiation': 'outline',
+  'design-agent-negotiation-import': 'outline',
   'design-agent-ambiguity': 'amber',
   'workflow-agent-model-changed': 'accent',
 }

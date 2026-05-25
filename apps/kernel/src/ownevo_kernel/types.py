@@ -103,6 +103,11 @@ class AuditKind(StrEnum):
     # row carrying the AmbiguityReport at WorkflowSpec finalization time.
     DESIGN_AGENT_NEGOTIATION = "design-agent-negotiation"
     DESIGN_AGENT_AMBIGUITY = "design-agent-ambiguity"
+    # Trace-import authoring path. Same shape as DESIGN_AGENT_NEGOTIATION
+    # but emitted when the workflow was reverse-engineered from an
+    # imported agent's traces rather than a written description: one row
+    # for the reverse-discovery turn and one per discovery Q/A.
+    DESIGN_AGENT_NEGOTIATION_IMPORT = "design-agent-negotiation-import"
     WORKFLOW_AGENT_MODEL_CHANGED = "workflow-agent-model-changed"
     # Records when an approved fix was shipped back to the
     # customer's LangSmith workspace as a new prompt commit.

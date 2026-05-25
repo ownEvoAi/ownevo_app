@@ -73,6 +73,9 @@ class _FakeGenerateConn:
     async def fetchrow(self, *_args: Any) -> dict | None:
         return self._fetchrow_result
 
+    async def execute(self, *_args: Any, **_kw: Any) -> str:
+        return "UPDATE 1"
+
     def transaction(self) -> _FakeTransaction:
         return _FakeTransaction()
 
@@ -499,3 +502,139 @@ async def test_import_generate_happy_path(monkeypatch):
     assert body["workflow_id"] == "demand-forecast"
     assert "description" in body
     assert isinstance(body["spec"], dict)
+
+
+async def test_import_generate_persists_reverse_discovery(monkeypatch):
+    """The reverse-discovery turn + transcript flow into the import log.
+
+    `persist_design_agent_import_log` is monkeypatched to a recorder so
+    the route's log construction is asserted without faking audit SQL.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    async def _ok_spec(*_a: Any, **_kw: Any) -> _FakeSpec:
+        return _FakeSpec(id="demand-forecast")
+
+    async def _ok_plan(*_a: Any, **_kw: Any) -> _FakePlan:
+        return _FakePlan()
+
+    async def _ok_metric(*_a: Any, **_kw: Any) -> _FakeMetric:
+        return _FakeMetric()
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_workflow_spec_from_traces",
+        _ok_spec,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_simulation_plan",
+        _ok_plan,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_metric_definition",
+        _ok_metric,
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _recorder(_conn: Any, *, workflow_id: str, log: Any) -> None:
+        captured["workflow_id"] = workflow_id
+        captured["log"] = log
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.persist_design_agent_import_log",
+        _recorder,
+    )
+
+    app = _gen_app(_FakeGeneratePool(fetchrow_result={"id": "demand-forecast"}))
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-generate",
+            json={
+                "trace_ids": [str(uuid4())],
+                "agent_definition": "Forecasts daily demand per SKU.",
+                "reverse_discovery": {
+                    "inferred_summary": "Forecasts weekly demand per SKU.",
+                    "basis": "definition+traces",
+                    "source": "llm",
+                    "decision": "corrected",
+                    "final_definition": "Forecasts daily demand per SKU.",
+                },
+                "design_agent_log": {
+                    "discovery_transcript": [
+                        {
+                            "question_index": 0,
+                            "kind": "metric",
+                            "question": "Recall vs precision?",
+                            "answer": "Recall.",
+                        }
+                    ]
+                },
+            },
+        )
+    assert resp.status_code == 200
+    assert captured["workflow_id"] == "demand-forecast"
+    log = captured["log"]
+    assert log.reverse_discovery is not None
+    assert log.reverse_discovery.decision == "corrected"
+    assert log.reverse_discovery.basis == "definition+traces"
+    assert len(log.discovery_transcript) == 1
+    assert log.discovery_transcript[0].answer == "Recall."
+
+
+async def test_import_generate_skips_persist_when_empty(monkeypatch):
+    """No reverse-discovery turn and no answers → persister is never called."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    async def _ok_spec(*_a: Any, **_kw: Any) -> _FakeSpec:
+        return _FakeSpec(id="demand-forecast")
+
+    async def _ok_plan(*_a: Any, **_kw: Any) -> _FakePlan:
+        return _FakePlan()
+
+    async def _ok_metric(*_a: Any, **_kw: Any) -> _FakeMetric:
+        return _FakeMetric()
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_workflow_spec_from_traces",
+        _ok_spec,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_simulation_plan",
+        _ok_plan,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_metric_definition",
+        _ok_metric,
+    )
+
+    called = False
+
+    async def _recorder(*_a: Any, **_kw: Any) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.persist_design_agent_import_log",
+        _recorder,
+    )
+
+    app = _gen_app(_FakeGeneratePool(fetchrow_result={"id": "demand-forecast"}))
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-generate",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 200
+    assert called is False
