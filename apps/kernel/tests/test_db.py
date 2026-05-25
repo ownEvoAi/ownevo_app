@@ -102,6 +102,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "iteration_case_outputs",
             "iterations",
             "learnings",
+            "mcp_servers",
             "meta_evals",
             "proposals",
             "receiver_tokens",

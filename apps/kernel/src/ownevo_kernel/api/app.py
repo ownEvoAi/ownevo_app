@@ -39,12 +39,15 @@ from .routes import (
     design_agent_ambiguity,
     design_agent_import,
     integrations,
+    mcp,
+    mcp_oauth,
     models,
     nl_gen,
     otel_ingest,
     proposals,
     skills,
     traces,
+    uploads,
     workflows,
 )
 
@@ -187,6 +190,9 @@ def create_app(
     api.include_router(otel_ingest.router)
     api.include_router(integrations.router)
     api.include_router(agents.router)
+    api.include_router(mcp.router)
+    api.include_router(mcp_oauth.router)
+    api.include_router(uploads.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:

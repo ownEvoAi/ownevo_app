@@ -124,6 +124,27 @@
           "title": "Id",
           "type": "string"
         },
+        "kind": {
+          "default": "standard",
+          "enum": [
+            "standard",
+            "mcp"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mcp_server_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mcp Server Id"
+        },
         "provenance": {
           "anyOf": [
             {
@@ -819,8 +840,11 @@
       "$ref": "#/$defs/ReviewerSpec"
     },
     "schema_version": {
-      "const": "1.1",
-      "default": "1.1",
+      "default": "1.2",
+      "enum": [
+        "1.1",
+        "1.2"
+      ],
       "title": "Schema Version",
       "type": "string"
     },

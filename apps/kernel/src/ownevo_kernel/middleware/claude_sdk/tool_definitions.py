@@ -38,8 +38,8 @@ from __future__ import annotations
 
 import ast
 import json
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import asyncpg
@@ -57,6 +57,9 @@ from ...agent_tools.skills import (
 )
 from ...sandbox import LocalDockerSandbox
 from ...skills import build_skill_content
+
+if TYPE_CHECKING:
+    from ...mcp_client import MCPClient
 
 _ERROR_MESSAGE_MAX_CHARS = 4096
 """Cap on tool-error messages handed back to the model. A LightGBM
@@ -142,12 +145,22 @@ class KernelContext:
         default_workflow_id: When the agent calls `analyze_failures`
             without a workflow_id, fall back to this. None means the
             tool will require an explicit workflow_id.
+        mcp_client: When the workflow declares MCP data sources, the
+            shared `MCPClient` the `mcp_list_tools` / `mcp_call` tools
+            invoke. None when the run has no MCP sources — those tools
+            are then not advertised to the model.
+        mcp_server_ids: The set of `mcp_servers` ids declared as data
+            sources for this run, as strings. `mcp_*` tool calls are
+            confined to this set, so the agent can't reach a server the
+            workflow didn't declare.
     """
 
     conn: asyncpg.Connection
     sandbox: LocalDockerSandbox
     actor: str
     default_workflow_id: str | None = None
+    mcp_client: MCPClient | None = None
+    mcp_server_ids: tuple[str, ...] = field(default_factory=tuple)
 
 
 # ---------------------------------------------------------------------------
@@ -155,13 +168,90 @@ class KernelContext:
 # ---------------------------------------------------------------------------
 
 
-def kernel_tool_definitions() -> list[dict[str, Any]]:
-    """Return the 5 kernel tools as Anthropic API tool params.
+def mcp_tool_definitions() -> list[dict[str, Any]]:
+    """Return the two MCP data-source tools as Anthropic API tool params.
+
+    Only spliced into a run's tool list when the workflow declares at
+    least one MCP data source (see `kernel_tool_definitions(include_mcp=…)`).
+    `server_id` must be one the workflow declared — the dispatcher refuses
+    ids outside the run's scope."""
+    return [
+        {
+            "name": "mcp_list_tools",
+            "description": (
+                "List the tools a connected MCP data source exposes. Call this "
+                "before mcp_call to discover the exact tool names and argument "
+                "shapes the server advertises. `server_id` must be one of the "
+                "MCP data sources declared on this workflow."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": (
+                            "The mcp_servers id of a declared MCP data source."
+                        ),
+                    },
+                },
+                "required": ["server_id"],
+            },
+        },
+        {
+            "name": "mcp_call",
+            "description": (
+                "Invoke a tool on a connected MCP data source and return its "
+                "result. Use mcp_list_tools first to learn the available tool "
+                "names and their argument schemas. A tool that runs but reports "
+                "failure comes back with is_error=true; an auth or transport "
+                "failure surfaces as a tool error you can react to."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": (
+                            "The mcp_servers id of a declared MCP data source."
+                        ),
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "The server tool to invoke.",
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": (
+                            "JSON object of arguments for the tool, matching the "
+                            "input schema from mcp_list_tools. Optional; defaults "
+                            "to an empty object."
+                        ),
+                    },
+                },
+                "required": ["server_id", "tool_name"],
+            },
+        },
+    ]
+
+
+def kernel_tool_definitions(*, include_mcp: bool = False) -> list[dict[str, Any]]:
+    """Return the kernel tools as Anthropic API tool params.
+
+    The 5 core tools are always present. When `include_mcp` is set (a run
+    whose workflow declares MCP data sources), the two `mcp_*` tools are
+    appended so the agent can read those sources transparently.
 
     Returned as plain dicts so the call sites can splice them into
     `messages.create(tools=...)` without an SDK type import — the
     Anthropic SDK accepts dicts that match `ToolParam` and validates
     them server-side."""
+    tools = _core_tool_definitions()
+    if include_mcp:
+        tools.extend(mcp_tool_definitions())
+    return tools
+
+
+def _core_tool_definitions() -> list[dict[str, Any]]:
     return [
         {
             "name": "read_skill",
@@ -429,6 +519,10 @@ async def dispatch_tool(
             return await _dispatch_read_metrics(args, ctx)
         if name == "analyze_failures":
             return await _dispatch_analyze_failures(args, ctx)
+        if name == "mcp_list_tools":
+            return await _dispatch_mcp_list_tools(args, ctx)
+        if name == "mcp_call":
+            return await _dispatch_mcp_call(args, ctx)
     except (
         SkillFormatError,
         TestFoldAccessRefused,
@@ -706,9 +800,76 @@ async def _dispatch_analyze_failures(
     )
 
 
+async def _dispatch_mcp_list_tools(
+    args: dict[str, Any],
+    ctx: KernelContext,
+) -> ToolDispatchResult:
+    client = _require_mcp_client(ctx)
+    server_id = _required_mcp_server_id(args, ctx)
+    tools = await client.list_tools(ctx.conn, server_id)
+    return ToolDispatchResult(
+        output={
+            "server_id": str(server_id),
+            "tools": [t.model_dump() for t in tools],
+        },
+        is_error=False,
+        error_class=None,
+        duration_ms=None,
+    )
+
+
+async def _dispatch_mcp_call(
+    args: dict[str, Any],
+    ctx: KernelContext,
+) -> ToolDispatchResult:
+    client = _require_mcp_client(ctx)
+    server_id = _required_mcp_server_id(args, ctx)
+    tool_name = _required_str(args, "tool_name")
+    arguments = args.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        raise TypeError("arguments must be a JSON object (dict) when present")
+    result = await client.mcp_call(ctx.conn, server_id, tool_name, arguments)
+    # A tool that ran but reported failure (result.is_error) is surfaced as a
+    # tool error so the agent reacts and the trace records a tool_call_result
+    # with status="error" — clustering then treats it like any failed call.
+    return ToolDispatchResult(
+        output={
+            "server_id": str(server_id),
+            "tool_name": tool_name,
+            "content": result.content,
+            "is_error": result.is_error,
+        },
+        is_error=result.is_error,
+        error_class=None,
+        duration_ms=None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _require_mcp_client(ctx: KernelContext) -> MCPClient:
+    if ctx.mcp_client is None:
+        raise ValueError(
+            "no MCP data source is configured for this run; mcp tools are "
+            "unavailable"
+        )
+    return ctx.mcp_client
+
+
+def _required_mcp_server_id(args: dict[str, Any], ctx: KernelContext) -> UUID:
+    raw = _required_str(args, "server_id")
+    if ctx.mcp_server_ids and raw not in ctx.mcp_server_ids:
+        raise ValueError(
+            f"server_id {raw!r} is not a declared MCP data source for this "
+            "workflow"
+        )
+    try:
+        return UUID(raw)
+    except ValueError as exc:
+        raise ValueError(f"server_id is not a valid UUID: {raw!r}") from exc
 
 
 def _required_str(args: dict[str, Any], key: str) -> str:
@@ -745,12 +906,13 @@ def _shape_exception(exc: BaseException) -> ToolDispatchResult:
     )
 
 
-def kernel_tool_definitions_openai() -> list[dict[str, Any]]:
-    """Return the 5 kernel tools in OpenAI function-calling format.
+def kernel_tool_definitions_openai(*, include_mcp: bool = False) -> list[dict[str, Any]]:
+    """Return the kernel tools in OpenAI function-calling format.
 
     Converts from Anthropic's `input_schema` shape to OpenAI's
     `parameters` shape so the same tool surfaces work with any
     OpenAI-compatible backend (Ollama, LM Studio, LiteLLM proxy).
+    `include_mcp` mirrors `kernel_tool_definitions`.
     """
     return [
         {
@@ -761,7 +923,7 @@ def kernel_tool_definitions_openai() -> list[dict[str, Any]]:
                 "parameters": t["input_schema"],
             },
         }
-        for t in kernel_tool_definitions()
+        for t in kernel_tool_definitions(include_mcp=include_mcp)
     ]
 
 
@@ -771,4 +933,5 @@ __all__ = [
     "dispatch_tool",
     "kernel_tool_definitions",
     "kernel_tool_definitions_openai",
+    "mcp_tool_definitions",
 ]

@@ -335,7 +335,9 @@ async def run_agent_turn(
     if max_tokens <= 0:
         raise ValueError(f"max_tokens must be positive; got {max_tokens}")
 
-    tools = kernel_tool_definitions()
+    tools = kernel_tool_definitions(
+        include_mcp=bool(kernel_context.mcp_server_ids)
+    )
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": user_message},
     ]
@@ -760,7 +762,9 @@ async def run_agent_turn_openai(
             f"ollama_num_ctx must be positive when set; got {ollama_num_ctx}"
         )
 
-    tools = kernel_tool_definitions_openai()
+    tools = kernel_tool_definitions_openai(
+        include_mcp=bool(kernel_context.mcp_server_ids)
+    )
     system_prompt = system + _maybe_no_think_suffix(model)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -921,7 +925,9 @@ async def run_agent_turn_ollama(
     """
     import json as _json
 
-    tools = kernel_tool_definitions_openai()
+    tools = kernel_tool_definitions_openai(
+        include_mcp=bool(kernel_context.mcp_server_ids)
+    )
     system_prompt = system + _maybe_no_think_suffix(model)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},

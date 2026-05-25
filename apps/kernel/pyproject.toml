@@ -47,6 +47,13 @@ api = [
     # (e.g. the LangSmith API key) via Fernet. See secrets/encrypted_field.py.
     "cryptography>=42,<46",
 ]
+# MCP-client framework (Track 17.0). Optional because the kernel core,
+# the auth/registry logic, and the unit tests all run against a fake
+# transport and never import the SDK; only a process that actually talks
+# to a live MCP server needs the official client installed.
+mcp = [
+    "mcp>=1.2,<2",
+]
 # Inspect AI Task adapter (A4.3). Optional because the load-bearing
 # `make eval-replay` path uses `eval_runner.run_replay`, which is
 # pure stdlib + numpy. Install when an agent gets wired through

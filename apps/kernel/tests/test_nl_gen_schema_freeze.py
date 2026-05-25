@@ -46,9 +46,10 @@ _SCHEMAS_DIR = (
 
 
 def test_workflow_spec_schema_version_is_pinned():
-    """v1.0 → v1.1 (W8 Track 0: added ScheduleGrid primitive). Additive
-    change; pin is structural drift detection only."""
-    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.1"
+    """v1.0 → v1.1 (added ScheduleGrid primitive) → v1.2 (added MCP
+    DataSource fields). Both additive; the pin is structural drift
+    detection only."""
+    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.2"
 
 
 def test_simulation_plan_schema_version_is_pinned():

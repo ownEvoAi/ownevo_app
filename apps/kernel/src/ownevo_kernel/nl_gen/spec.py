@@ -31,7 +31,7 @@ from typing import Literal
 from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 """Frozen at v1.0 — 2026-05-04.
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
@@ -39,6 +39,12 @@ v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
 parity gap with `www/preview/s26-rk7p3/27-primitives.html`. Additive
 change — every v1.0 spec validates under v1.1; no `Literal` union was
 narrowed.
+
+v1.1 → v1.2 (Track 17.0): added `kind` + `mcp_server_id` to `DataSource`
+so a workflow can declare an MCP-server-backed data source. Additive and
+backward-compatible — the new fields default to the existing
+simulator-backed behaviour, and `schema_version` is a `Literal["1.1",
+"1.2"]` union so specs still tagged "1.1" keep validating.
 
 Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
 against the snapshot at `nl_gen/schemas/workflow_spec.v1.1.json`. To
@@ -104,6 +110,21 @@ class DataSource(_Base):
     description: str = ""
     entity: str | None = None
     provenance: Provenance | None = None
+    # MCP data sources (Track 17.0): kind="mcp" points the agent runtime at a
+    # registered MCP server (the `mcp_servers` row identified by
+    # `mcp_server_id`), whose tools are listed and invoked transparently at
+    # run time. kind="standard" (the default) is the simulator-backed source
+    # every existing spec already uses.
+    kind: Literal["standard", "mcp"] = "standard"
+    mcp_server_id: str | None = None
+
+    @model_validator(mode="after")
+    def _mcp_requires_server_id(self) -> DataSource:
+        if self.kind == "mcp" and not self.mcp_server_id:
+            raise ValueError("data source with kind='mcp' requires mcp_server_id")
+        if self.kind == "standard" and self.mcp_server_id is not None:
+            raise ValueError("mcp_server_id is only valid when kind='mcp'")
+        return self
 
 
 class EnvGenerator(_Base):
@@ -249,7 +270,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["1.1"] = SCHEMA_VERSION
+    schema_version: Literal["1.1", "1.2"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment

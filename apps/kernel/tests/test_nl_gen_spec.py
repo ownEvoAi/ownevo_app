@@ -50,9 +50,10 @@ from pydantic import ValidationError
 
 
 def test_schema_version_is_pinned():
-    assert SCHEMA_VERSION == "1.1", (
+    assert SCHEMA_VERSION == "1.2", (
         "Frozen at A3.4 (2026-W3); bumped to v1.1 in W8 Track 0 "
-        "(additive: added ScheduleGrid primitive). Structural drift "
+        "(additive: added ScheduleGrid primitive), then to v1.2 in "
+        "Track 17.0 (additive: MCP DataSource fields). Structural drift "
         "is caught by test_nl_gen_schema_freeze.py against the "
         "snapshot at "
         f"src/ownevo_kernel/nl_gen/schemas/workflow_spec.v{SCHEMA_VERSION}.json."
