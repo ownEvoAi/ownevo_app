@@ -14,11 +14,13 @@ attribute and event namespace).
 
 ## Scope of the receiver
 
-This receiver accepts OTLP-JSON payloads over HTTP (one OTel `ResourceSpans`
-batch per request) and decodes them into a stream of typed `AgentEvent`
-objects. gRPC + protobuf-OTLP are not implemented in this slice — the
-JSON-over-HTTP path is sufficient for the LangSmith / langsmith-collector-proxy
-dry-run loop and for the round-trip replay test against existing M5 traces.
+This receiver accepts OTLP payloads over HTTP (one OTel `ResourceSpans`
+batch per request), in either encoding: JSON (the default for the
+LangSmith `langsmith-collector-proxy`) and protobuf (`Content-Type:
+application/x-protobuf`, the default for OpenLLMetry / traceloop and
+most stock OTel SDKs). Protobuf bodies are decoded into the same object
+model as the JSON path and run through the identical mapper. gRPC OTLP
+is not implemented — HTTP transport only.
 
 The mapping is intentionally lossy: OTel carries operational metadata
 (durations, timestamps, model usage) that AgentEvent compresses or
@@ -225,7 +227,7 @@ receiver itself:
 
 ## What this mapping deliberately does not do
 
-- No protobuf / gRPC OTLP. JSON-over-HTTP only.
+- No gRPC OTLP. HTTP transport only (JSON and protobuf both accepted).
 - No span-link traversal. OTel `links` are dropped.
 - No span-event ingestion outside the `gen_ai.*` event namespace
   (e.g. the deprecated `gen_ai.user.message` event-shape is not

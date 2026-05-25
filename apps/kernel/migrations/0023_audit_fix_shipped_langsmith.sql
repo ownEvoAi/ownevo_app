@@ -1,4 +1,4 @@
--- 0021_audit_fix_shipped_langsmith.sql — new audit_kind for fix delivery.
+-- 0023_audit_fix_shipped_langsmith.sql — new audit_kind for fix delivery.
 --
 -- ADD VALUE
 --

@@ -1,7 +1,7 @@
 """`/api/integrations/langsmith` — manage the LangSmith API credential.
 
 Backs the Settings → Integrations → LangSmith page. The API key is
-stored encrypted at rest (`integration_credentials`, migration 0020)
+stored encrypted at rest (`integration_credentials`, migration 0022)
 and is never returned to the client — GET reports only whether one is
 configured and the last connection-test result.
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -53,7 +54,7 @@ class LangSmithStatus(BaseModel):
 class LangSmithTestResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: str  # 'ok' | 'invalid' | 'error'
+    status: Literal["ok", "invalid", "error"]
     detail: str | None = None
 
 
@@ -97,16 +98,27 @@ async def delete_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> No
 
 
 @router.post("/langsmith/test", response_model=LangSmithTestResult)
-async def test_langsmith_credential(
-    conn: ConnDep, _demo: DemoModeCheck
-) -> LangSmithTestResult:
+async def test_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> LangSmithTestResult:
     """Validate the stored key against LangSmith and record the result.
 
     404 when no key is configured. Otherwise returns 'ok' (authenticated
     read succeeded), 'invalid' (key rejected), or 'error' (network / API
     failure) and stamps `validation_status` for the Settings UI.
     """
-    plaintext = await get_credential_plaintext(conn, _PROVIDER)
+    from ...secrets import CredentialsDecryptError, CredentialsKeyMissingError
+
+    try:
+        plaintext = await get_credential_plaintext(conn, _PROVIDER)
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
+    except CredentialsDecryptError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored credential could not be decrypted — re-enter the key in Settings",
+        ) from None
     if plaintext is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

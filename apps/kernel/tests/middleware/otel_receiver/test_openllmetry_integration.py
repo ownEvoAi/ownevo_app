@@ -1,4 +1,7 @@
-"""OpenLLMetry → receiver → clustering integration test (13.0.1 acceptance c).
+"""OpenLLMetry → receiver → clustering integration test.
+
+End-to-end: a traceloop-instrumented sample agent emits OTLP-protobuf,
+the receiver decodes it, and the clustering pipeline groups the failures.
 
 A real traceloop-instrumented agent (offline, mocked LLM transport)
 emits OTLP-protobuf to `POST /api/otel/v1/traces`; the decoded

@@ -1,9 +1,8 @@
 """A minimal OpenLLMetry-instrumented agent for the integration test.
 
-This is the "sample app" the 13.0.1 acceptance calls for: a real agent
-instrumented with `traceloop-sdk` (OpenLLMetry) whose telemetry flows
-through the genuine OpenTelemetry export pipeline. We deliberately keep
-it tiny and offline:
+A real agent instrumented with `traceloop-sdk` (OpenLLMetry) whose
+telemetry flows through the genuine OpenTelemetry export pipeline.
+We deliberately keep it tiny and offline:
 
   * The LLM call goes through the real `openai` client, which traceloop
     auto-instruments — so the emitted `gen_ai.*` chat span is exactly

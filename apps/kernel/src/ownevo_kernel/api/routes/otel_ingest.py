@@ -98,6 +98,20 @@ def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
     )
 
 
+def _batch_has_tool_failure(batch: DecodedBatch) -> bool:
+    """True when the batch carries at least one failed tool call.
+
+    The auto-clustering trigger only fires on batches that actually
+    introduce a failure signal — clustering a workflow whose newest
+    traces are all clean would just re-derive the existing clusters.
+    """
+    return any(
+        getattr(event, "type", None) == "tool_call_result"
+        and getattr(event, "status", None) == "error"
+        for event in batch.events
+    )
+
+
 class IngestWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,6 +193,9 @@ async def _resolve_workflow_id(
         the workflow exists (404 otherwise). Absent → unbound (None).
     """
     token_wf = auth.workflow_id if auth is not None else None
+    # Normalise empty string to None — FastAPI passes ?workflow_id= as ""
+    # and an empty string is never a valid workflow id.
+    query_workflow_id = query_workflow_id or None
 
     if token_wf is not None:
         if query_workflow_id is not None and query_workflow_id != token_wf:
@@ -351,6 +368,14 @@ async def ingest_otlp_traces(
 
     if bound_workflow_id is not None:
         await _apply_provenance_hints(conn, bound_workflow_id, batch)
+
+        # Nudge the debounced auto-clustering trigger when this batch landed a
+        # tool failure. No-op when the trigger is disabled (the default) or the
+        # app didn't start one. The actual clustering runs later, off-request,
+        # once the workflow has been quiet for the debounce window.
+        trigger = getattr(request.app.state, "cluster_auto_trigger", None)
+        if trigger is not None and _batch_has_tool_failure(batch):
+            trigger.signal(bound_workflow_id)
 
     _log.info(
         "otel-ingest: accepted %d events, %d warnings, "

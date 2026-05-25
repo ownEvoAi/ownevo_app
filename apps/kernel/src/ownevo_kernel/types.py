@@ -104,7 +104,7 @@ class AuditKind(StrEnum):
     DESIGN_AGENT_NEGOTIATION = "design-agent-negotiation"
     DESIGN_AGENT_AMBIGUITY = "design-agent-ambiguity"
     WORKFLOW_AGENT_MODEL_CHANGED = "workflow-agent-model-changed"
-    # Fix delivery (PLAN 13.0.2). An approved fix was pushed back to the
+    # Records when an approved fix was shipped back to the
     # customer's LangSmith workspace as a new prompt commit.
     FIX_SHIPPED_LANGSMITH = "fix-shipped-langsmith"
 

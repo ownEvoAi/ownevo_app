@@ -1,4 +1,4 @@
--- 0020_langsmith_integration.sql — wiring for shipping approved fixes
+-- 0022_langsmith_integration.sql — wiring for shipping approved fixes
 -- back to a customer's LangSmith workspace as a new prompt version.
 --
 -- Three independent pieces, all on small tables (workflows / skills are
