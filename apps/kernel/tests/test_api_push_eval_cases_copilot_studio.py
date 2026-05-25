@@ -20,7 +20,10 @@ from ownevo_kernel.middleware.copilot_studio import (
     CopilotStudioAuthError,
     CopilotStudioCredentials,
     CopilotStudioError,
+    CopilotStudioNotFoundError,
+    CopilotStudioRateLimitError,
 )
+
 # Aliased so pytest doesn't try to collect the dataclass as a test class.
 from ownevo_kernel.middleware.copilot_studio.evaluation_api import (
     TestSetResult as _TestSetResult,
@@ -88,8 +91,9 @@ def _patch_credential(monkeypatch) -> None:
 
 def _patch_create_test_set(monkeypatch, *, captured: list) -> None:
     async def _fake_create(cred, *, agent_id, name, cases, **_kw):  # noqa: ANN001, ANN202
-        captured.append({"agent_id": agent_id, "name": name, "cases": list(cases)})
-        return _TestSetResult(test_set_id="ts-123", case_count=len(list(cases)))
+        cases_list = list(cases)
+        captured.append({"agent_id": agent_id, "name": name, "cases": cases_list})
+        return _TestSetResult(test_set_id="ts-123", case_count=len(cases_list))
 
     monkeypatch.setattr(
         "ownevo_kernel.middleware.copilot_studio.create_test_set",
@@ -260,3 +264,63 @@ async def test_push_auth_error_maps_to_401(
         json={"agent_id": "a"},
     )
     assert resp.status_code == 401
+
+
+async def test_push_rate_limit_error_maps_to_429(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection, monkeypatch
+) -> None:
+    await _seed_workflow(db, wf_id="wf-cs-ratelimit")
+    await _seed_case(db, "wf-cs-ratelimit", input_payload={"q": "x"}, expected={"a": "y"})
+    _patch_credential(monkeypatch)
+
+    async def _throttled(*_a, **_kw):  # noqa: ANN002, ANN003, ANN202
+        raise CopilotStudioRateLimitError("rate limited")
+
+    monkeypatch.setattr(
+        "ownevo_kernel.middleware.copilot_studio.create_test_set", _throttled
+    )
+    resp = await api_client.post(
+        "/api/workflows/wf-cs-ratelimit/push-eval-cases-copilot-studio",
+        json={"agent_id": "a"},
+    )
+    assert resp.status_code == 429
+
+
+async def test_push_not_found_error_maps_to_404(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection, monkeypatch
+) -> None:
+    await _seed_workflow(db, wf_id="wf-cs-notfound")
+    await _seed_case(db, "wf-cs-notfound", input_payload={"q": "x"}, expected={"a": "y"})
+    _patch_credential(monkeypatch)
+
+    async def _missing(*_a, **_kw):  # noqa: ANN002, ANN003, ANN202
+        raise CopilotStudioNotFoundError("agent not found")
+
+    monkeypatch.setattr(
+        "ownevo_kernel.middleware.copilot_studio.create_test_set", _missing
+    )
+    resp = await api_client.post(
+        "/api/workflows/wf-cs-notfound/push-eval-cases-copilot-studio",
+        json={"agent_id": "a"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_push_422_test_fold_only_no_matching_cases(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection, monkeypatch
+) -> None:
+    """test_fold_only=True against a workflow with only train-fold cases → 422."""
+    await _seed_workflow(db, wf_id="wf-cs-trainonly")
+    # Seed a train-fold case only; no test-fold cases exist.
+    await _seed_case(
+        db, "wf-cs-trainonly", input_payload={"q": "x"}, expected={"a": "y"},
+        is_test_fold=False,
+    )
+    _patch_credential(monkeypatch)
+    _patch_create_test_set(monkeypatch, captured=[])
+    resp = await api_client.post(
+        "/api/workflows/wf-cs-trainonly/push-eval-cases-copilot-studio",
+        json={"agent_id": "a", "test_fold_only": True},
+    )
+    assert resp.status_code == 422
+    assert "No matching eval cases" in resp.json()["detail"]

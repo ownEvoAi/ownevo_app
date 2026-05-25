@@ -603,7 +603,12 @@ class PushEvalCasesCopilotStudioRequest(BaseModel):
     test_set_name: str | None = Field(default=None, max_length=256)
     cluster_id: UUID | None = None
     test_fold_only: bool = False
-    pushed_by: str = Field(default="human", max_length=128)
+    pushed_by: str = Field(default="human", min_length=1, max_length=128)
+    # Safety cap before the MSFT API call. The Power Platform Evaluation API's
+    # limit per test set is unpublished (shapes are preview/unpinned); 500 is
+    # conservative. Use cluster_id to push a targeted subset when a workflow
+    # has more cases than the cap.
+    max_cases: int = Field(default=500, ge=1, le=2000)
 
 
 class PushEvalCasesCopilotStudioResponse(BaseModel):
@@ -710,8 +715,9 @@ async def push_eval_cases_copilot_studio(
     Preconditions (422 unless met): the workflow exists and is
     `origin='copilot_studio'`, and it has at least one matching eval case.
     A configured Copilot Studio credential is required (404 when absent,
-    503 when the master encryption key is unset). Adapter failures map to
-    their HTTP status (401 auth, 404 not-found, 429 throttled, 502 other).
+    503 when the master encryption key is unset, 500 when the stored
+    credential is malformed or cannot be decrypted). Adapter failures map
+    to their HTTP status (401 auth, 404 not-found, 429 throttled, 502 other).
 
     Success writes a hash-chained `eval-cases-pushed-copilot-studio` audit
     entry recording the created test-set id + case count.
@@ -742,6 +748,7 @@ async def push_eval_cases_copilot_studio(
         workflow_id=workflow_id,
         cluster_id=body.cluster_id,
         is_test_fold=True if body.test_fold_only else None,
+        limit=body.max_cases,
     )
     if not cases:
         raise HTTPException(
@@ -754,7 +761,7 @@ async def push_eval_cases_copilot_studio(
     test_cases = [
         {"input": c.input, "expected_output": c.expected_behavior} for c in cases
     ]
-    test_set_name = body.test_set_name or f"ownEvo · {workflow_id}"
+    test_set_name = (body.test_set_name or f"ownEvo · {workflow_id}")[:256]
 
     from .integrations import load_copilot_credential_or_raise
 

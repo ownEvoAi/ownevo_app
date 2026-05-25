@@ -1671,6 +1671,9 @@ export interface PushEvalCasesCopilotStudioInput {
   cluster_id?: string
   test_fold_only?: boolean
   pushed_by?: string
+  /** Safety cap before the MSFT API call. Default 500 on the kernel side.
+   *  Use cluster_id to push a targeted subset when a workflow exceeds the cap. */
+  max_cases?: number
 }
 
 export interface PushEvalCasesCopilotStudioResponse {

@@ -59,6 +59,8 @@ export async function pushEvalCasesCopilotStudioAction(
       test_fold_only: testFoldOnly,
     })
     revalidatePath(`/workspaces/${wsId}/workflows/${wfId}/eval-cases`)
+    revalidatePath(`/workspaces/${wsId}/activity`)
+    revalidatePath(`/workspaces/${wsId}/workflows/${wfId}/audit`)
     return {
       error: null,
       result: { testSetId: res.test_set_id, caseCount: res.case_count },

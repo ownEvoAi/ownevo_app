@@ -21,25 +21,24 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
   let apiError: { title: string; detail: string } | null = null
   let notFound = false
   let origin: string | null = null
-  try {
-    const list = await listWorkflowEvalCases(wfId)
-    items = list.items
-  } catch (err) {
-    if (err instanceof KernelApiError && err.status === 404) {
-      notFound = true
-    } else {
-      apiError = kernelError(err)
-    }
+
+  // Run both fetches in parallel; anatomy is best-effort — a transient error
+  // there must not blank the eval-cases list.
+  const [listResult, anatomyResult] = await Promise.allSettled([
+    listWorkflowEvalCases(wfId),
+    getWorkflowAnatomy(wfId),
+  ])
+
+  if (listResult.status === 'fulfilled') {
+    items = listResult.value.items
+  } else if (listResult.reason instanceof KernelApiError && listResult.reason.status === 404) {
+    notFound = true
+  } else {
+    apiError = kernelError(listResult.reason)
   }
-  // Best-effort: the origin only gates an optional action, so a transient
-  // anatomy error must not blank the eval-cases list.
-  if (!notFound) {
-    try {
-      const anatomy = await getWorkflowAnatomy(wfId)
-      origin = anatomy.origin
-    } catch {
-      origin = null
-    }
+
+  if (!notFound && anatomyResult.status === 'fulfilled') {
+    origin = anatomyResult.value.origin
   }
 
   const train = items.filter((c) => !c.is_test_fold)
