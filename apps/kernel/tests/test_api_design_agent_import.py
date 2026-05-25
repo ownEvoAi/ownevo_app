@@ -73,6 +73,9 @@ class _FakeGenerateConn:
     async def fetchrow(self, *_args: Any) -> dict | None:
         return self._fetchrow_result
 
+    async def execute(self, *_args: Any, **_kw: Any) -> str:
+        return "UPDATE 1"
+
     def transaction(self) -> _FakeTransaction:
         return _FakeTransaction()
 

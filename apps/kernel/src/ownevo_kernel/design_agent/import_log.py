@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..audit.writer import append_audit_entry
 from ..types import AuditKind
@@ -54,6 +54,18 @@ class ReverseDiscoveryRecord(BaseModel):
     source: Literal["llm", "fallback"]
     decision: Literal["confirmed", "corrected", "skipped"]
     final_definition: str | None = Field(default=None, max_length=16_384)
+
+    @model_validator(mode="after")
+    def _validate_decision_consistency(self) -> "ReverseDiscoveryRecord":
+        if self.decision == "corrected" and not self.final_definition:
+            raise ValueError(
+                "final_definition is required when decision is 'corrected'"
+            )
+        if self.decision == "skipped" and self.final_definition is not None:
+            raise ValueError(
+                "final_definition must be None when decision is 'skipped'"
+            )
+        return self
 
 
 class DesignAgentImportLog(BaseModel):

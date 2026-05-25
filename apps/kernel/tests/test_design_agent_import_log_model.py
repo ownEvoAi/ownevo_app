@@ -8,6 +8,7 @@ column's str / bytes / dict / None shapes.
 from __future__ import annotations
 
 import pytest
+from ownevo_kernel.design_agent.ambiguity import AmbiguityReport
 from ownevo_kernel.design_agent.import_log import (
     DesignAgentImportLog,
     ReverseDiscoveryRecord,
@@ -74,6 +75,34 @@ def test_skipped_decision_allows_null_final_definition() -> None:
         decision="skipped",
     )
     assert rec.final_definition is None
+
+
+def test_corrected_decision_requires_final_definition() -> None:
+    with pytest.raises(ValidationError, match="final_definition"):
+        ReverseDiscoveryRecord(
+            inferred_summary="Forecasts weekly demand.",
+            basis="traces",
+            source="llm",
+            decision="corrected",
+            final_definition=None,
+        )
+
+
+def test_skipped_decision_rejects_non_null_final_definition() -> None:
+    with pytest.raises(ValidationError, match="final_definition"):
+        ReverseDiscoveryRecord(
+            inferred_summary="Forecasts weekly demand.",
+            basis="traces",
+            source="fallback",
+            decision="skipped",
+            final_definition="some correction",
+        )
+
+
+def test_is_empty_false_with_only_ambiguity_report() -> None:
+    report = AmbiguityReport(workflow_spec_id="wf-1", findings=())
+    log = DesignAgentImportLog(ambiguity_report=report)
+    assert log.is_empty() is False
 
 
 def test_load_roundtrip_from_str_bytes_and_dict() -> None:

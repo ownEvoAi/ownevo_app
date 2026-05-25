@@ -33,7 +33,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...design_agent import (
     DIMENSION_SPECS,
@@ -119,6 +119,18 @@ class ReverseDiscoveryIn(BaseModel):
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
 
+    @model_validator(mode="after")
+    def _validate_decision_consistency(self) -> "ReverseDiscoveryIn":
+        if self.decision == "corrected" and not self.final_definition:
+            raise ValueError(
+                "final_definition is required when decision is 'corrected'"
+            )
+        if self.decision == "skipped" and self.final_definition is not None:
+            raise ValueError(
+                "final_definition must be None when decision is 'skipped'"
+            )
+        return self
+
     def to_record(self) -> ReverseDiscoveryRecord:
         return ReverseDiscoveryRecord(
             inferred_summary=self.inferred_summary,
@@ -143,6 +155,24 @@ class ImportGenerateRequest(BaseModel):
         max_length=64,
         pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
     )
+
+    @model_validator(mode="after")
+    def _corrected_definition_matches_agent_definition(self) -> "ImportGenerateRequest":
+        """When the reviewer corrected the inferred summary, the corrected text
+        must match `agent_definition` — they are two views of the same value and
+        must agree so the audit record accurately describes what was generated from.
+        """
+        if (
+            self.reverse_discovery is not None
+            and self.reverse_discovery.decision == "corrected"
+            and (self.reverse_discovery.final_definition or "").strip()
+            != (self.agent_definition or "").strip()
+        ):
+            raise ValueError(
+                "agent_definition must match reverse_discovery.final_definition "
+                "when decision is 'corrected'"
+            )
+        return self
 
 
 class ImportGenerateResponse(BaseModel):
