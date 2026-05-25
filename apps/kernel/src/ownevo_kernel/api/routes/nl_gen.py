@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...agents import register_agent
 from ...design_agent.log import DesignAgentLog, persist_design_agent_log
 from ...nl_gen.design_brief_context import (
     METRIC_DIMENSIONS,
@@ -376,6 +377,13 @@ async def generate_workflow(
                 workflow_id=workflow_id,
                 log=body.design_agent_log,
             )
+
+        await register_agent(
+            conn,
+            workflow_id=workflow_id,
+            description=body.description,
+            workflow_origin=None,
+        )
 
     return GenerateResponse(
         workflow_id=workflow_id,

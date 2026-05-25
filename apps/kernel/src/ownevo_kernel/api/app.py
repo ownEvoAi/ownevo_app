@@ -32,6 +32,7 @@ from ..llm.router import check_provider_api_keys
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
+    agents,
     audit,
     demo,
     design_agent,
@@ -185,6 +186,7 @@ def create_app(
     api.include_router(demo.router)
     api.include_router(otel_ingest.router)
     api.include_router(integrations.router)
+    api.include_router(agents.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:

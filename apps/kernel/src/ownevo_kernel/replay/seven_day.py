@@ -41,6 +41,7 @@ from uuid import UUID
 
 import asyncpg
 
+from ..agents import register_agent
 from ..audit.writer import append_audit_entry
 from ..benchmark.synthetic import SyntheticBenchmarkRunner, SyntheticTask
 from ..eval_cases.registry import add_eval_case, list_eval_cases
@@ -296,6 +297,12 @@ async def _ensure_workflow_row(conn: asyncpg.Connection, workflow_id: str) -> No
         """,
         workflow_id,
         "M5 7-day replay (W5.4 demo workflow — synthetic substrate)",
+    )
+    await register_agent(
+        conn,
+        workflow_id=workflow_id,
+        description="M5 7-day replay (W5.4 demo workflow — synthetic substrate)",
+        workflow_origin=None,
     )
 
 
