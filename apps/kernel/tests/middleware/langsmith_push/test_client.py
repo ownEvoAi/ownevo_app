@@ -23,6 +23,7 @@ from ownevo_kernel.middleware.langsmith_push import (  # noqa: E402
     LangSmithPushError,
     LangSmithRateLimitError,
     push_fix,
+    verify_api_key,
 )
 from ownevo_kernel.middleware.langsmith_push.client import (  # noqa: E402
     _parse_commit_hash,
@@ -197,3 +198,57 @@ def test_result_echoes_prompt_id(monkeypatch: pytest.MonkeyPatch) -> None:
         commit_description="d",
     )
     assert result.prompt_id == "my-prompt"
+
+
+# --- verify_api_key (connection test) --------------------------------------
+
+
+def _patch_client_probe(monkeypatch, *, datasets_fn=None):
+    """No-op Client init + a fake `list_datasets` probe."""
+    from langsmith import Client
+
+    monkeypatch.setattr(Client, "__init__", lambda self, *a, **k: None)
+    if datasets_fn is not None:
+        monkeypatch.setattr(Client, "list_datasets", datasets_fn)
+    # Guard against regressing to the public Prompt Hub: if verify ever
+    # calls list_prompts again, fail loudly rather than silently passing.
+    def _forbidden_prompts(self, *a, **k):  # noqa: ANN001
+        raise AssertionError(
+            "verify_api_key must probe a tenant-scoped endpoint "
+            "(list_datasets), not the public list_prompts"
+        )
+
+    monkeypatch.setattr(Client, "list_prompts", _forbidden_prompts)
+
+
+def test_verify_api_key_uses_authenticated_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict = {}
+
+    def fake_list_datasets(self, *a, **k):  # noqa: ANN001
+        calls["hit"] = True
+        return iter(())  # authenticated, no datasets
+
+    _patch_client_probe(monkeypatch, datasets_fn=fake_list_datasets)
+    # Returns None on success and does not touch the public Prompt Hub.
+    assert verify_api_key(api_key="lsv2_pt_valid") is None
+    assert calls.get("hit") is True
+
+
+def test_verify_api_key_rejects_forbidden_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from langsmith import utils as ls_utils
+
+    def forbidden(self, *a, **k):  # noqa: ANN001
+        raise ls_utils.LangSmithError(
+            "Failed to GET /datasets in LangSmith API. "
+            "HTTPError('403 Client Error: Forbidden')"
+        )
+
+    _patch_client_probe(monkeypatch, datasets_fn=forbidden)
+    # A 403 arrives as a generic LangSmithError but must be classified as
+    # auth so the caller reports "key rejected", not a vague failure.
+    with pytest.raises(LangSmithAuthError):
+        verify_api_key(api_key="lsv2_pt_bogus")

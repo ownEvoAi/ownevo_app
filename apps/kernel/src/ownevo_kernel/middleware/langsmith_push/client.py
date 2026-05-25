@@ -125,12 +125,23 @@ def verify_api_key(*, api_key: str, api_url: str | None = None) -> None:
 
     client = Client(api_key=api_key, api_url=api_url)
     try:
-        # Force a single authenticated request. list_prompts is paginated
-        # and lazy, so we pull one item to actually hit the API.
-        next(iter(client.list_prompts(limit=1)), None)
+        # Force a single *authenticated* request against a tenant-scoped
+        # endpoint. `list_datasets` requires a valid key — an invalid one
+        # returns 401/403. (`list_prompts` is unusable here: it reads the
+        # public Prompt Hub, so even a bogus key returns public results
+        # and the probe would falsely report success.) The listing is lazy
+        # and paginated, so we pull one item to actually hit the API.
+        next(iter(client.list_datasets(limit=1)), None)
     except ls_utils.LangSmithAuthError as exc:
         raise LangSmithAuthError(str(exc)) from exc
     except ls_utils.LangSmithConnectionError as exc:
         raise LangSmithNetworkError(str(exc)) from exc
     except ls_utils.LangSmithError as exc:
-        raise LangSmithPushError(str(exc)) from exc
+        # A rejected key surfaces as a generic LangSmithError wrapping an
+        # HTTP 401/403 rather than the typed LangSmithAuthError; classify
+        # it as auth so the caller reports "key rejected", not a vague
+        # failure.
+        message = str(exc)
+        if "401" in message or "403" in message or "Forbidden" in message:
+            raise LangSmithAuthError(message) from exc
+        raise LangSmithPushError(message) from exc
