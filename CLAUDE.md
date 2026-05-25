@@ -13,9 +13,19 @@ The reference implementation of ownEvo — an improvement loop for core agents. 
 Why not pure TS: clustering ecosystem is Python-first at the quality bar required.
 Why not pure Python: web UI is unavoidably TS/Next.
 
-## Single-tenant for now
+## Multi-tenant retrofit (in progress)
 
-The current schema runs on a single workspace — no `workspace_id` columns, no row-level security. Multi-tenant retrofit is intentionally deferred until a second deployment demands it; the schema is designed to stay retrofit-friendly (nothing that fights a future `workspace_id` column).
+Migration `0026_workspace_substrate.sql` added a `workspaces` table and a `workspace_id` column (non-null, default `'default'`) to every workspace-scoped domain table (17 tables). Row-level security is **not yet enabled** — that is the deliberate next step.
+
+`tenant_session.py` sets the Postgres session GUC `app.workspace_id` on every request-scoped connection via `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`.
+
+**Pre-conditions for the RLS enforcement migration (step 2):**
+
+1. **`pool.acquire()` call sites** — ~22 direct `pool.acquire()` uses in background workers (`iteration_runner.py`, `clustering/auto_trigger.py`, `eval_runner/try_runner.py`, `sandbox/capturing.py`, etc.) bypass `get_conn` and therefore never call `set_workspace`. Under RLS these connections will operate without the workspace GUC set and will silently read/write the wrong tenant. All of these must call `set_workspace(conn, workspace_id)` before RLS is enabled. Introduce `acquire_workspace_conn(pool, workspace_id)` as a shared helper.
+
+2. **`integration_credentials` primary key** — the PK is currently `(provider)`. Migration 0022 notes it must be widened to `(workspace_id, provider)` before the second workspace is provisioned. Add this to the enforcement migration.
+
+3. **`failure_clusters_fingerprint_unique` index** — the partial unique index on `(fingerprint)` is not scoped by `workspace_id`. Add `workspace_id` to the index or include it in the fingerprint before enabling RLS.
 
 ## Append-only audit log
 

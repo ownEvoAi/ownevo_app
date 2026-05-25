@@ -129,3 +129,28 @@ ALTER TABLE audit_entries
     ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT 'default'
         REFERENCES workspaces(id);
 CREATE INDEX IF NOT EXISTS audit_entries_workspace_idx ON audit_entries(workspace_id);
+
+-- =============================================================================
+-- Pre-conditions that MUST be resolved in the RLS enforcement migration (0027).
+-- This migration is non-enforcing; enabling RLS before the items below are
+-- addressed will cause silent data-isolation failures.
+--
+-- 1. pool.acquire() call sites in background workers (iteration_runner.py,
+--    clustering/auto_trigger.py, eval_runner/try_runner.py,
+--    sandbox/capturing.py, api/routes/nl_gen.py, api/routes/design_agent*.py,
+--    etc.) bypass get_conn and therefore never call set_workspace. Under RLS
+--    these connections will have an empty app.workspace_id GUC and will
+--    silently operate against the wrong (or no) tenant. All direct
+--    pool.acquire() uses must call set_workspace(conn, workspace_id) before
+--    RLS is enabled. Introduce acquire_workspace_conn(pool, workspace_id)
+--    as a shared context manager in tenant_session.py.
+--
+-- 2. integration_credentials PRIMARY KEY is (provider). It must be widened
+--    to (workspace_id, provider) before the second workspace is provisioned;
+--    otherwise two tenants storing credentials for the same provider collide.
+--    The ON CONFLICT clause in the upsert must be updated to match.
+--
+-- 3. failure_clusters_fingerprint_unique is a partial unique index on
+--    (fingerprint) with no workspace_id column. Include workspace_id in the
+--    index so fingerprint dedup is scoped per workspace.
+-- =============================================================================

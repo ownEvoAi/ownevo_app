@@ -48,7 +48,9 @@ SCOPED_TABLES = [
 
 
 async def test_default_workspace_seeded(db: asyncpg.Connection) -> None:
-    name = await db.fetchval("SELECT name FROM workspaces WHERE id = $1", "default")
+    name = await db.fetchval(
+        "SELECT name FROM workspaces WHERE id = $1", DEFAULT_WORKSPACE_ID
+    )
     assert name == "Default workspace"
 
 
