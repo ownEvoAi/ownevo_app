@@ -65,6 +65,17 @@ router = APIRouter(prefix="/api/proposals", tags=["proposals"])
 
 _log = logging.getLogger(__name__)
 
+
+def _safe_commit_url(url: str) -> str:
+    """Return `url` unchanged only when it starts with `https://`; else `""`.
+
+    Prevents XSS via `javascript:` hrefs in LangSmith commit URLs.  Applied
+    both to freshly-received push results and to audit-log readbacks so that
+    entries written before the guard was added are also sanitised on egress.
+    """
+    return url if url.startswith("https://") else ""
+
+
 # Hard-cap on list-endpoint pagination so a misconfigured client can't
 # request the entire history in one call. The W5 polish UI will paginate
 # explicitly; W2.5 doesn't.
@@ -514,7 +525,8 @@ async def ship_langsmith(
     Preconditions (422 unless met): the proposal is `kind='skill'`, in
     state `deployed`, on a workflow with `origin='langsmith'`, whose
     skill carries a `langsmith_prompt_id`. A configured LangSmith
-    credential is required (424 when absent).
+    credential is required (424 when absent). 503 when the server-side
+    master encryption key is not configured.
 
     Idempotent: if this proposal already has a `fix-shipped-langsmith`
     audit entry, the existing commit is returned (`already_shipped=true`)
@@ -556,7 +568,9 @@ async def ship_langsmith(
             proposal_id=proposal_id,
             prompt_id=payload.get("prompt_id", ""),
             commit_hash=payload.get("commit_hash", ""),
-            commit_url=payload.get("commit_url", ""),
+            # Re-apply the https:// guard: audit entries written before the
+            # sanitisation was added may carry non-https URLs.
+            commit_url=_safe_commit_url(payload.get("commit_url", "")),
             already_shipped=True,
         )
 
@@ -619,83 +633,115 @@ async def ship_langsmith(
     )
 
     summary = row["plain_language_summary"] or "Approved fix"
-    try:
-        result = await asyncio.to_thread(
-            push_fix,
-            api_key=api_key,
-            prompt_id=prompt_id,
-            instruction_text=content,
-            commit_description=summary,
-        )
-    except LangSmithAuthError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
-    except LangSmithNotFoundError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
-    except LangSmithConflictError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)[:200]) from exc
-    except LangSmithRateLimitError as exc:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)[:200]
-        ) from exc
-    except (LangSmithNetworkError, LangSmithPushError) as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
 
-    # Sanitise the URL before writing it to the append-only audit log and
-    # returning it to the browser (where it becomes an <a href>). React does
-    # not strip javascript: hrefs; a self-hosted or compromised LangSmith
-    # server could inject a XSS payload that executes on click.
-    commit_url = result.commit_url
-    if not commit_url.startswith("https://"):
-        _log.warning(
-            "ship-langsmith: push_fix returned unexpected commit_url scheme %r; "
-            "clearing URL from response to prevent XSS",
-            commit_url[:60],
-        )
-        commit_url = ""
+    # Advisory lock prevents concurrent requests from both calling push_fix
+    # (which is not idempotent — each call creates a new LangSmith commit).
+    # The lock is transaction-scoped so it auto-releases on commit or rollback;
+    # pg_advisory_xact_lock blocks until the lock is free (bounded by the
+    # LangSmith timeout on the competing request's push_fix call, ≤ 30 s).
+    # Using `int.from_bytes(uuid.bytes[:8])` gives a deterministic 64-bit key
+    # per proposal; UUID v4 entropy makes collisions negligible.
+    lock_key = int.from_bytes(proposal_id.bytes[:8], "big", signed=True)
 
-    try:
-        await append_audit_entry(
-            conn,
-            kind=AuditKind.FIX_SHIPPED_LANGSMITH,
-            payload={
-                "prompt_id": result.prompt_id,
-                "commit_hash": result.commit_hash,
-                "commit_url": commit_url,
-                "workflow_id": row["workflow_id"],
-            },
-            actor=body.shipped_by,
-            related_id=proposal_id,
-        )
-    except asyncpg.UniqueViolationError as exc:
-        # Concurrent request raced past the idempotency check and already
-        # wrote the audit entry (migration 0024 enforces uniqueness on
-        # fix-shipped-langsmith per related_id). Fetch and return the winner's
-        # entry rather than failing — the push already succeeded.
-        # Guard: only treat this as the expected race when it's our index that
-        # fired; any other unique violation should propagate.
-        if getattr(exc, "constraint_name", None) != "audit_entries_ship_langsmith_once_idx":
-            raise
-        winner = await conn.fetchrow(
+    async with conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
+
+        # Re-check idempotency inside the lock: a concurrent request that
+        # finished between our outer check and the lock acquisition would
+        # already have written the audit entry.
+        locked_existing = await conn.fetchrow(
             "SELECT payload FROM audit_entries "
             "WHERE kind = 'fix-shipped-langsmith' AND related_id = $1 "
             "ORDER BY created_at DESC LIMIT 1",
             proposal_id,
         )
-        if winner is not None:
-            payload = decode_jsonb_obj(winner["payload"])
+        if locked_existing is not None:
+            locked_payload = decode_jsonb_obj(locked_existing["payload"])
             return ShipLangSmithResponse(
                 proposal_id=proposal_id,
-                prompt_id=payload.get("prompt_id", ""),
-                commit_hash=payload.get("commit_hash", ""),
-                commit_url=payload.get("commit_url", ""),
+                prompt_id=locked_payload.get("prompt_id", ""),
+                commit_hash=locked_payload.get("commit_hash", ""),
+                commit_url=_safe_commit_url(locked_payload.get("commit_url", "")),
                 already_shipped=True,
             )
-        # Theoretically impossible: unique violation but no row found —
-        # means the winning transaction rolled back. Surface this loudly.
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="LangSmith push succeeded but audit write failed — retry to re-record",
-        ) from exc
+
+        try:
+            result = await asyncio.to_thread(
+                push_fix,
+                api_key=api_key,
+                prompt_id=prompt_id,
+                instruction_text=content,
+                commit_description=summary,
+            )
+        except LangSmithAuthError as exc:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)[:200]) from exc
+        except LangSmithNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)[:200]) from exc
+        except LangSmithConflictError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)[:200]) from exc
+        except LangSmithRateLimitError as exc:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)[:200]
+            ) from exc
+        except (LangSmithNetworkError, LangSmithPushError) as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)[:200]) from exc
+
+        # Sanitise the URL before writing it to the append-only audit log and
+        # returning it to the browser (where it becomes an <a href>). React does
+        # not strip javascript: hrefs; a self-hosted or compromised LangSmith
+        # server could inject a XSS payload that executes on click.
+        raw_url = result.commit_url
+        commit_url = _safe_commit_url(raw_url)
+        if commit_url != raw_url:
+            _log.warning(
+                "ship-langsmith: push_fix returned unexpected commit_url scheme %r; "
+                "clearing URL from response to prevent XSS",
+                raw_url[:60],
+            )
+
+        # Write audit inside a savepoint so a UniqueViolationError (theoretically
+        # unreachable with the advisory lock, but kept for defence-in-depth) does
+        # not abort the outer transaction.
+        try:
+            async with conn.transaction():  # savepoint
+                await append_audit_entry(
+                    conn,
+                    kind=AuditKind.FIX_SHIPPED_LANGSMITH,
+                    payload={
+                        "prompt_id": result.prompt_id,
+                        "commit_hash": result.commit_hash,
+                        "commit_url": commit_url,
+                        "workflow_id": row["workflow_id"],
+                    },
+                    actor=body.shipped_by,
+                    related_id=proposal_id,
+                )
+        except asyncpg.UniqueViolationError as exc:
+            # Belt-and-suspenders: advisory lock makes this path unreachable for
+            # concurrent requests, but guard against any future non-locking code
+            # path or direct DB writes. Only swallow our own index's violation.
+            if getattr(exc, "constraint_name", None) != "audit_entries_ship_langsmith_once_idx":
+                raise
+            winner = await conn.fetchrow(
+                "SELECT payload FROM audit_entries "
+                "WHERE kind = 'fix-shipped-langsmith' AND related_id = $1 "
+                "ORDER BY created_at DESC LIMIT 1",
+                proposal_id,
+            )
+            if winner is not None:
+                winner_payload = decode_jsonb_obj(winner["payload"])
+                return ShipLangSmithResponse(
+                    proposal_id=proposal_id,
+                    prompt_id=winner_payload.get("prompt_id", ""),
+                    commit_hash=winner_payload.get("commit_hash", ""),
+                    commit_url=_safe_commit_url(winner_payload.get("commit_url", "")),
+                    already_shipped=True,
+                )
+            # Unique violation but no row found — winning transaction rolled back.
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="LangSmith push succeeded but audit write failed — retry to re-record",
+            ) from exc
 
     return ShipLangSmithResponse(
         proposal_id=proposal_id,
