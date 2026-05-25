@@ -1,13 +1,16 @@
 import {
   getModelCatalog,
   getWorkflowAnatomy,
+  getWorkflowSkills,
   kernelError,
   KernelApiError,
   type ProviderModels,
+  type SkillSummary,
 } from '@/lib/api'
 import { isDemoMode } from '@/lib/demo-mode'
 import { DescriptionForm } from './description-form'
 import { DeleteWorkflowForm } from './delete-form'
+import { LangSmithBindingForm } from './langsmith-binding-form'
 import { ModelPickerForm } from './model-picker-form'
 
 interface PageProps {
@@ -30,10 +33,14 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
 
   // Use allSettled so a /api/models glitch doesn't take down the
   // description form — each fetch fails independently.
-  const [anatomyResult, catalogResult] = await Promise.allSettled([
+  const [anatomyResult, catalogResult, skillsResult] = await Promise.allSettled([
     getWorkflowAnatomy(wfId),
     getModelCatalog(),
+    getWorkflowSkills(wfId),
   ])
+
+  const skills: SkillSummary[] =
+    skillsResult.status === 'fulfilled' ? skillsResult.value.items : []
 
   if (anatomyResult.status === 'fulfilled') {
     description = anatomyResult.value.description
@@ -85,6 +92,12 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
               readOnly={demoMode}
             />
           )}
+          <LangSmithBindingForm
+            wsId={wsId}
+            wfId={wfId}
+            skills={skills}
+            demoMode={demoMode}
+          />
           <div className="settings-card">
             <div className="settings-card-header">
               <h2 className="settings-card-title">Export</h2>

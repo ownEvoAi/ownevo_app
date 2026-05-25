@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import {
   deleteWorkflow as deleteWorkflowApi,
   KernelApiError,
+  setSkillLangSmithBinding,
   updateWorkflowAgentModel,
   updateWorkflowDescription,
   type WorkflowDeleteResponse,
@@ -124,4 +125,29 @@ export async function deleteWorkflowAction(
 
   revalidatePath(`/workspaces/${input.wsId}`, 'layout')
   redirect(`/workspaces/${input.wsId}?deleted=${encodeURIComponent(counts.id)}`)
+}
+
+interface BindingInput {
+  wsId: string
+  wfId: string
+  skillId: string
+  promptId: string | null
+}
+
+export async function updateLangSmithBindingAction(
+  input: BindingInput,
+): Promise<UpdateResult> {
+  try {
+    await setSkillLangSmithBinding(input.skillId, input.promptId)
+  } catch (err) {
+    if (err instanceof KernelApiError) {
+      return { ok: false, error: err.detail }
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+  revalidatePath(`/workspaces/${input.wsId}/workflows/${input.wfId}/settings`)
+  return { ok: true }
 }
