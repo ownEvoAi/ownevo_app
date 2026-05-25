@@ -97,6 +97,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "demo_usage",
             "eval_cases",
             "failure_clusters",
+            "integration_credentials",
             "iteration_case_outputs",
             "iterations",
             "learnings",

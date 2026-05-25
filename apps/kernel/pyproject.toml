@@ -43,6 +43,9 @@ api = [
     # this package carries the generated message definitions used to
     # decode the body before reusing the JSON-path mapper.
     "opentelemetry-proto>=1.20,<2",
+    # Encryption-at-rest for third-party integration credentials
+    # (e.g. the LangSmith API key) via Fernet. See secrets/encrypted_field.py.
+    "cryptography>=42,<46",
 ]
 # Inspect AI Task adapter (A4.3). Optional because the load-bearing
 # `make eval-replay` path uses `eval_runner.run_replay`, which is

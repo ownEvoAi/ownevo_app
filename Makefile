@@ -551,3 +551,9 @@ mint-receiver-token:
 	@if [ -z "$(LABEL)" ]; then echo "usage: make mint-receiver-token LABEL=... [WORKFLOW=workflow_id]"; exit 2; fi
 	uv run --package ownevo-kernel --extra api python apps/kernel/scripts/mint_receiver_token.py \
 	    --label "$(LABEL)" $(if $(WORKFLOW),--workflow "$(WORKFLOW)")
+
+# Generate a credentials master key for OWNEVO_CREDENTIALS_MASTER_KEY.
+# Store the printed value in the deployment's secret manager; it seals
+# third-party integration API keys (LangSmith, etc.) at rest.
+gen-credentials-key:
+	@uv run --package ownevo-kernel --extra api python -c "from ownevo_kernel.secrets import generate_master_key; print(generate_master_key())"
