@@ -107,3 +107,36 @@ async def test_user_message_grounds_in_summary_definition_and_brief():
 async def test_raises_when_model_skips_tool():
     with pytest.raises(NoToolUseError):
         await generate_workflow_spec_from_traces(_NoToolClient(), _summary())
+
+
+async def test_raises_when_spec_fails_validation():
+    """WorkflowSpecValidationError is raised when the LLM returns an invalid spec.
+
+    Uses max_retries=0 to pin single-call behaviour — without this the client
+    would be called DEFAULT_MAX_RETRIES+1 times before exhausting the retry loop.
+    """
+    from ownevo_kernel.nl_gen.workflow_spec_from_traces import WorkflowSpecValidationError
+
+    class _BadSpecClient:
+        """Always returns a tool call with an empty (invalid) spec payload."""
+
+        outer: Any
+
+        class messages:
+            @staticmethod
+            async def create(**kwargs: Any) -> _Msg:
+                return _Msg(
+                    content=[
+                        _Block(
+                            type="tool_use",
+                            name="emit_workflow_spec",
+                            # Empty dict fails WorkflowSpec.model_validate.
+                            input={"spec": {}},
+                        )
+                    ]
+                )
+
+    with pytest.raises(WorkflowSpecValidationError):
+        await generate_workflow_spec_from_traces(
+            _BadSpecClient(), _summary(), max_retries=0
+        )

@@ -109,7 +109,7 @@ export async function generateFromImportAction(
     if (entry.answer !== null && entry.answer.length > _MAX_ANSWER_LEN) {
       return { error: `Answer for question ${entry.question_index} exceeds the maximum length.` }
     }
-    if (!_DISCOVERY_KINDS.has(entry.kind as DiscoveryQuestionKind)) {
+    if (entry.kind != null && !_DISCOVERY_KINDS.has(entry.kind as DiscoveryQuestionKind)) {
       return { error: `Unknown question kind '${entry.kind}' — please reload and try again.` }
     }
   }

@@ -98,10 +98,17 @@ export function ImportDesignFlow({
     if (current) inputRef.current?.focus()
   }, [current?.question_index, current?.question])
 
-  const submitAnswer = (rawAnswer: string | null) => {
+  const submitAnswer = (rawAnswer: string | null, isOptionSelect = false) => {
     if (!current) return
-    const answer =
+    const trimmed =
       rawAnswer === null ? null : rawAnswer.trim() === '' ? null : rawAnswer.trim()
+
+    // chosen_option = the label of the structured option the user clicked;
+    // free_text (stored as answer) = what the user typed in the textarea.
+    // The LLM interviewer uses chosen_option to detect structured selection
+    // and free_text for elaboration — conflating them biases next-question logic.
+    const chosenOption = isOptionSelect ? trimmed : null
+    const answer = trimmed
 
     const entryIndex = transcript.length
     const nextTranscript: DiscoveryTranscriptEntry[] = [
@@ -113,7 +120,7 @@ export function ImportDesignFlow({
         kind: current.kind ?? null,
         question: current.question,
         answer,
-        chosen_option: answer,
+        chosen_option: chosenOption,
       },
     ]
     setTranscript(nextTranscript)
@@ -297,7 +304,7 @@ export function ImportDesignFlow({
                       className={`option-card${
                         isRecommended ? ' option-card-recommended' : ''
                       }`}
-                      onClick={() => submitAnswer(opt.label)}
+                      onClick={() => submitAnswer(opt.label, true)}
                       disabled={composerBusy}
                     >
                       <div className="option-card-header">

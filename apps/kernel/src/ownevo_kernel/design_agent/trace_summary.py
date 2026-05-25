@@ -47,6 +47,12 @@ _MAX_TEXT_SAMPLES = 3
 # adds cost without changing the picture the LLM needs.
 _MAX_SUMMARY_TRACES = 50
 
+# Cap on events-per-trace processed by the summariser. The OTLP receiver
+# already enforces a 10 000-event cap at ingest time, but a legacy or
+# hand-crafted trace could exceed that. Without a cap here, a single
+# runaway trace would make summarise_events iterate unboundedly.
+_MAX_EVENTS_PER_TRACE = 10_000
+
 
 @dataclass
 class ToolUsage:
@@ -262,7 +268,7 @@ async def load_trace_events(
         events = row["events"]
         if isinstance(events, str):
             events = json.loads(events)
-        result.append((row["id"], list(events or [])))
+        result.append((row["id"], list(events or [])[:_MAX_EVENTS_PER_TRACE]))
     return result
 
 

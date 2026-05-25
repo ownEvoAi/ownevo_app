@@ -207,6 +207,8 @@ async def generate_workflow_spec_from_traces(
 
 
 __all__ = [
+    "NoToolUseError",
     "SYSTEM_PROMPT",
+    "WorkflowSpecValidationError",
     "generate_workflow_spec_from_traces",
 ]

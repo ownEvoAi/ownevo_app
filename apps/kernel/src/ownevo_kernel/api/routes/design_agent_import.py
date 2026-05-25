@@ -26,6 +26,7 @@ on every request.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from uuid import UUID
@@ -100,7 +101,11 @@ class ImportGenerateRequest(BaseModel):
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
     design_agent_log: DesignAgentLog | None = None
-    workflow_id: str | None = Field(default=None, max_length=64)
+    workflow_id: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+    )
 
 
 class ImportGenerateResponse(BaseModel):
@@ -195,7 +200,10 @@ async def import_next_question(
                     prior_answers=_convert_prior_for_interviewer(req.prior_answers),
                     client=client,
                 )
-            except InterviewerError:
+            except InterviewerError as _ie:
+                _log.warning(
+                    "trace-import interviewer failed; using static fallback: %s", _ie
+                )
                 brief = None
             else:
                 if brief is None:
@@ -246,8 +254,8 @@ async def import_generate(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "ANTHROPIC_API_KEY is not set in the kernel environment; "
-                "trace-import generation requires it to call the LLM."
+                "LLM credentials are not configured on this server; "
+                "trace-import generation cannot proceed without them."
             ),
         )
     if os.environ.get("ANTHROPIC_BASE_URL") == "":
@@ -280,17 +288,24 @@ async def import_generate(
                 detail=f"LLM did not emit a workflow spec: {exc}",
             ) from exc
         except WorkflowSpecValidationError as exc:
+            _log.error("import-generate: spec validation failed: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"LLM produced invalid spec: {exc}",
+                detail=(
+                    f"LLM produced a spec that failed validation after "
+                    f"{exc.pydantic_error.error_count()} error(s). "
+                    "Check kernel logs for the raw LLM output."
+                ),
             ) from exc
 
         try:
-            sim_plan = await generate_simulation_plan(
-                client, spec, design_brief_block=sim_brief, **model_kwargs
-            )
-            metric_def = await generate_metric_definition(
-                client, spec, design_brief_block=metric_brief, **model_kwargs
+            sim_plan, metric_def = await asyncio.gather(
+                generate_simulation_plan(
+                    client, spec, design_brief_block=sim_brief, **model_kwargs
+                ),
+                generate_metric_definition(
+                    client, spec, design_brief_block=metric_brief, **model_kwargs
+                ),
             )
         except Exception as exc:
             raise HTTPException(
