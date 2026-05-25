@@ -1,4 +1,5 @@
 import {
+  getWorkflowAnatomy,
   kernelError,
   KernelApiError,
   listWorkflowEvalCases,
@@ -7,6 +8,7 @@ import {
 import { AddEvalCaseForm } from './add-form'
 import { DeleteEvalCaseButton } from './delete-button'
 import { GenerateEvalCasesButton } from './generate-button'
+import { PushEvalCasesCopilotStudioButton } from './push-copilot-studio-button'
 
 interface PageProps {
   params: Promise<{ wsId: string; wfId: string }>
@@ -18,6 +20,7 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
   let items: EvalCaseSummary[] = []
   let apiError: { title: string; detail: string } | null = null
   let notFound = false
+  let origin: string | null = null
   try {
     const list = await listWorkflowEvalCases(wfId)
     items = list.items
@@ -26,6 +29,16 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
       notFound = true
     } else {
       apiError = kernelError(err)
+    }
+  }
+  // Best-effort: the origin only gates an optional action, so a transient
+  // anatomy error must not blank the eval-cases list.
+  if (!notFound) {
+    try {
+      const anatomy = await getWorkflowAnatomy(wfId)
+      origin = anatomy.origin
+    } catch {
+      origin = null
     }
   }
 
@@ -50,6 +63,9 @@ export default async function WorkflowEvalCasesPage({ params }: PageProps) {
               defaultTargetLabel={items[0]?.target_label_field || 'label'}
             />
             <GenerateEvalCasesButton wsId={wsId} wfId={wfId} hasExisting={items.length > 0} />
+            {origin === 'copilot_studio' && items.length > 0 ? (
+              <PushEvalCasesCopilotStudioButton wsId={wsId} wfId={wfId} />
+            ) : null}
           </div>
         ) : null}
       </header>

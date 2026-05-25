@@ -1063,6 +1063,9 @@ export interface WorkflowAnatomy {
    * 0014 / never went through the picker. Validated against the runtime
    * `OWNEVO_PROVIDER_*` env allowlist on PATCH. */
   agent_model_id: string
+  /** Vendor the workflow was imported from ('langsmith' | 'copilot_studio'),
+   * or null for greenfield workflows. Gates origin-specific UI actions. */
+  origin: WorkflowOrigin | null
 }
 
 /** Single provider entry in the `/api/models` response — one `<optgroup>`. */
@@ -1659,5 +1662,29 @@ export async function exportCopilotStudioDefinition(
       body: JSON.stringify({ solution_name: solutionName }),
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     },
+  )
+}
+
+export interface PushEvalCasesCopilotStudioInput {
+  agent_id: string
+  test_set_name?: string
+  cluster_id?: string
+  test_fold_only?: boolean
+  pushed_by?: string
+}
+
+export interface PushEvalCasesCopilotStudioResponse {
+  workflow_id: string
+  test_set_id: string
+  case_count: number
+}
+
+export async function pushEvalCasesCopilotStudio(
+  workflowId: string,
+  body: PushEvalCasesCopilotStudioInput,
+): Promise<PushEvalCasesCopilotStudioResponse> {
+  return jsonFetch<PushEvalCasesCopilotStudioResponse>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/push-eval-cases-copilot-studio`,
+    { method: 'POST', body: JSON.stringify(body) },
   )
 }

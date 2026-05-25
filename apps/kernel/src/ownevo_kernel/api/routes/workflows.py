@@ -164,7 +164,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         SELECT id, description, mode::text AS mode, kind, spec,
                simulation_plan, metric_definition,
                created_from_template, design_agent_log,
-               agent_model_id
+               agent_model_id, origin
         FROM workflows
         WHERE id = $1
         """,
@@ -195,6 +195,7 @@ async def get_workflow(workflow_id: str, conn: ConnDep) -> WorkflowAnatomy:
         agent_model_id=row["agent_model_id"],
         created_from_template=row["created_from_template"],
         design_agent_log=decode_jsonb_obj(row["design_agent_log"]),
+        origin=row["origin"],
     )
 
 
