@@ -112,12 +112,19 @@ class PersistResult:
 async def persist_decoded_batch(
     conn: asyncpg.Connection,
     batch: DecodedBatch,
+    *,
+    workflow_id: str | None = None,
 ) -> PersistResult:
     """Upsert every trace in the batch and return the touched trace_ids.
 
     All upserts in the batch run inside a single transaction so a
     mid-batch DB error rolls back every prior write; the response and
     the table state stay consistent.
+
+    When `workflow_id` is set (resolved from the receiver token or an
+    explicit query param), it is stamped onto freshly created rows and
+    backfilled onto existing rows that have none yet — an existing
+    binding is never overwritten.
 
     No-op (returns empty result) when the batch has zero events — the
     receiver may emit an empty batch when every span was unknown or
@@ -132,7 +139,9 @@ async def persist_decoded_batch(
     saturated: list[UUID] = []
     async with conn.transaction():
         for trace_id, events in groups.items():
-            outcome = await _upsert_one_trace(conn, trace_id, events)
+            outcome = await _upsert_one_trace(
+                conn, trace_id, events, workflow_id=workflow_id
+            )
             if outcome is _UpsertOutcome.CREATED:
                 created.append(trace_id)
             elif outcome is _UpsertOutcome.APPENDED:
@@ -169,6 +178,8 @@ async def _upsert_one_trace(
     conn: asyncpg.Connection,
     trace_id: UUID,
     events: Sequence[AgentEvent],
+    *,
+    workflow_id: str | None = None,
 ) -> _UpsertOutcome:
     """INSERT, append, or skip based on the per-trace event cap.
 
@@ -201,16 +212,17 @@ async def _upsert_one_trace(
     row = await conn.fetchrow(
         """
         INSERT INTO traces (
-            id, events, started_at, ended_at, ingest_source
+            id, events, started_at, ended_at, ingest_source, workflow_id
         )
-        VALUES ($1, $2::jsonb, $3, $4, $5)
+        VALUES ($1, $2::jsonb, $3, $4, $5, $6)
         ON CONFLICT (id) DO UPDATE SET
             events     = traces.events || EXCLUDED.events,
             started_at = LEAST(traces.started_at, EXCLUDED.started_at),
             ended_at   = GREATEST(
                 COALESCE(traces.ended_at, EXCLUDED.ended_at),
                 EXCLUDED.ended_at
-            )
+            ),
+            workflow_id = COALESCE(traces.workflow_id, EXCLUDED.workflow_id)
         RETURNING (xmax = 0) AS was_inserted
         """,
         trace_id,
@@ -218,6 +230,7 @@ async def _upsert_one_trace(
         started_at,
         ended_at,
         _INGEST_SOURCE,
+        workflow_id,
     )
     if row is None:
         # INSERT ... RETURNING always returns a row; None here would indicate

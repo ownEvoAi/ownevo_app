@@ -81,10 +81,15 @@ def _parse_translate_decode(raw: bytes, max_body_bytes: int) -> DecodedBatch:
     existing 400 path handles them without a separate except clause.
     """
     try:
-        parsed: dict[str, Any] = json.loads(raw)
+        parsed: Any = json.loads(raw)
     except ValueError as exc:
         raise OtelDecodeError(f"invalid JSON: {exc}") from exc
-    out: dict[str, Any] = copy.deepcopy(parsed) if isinstance(parsed, dict) else parsed
+    if not isinstance(parsed, dict):
+        raise OtelDecodeError(
+            "OTLP-JSON payload must be a JSON object, "
+            f"got {type(parsed).__name__}"
+        )
+    out: dict[str, Any] = copy.deepcopy(parsed)
     _adk_rewrite_inplace(out)
     _watsonx_rewrite_inplace(out)
     return decode_otlp_payload(
@@ -325,7 +330,7 @@ async def ingest_otlp_traces(
 
     try:
         batch = await asyncio.to_thread(
-            decode_fn, raw, DEFAULT_MAX_BODY_BYTES
+            decode_fn, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
         )
     except OversizedPayloadError as exc:
         # Second-line cap guard — catches the rare case where the

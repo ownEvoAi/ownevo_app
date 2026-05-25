@@ -92,6 +92,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
         assert names == {
             "approvals",
             "audit_entries",
+            "captured_sandbox_runs",
             "demo_budget_state",
             "demo_invite_revocations",
             "demo_usage",
