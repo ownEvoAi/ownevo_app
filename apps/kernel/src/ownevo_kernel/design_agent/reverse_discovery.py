@@ -33,8 +33,9 @@ from .interviewer import (
 from .trace_summary import TraceSummary
 
 # Imported definitions can be large; cap what we inline. The trace
-# summary already carries the behavioural picture.
-_AGENT_DEFINITION_TRUNCATE = 4_000
+# summary already carries the behavioural picture. Exported so callers
+# can surface a truncation signal to their clients.
+AGENT_DEFINITION_TRUNCATE = 4_000
 
 # The summary is meant to be one or two sentences. Cap hard so a chatty
 # model can't turn the opening turn into an essay.
@@ -46,6 +47,11 @@ DEFAULT_MAX_TOKENS = 300
 # How many tool names to name in the deterministic fallback before
 # collapsing the rest into "+N more".
 _FALLBACK_TOOLS_NAMED = 4
+
+
+def _basis(agent_definition: str | None) -> str:
+    """Return 'definition+traces' or 'traces' based on whether a non-empty definition was supplied."""
+    return "definition+traces" if (agent_definition or "").strip() else "traces"
 
 
 @dataclass(frozen=True)
@@ -92,7 +98,7 @@ def _build_user_message(
     parts: list[str] = [summary.as_prompt_text()]
 
     if agent_definition and agent_definition.strip():
-        definition = agent_definition.strip()[:_AGENT_DEFINITION_TRUNCATE]
+        definition = agent_definition.strip()[:AGENT_DEFINITION_TRUNCATE]
         parts.append(
             "## Imported agent definition\n"
             "The source platform also exported the agent's own definition "
@@ -127,7 +133,7 @@ def fallback_reverse_discovery_summary(
     Reads the tool rollup + error modes off the `TraceSummary` so the
     operator still gets a concrete, confirmable opening statement.
     """
-    basis = "definition+traces" if (agent_definition or "").strip() else "traces"
+    basis = _basis(agent_definition)
 
     if summary.is_empty:
         return ReverseDiscoverySummary(
@@ -214,15 +220,15 @@ async def generate_reverse_discovery_summary(
             f"stop_reason={getattr(msg, 'stop_reason', None)!r}"
         )
 
-    basis = "definition+traces" if (agent_definition or "").strip() else "traces"
     return ReverseDiscoverySummary(
         summary=text[:_SUMMARY_CHAR_CAP],
-        basis=basis,
+        basis=_basis(agent_definition),
         is_fallback=False,
     )
 
 
 __all__ = [
+    "AGENT_DEFINITION_TRUNCATE",
     "ReverseDiscoverySummary",
     "SYSTEM_PROMPT",
     "fallback_reverse_discovery_summary",

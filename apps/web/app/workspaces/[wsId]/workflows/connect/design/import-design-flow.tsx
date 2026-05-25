@@ -341,6 +341,7 @@ export function ImportDesignFlow({
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => confirmDefinition(null)}
+                    disabled={isFetching}
                   >
                     Skip — start discovery anyway
                   </button>

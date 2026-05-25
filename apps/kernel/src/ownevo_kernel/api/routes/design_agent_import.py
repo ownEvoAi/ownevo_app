@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -41,6 +42,7 @@ from ...design_agent import (
 )
 from ...design_agent.log import DesignAgentLog, persist_design_agent_log
 from ...design_agent.reverse_discovery import (
+    AGENT_DEFINITION_TRUNCATE,
     ReverseDiscoverySummary,
     fallback_reverse_discovery_summary,
     generate_reverse_discovery_summary,
@@ -89,7 +91,7 @@ _DESCRIPTION_MAX_LEN = 4096
 class ImportNextQuestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    trace_ids: list[UUID] = Field(default_factory=list, max_length=_MAX_TRACE_IDS)
+    trace_ids: list[UUID] = Field(default_factory=list, min_length=1, max_length=_MAX_TRACE_IDS)
     agent_definition: str | None = Field(
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
@@ -101,7 +103,7 @@ class ImportNextQuestionRequest(BaseModel):
 class ImportGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    trace_ids: list[UUID] = Field(default_factory=list, max_length=_MAX_TRACE_IDS)
+    trace_ids: list[UUID] = Field(default_factory=list, min_length=1, max_length=_MAX_TRACE_IDS)
     agent_definition: str | None = Field(
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
@@ -124,7 +126,7 @@ class ImportGenerateResponse(BaseModel):
 class ImportSummaryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    trace_ids: list[UUID] = Field(default_factory=list, max_length=_MAX_TRACE_IDS)
+    trace_ids: list[UUID] = Field(default_factory=list, min_length=1, max_length=_MAX_TRACE_IDS)
     agent_definition: str | None = Field(
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
@@ -134,8 +136,9 @@ class ImportSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str
-    basis: str
-    source: str  # "llm" | "fallback"
+    basis: Literal["traces", "definition+traces"]
+    source: Literal["llm", "fallback"]
+    agent_definition_truncated: bool = False
 
 
 async def _summarize(request: Request, trace_ids: list[UUID]) -> TraceSummary:
@@ -195,11 +198,20 @@ def _llm_client_or_none():
         return None
 
 
-def _summary_to_response(summary: ReverseDiscoverySummary) -> ImportSummaryResponse:
+def _summary_to_response(
+    summary: ReverseDiscoverySummary,
+    *,
+    agent_definition: str | None = None,
+) -> ImportSummaryResponse:
+    truncated = bool(
+        agent_definition
+        and len(agent_definition) > AGENT_DEFINITION_TRUNCATE
+    )
     return ImportSummaryResponse(
         summary=summary.summary,
         basis=summary.basis,
         source="fallback" if summary.is_fallback else "llm",
+        agent_definition_truncated=truncated,
     )
 
 
@@ -227,7 +239,8 @@ async def import_summary(
     client = _llm_client_or_none()
     if client is None:
         return _summary_to_response(
-            fallback_reverse_discovery_summary(trace_summary, req.agent_definition)
+            fallback_reverse_discovery_summary(trace_summary, req.agent_definition),
+            agent_definition=req.agent_definition,
         )
 
     accountant = TokenAccountant()
@@ -247,7 +260,7 @@ async def import_summary(
             rd_summary = fallback_reverse_discovery_summary(
                 trace_summary, req.agent_definition
             )
-        return _summary_to_response(rd_summary)
+        return _summary_to_response(rd_summary, agent_definition=req.agent_definition)
     finally:
         if demo is not None and (accountant.input_tokens or accountant.output_tokens):
             try:

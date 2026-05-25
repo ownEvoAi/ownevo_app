@@ -560,10 +560,12 @@ export async function fetchImportNextQuestion(
 export interface ImportSummaryResponse {
   /** One-to-two-sentence "this agent appears to do X" inference. */
   summary: string
-  /** "traces" | "definition+traces" — what evidence it was drawn from. */
-  basis: string
-  /** "llm" | "fallback" — whether it was generated or rendered deterministically. */
-  source: string
+  /** What evidence the summary was drawn from. */
+  basis: 'traces' | 'definition+traces'
+  /** Whether the summary was LLM-generated or rendered deterministically. */
+  source: 'llm' | 'fallback'
+  /** True when the supplied agent_definition was truncated before being passed to the LLM. */
+  agent_definition_truncated?: boolean
 }
 
 // Open the trace-import conversation with a reverse-discovery summary the
