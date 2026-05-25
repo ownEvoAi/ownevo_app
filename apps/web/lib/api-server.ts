@@ -18,6 +18,7 @@ import {
   type ImportSummaryResponse,
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
+  type ReverseDiscoveryInput,
 } from './api'
 
 // Re-export everything else from the base module so callers can use a
@@ -93,6 +94,7 @@ export async function generateFromImport(
   traceIds: string[],
   agentDefinition: string | null,
   designAgentLog: DesignAgentLog | null,
+  reverseDiscovery: ReverseDiscoveryInput | null,
   workflowId?: string,
 ): Promise<ImportGenerateResponse> {
   const cookieHeader = await getDemoCookieHeader()
@@ -100,6 +102,7 @@ export async function generateFromImport(
     traceIds,
     agentDefinition,
     designAgentLog,
+    reverseDiscovery,
     workflowId,
     cookieHeader,
   )

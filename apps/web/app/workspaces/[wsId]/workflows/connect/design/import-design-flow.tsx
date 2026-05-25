@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import type { NextDiscoveryQuestion } from '@/lib/api'
+import type { NextDiscoveryQuestion, ReverseDiscoveryInput } from '@/lib/api'
 import {
   type DiscoveryTranscriptEntry,
   generateFromImportAction,
@@ -87,6 +87,10 @@ export function ImportDesignFlow({
   const [effectiveDefinition, setEffectiveDefinition] = useState<string | null>(
     agentDefinition,
   )
+  // The reverse-discovery turn + the reviewer's decision, captured at
+  // confirm time so it persists to the import audit log at generate time.
+  const [reverseDiscovery, setReverseDiscovery] =
+    useState<ReverseDiscoveryInput | null>(null)
 
   const [questionState, setQuestionState] =
     useState<NextQuestionState>(_UNLOADED_QUESTION)
@@ -115,9 +119,23 @@ export function ImportDesignFlow({
   // Fetch the first discovery question once the reviewer confirms the
   // summary — it's grounded in the confirmed definition, so it can't be
   // pre-fetched at SSR time.
-  const confirmDefinition = (definition: string | null) => {
+  const confirmDefinition = (
+    definition: string | null,
+    decision: 'confirmed' | 'corrected' | 'skipped',
+  ) => {
     const cleaned = definition && definition.trim() !== '' ? definition.trim() : null
     setEffectiveDefinition(cleaned)
+    // Only record a reverse-discovery turn when there was an inferred
+    // summary to react to; a skip forced by a summary error has none.
+    if (summaryState.loaded && summaryState.summary) {
+      setReverseDiscovery({
+        inferred_summary: summaryState.summary,
+        basis: (summaryState.basis as ReverseDiscoveryInput['basis']) ?? 'traces',
+        source: (summaryState.source as ReverseDiscoveryInput['source']) ?? 'fallback',
+        decision,
+        final_definition: cleaned,
+      })
+    }
     setPhase('interview')
     startFetch(async () => {
       const resp = await loadNextImportQuestion({
@@ -202,6 +220,7 @@ export function ImportDesignFlow({
         wsId,
         traceIds,
         agentDefinition: effectiveDefinition,
+        reverseDiscovery,
         transcript,
       })
       if (result?.error) setGenerateError(result.error)
@@ -284,7 +303,9 @@ export function ImportDesignFlow({
                   <button
                     type="button"
                     className="option-card option-card-recommended"
-                    onClick={() => confirmDefinition(summaryState.summary)}
+                    onClick={() =>
+                      confirmDefinition(summaryState.summary, 'confirmed')
+                    }
                     disabled={isFetching}
                   >
                     <div className="option-card-header">
@@ -300,7 +321,8 @@ export function ImportDesignFlow({
                   style={{ marginTop: 16 }}
                   onSubmit={(e) => {
                     e.preventDefault()
-                    if (correctionDraft.trim()) confirmDefinition(correctionDraft)
+                    if (correctionDraft.trim())
+                      confirmDefinition(correctionDraft, 'corrected')
                   }}
                 >
                   <label className="sr-only" htmlFor="reverse-correction">
@@ -340,7 +362,7 @@ export function ImportDesignFlow({
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => confirmDefinition(null)}
+                    onClick={() => confirmDefinition(null, 'skipped')}
                     disabled={isFetching}
                   >
                     Skip — start discovery anyway

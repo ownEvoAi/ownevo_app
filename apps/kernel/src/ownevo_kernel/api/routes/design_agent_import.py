@@ -40,7 +40,12 @@ from ...design_agent import (
     InterviewerError,
     get_trace_import_discovery_questions,
 )
-from ...design_agent.log import DesignAgentLog, persist_design_agent_log
+from ...design_agent.import_log import (
+    DesignAgentImportLog,
+    ReverseDiscoveryRecord,
+    persist_design_agent_import_log,
+)
+from ...design_agent.log import DesignAgentLog
 from ...design_agent.reverse_discovery import (
     AGENT_DEFINITION_TRUNCATE,
     ReverseDiscoverySummary,
@@ -100,6 +105,30 @@ class ImportNextQuestionRequest(BaseModel):
     )
 
 
+class ReverseDiscoveryIn(BaseModel):
+    """The reverse-discovery turn + the reviewer's decision, echoed back
+    at generate time so it can be persisted to the import audit log."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inferred_summary: str = Field(min_length=1, max_length=4096)
+    basis: Literal["traces", "definition+traces"]
+    source: Literal["llm", "fallback"]
+    decision: Literal["confirmed", "corrected", "skipped"]
+    final_definition: str | None = Field(
+        default=None, max_length=_AGENT_DEFINITION_MAX_LEN
+    )
+
+    def to_record(self) -> ReverseDiscoveryRecord:
+        return ReverseDiscoveryRecord(
+            inferred_summary=self.inferred_summary,
+            basis=self.basis,
+            source=self.source,
+            decision=self.decision,
+            final_definition=self.final_definition,
+        )
+
+
 class ImportGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -107,6 +136,7 @@ class ImportGenerateRequest(BaseModel):
     agent_definition: str | None = Field(
         default=None, max_length=_AGENT_DEFINITION_MAX_LEN
     )
+    reverse_discovery: ReverseDiscoveryIn | None = None
     design_agent_log: DesignAgentLog | None = None
     workflow_id: str | None = Field(
         default=None,
@@ -459,11 +489,28 @@ async def import_generate(
                 ),
             )
 
-        if req.design_agent_log is not None:
-            await persist_design_agent_log(
+        import_log = DesignAgentImportLog(
+            reverse_discovery=(
+                req.reverse_discovery.to_record()
+                if req.reverse_discovery is not None
+                else None
+            ),
+            discovery_transcript=(
+                req.design_agent_log.discovery_transcript
+                if req.design_agent_log is not None
+                else ()
+            ),
+            ambiguity_report=(
+                req.design_agent_log.ambiguity_report
+                if req.design_agent_log is not None
+                else None
+            ),
+        )
+        if not import_log.is_empty():
+            await persist_design_agent_import_log(
                 conn,
                 workflow_id=workflow_id,
-                log=req.design_agent_log,
+                log=import_log,
             )
 
     return ImportGenerateResponse(
@@ -479,6 +526,7 @@ __all__ = [
     "ImportNextQuestionRequest",
     "ImportSummaryRequest",
     "ImportSummaryResponse",
+    "ReverseDiscoveryIn",
     "import_generate",
     "import_next_question",
     "import_summary",
