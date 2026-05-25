@@ -995,6 +995,11 @@ class SkillDetail(_Strict):
     deployable_proposal_id: UUID | None  # approved-awaiting-deploy proposal, if any
     deployable_proposal_version_seq: int | None
     deployed_proposal_id: UUID | None  # the proposal currently deployed (rollback target)
+    # LangSmith Prompt Hub binding (13.0.2). Set when this skill maps to a
+    # LangSmith prompt the "Ship fix to LangSmith" action pushes to; null
+    # when unbound. Auto-populated from ingested spans or set via the
+    # binding picker.
+    langsmith_prompt_id: str | None = None
     versions: list[SkillVersionSummary]
     related_eval_cases: list[SkillRelatedEvalCase]
 

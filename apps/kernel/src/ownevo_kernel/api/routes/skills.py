@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
 
-from ..deps import ConnDep
+from ..deps import ConnDep, DemoModeCheck
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     SkillDetail,
@@ -141,6 +142,53 @@ async def list_workflow_skills(workflow_id: str, conn: ConnDep) -> SkillList:
     return SkillList(items=[_row_to_skill_summary(r) for r in rows])
 
 
+class LangSmithBindingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # None clears the binding; a non-empty string sets it.
+    langsmith_prompt_id: str | None
+
+
+class LangSmithBindingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skill_id: str
+    langsmith_prompt_id: str | None
+
+
+@skill_router.patch(
+    "/{skill_id}/langsmith-binding",
+    response_model=LangSmithBindingResponse,
+)
+async def set_langsmith_binding(
+    skill_id: str,
+    body: LangSmithBindingUpdate,
+    conn: ConnDep,
+    _demo: DemoModeCheck,
+) -> LangSmithBindingResponse:
+    """Manually set (or clear) the skill's LangSmith Prompt Hub binding.
+
+    For LangSmith-origin workflows where auto-binding didn't fire, or for
+    operators pushing a greenfield skill to a new prompt. 404 if the
+    skill doesn't exist. An empty string is normalised to NULL (clear).
+    """
+    prompt_id = body.langsmith_prompt_id
+    if prompt_id is not None and not prompt_id.strip():
+        prompt_id = None
+
+    result = await conn.execute(
+        "UPDATE skills SET langsmith_prompt_id = $1 WHERE id = $2",
+        prompt_id,
+        skill_id,
+    )
+    if result.endswith("0"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Skill not found",
+        )
+    return LangSmithBindingResponse(skill_id=skill_id, langsmith_prompt_id=prompt_id)
+
+
 @skill_router.get("/{skill_id}", response_model=SkillDetail)
 async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
     """Per-skill detail with head + parent content + version history."""
@@ -153,6 +201,7 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             s.capability_tags,
             s.head_version_id,
             s.deployed_version_id,
+            s.langsmith_prompt_id,
             sv_dep.version_seq  AS deployed_version_seq,
             w.description       AS workflow_description
         FROM skills s
@@ -285,6 +334,7 @@ async def get_skill(skill_id: str, conn: ConnDep) -> SkillDetail:
             deployable_row["version_seq"] if deployable_row is not None else None
         ),
         deployed_proposal_id=deployed_proposal_id,
+        langsmith_prompt_id=skill["langsmith_prompt_id"],
         versions=versions,
         related_eval_cases=related,
     )
