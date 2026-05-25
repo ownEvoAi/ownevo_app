@@ -152,9 +152,13 @@ class ClusterAutoTrigger:
         """
         self._stopping.set()
         if self._task is not None:
-            try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=timeout)
-            except TimeoutError:
+            # asyncio.wait avoids the asyncio.shield + asyncio.wait_for pattern,
+            # which has a cancellation-propagation bug on Python 3.11 (bpo-45874):
+            # wait_for cancels the shielded task immediately on timeout rather than
+            # protecting it.  asyncio.wait simply returns on timeout without
+            # cancelling, so we stay in control of when (and whether) to cancel.
+            done, _ = await asyncio.wait({self._task}, timeout=timeout)
+            if not done:
                 _log.warning(
                     "cluster auto-trigger: stop() timed out after %.0fs "
                     "(clustering run still in flight; cancelling task)",

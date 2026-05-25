@@ -44,8 +44,8 @@ async def _seed_workflow(db: asyncpg.Connection, wf_id: str) -> None:
 async def _app_and_client(db: asyncpg.Connection):  # noqa: ANN202
     """Build an app on the per-test DB with the auto-trigger enabled.
 
-    Returns (app, client) so the test can inspect
-    `app.state.cluster_auto_trigger` after a request.
+    Returns (app, pool) so the test can close the pool in the finally
+    block and inspect `app.state.cluster_auto_trigger` after a request.
     """
     dbname = await db.fetchval("SELECT current_database()")
     parsed = urlparse(os.environ[ENV_VAR])

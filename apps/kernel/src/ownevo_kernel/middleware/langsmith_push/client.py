@@ -23,6 +23,11 @@ from .errors import (
     LangSmithRateLimitError,
 )
 
+# HTTP timeout for LangSmith SDK calls. asyncio.to_thread cannot cancel
+# in-flight threads, so without a timeout a slow LangSmith endpoint fills
+# the thread-pool executor and stalls all subsequent to_thread work.
+_LANGSMITH_TIMEOUT_MS = 30_000
+
 
 @dataclass(frozen=True)
 class PushResult:
@@ -82,7 +87,7 @@ def push_fix(
     # cancel in-flight threads, so a missing timeout here stalls every
     # subsequent to_thread call (protobuf decode, clustering) once the pool
     # fills under concurrent ship requests.
-    client = Client(api_key=api_key, api_url=api_url, timeout_ms=30_000)
+    client = Client(api_key=api_key, api_url=api_url, timeout_ms=_LANGSMITH_TIMEOUT_MS)
     template = ChatPromptTemplate.from_messages([("system", instruction_text)])
 
     try:
@@ -128,7 +133,7 @@ def verify_api_key(*, api_key: str, api_url: str | None = None) -> None:
             "LangSmith integration requires the `langsmith` extra.",
         ) from exc
 
-    client = Client(api_key=api_key, api_url=api_url, timeout_ms=30_000)
+    client = Client(api_key=api_key, api_url=api_url, timeout_ms=_LANGSMITH_TIMEOUT_MS)
     try:
         # Force a single *authenticated* request against a tenant-scoped
         # endpoint. `list_datasets` requires a valid key — an invalid one

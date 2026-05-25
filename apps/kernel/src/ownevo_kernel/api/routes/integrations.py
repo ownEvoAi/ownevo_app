@@ -77,9 +77,9 @@ async def set_langsmith_credential(
 ) -> LangSmithStatus:
     """Store (encrypt) the LangSmith API key.
 
-    422 on an empty key. The key is sealed via the credentials master
-    key before it touches the database; a 500 here means the master key
-    isn't configured (see secrets/encrypted_field.py).
+    422 on an empty key. 503 when the server-side master encryption key
+    is not configured (`OWNEVO_CREDENTIALS_MASTER_KEY` unset). The key
+    is sealed at rest before it touches the database.
     """
     key = body.api_key.strip()
     if not key:
@@ -87,7 +87,15 @@ async def set_langsmith_credential(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="api_key must not be empty",
         )
-    await set_credential(conn, _PROVIDER, key)
+    from ...secrets import CredentialsKeyMissingError
+
+    try:
+        await set_credential(conn, _PROVIDER, key)
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
     return await get_langsmith_status(conn)
 
 
@@ -101,7 +109,8 @@ async def delete_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> No
 async def test_langsmith_credential(conn: ConnDep, _demo: DemoModeCheck) -> LangSmithTestResult:
     """Validate the stored key against LangSmith and record the result.
 
-    404 when no key is configured. Otherwise returns 'ok' (authenticated
+    404 when no key is configured. 503 when the master encryption key is
+    not configured on the server. Otherwise returns 'ok' (authenticated
     read succeeded), 'invalid' (key rejected), or 'error' (network / API
     failure) and stamps `validation_status` for the Settings UI.
     """
