@@ -54,7 +54,11 @@ pytestmark = [
 # importorskip emits a clean pytest skip message and avoids a bare
 # ImportError at collection time.
 pytest.importorskip("google.adk", reason="google-adk not installed; pass --extra adk to uv sync")
-pytest.importorskip("opentelemetry", reason="opentelemetry-sdk not installed")
+# Guard on opentelemetry.sdk: opentelemetry-proto (from the `api` extra)
+# populates the bare `opentelemetry` namespace without the SDK, so
+# importorskip("opentelemetry") would pass while the SDK imports below
+# still fail at collection.
+pytest.importorskip("opentelemetry.sdk", reason="opentelemetry-sdk not installed")
 
 # Imports must come after the importorskip calls so collection survives
 # when the deps are missing.
