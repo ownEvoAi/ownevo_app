@@ -73,10 +73,21 @@ def translate_otlp_json_for_adk(payload: dict[str, Any]) -> dict[str, Any]:
         return payload
 
     out = copy.deepcopy(payload)
+    _walk_and_rewrite_inplace(out)
+    return out
 
+
+def _walk_and_rewrite_inplace(out: dict[str, Any]) -> None:
+    """Walk the OTLP span tree and apply ADK rewrites in-place.
+
+    Internal helper shared with the ingest route, which performs a
+    single deep-copy across multiple translation passes instead of one
+    per translator. The public ``translate_otlp_json_for_adk`` wrapper
+    is the preferred interface for standalone callers.
+    """
     resource_spans = out.get("resourceSpans") or out.get("resource_spans")
     if not isinstance(resource_spans, list):
-        return out
+        return
 
     for rs in resource_spans:
         if not isinstance(rs, dict):
@@ -93,8 +104,6 @@ def translate_otlp_json_for_adk(payload: dict[str, Any]) -> dict[str, Any]:
             for span in spans:
                 if isinstance(span, dict):
                     _rewrite_span_attributes(span)
-
-    return out
 
 
 def _rewrite_span_attributes(span: dict[str, Any]) -> None:

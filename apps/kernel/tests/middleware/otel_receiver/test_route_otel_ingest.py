@@ -97,6 +97,22 @@ async def test_end_to_end_agent_run_returns_three_events(
     assert body["accepted_events"] == 3
 
 
+async def test_watsonx_traceloop_tool_span_accepted(
+    api_client: httpx.AsyncClient,
+) -> None:
+    """Traceloop / OpenLLMetry tool spans (watsonx ADK) decode into two events.
+
+    The route's _parse_translate_decode applies the watsonx translator before
+    decode_otlp_payload, so Traceloop vendor keys produce the same
+    ToolCallStart + ToolCallResult pair as a standard gen_ai.* tool span.
+    """
+    case = next(c for c in CASES if c.name == "28_watsonx_traceloop_tool_call")
+    resp = await api_client.post("/api/otel/v1/traces", json=case.payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["accepted_events"] == 2  # ToolCallStart + ToolCallResult
+
+
 async def test_request_body_as_string_round_trips(api_client: httpx.AsyncClient) -> None:
     """The route reads raw bytes; passing serialised JSON as content works."""
     case = next(c for c in CASES if c.name == "05_tool_call_ok")

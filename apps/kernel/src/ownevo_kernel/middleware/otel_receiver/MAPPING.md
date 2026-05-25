@@ -212,6 +212,17 @@ receiver itself:
   payload hits the receiver; see that module's docstring for the
   full divergence list.
 
+- **IBM watsonx Orchestrate ADK / OpenLLMetry.** watsonx Orchestrate
+  emits OTel via the Traceloop / OpenLLMetry SDK, which uses
+  `traceloop.span.kind` instead of `gen_ai.operation.name` and stores
+  tool args / results under `traceloop.entity.input` /
+  `traceloop.entity.output`. The adapter at `middleware/watsonx_adk/`
+  bridges those keys onto the standard semconv (and synthesises a
+  deterministic `gen_ai.tool.call.id` from the span id, which
+  OpenLLMetry does not emit). The translator is shape-only — any
+  OpenLLMetry-instrumented agent traces through the same path, not
+  just watsonx-emitted ones.
+
 ## What this mapping deliberately does not do
 
 - No protobuf / gRPC OTLP. JSON-over-HTTP only.
