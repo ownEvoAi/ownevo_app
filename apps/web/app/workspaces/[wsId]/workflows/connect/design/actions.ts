@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import {
   fetchImportNextQuestion,
+  fetchImportSummary,
   generateFromImport,
   KernelApiError,
   type DesignAgentLog,
@@ -70,6 +71,44 @@ export async function loadNextImportQuestion(
       done: false,
       totalQuestions: 0,
       answeredCount: 0,
+      error: errMsg,
+    }
+  }
+}
+
+export interface ImportSummaryState {
+  loaded: boolean
+  summary: string | null
+  basis: string | null
+  source: string | null
+  error: string | null
+}
+
+export async function loadImportSummary(
+  traceIds: string[],
+  agentDefinition: string | null,
+): Promise<ImportSummaryState> {
+  try {
+    const resp = await fetchImportSummary(traceIds, agentDefinition)
+    return {
+      loaded: true,
+      summary: resp.summary,
+      basis: resp.basis,
+      source: resp.source,
+      error: null,
+    }
+  } catch (err) {
+    const errMsg =
+      err instanceof KernelApiError
+        ? `Kernel error (${err.status}): ${err.detail}`
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    return {
+      loaded: false,
+      summary: null,
+      basis: null,
+      source: null,
       error: errMsg,
     }
   }

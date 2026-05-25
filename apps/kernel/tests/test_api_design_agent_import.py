@@ -221,6 +221,141 @@ async def test_unknown_trace_ids_404(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/design-agent/import-summary tests
+# ---------------------------------------------------------------------------
+
+
+async def test_import_summary_fallback_without_llm(client: httpx.AsyncClient):
+    """No ANTHROPIC_API_KEY → deterministic fallback summary."""
+    resp = await client.post(
+        "/api/design-agent/import-summary",
+        json={"trace_ids": [str(uuid4())]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "fallback"
+    assert body["basis"] == "traces"
+    # Fallback names the observed tool from _TRACE_EVENTS.
+    assert "forecast_demand" in body["summary"]
+
+
+async def test_import_summary_basis_with_definition(client: httpx.AsyncClient):
+    resp = await client.post(
+        "/api/design-agent/import-summary",
+        json={
+            "trace_ids": [str(uuid4())],
+            "agent_definition": "You are a demand-planning assistant.",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["basis"] == "definition+traces"
+
+
+async def test_import_summary_unknown_trace_ids_404(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    class _EmptyConn:
+        async def fetch(self, *_):
+            return []
+
+    class _EmptyAcquire:
+        async def __aenter__(self):
+            return _EmptyConn()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _EmptyPool:
+        def acquire(self):
+            return _EmptyAcquire()
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.pool = _EmptyPool()
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-summary",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 404
+
+
+async def test_import_summary_llm_success_path(monkeypatch):
+    """LLM present + call succeeds → source='llm'."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    from ownevo_kernel.design_agent.reverse_discovery import ReverseDiscoverySummary
+
+    async def _ok_summary(*_args: Any, **_kwargs: Any) -> ReverseDiscoverySummary:
+        return ReverseDiscoverySummary(
+            summary="Forecasts weekly demand and flags stockout risk.",
+            basis="traces",
+            is_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_reverse_discovery_summary",
+        _ok_summary,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.pool = _FakePool()
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-summary",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "llm"
+    assert "Forecasts weekly demand" in body["summary"]
+
+
+async def test_import_summary_llm_interviewer_error_falls_back(monkeypatch):
+    """LLM call raises InterviewerError → route falls back to deterministic summary."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    from ownevo_kernel.design_agent.interviewer import InterviewerError
+
+    async def _fail(*_args: Any, **_kwargs: Any) -> None:
+        raise InterviewerError("boom")
+
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.generate_reverse_discovery_summary",
+        _fail,
+    )
+    monkeypatch.setattr(
+        "ownevo_kernel.api.routes.design_agent_import.build_async_anthropic",
+        lambda _key: object(),
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.pool = _FakePool()
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://api.test"
+    ) as c:
+        resp = await c.post(
+            "/api/design-agent/import-summary",
+            json={"trace_ids": [str(uuid4())]},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "fallback"
+    # Deterministic fallback names the observed tool from _TRACE_EVENTS.
+    assert "forecast_demand" in body["summary"]
+
+
+# ---------------------------------------------------------------------------
 # POST /api/design-agent/import-generate tests
 # ---------------------------------------------------------------------------
 

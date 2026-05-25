@@ -13,6 +13,8 @@ import type { NextDiscoveryQuestion } from '@/lib/api'
 import {
   type DiscoveryTranscriptEntry,
   generateFromImportAction,
+  type ImportSummaryState,
+  loadImportSummary,
   loadNextImportQuestion,
   type NextQuestionState,
 } from './actions'
@@ -24,7 +26,16 @@ interface ImportDesignFlowProps {
   /** Pre-rendered observed-behaviour summary for the left pane. */
   traceSummaryLines: string[]
   traceCount: number
-  initialState: NextQuestionState
+  initialSummary: ImportSummaryState
+}
+
+const _UNLOADED_QUESTION: NextQuestionState = {
+  loaded: false,
+  next: null,
+  done: false,
+  totalQuestions: 0,
+  answeredCount: 0,
+  error: null,
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -64,33 +75,59 @@ export function ImportDesignFlow({
   agentDefinition,
   traceSummaryLines,
   traceCount,
-  initialState,
+  initialSummary,
 }: ImportDesignFlowProps) {
-  const [questionState, setQuestionState] = useState<NextQuestionState>(initialState)
+  // The flow opens on a reverse-discovery summary ("this agent does X")
+  // the reviewer confirms or corrects; the confirmed text becomes the
+  // agent definition that grounds the rest of discovery + generation.
+  const [phase, setPhase] = useState<'confirming' | 'interview'>('confirming')
+  const [summaryState, setSummaryState] =
+    useState<ImportSummaryState>(initialSummary)
+  const [correctionDraft, setCorrectionDraft] = useState('')
+  const [effectiveDefinition, setEffectiveDefinition] = useState<string | null>(
+    agentDefinition,
+  )
+
+  const [questionState, setQuestionState] =
+    useState<NextQuestionState>(_UNLOADED_QUESTION)
   const [transcript, setTranscript] = useState<DiscoveryTranscriptEntry[]>([])
   const [draft, setDraft] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [isFetching, startFetch] = useTransition()
   const [isGenerating, startGenerate] = useTransition()
+  const [isSummaryFetching, startSummaryFetch] = useTransition()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
-  // Client-side retry for the initial question: the page's SSR pre-fetch
-  // has a short budget, but the LLM interviewer commonly takes longer.
-  // Fire again from the client (no timeout cap) when SSR returned nothing.
-  const initialRetryTried = useRef(false)
+  // Client-side retry for the reverse-discovery summary: the page's SSR
+  // pre-fetch has a short budget, but the LLM commonly takes longer. Fire
+  // again from the client (no timeout cap) when SSR returned nothing.
+  const summaryRetryTried = useRef(false)
   useEffect(() => {
-    if (initialRetryTried.current) return
-    if (questionState.loaded && (questionState.next || questionState.done)) return
-    initialRetryTried.current = true
+    if (summaryRetryTried.current) return
+    if (summaryState.loaded) return
+    summaryRetryTried.current = true
+    startSummaryFetch(async () => {
+      const resp = await loadImportSummary(traceIds, agentDefinition)
+      setSummaryState(resp)
+    })
+  }, [summaryState.loaded, traceIds, agentDefinition])
+
+  // Fetch the first discovery question once the reviewer confirms the
+  // summary — it's grounded in the confirmed definition, so it can't be
+  // pre-fetched at SSR time.
+  const confirmDefinition = (definition: string | null) => {
+    const cleaned = definition && definition.trim() !== '' ? definition.trim() : null
+    setEffectiveDefinition(cleaned)
+    setPhase('interview')
     startFetch(async () => {
       const resp = await loadNextImportQuestion({
         traceIds,
-        agentDefinition,
+        agentDefinition: cleaned,
         priorAnswers: [],
       })
       setQuestionState(resp)
     })
-  }, [questionState.loaded, questionState.next, questionState.done, traceIds, agentDefinition])
+  }
 
   const current = questionState.next
 
@@ -139,7 +176,7 @@ export function ImportDesignFlow({
       }))
       const resp = await loadNextImportQuestion({
         traceIds,
-        agentDefinition,
+        agentDefinition: effectiveDefinition,
         priorAnswers,
       })
       setQuestionState(resp)
@@ -164,7 +201,7 @@ export function ImportDesignFlow({
       const result = await generateFromImportAction({
         wsId,
         traceIds,
-        agentDefinition,
+        agentDefinition: effectiveDefinition,
         transcript,
       })
       if (result?.error) setGenerateError(result.error)
@@ -200,23 +237,126 @@ export function ImportDesignFlow({
             <div key={i}>{line || ' '}</div>
           ))}
         </div>
-        {agentDefinition ? (
+        {effectiveDefinition ? (
           <>
             <h2 className="design-pane-title" style={{ marginTop: 16 }}>
-              Agent definition
+              What this agent does
             </h2>
             <div className="design-description" aria-label="Agent definition">
-              {agentDefinition}
+              {effectiveDefinition}
             </div>
           </>
         ) : null}
       </aside>
 
-      {/* Centre pane — decision-brief interview. */}
+      {/* Centre pane — reverse-discovery confirmation, then interview. */}
       <section
         className="design-pane design-pane-centre"
         aria-label="Discovery interview"
       >
+        {phase === 'confirming' ? (
+          <>
+            <h2 className="design-pane-title">What this agent does</h2>
+            {summaryState.loaded && summaryState.summary ? (
+              <article
+                className="decision-brief"
+                aria-live="polite"
+                aria-label="Reverse-discovery summary"
+              >
+                <header className="decision-brief-header">
+                  <span className="decision-brief-dimension">Premise</span>
+                  <span
+                    className="decision-brief-source"
+                    data-source={summaryState.source === 'llm' ? 'llm' : 'fallback'}
+                  >
+                    {summaryState.source === 'llm'
+                      ? '· inferred from your traces'
+                      : '· summarised from your traces'}
+                  </span>
+                </header>
+                <div className="decision-brief-question">{summaryState.summary}</div>
+                <p className="decision-brief-eli">
+                  ownEvo read this agent&rsquo;s traces and inferred what it does
+                  today. Confirm it, or correct it below — your answer grounds the
+                  rest of discovery and the generated spec.
+                </p>
+                <div className="option-cards" role="group" aria-label="Confirm options">
+                  <button
+                    type="button"
+                    className="option-card option-card-recommended"
+                    onClick={() => confirmDefinition(summaryState.summary)}
+                    disabled={isFetching}
+                  >
+                    <div className="option-card-header">
+                      <span className="option-card-label">
+                        Yes — that&rsquo;s what it does
+                      </span>
+                      <span className="option-card-badge">Recommended</span>
+                    </div>
+                  </button>
+                </div>
+                <form
+                  className="chat-composer"
+                  style={{ marginTop: 16 }}
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (correctionDraft.trim()) confirmDefinition(correctionDraft)
+                  }}
+                >
+                  <label className="sr-only" htmlFor="reverse-correction">
+                    Correct the summary
+                  </label>
+                  <textarea
+                    id="reverse-correction"
+                    className="chat-input"
+                    rows={2}
+                    maxLength={2048}
+                    value={correctionDraft}
+                    onChange={(e) => setCorrectionDraft(e.target.value)}
+                    placeholder="Not quite — describe what this agent actually does…"
+                    disabled={isFetching}
+                  />
+                  <div className="chat-composer-actions">
+                    <div className="gen-action-primary">
+                      <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={isFetching || correctionDraft.trim().length === 0}
+                        aria-disabled={
+                          isFetching || correctionDraft.trim().length === 0
+                        }
+                      >
+                        {isFetching ? 'Loading…' : 'Use this instead ›'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </article>
+            ) : summaryState.error ? (
+              <div role="alert" className="api-banner">
+                <strong>Could not summarise the agent.</strong>{' '}
+                {summaryState.error}
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => confirmDefinition(null)}
+                    disabled={isFetching}
+                  >
+                    Skip — start discovery anyway
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="chat-bubble chat-bubble-system">
+                {isSummaryFetching
+                  ? 'Reading this agent’s traces…'
+                  : 'Preparing a summary of what this agent does…'}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
         <h2 className="design-pane-title">Discovery</h2>
 
         <div className="dimension-strip" role="list" aria-label="Discovery coverage">
@@ -405,11 +545,19 @@ export function ImportDesignFlow({
           </div>
         ) : null}
 
+        {!current && !discoveryDone && !questionState.error ? (
+          <div className="chat-bubble chat-bubble-system">
+            Preparing the first question from your traces…
+          </div>
+        ) : null}
+
         {questionState.error ? (
           <div role="alert" className="api-banner">
             <strong>Discovery failed.</strong> {questionState.error}
           </div>
         ) : null}
+          </>
+        )}
       </section>
 
       {/* Right pane — progress + transcript + Generate. */}

@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { EntryStrip } from '../../new/page'
 import { ConnectSteps } from '../page'
 import {
-  fetchImportNextQuestion,
+  fetchImportSummary,
   listAllTraces,
   type TraceSummary,
 } from '@/lib/api-server'
@@ -26,7 +26,7 @@ interface PageProps {
 // explicit `trace_ids` list we honour it; otherwise we summarise every
 // ingested trace the workspace has seen so far.
 const _MAX_SELECTED_TRACES = 50
-const _SSR_QUESTION_TIMEOUT_MS = 5000
+const _SSR_SUMMARY_TIMEOUT_MS = 5000
 
 function buildSummaryLines(traces: TraceSummary[]): string[] {
   const kindTotals: Record<string, number> = {}
@@ -143,34 +143,30 @@ export default async function ConnectDesignPage({
     )
   }
 
-  // Pre-fetch the first question under a short budget so the page renders
-  // fast; the client retries without a cap if the interviewer is slow.
+  // Pre-fetch the reverse-discovery summary under a short budget so the
+  // opening "this agent does X" turn renders fast; the client retries
+  // without a cap if the LLM is slow. The first discovery question is
+  // fetched client-side after the reviewer confirms the summary, since it
+  // depends on the confirmed agent definition.
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), _SSR_QUESTION_TIMEOUT_MS)
-  let initialState
+  const timer = setTimeout(() => controller.abort(), _SSR_SUMMARY_TIMEOUT_MS)
+  let initialSummary
   try {
-    const resp = await fetchImportNextQuestion(
-      traceIds,
-      null,
-      [],
-      controller.signal,
-    )
-    initialState = {
+    const resp = await fetchImportSummary(traceIds, null, controller.signal)
+    initialSummary = {
       loaded: true,
-      next: resp.next_question,
-      done: resp.done,
-      totalQuestions: resp.total_questions,
-      answeredCount: resp.answered_count,
+      summary: resp.summary,
+      basis: resp.basis,
+      source: resp.source,
       error: null,
     }
   } catch {
     // SSR budget exceeded or transient failure — the client refetches.
-    initialState = {
+    initialSummary = {
       loaded: false,
-      next: null,
-      done: false,
-      totalQuestions: 0,
-      answeredCount: 0,
+      summary: null,
+      basis: null,
+      source: null,
       error: null,
     }
   } finally {
@@ -188,7 +184,7 @@ export default async function ConnectDesignPage({
         agentDefinition={null}
         traceSummaryLines={buildSummaryLines(selected)}
         traceCount={selected.length}
-        initialState={initialState}
+        initialSummary={initialSummary}
       />
     </div>
   )

@@ -10,10 +10,12 @@ import {
   generateWorkflow as _generateWorkflow,
   fetchNextDiscoveryQuestion as _fetchNextDiscoveryQuestion,
   fetchImportNextQuestion as _fetchImportNextQuestion,
+  fetchImportSummary as _fetchImportSummary,
   generateFromImport as _generateFromImport,
   type DesignAgentLog,
   type GenerateWorkflowResponse,
   type ImportGenerateResponse,
+  type ImportSummaryResponse,
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
 } from './api'
@@ -76,6 +78,15 @@ export async function fetchImportNextQuestion(
     signal,
     cookieHeader,
   )
+}
+
+export async function fetchImportSummary(
+  traceIds: string[],
+  agentDefinition: string | null,
+  signal?: AbortSignal,
+): Promise<ImportSummaryResponse> {
+  const cookieHeader = await getDemoCookieHeader()
+  return _fetchImportSummary(traceIds, agentDefinition, signal, cookieHeader)
 }
 
 export async function generateFromImport(
