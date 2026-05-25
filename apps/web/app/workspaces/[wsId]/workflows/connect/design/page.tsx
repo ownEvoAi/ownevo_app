@@ -1,0 +1,195 @@
+import Link from 'next/link'
+import { EntryStrip } from '../../new/page'
+import { ConnectSteps } from '../page'
+import {
+  fetchImportNextQuestion,
+  listAllTraces,
+  type TraceSummary,
+} from '@/lib/api-server'
+import { ImportDesignFlow } from './import-design-flow'
+
+interface PageProps {
+  params: Promise<{ wsId: string }>
+  searchParams: Promise<{ source?: string; trace_ids?: string }>
+}
+
+// Connect existing agent — step 2/3, trace-import discovery.
+//
+// The improvement loop attaches to an agent that is already running: its
+// traces were ingested through the OTLP receiver. This page summarises
+// the imported traces, runs the design agent's discovery interview over
+// that observed behaviour, and — on Generate — reverse-engineers a
+// WorkflowSpec + sim plan + metric and persists the workflow.
+//
+// "Ingested" traces are the production traces (iteration_id IS NULL) the
+// kernel stores from the OTLP receiver. When the source picker passes an
+// explicit `trace_ids` list we honour it; otherwise we summarise every
+// ingested trace the workspace has seen so far.
+const _MAX_SELECTED_TRACES = 50
+const _SSR_QUESTION_TIMEOUT_MS = 5000
+
+function buildSummaryLines(traces: TraceSummary[]): string[] {
+  const kindTotals: Record<string, number> = {}
+  let totalEvents = 0
+  for (const t of traces) {
+    totalEvents += t.event_count
+    for (const [kind, n] of Object.entries(t.kind_counts ?? {})) {
+      kindTotals[kind] = (kindTotals[kind] ?? 0) + n
+    }
+  }
+  const lines: string[] = [
+    `${traces.length} ingested trace${traces.length === 1 ? '' : 's'}, ${totalEvents} events.`,
+    '',
+    'Event breakdown:',
+  ]
+  const ordered = Object.entries(kindTotals).sort((a, b) => b[1] - a[1])
+  if (ordered.length === 0) {
+    lines.push('  (no decodable events)')
+  } else {
+    for (const [kind, n] of ordered) {
+      lines.push(`  ${kind}: ${n}`)
+    }
+  }
+  return lines
+}
+
+export default async function ConnectDesignPage({
+  params,
+  searchParams,
+}: PageProps) {
+  const { wsId } = await params
+  const { trace_ids: traceIdsParam } = await searchParams
+
+  let allTraces: TraceSummary[] = []
+  let loadError: string | null = null
+  try {
+    const resp = await listAllTraces()
+    allTraces = resp.items
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : String(err)
+  }
+
+  // Production / ingested traces = no iteration_id. Eval-loop traces are
+  // excluded; they belong to a workflow that already exists.
+  const ingested = allTraces.filter((t) => t.iteration_id === null)
+  const requestedIds = traceIdsParam
+    ? new Set(traceIdsParam.split(',').map((s) => s.trim()).filter(Boolean))
+    : null
+  const selected = (requestedIds
+    ? ingested.filter((t) => requestedIds.has(t.id))
+    : ingested
+  ).slice(0, _MAX_SELECTED_TRACES)
+
+  const traceIds = selected.map((t) => t.id)
+
+  const header = (
+    <header className="gen-head">
+      <a
+        href={`/workspaces/${wsId}/workflows/connect`}
+        className="wf-back"
+        style={{ marginBottom: 6 }}
+      >
+        ‹ Back: change source
+      </a>
+      <h1 className="gen-title">Define the imported agent</h1>
+      <p className="gen-sub">
+        ownEvo read this agent&rsquo;s traces. Answer a short discovery
+        interview so the improvement loop knows what success means before it
+        attaches.
+      </p>
+    </header>
+  )
+
+  if (loadError) {
+    return (
+      <div className="preview-wrap">
+        {header}
+        <EntryStrip wsId={wsId} active="connect" />
+        <ConnectSteps step={2} />
+        <div role="alert" className="api-banner">
+          <strong>Could not load traces.</strong> {loadError}
+        </div>
+      </div>
+    )
+  }
+
+  if (traceIds.length === 0) {
+    return (
+      <div className="preview-wrap">
+        {header}
+        <EntryStrip wsId={wsId} active="connect" />
+        <ConnectSteps step={2} />
+        <div className="connect-not-wired">
+          <div className="connect-not-wired-pill">No traces yet</div>
+          <h2 className="connect-not-wired-title">
+            No ingested traces found for this agent
+          </h2>
+          <p className="connect-not-wired-body">
+            Point your OpenTelemetry collector at the kernel&rsquo;s OTLP
+            endpoint (gen-ai semantic conventions), or upload a trace export.
+            Once at least one trace lands, this page runs discovery over the
+            agent&rsquo;s observed behaviour.
+          </p>
+          <div className="connect-not-wired-actions">
+            <Link
+              href={`/workspaces/${wsId}/workflows/connect`}
+              className="btn btn-secondary"
+            >
+              Pick a different source
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Pre-fetch the first question under a short budget so the page renders
+  // fast; the client retries without a cap if the interviewer is slow.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), _SSR_QUESTION_TIMEOUT_MS)
+  let initialState
+  try {
+    const resp = await fetchImportNextQuestion(
+      traceIds,
+      null,
+      [],
+      controller.signal,
+    )
+    initialState = {
+      loaded: true,
+      next: resp.next_question,
+      done: resp.done,
+      totalQuestions: resp.total_questions,
+      answeredCount: resp.answered_count,
+      error: null,
+    }
+  } catch {
+    // SSR budget exceeded or transient failure — the client refetches.
+    initialState = {
+      loaded: false,
+      next: null,
+      done: false,
+      totalQuestions: 0,
+      answeredCount: 0,
+      error: null,
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+
+  return (
+    <div className="preview-wrap">
+      {header}
+      <EntryStrip wsId={wsId} active="connect" />
+      <ConnectSteps step={2} />
+      <ImportDesignFlow
+        wsId={wsId}
+        traceIds={traceIds}
+        agentDefinition={null}
+        traceSummaryLines={buildSummaryLines(selected)}
+        traceCount={selected.length}
+        initialState={initialState}
+      />
+    </div>
+  )
+}

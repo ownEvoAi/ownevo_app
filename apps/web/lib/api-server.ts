@@ -9,8 +9,11 @@ import { isDemoMode } from './demo-mode'
 import {
   generateWorkflow as _generateWorkflow,
   fetchNextDiscoveryQuestion as _fetchNextDiscoveryQuestion,
+  fetchImportNextQuestion as _fetchImportNextQuestion,
+  generateFromImport as _generateFromImport,
   type DesignAgentLog,
   type GenerateWorkflowResponse,
+  type ImportGenerateResponse,
   type NextDiscoveryQuestionResponse,
   type PriorDiscoveryAnswer,
 } from './api'
@@ -55,6 +58,38 @@ export async function fetchNextDiscoveryQuestion(
     templateId,
     priorAnswers,
     signal,
+    cookieHeader,
+  )
+}
+
+export async function fetchImportNextQuestion(
+  traceIds: string[],
+  agentDefinition: string | null,
+  priorAnswers: PriorDiscoveryAnswer[],
+  signal?: AbortSignal,
+): Promise<NextDiscoveryQuestionResponse> {
+  const cookieHeader = await getDemoCookieHeader()
+  return _fetchImportNextQuestion(
+    traceIds,
+    agentDefinition,
+    priorAnswers,
+    signal,
+    cookieHeader,
+  )
+}
+
+export async function generateFromImport(
+  traceIds: string[],
+  agentDefinition: string | null,
+  designAgentLog: DesignAgentLog | null,
+  workflowId?: string,
+): Promise<ImportGenerateResponse> {
+  const cookieHeader = await getDemoCookieHeader()
+  return _generateFromImport(
+    traceIds,
+    agentDefinition,
+    designAgentLog,
+    workflowId,
     cookieHeader,
   )
 }

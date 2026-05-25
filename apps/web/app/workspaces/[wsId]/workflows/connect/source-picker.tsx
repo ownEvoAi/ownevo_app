@@ -17,9 +17,9 @@ const SOURCES: SourceDef[] = [
   {
     key: 'otel',
     title: 'OpenTelemetry endpoint',
-    body: 'Point your existing OTel collector at our HTTPS endpoint. Use the gen-ai semantic conventions. No code changes if you already have OTel.',
+    body: 'Point your existing OTel collector at our OTLP endpoint. Use the gen-ai semantic conventions. No code changes if you already have OTel.',
     tags: ['recommended', 'live stream'],
-    status: 'planned',
+    status: 'wired',
   },
   {
     key: 'upload',
@@ -38,11 +38,11 @@ const SOURCES: SourceDef[] = [
 ]
 
 // Step 1 client island — choose a trace source, then advance. For
-// `otel` + `upload` we land on a placeholder step 2 that explains
-// the ingestion + inference plumbing isn't wired yet; for `manual`
-// we route back into the existing /workflows/new NL-gen flow with
-// a `from=connect` query so the form shows a thin BYO-context
-// header.
+// `otel` + `upload` we land on the trace-import discovery surface, which
+// summarises the agent's ingested traces and runs the design interview
+// over them; for `manual` we route back into the existing /workflows/new
+// NL-gen flow with a `from=connect` query so the form shows a thin
+// BYO-context header.
 export function SourcePicker({ wsId }: { wsId: string }) {
   const router = useRouter()
   const [selected, setSelected] = useState<SourceKey>('manual')
@@ -52,7 +52,7 @@ export function SourcePicker({ wsId }: { wsId: string }) {
       router.push(`/workspaces/${wsId}/workflows/new?from=connect`)
     } else {
       router.push(
-        `/workspaces/${wsId}/workflows/connect/inferred?source=${selected}`,
+        `/workspaces/${wsId}/workflows/connect/design?source=${selected}`,
       )
     }
   }
