@@ -609,11 +609,16 @@ export interface ReverseDiscoveryInput {
 // Reverse-engineer a WorkflowSpec from imported traces + the negotiated
 // discovery answers, persist the workflow, and mirror the reverse-discovery
 // turn + transcript into the audit chain. Returns the new workflow id.
+// Vendor the imported agent came from; tags the created workflow's origin
+// so the right fix-delivery action appears later. null = greenfield.
+export type WorkflowOrigin = 'langsmith' | 'copilot_studio'
+
 export async function generateFromImport(
   traceIds: string[],
   agentDefinition: string | null,
   designAgentLog: DesignAgentLog | null,
   reverseDiscovery: ReverseDiscoveryInput | null,
+  origin?: WorkflowOrigin | null,
   workflowId?: string,
   cookieHeader?: string,
 ): Promise<ImportGenerateResponse> {
@@ -626,6 +631,7 @@ export async function generateFromImport(
         agent_definition: agentDefinition,
         reverse_discovery: reverseDiscovery,
         design_agent_log: designAgentLog,
+        origin: origin ?? null,
         workflow_id: workflowId,
       }),
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
@@ -1571,5 +1577,87 @@ export async function setSkillLangSmithBinding(
   return jsonFetch<LangSmithBindingResponse>(
     `/api/skills/${encodeURIComponent(skillId)}/langsmith-binding`,
     { method: 'PATCH', body: JSON.stringify({ langsmith_prompt_id: promptId }) },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Copilot Studio integration (13.0.3) — Entra credential + fix delivery
+// ---------------------------------------------------------------------------
+
+export interface CopilotStudioStatus {
+  configured: boolean
+  last_validated_at: string | null
+  validation_status: string | null
+}
+
+export interface CopilotStudioCredentialInput {
+  tenant_id: string
+  client_id: string
+  client_secret: string
+  environment_url: string
+  authority_host?: string | null
+}
+
+export interface CopilotStudioTestResult {
+  status: 'ok' | 'invalid' | 'error'
+  detail: string | null
+}
+
+export interface ShipCopilotStudioResponse {
+  proposal_id: string
+  summary: string
+  instruction_text: string
+  already_delivered: boolean
+}
+
+export async function getCopilotStudioStatus(): Promise<CopilotStudioStatus> {
+  return jsonFetch<CopilotStudioStatus>('/api/integrations/copilot-studio')
+}
+
+export async function setCopilotStudioCredential(
+  cred: CopilotStudioCredentialInput,
+): Promise<CopilotStudioStatus> {
+  return jsonFetch<CopilotStudioStatus>('/api/integrations/copilot-studio', {
+    method: 'POST',
+    body: JSON.stringify(cred),
+  })
+}
+
+export async function deleteCopilotStudioCredential(): Promise<void> {
+  await jsonFetch<unknown>('/api/integrations/copilot-studio', { method: 'DELETE' })
+}
+
+export async function testCopilotStudioConnection(): Promise<CopilotStudioTestResult> {
+  return jsonFetch<CopilotStudioTestResult>('/api/integrations/copilot-studio/test', {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export async function shipFixToCopilotStudio(
+  proposalId: string,
+): Promise<ShipCopilotStudioResponse> {
+  return jsonFetch<ShipCopilotStudioResponse>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/ship-copilot-studio`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
+export interface CopilotStudioDefinitionResult {
+  agent_definition: string | null
+  found: boolean
+}
+
+export async function exportCopilotStudioDefinition(
+  solutionName: string,
+  cookieHeader?: string,
+): Promise<CopilotStudioDefinitionResult> {
+  return jsonFetch<CopilotStudioDefinitionResult>(
+    '/api/integrations/copilot-studio/export-definition',
+    {
+      method: 'POST',
+      body: JSON.stringify({ solution_name: solutionName }),
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    },
   )
 }

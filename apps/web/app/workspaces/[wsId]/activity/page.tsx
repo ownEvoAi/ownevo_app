@@ -541,6 +541,24 @@ function renderEntry(
           ? `/workspaces/${wsId}/proposals/${entry.related_id}`
           : `/workspaces/${wsId}/audit`,
       }
+    case 'fix-exported-copilot-studio':
+      return {
+        glyph: '↗',
+        tone: 'green',
+        text: (
+          <>
+            Fix delivered to Copilot Studio
+            {entry.related_id ? (
+              <>
+                {' '}(proposal <code>{entry.related_id.slice(0, 8)}</code>)
+              </>
+            ) : null}
+          </>
+        ),
+        href: entry.related_id
+          ? `/workspaces/${wsId}/proposals/${entry.related_id}`
+          : `/workspaces/${wsId}/audit`,
+      }
     case 'schema-migration':
       return {
         glyph: '⚠',

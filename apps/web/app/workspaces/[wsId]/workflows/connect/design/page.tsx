@@ -2,15 +2,26 @@ import Link from 'next/link'
 import { EntryStrip } from '../../new/page'
 import { ConnectSteps } from '../page'
 import {
+  exportCopilotStudioDefinition,
   fetchImportSummary,
   listAllTraces,
   type TraceSummary,
+  type WorkflowOrigin,
 } from '@/lib/api-server'
 import { ImportDesignFlow } from './import-design-flow'
 
 interface PageProps {
   params: Promise<{ wsId: string }>
-  searchParams: Promise<{ source?: string; trace_ids?: string }>
+  searchParams: Promise<{ source?: string; trace_ids?: string; solution?: string }>
+}
+
+// Map the connect source key onto a workflow origin tag. Only the
+// adapter-mediated vendors map; OTel / upload / manual stay greenfield
+// (null) since their provenance isn't a single fix-delivery vendor.
+function originForSource(source: string | undefined): WorkflowOrigin | null {
+  if (source === 'langsmith') return 'langsmith'
+  if (source === 'copilot-studio') return 'copilot_studio'
+  return null
 }
 
 // Connect existing agent — step 2/3, trace-import discovery.
@@ -58,7 +69,8 @@ export default async function ConnectDesignPage({
   searchParams,
 }: PageProps) {
   const { wsId } = await params
-  const { trace_ids: traceIdsParam } = await searchParams
+  const { source, trace_ids: traceIdsParam, solution } = await searchParams
+  const origin = originForSource(source)
 
   let allTraces: TraceSummary[] = []
   let loadError: string | null = null
@@ -143,6 +155,21 @@ export default async function ConnectDesignPage({
     )
   }
 
+  // When the source is a Copilot Studio agent and the operator named the
+  // solution, export its definition so reverse-discovery is grounded in the
+  // agent's stated instructions, not only its traces. Best-effort: any
+  // failure (no credential, export error, no recognisable definition) falls
+  // back to the trace-only summary rather than blocking the flow.
+  let agentDefinition: string | null = null
+  if (origin === 'copilot_studio' && solution) {
+    try {
+      const def = await exportCopilotStudioDefinition(solution)
+      agentDefinition = def.agent_definition
+    } catch {
+      agentDefinition = null
+    }
+  }
+
   // Pre-fetch the reverse-discovery summary under a short budget so the
   // opening "this agent does X" turn renders fast; the client retries
   // without a cap if the LLM is slow. The first discovery question is
@@ -152,7 +179,7 @@ export default async function ConnectDesignPage({
   const timer = setTimeout(() => controller.abort(), _SSR_SUMMARY_TIMEOUT_MS)
   let initialSummary
   try {
-    const resp = await fetchImportSummary(traceIds, null, controller.signal)
+    const resp = await fetchImportSummary(traceIds, agentDefinition, controller.signal)
     initialSummary = {
       loaded: true,
       summary: resp.summary,
@@ -181,7 +208,8 @@ export default async function ConnectDesignPage({
       <ImportDesignFlow
         wsId={wsId}
         traceIds={traceIds}
-        agentDefinition={null}
+        agentDefinition={agentDefinition}
+        origin={origin}
         traceSummaryLines={buildSummaryLines(selected)}
         traceCount={selected.length}
         initialSummary={initialSummary}

@@ -8,6 +8,7 @@ import {
   rejectProposal,
   requestChangesProposal,
   rollbackProposal,
+  shipFixToCopilotStudio,
   shipFixToLangSmith,
 } from '@/lib/api'
 
@@ -134,6 +135,42 @@ export async function shipLangSmithAction(
       commitUrl: res.commit_url,
       commitHash: res.commit_hash,
       alreadyShipped: res.already_shipped,
+    }
+  } catch (err) {
+    if (err instanceof KernelApiError) {
+      return { ok: false, error: err.detail }
+    }
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+type ShipCopilotResult =
+  | { ok: true; summary: string; instructionText: string; alreadyDelivered: boolean }
+  | { ok: false; error: string }
+
+// Records a deployed fix for Copilot Studio delivery. There is no
+// programmatic write-back on the Microsoft side, so this makes no
+// external call — it returns the plain-language summary + the new
+// instruction text for the reviewer to apply by hand in Copilot Studio,
+// and records the delivery to the audit chain. Backend enforces the
+// preconditions (origin, deployed state) and returns a clear 4xx the
+// form surfaces inline.
+// Shaped identically to ShipLangSmithInput — both need only proposalId + wsId —
+// but kept as a separate type so that changes to either action's contract don't
+// silently widen the other.
+type ShipCopilotInput = { proposalId: string; wsId: string }
+
+export async function shipCopilotStudioAction(
+  input: ShipCopilotInput,
+): Promise<ShipCopilotResult> {
+  try {
+    const res = await shipFixToCopilotStudio(input.proposalId)
+    revalidatePath(`/workspaces/${input.wsId}/proposals/${input.proposalId}`)
+    return {
+      ok: true,
+      summary: res.summary,
+      instructionText: res.instruction_text,
+      alreadyDelivered: res.already_delivered,
     }
   } catch (err) {
     if (err instanceof KernelApiError) {

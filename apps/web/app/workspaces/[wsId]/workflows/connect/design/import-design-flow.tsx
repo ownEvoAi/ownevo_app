@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import type { NextDiscoveryQuestion, ReverseDiscoveryInput } from '@/lib/api'
+import type { NextDiscoveryQuestion, ReverseDiscoveryInput, WorkflowOrigin } from '@/lib/api'
 import {
   type DiscoveryTranscriptEntry,
   generateFromImportAction,
@@ -23,6 +23,8 @@ interface ImportDesignFlowProps {
   wsId: string
   traceIds: string[]
   agentDefinition: string | null
+  /** Vendor origin to tag on the created workflow (null = greenfield). */
+  origin: WorkflowOrigin | null
   /** Pre-rendered observed-behaviour summary for the left pane. */
   traceSummaryLines: string[]
   traceCount: number
@@ -73,6 +75,7 @@ export function ImportDesignFlow({
   wsId,
   traceIds,
   agentDefinition,
+  origin,
   traceSummaryLines,
   traceCount,
   initialSummary,
@@ -220,6 +223,7 @@ export function ImportDesignFlow({
         wsId,
         traceIds,
         agentDefinition: effectiveDefinition,
+        origin,
         reverseDiscovery,
         transcript,
       })

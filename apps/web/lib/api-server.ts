@@ -12,7 +12,10 @@ import {
   fetchImportNextQuestion as _fetchImportNextQuestion,
   fetchImportSummary as _fetchImportSummary,
   generateFromImport as _generateFromImport,
+  exportCopilotStudioDefinition as _exportCopilotStudioDefinition,
+  type CopilotStudioDefinitionResult,
   type DesignAgentLog,
+  type WorkflowOrigin,
   type GenerateWorkflowResponse,
   type ImportGenerateResponse,
   type ImportSummaryResponse,
@@ -95,6 +98,7 @@ export async function generateFromImport(
   agentDefinition: string | null,
   designAgentLog: DesignAgentLog | null,
   reverseDiscovery: ReverseDiscoveryInput | null,
+  origin?: WorkflowOrigin | null,
   workflowId?: string,
 ): Promise<ImportGenerateResponse> {
   const cookieHeader = await getDemoCookieHeader()
@@ -103,7 +107,15 @@ export async function generateFromImport(
     agentDefinition,
     designAgentLog,
     reverseDiscovery,
+    origin,
     workflowId,
     cookieHeader,
   )
+}
+
+export async function exportCopilotStudioDefinition(
+  solutionName: string,
+): Promise<CopilotStudioDefinitionResult> {
+  const cookieHeader = await getDemoCookieHeader()
+  return _exportCopilotStudioDefinition(solutionName, cookieHeader)
 }
