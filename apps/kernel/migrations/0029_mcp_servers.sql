@@ -1,4 +1,4 @@
--- 0026_mcp_servers.sql — register external MCP servers as agent data sources.
+-- 0029_mcp_servers.sql — register external MCP servers as agent data sources.
 --
 -- The improvement loop reaches into a customer's connected systems (Slack,
 -- Google Workspace, Microsoft 365, or any MCP-exposed source) by consuming

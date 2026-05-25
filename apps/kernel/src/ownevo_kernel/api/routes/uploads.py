@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 # Bounds the parsed-content footprint in Postgres + the request body. Generous
 # for the 100-row CSV / 20-page PDF the connectors target.
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_OVERSIZE_DETAIL = f"file exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit"
 
 
 @router.get("", response_model=list[DataUpload])
@@ -55,7 +56,7 @@ async def upload_file(
             if int(content_length) > _MAX_UPLOAD_BYTES:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"file exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit",
+                    detail=_OVERSIZE_DETAIL,
                 )
         except ValueError:
             pass  # malformed Content-Length — fall through to the post-read check
@@ -67,7 +68,7 @@ async def upload_file(
     if len(data) > _MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"file exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit",
+            detail=_OVERSIZE_DETAIL,
         )
     name = file.filename or "upload"
     try:

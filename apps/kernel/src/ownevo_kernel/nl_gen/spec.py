@@ -4,10 +4,11 @@ Source-of-truth for what the natural-language workflow generator produces from
 a plain-English description. Stored as JSONB in `workflows.spec` (see
 `apps/kernel/migrations/0001_substrate.sql:94`).
 
-**Current schema version: "1.1"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
-v1.1 added ScheduleGrid at W8 Track 0 2026-05-11). Structural changes are
-caught by `tests/test_nl_gen_schema_freeze.py` against the snapshot at
-`nl_gen/schemas/workflow_spec.v1.1.json`. Any diff requires an explicit
+**Current schema version: "1.3"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
+v1.1 added ScheduleGrid; v1.2 added `kind` + `mcp_server_id` to `DataSource`;
+v1.3 added `kind="upload"` + `upload_id` to `DataSource`). Structural changes
+are caught by `tests/test_nl_gen_schema_freeze.py` against the snapshot at
+`nl_gen/schemas/workflow_spec.v1.3.json`. Any diff requires an explicit
 version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and a W7 UI
 re-test before the snapshot is regenerated.
 
@@ -51,7 +52,7 @@ v1.2 → v1.3 (Track 17.0): added `kind="upload"` + `upload_id` to
 Same additive, union-widening shape as the v1.2 change.
 
 Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
-against the snapshot at `nl_gen/schemas/workflow_spec.v1.1.json`. To
+against the snapshot at `nl_gen/schemas/workflow_spec.v1.3.json`. To
 intentionally change the schema, bump this constant + regenerate the
 snapshot via `scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
 

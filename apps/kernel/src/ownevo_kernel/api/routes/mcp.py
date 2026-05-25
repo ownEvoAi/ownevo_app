@@ -26,6 +26,7 @@ from ...mcp_client import (
     MCPServerRegistration,
     registry,
 )
+from ...secrets import CredentialsKeyMissingError
 from ..deps import ConnDep, DemoModeCheck
 
 _log = logging.getLogger(__name__)
@@ -55,10 +56,15 @@ async def register_mcp_server(
 ) -> MCPServer:
     """Register (or replace, by name) a server. Seals the auth secret at rest.
 
-    A 500 here means the credential master key isn't configured on the server
-    (see secrets/encrypted_field.py).
+    503 when the credential master key is not configured on the server.
     """
-    return await registry.register_server(conn, body)
+    try:
+        return await registry.register_server(conn, body)
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
 
 
 @router.get("/servers/{server_id}", response_model=MCPServer)

@@ -1,6 +1,6 @@
--- 0027_mcp_oauth.sql — OAuth authorization-code support for MCP connectors.
+-- 0030_mcp_oauth.sql — OAuth authorization-code support for MCP connectors.
 --
--- 17.0.1 (migration 0026) covered token *refresh* + client-credentials. To
+-- 17.0.1 (migration 0029) covered token *refresh* + client-credentials. To
 -- connect Slack / Google Workspace / Microsoft 365 a workspace admin first
 -- runs the interactive authorization-code grant: ownEvo redirects the admin to
 -- the provider's consent screen, then exchanges the returned code for tokens

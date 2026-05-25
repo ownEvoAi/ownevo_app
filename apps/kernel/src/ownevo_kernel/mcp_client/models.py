@@ -8,13 +8,13 @@ resolved into request headers only at call time (see auth.py).
 
 from __future__ import annotations
 
+import ipaddress
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
-from urllib.parse import urlparse
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Base(BaseModel):
@@ -92,6 +92,35 @@ class MCPServerRegistration(_Base):
                 f"endpoint_url must use http or https; got scheme {scheme!r}"
             )
         return v
+
+    @model_validator(mode="after")
+    def _auth_config_token_url_must_be_safe(self) -> MCPServerRegistration:
+        """Reject SSRF-prone `token_url` values at registration time.
+
+        Credentials are POSTed to `auth_config.token_url` when tokens are
+        minted or refreshed.  The URL must use https and must not point at a
+        private or link-local IP address (RFC-1918, loopback, 169.254.x.x).
+        """
+        token_url = self.auth_config.get("token_url")
+        if not isinstance(token_url, str) or not token_url:
+            return self  # absent or will be caught by resolve_auth at use time
+        parsed = urlparse(token_url)
+        if parsed.scheme != "https":
+            raise ValueError(
+                f"auth_config.token_url must use https (got {parsed.scheme!r}); "
+                "sending credentials over plaintext is not permitted"
+            )
+        hostname = parsed.hostname or ""
+        try:
+            addr = ipaddress.ip_address(hostname)
+        except ValueError:
+            return self  # not a bare IP — allow through
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            raise ValueError(
+                f"auth_config.token_url must not target a private or link-local "
+                f"address ({hostname!r})"
+            )
+        return self
 
 
 class MCPTool(_Base):

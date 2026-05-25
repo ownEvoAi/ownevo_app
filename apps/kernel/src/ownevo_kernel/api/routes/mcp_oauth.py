@@ -16,11 +16,10 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import RedirectResponse
-from urllib.parse import urlparse
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...mcp_client import (
@@ -35,6 +34,7 @@ from ...mcp_client import (
 )
 from ...mcp_client import oauth as oauth_flow
 from ...mcp_client.auth import httpx_token_fetcher
+from ...secrets import CredentialsKeyMissingError
 from ..deps import ConnDep, DemoModeCheck
 
 _log = logging.getLogger(__name__)
@@ -73,8 +73,6 @@ def _settings_url(provider: str, **query: str) -> str:
     ws = os.environ.get("OWNEVO_WEB_WORKSPACE_SLUG", _DEFAULT_WS_SLUG)
     url = f"{_web_base_url()}/workspaces/{ws}/settings/integrations/{slug}"
     if query:
-        from urllib.parse import urlencode
-
         url = f"{url}?{urlencode(query)}"
     return url
 
@@ -82,9 +80,10 @@ def _settings_url(provider: str, **query: str) -> str:
 def _preset_or_404(provider: str):
     try:
         return get_preset(provider)
-    except UnknownProvider as exc:
+    except UnknownProvider:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown provider: {provider!r}",
         ) from None
 
 
@@ -157,15 +156,24 @@ async def get_client(provider: str, conn: ConnDep) -> OAuthClientView:
 async def set_client(
     provider: str, body: OAuthClientSet, conn: ConnDep, _demo: DemoModeCheck
 ) -> OAuthClientView:
-    """Store the provider's OAuth app credentials (client secret sealed)."""
+    """Store the provider's OAuth app credentials (client secret sealed).
+
+    503 when the credential master key is not configured on the server.
+    """
     _preset_or_404(provider)
-    await oauth_flow.set_oauth_client(
-        conn,
-        provider,
-        client_id=body.client_id.strip(),
-        client_secret=body.client_secret.strip(),
-        config=body.config,
-    )
+    try:
+        await oauth_flow.set_oauth_client(
+            conn,
+            provider,
+            client_id=body.client_id.strip(),
+            client_secret=body.client_secret.strip(),
+            config=body.config,
+        )
+    except CredentialsKeyMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption key is not configured on this server",
+        ) from None
     return await get_client(provider, conn)
 
 

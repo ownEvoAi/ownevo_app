@@ -1,4 +1,4 @@
-"""DB access for the `data_uploads` table (migration 0028).
+"""DB access for the `data_uploads` table (migration 0031).
 
 Stores the parsed representation of an upload — schema + content — and returns
 the non-bulky `DataUpload` metadata view everywhere except the explicit

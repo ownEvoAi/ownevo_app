@@ -1,4 +1,4 @@
-"""DB-backed store for registered MCP servers (`mcp_servers`, migration 0026).
+"""DB-backed store for registered MCP servers (`mcp_servers`, migration 0029).
 
 The secret half of a server's auth (bearer token, OAuth tokens,
 service-principal client secret) is serialized to JSON and sealed with the

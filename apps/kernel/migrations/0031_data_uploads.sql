@@ -1,4 +1,4 @@
--- 0028_data_uploads.sql — direct file uploads as agent data sources.
+-- 0031_data_uploads.sql — direct file uploads as agent data sources.
 --
 -- For the supply chain VP whose data lives in spreadsheets and documents, not
 -- connected systems: a reviewer uploads a CSV / Excel / Parquet / PDF / DOCX

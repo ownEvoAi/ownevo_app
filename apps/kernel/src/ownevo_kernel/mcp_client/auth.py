@@ -14,10 +14,12 @@ core kernel install stays HTTP-client-free (httpx lives in the `[api]` extra).
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from .models import AuthKind
 
@@ -36,6 +38,33 @@ token response (`access_token`, optional `expires_in`, optional
 
 class MCPAuthError(RuntimeError):
     """Auth config or secret material is missing or malformed for the flow."""
+
+
+def _assert_safe_token_url(url: str) -> None:
+    """Raise `MCPAuthError` if `url` would send credentials to a restricted endpoint.
+
+    Enforces https (credentials must not travel over cleartext) and rejects
+    RFC-1918, loopback, and link-local IP addresses to block SSRF against
+    cloud metadata services (e.g. 169.254.169.254) or internal hosts.
+
+    Hostname-based targets are allowed through — DNS rebinding is a network-
+    layer concern, not addressable here without a live resolution call.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise MCPAuthError(
+            f"token_url must use https (got {parsed.scheme!r}); "
+            "sending credentials over plaintext is not permitted"
+        )
+    hostname = parsed.hostname or ""
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        return  # not a bare IP address — pass through
+    if addr.is_private or addr.is_loopback or addr.is_link_local:
+        raise MCPAuthError(
+            f"token_url must not target a private or link-local address ({hostname!r})"
+        )
 
 
 @dataclass(frozen=True)
@@ -221,7 +250,11 @@ async def httpx_token_fetcher(token_url: str, data: dict[str, str]) -> dict[str,
 
     httpx is imported lazily so this module imports cleanly without the
     `[api]` extra; only callers that actually mint tokens need it installed.
+
+    Validates `token_url` against SSRF-safe rules before sending credentials.
     """
+    _assert_safe_token_url(token_url)
+
     import httpx
 
     async with httpx.AsyncClient(timeout=30.0) as http:
