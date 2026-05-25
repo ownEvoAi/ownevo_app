@@ -17,6 +17,9 @@ fresh `[Unreleased]` block above it.
 
 ## [Unreleased]
 
+### Added
+- **Multi-tenant workspace substrate (non-enforcing step 1).** New `workspaces` table and a `workspace_id` column on every workspace-scoped domain table (`workflows`, `skills`, `skill_versions`, `skill_deployments`, `eval_cases`, `failure_clusters`, `traces`, `iterations`, `iteration_case_outputs`, `proposals`, `approvals`, `meta_evals`, `learnings`, `captured_sandbox_runs`, `receiver_tokens`, `integration_credentials`, `audit_entries`) via migration `0033`. Each column is `NOT NULL DEFAULT 'default'` with a foreign key to `workspaces(id)` and a supporting index; existing rows backfill to a seeded `default` workspace, so single-tenant behavior is unchanged. New `tenant_session.py` binds a connection to the active workspace by setting the `app.workspace_id` session GUC (`set_workspace` / `current_workspace`), and `get_conn` now sets it on every request (currently the `default` workspace; per-request resolution lands with the auth layer). Demo-mode rate-limiting tables are intentionally excluded — they are global state, not workspace data. Row-level security enforcement is a deliberate follow-up so the columns and read paths can be verified against scoped data before the enforcement switch is flipped.
+
 ## [0.13.0] — 2026-05-25
 
 ### Added
@@ -30,7 +33,6 @@ fresh `[Unreleased]` block above it.
 - **Calendar event triggers (Google Calendar + Outlook Calendar).** `CalendarPoller` fires N minutes before or after matching events (the ambient sales-prep pattern), with a title-pattern filter and rising-edge deduplication within each scheduler cycle so one event fires once.
 - **Threshold-based triggers with rising-edge semantics.** `ThresholdEvaluator` polls `metric_samples` over a configurable window with a chosen aggregation (`avg` / `sum` / `count` / `min` / `max`, whitelisted) and comparison operator, and fires once on the 0→1 crossing rather than on every poll while the metric stays in breach — so a sustained threshold excursion does not re-fire on noise.
 - **OpenTelemetry emitter — ownEvo's analysis events to any OTLP backend.** New `apps/kernel/src/ownevo_kernel/otel_emitter/` exposes `OtelEmitter` with 15 `emit_*` methods covering every analysis event in the improvement loop (cluster created, proposal generated, approval recorded, gate passed / blocked, iteration started / completed, eval run + per-case graded, skill deployed / rolled back, trace ingested, trigger fired, design completed, sandbox run). Configured via `OWNEVO_OTEL_ENDPOINT` / `OWNEVO_OTEL_HEADERS` / `OWNEVO_OTEL_SERVICE_NAME`; a no-op when the endpoint is unset, so it costs nothing until a customer opts in. Spans follow an `ownevo.<domain>.<event>` naming scheme with GenAI-aligned attributes, documented authoritatively in `docs/OTEL_EMITTER_CONVENTIONS.md`. A 37-case conformance suite asserts span names, `ownevo.event.kind`, and every required attribute per event type; a `test-otel-emitter-conformance` CI step runs it on every push.
-
 ## [0.12.0] — 2026-05-25
 
 ### Added

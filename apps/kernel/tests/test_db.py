@@ -114,6 +114,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "skills",
             "traces",
             "workflows",
+            "workspaces",
         }
 
         enums = await conn.fetch(
