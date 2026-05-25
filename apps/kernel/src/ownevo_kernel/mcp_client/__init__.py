@@ -13,6 +13,8 @@ Layering:
   auth       — bearer / oauth-refresh / service-principal token resolution
   transport  — the MCP wire (Protocol + official-SDK implementation)
   client     — MCPClient: list_tools + mcp_call with TTL session caching
+  providers  — Slack / Google / Microsoft 365 OAuth + endpoint presets
+  oauth      — authorization-code flow: authorize URL, code exchange, state
 """
 
 from .auth import MCPAuthError, ResolvedAuth, TokenFetcher, resolve_auth
@@ -25,10 +27,19 @@ from .models import (
     MCPToolResult,
     Transport,
 )
+from .oauth import (
+    ExchangeResult,
+    OAuthClientStatus,
+    OAuthState,
+    build_authorize_url,
+    exchange_code,
+)
+from .providers import ProviderPreset, UnknownProvider, all_presets, get_preset
 from .transport import MCPTransport, SdkStreamableHttpTransport
 
 __all__ = [
     "AuthKind",
+    "ExchangeResult",
     "MCPAuthError",
     "MCPClient",
     "MCPServer",
@@ -37,9 +48,17 @@ __all__ = [
     "MCPTool",
     "MCPToolResult",
     "MCPTransport",
+    "OAuthClientStatus",
+    "OAuthState",
+    "ProviderPreset",
     "ResolvedAuth",
     "SdkStreamableHttpTransport",
     "TokenFetcher",
     "Transport",
+    "UnknownProvider",
+    "all_presets",
+    "build_authorize_url",
+    "exchange_code",
+    "get_preset",
     "resolve_auth",
 ]

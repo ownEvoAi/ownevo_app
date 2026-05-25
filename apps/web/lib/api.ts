@@ -1733,3 +1733,98 @@ export async function setAgentStatus(
     },
   )
 }
+
+// ---------------------------------------------------------------------------
+// MCP connectors (Track 17.0) — registered servers + OAuth provider flow.
+// ---------------------------------------------------------------------------
+
+export type McpAuthKind = 'none' | 'bearer' | 'oauth' | 'service_principal'
+
+export interface McpServer {
+  id: string
+  name: string
+  provider: string
+  endpoint_url: string
+  transport: 'streamable_http' | 'sse'
+  auth_kind: McpAuthKind
+  auth_config: Record<string, unknown>
+  status: string
+  has_secret: boolean
+  last_validated_at: string | null
+  validation_status: string | null
+}
+
+export interface McpServerTestResult {
+  status: 'ok' | 'error'
+  tool_count: number | null
+  detail: string | null
+}
+
+export interface McpProviderInfo {
+  provider: string
+  display_name: string
+  default_scopes: string[]
+  default_endpoint_url: string
+  tenant_scoped: boolean
+}
+
+export interface McpOAuthClientView {
+  provider: string
+  configured: boolean
+  client_id: string | null
+  config: Record<string, unknown>
+}
+
+export async function listMcpServers(): Promise<McpServer[]> {
+  return jsonFetch<McpServer[]>('/api/mcp/servers')
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  await jsonFetch<unknown>(`/api/mcp/servers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function testMcpServer(id: string): Promise<McpServerTestResult> {
+  return jsonFetch<McpServerTestResult>(
+    `/api/mcp/servers/${encodeURIComponent(id)}/test`,
+    { method: 'POST', body: '{}' },
+  )
+}
+
+export async function listMcpProviders(): Promise<McpProviderInfo[]> {
+  return jsonFetch<McpProviderInfo[]>('/api/mcp/oauth/providers')
+}
+
+export async function getMcpOAuthClient(provider: string): Promise<McpOAuthClientView> {
+  return jsonFetch<McpOAuthClientView>(
+    `/api/mcp/oauth/${encodeURIComponent(provider)}/client`,
+  )
+}
+
+export async function setMcpOAuthClient(
+  provider: string,
+  body: { client_id: string; client_secret: string; config?: Record<string, unknown> },
+): Promise<McpOAuthClientView> {
+  return jsonFetch<McpOAuthClientView>(
+    `/api/mcp/oauth/${encodeURIComponent(provider)}/client`,
+    { method: 'PUT', body: JSON.stringify({ config: {}, ...body }) },
+  )
+}
+
+export async function deleteMcpOAuthClient(provider: string): Promise<void> {
+  await jsonFetch<unknown>(
+    `/api/mcp/oauth/${encodeURIComponent(provider)}/client`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function startMcpOAuth(
+  provider: string,
+  body: { server_name: string; scopes?: string[]; endpoint_url?: string },
+): Promise<{ authorize_url: string }> {
+  return jsonFetch<{ authorize_url: string }>(
+    `/api/mcp/oauth/${encodeURIComponent(provider)}/start`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+}
