@@ -62,7 +62,7 @@ agent set its own `error_class=None`."""
 # signals manipulate only the user-code subprocess exit code, not the
 # runner's. The runner's own exit code is derived from a fixed policy
 # over the child's returncode (see comments inside). Mounted read-only
-# at /sandbox/runner.py. TODO-17 hardening (closes `os._exit(100)`
+# at /sandbox/runner.py. hardening (closes `os._exit(100)`
 # spoof and the same-process attack surface; the `os._exit(0)` case
 # remains observably indistinguishable from clean exit at the process
 # boundary, with the run_pipeline JSON-output requirement providing
@@ -76,18 +76,18 @@ proc = subprocess.run(
 )
 rc = proc.returncode
 # Policy:
-#   * 0 → 0. Clean exit, sys.exit(0), or os._exit(0); classifier
-#     status='ok'. We cannot distinguish os._exit(0) from clean exit
-#     at the process boundary; the metric layer provides
-#     defense-in-depth.
-#   * 1 → user-exception sentinel. Python's default returncode for
-#     an uncaught exception; classifier returns error_class=None.
-#   * user-exception sentinel → crash-remap. A user attempting to
-#     spoof the user-exception path; classifier returns Crash.
-#   * negative (signal N) → min(255, 128+|N|). Standard signal-exit
-#     convention; preserves OOM detection via inspect.State.OOMKilled
-#     and Crash detection for SIGSEGV.
-#   * any other → passthrough; classifier returns Crash.
+#  * 0 → 0. Clean exit, sys.exit(0), or os._exit(0); classifier
+#  status='ok'. We cannot distinguish os._exit(0) from clean exit
+#  at the process boundary; the metric layer provides
+#  defense-in-depth.
+#  * 1 → user-exception sentinel. Python's default returncode for
+#  an uncaught exception; classifier returns error_class=None.
+#  * user-exception sentinel → crash-remap. A user attempting to
+#  spoof the user-exception path; classifier returns Crash.
+#  * negative (signal N) → min(255, 128+|N|). Standard signal-exit
+#  convention; preserves OOM detection via inspect.State.OOMKilled
+#  and Crash detection for SIGSEGV.
+#  * any other → passthrough; classifier returns Crash.
 if rc == 0:
     sys.exit(0)
 if rc == 1:

@@ -74,7 +74,7 @@ async def list_all_traces(conn: ConnDep) -> TraceList:
         """,
     )
     items = [_row_to_summary(r) for r in rows]
-    # Workspace-scoped list has no single workflow_id at the top level —
+    # Workspace-scoped list has no single workflow_id at the top level
     # the response model requires one, so we return an empty string. The
     # web UI doesn't rely on the top-level workflow_id when rendering the
     # workspace traces list.

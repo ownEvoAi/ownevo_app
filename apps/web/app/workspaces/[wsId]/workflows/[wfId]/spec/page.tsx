@@ -1,16 +1,16 @@
 import { notFound } from 'next/navigation'
 import {
-  getWorkflowAnatomy,
-  getWorkflowSkills,
-  KernelApiError,
-  type SkillSummary,
-  type WorkflowAnatomy,
+ getWorkflowAnatomy,
+ getWorkflowSkills,
+ KernelApiError,
+ type SkillSummary,
+ type WorkflowAnatomy,
 } from '@/lib/api'
 import {
-  MetricSection,
-  PrimitivesSection,
-  simulatorMeta,
-  SimulatorSection,
+ MetricSection,
+ PrimitivesSection,
+ simulatorMeta,
+ SimulatorSection,
 } from '@/app/components/workflow-spec-sections'
 import { InlineDescriptionBlock } from '../inline-description-edit'
 import { ProposeMetricEdit } from './propose-metric-edit'
@@ -18,7 +18,7 @@ import { ProposeSimEdit } from './propose-sim-edit'
 import { ProposeUIPrimitiveEdit } from './propose-ui-primitive-edit'
 
 interface PageProps {
-  params: Promise<{ wsId: string; wfId: string }>
+ params: Promise<{ wsId: string; wfId: string }>
 }
 
 // Post-creation Spec tab — the artifact view rendered against the live
@@ -38,129 +38,128 @@ interface PageProps {
 // and ad-hoc CRUD. The authoring `/new/review/[wfId]` page still shows
 // them inline because that surface predates the per-workflow tab strip.
 export default async function WorkflowSpecPage({ params }: PageProps) {
-  const { wsId, wfId } = await params
+ const { wsId, wfId } = await params
 
-  let anatomy: WorkflowAnatomy | null = null
-  let skills: SkillSummary[] = []
-  let apiError: { title: string; detail: string } | null = null
+ let anatomy: WorkflowAnatomy | null = null
+ let skills: SkillSummary[] = []
+ let apiError: { title: string; detail: string } | null = null
 
-  try {
-    const [anatomyRes, skillList] = await Promise.all([
-      getWorkflowAnatomy(wfId),
-      getWorkflowSkills(wfId),
-    ])
-    anatomy = anatomyRes
-    skills = skillList.items
-  } catch (err) {
-    if (err instanceof KernelApiError && err.status === 404) {
-      notFound()
-    }
-    apiError = {
-      title: 'Could not load workflow.',
-      detail: err instanceof Error ? err.message : String(err),
-    }
-  }
+ try {
+ const [anatomyRes, skillList] = await Promise.all([
+ getWorkflowAnatomy(wfId),
+ getWorkflowSkills(wfId),
+ ])
+ anatomy = anatomyRes
+ skills = skillList.items
+ } catch (err) {
+ if (err instanceof KernelApiError && err.status === 404) {
+ notFound }
+ apiError = {
+ title: 'Could not load workflow.',
+ detail: err instanceof Error ? err.message : String(err),
+ }
+ }
 
-  if (apiError || !anatomy) {
-    return (
-      <div role="alert" className="api-banner">
-        <strong>{apiError?.title ?? 'Workflow unavailable.'}</strong>{' '}
-        {apiError?.detail ?? ''}
-      </div>
-    )
-  }
+ if (apiError || !anatomy) {
+ return (
+ <div role="alert" className="api-banner">
+ <strong>{apiError?.title ?? 'Workflow unavailable.'}</strong>{' '}
+ {apiError?.detail ?? ''}
+ </div>
+ )
+ }
 
-  const operateHref = `/workspaces/${wsId}/workflows/${wfId}/operate`
-  const description = anatomy.description ?? ''
-  const spec = anatomy.spec
-  const tools = spec.tools ?? []
-  const personas = spec.environment?.personas ?? []
-  const envGenerators = spec.environment?.env_generators ?? []
-  const dataSources = spec.environment?.data_sources ?? []
-  const primitives = spec.ui?.tabs?.[0]?.primitives ?? []
-  const metricDef = anatomy.metric_definition ?? null
-  const simPlan = anatomy.simulation_plan ?? null
-  const skillCount = skills.length
-  const simMeta = simulatorMeta(
-    tools,
-    personas,
-    envGenerators,
-    dataSources,
-    simPlan !== null,
-  )
+ const operateHref = `/workspaces/${wsId}/workflows/${wfId}/operate`
+ const description = anatomy.description ?? ''
+ const spec = anatomy.spec
+ const tools = spec.tools ?? []
+ const personas = spec.environment?.personas ?? []
+ const envGenerators = spec.environment?.env_generators ?? []
+ const dataSources = spec.environment?.data_sources ?? []
+ const primitives = spec.ui?.tabs?.[0]?.primitives ?? []
+ const metricDef = anatomy.metric_definition ?? null
+ const simPlan = anatomy.simulation_plan ?? null
+ const skillCount = skills.length
+ const simMeta = simulatorMeta(
+ tools,
+ personas,
+ envGenerators,
+ dataSources,
+ simPlan !== null,
+ )
 
-  return (
-    <>
-      <header className="spec-tab-head">
-        <div>
-          <h2 className="section-title">Workflow spec</h2>
-          <p className="spec-tab-sub">
-            The generated artifacts that define this workflow. Edits to
-            the description are cosmetic; edits to the agent
-            environment, success metric, or operate-view primitives
-            flow through the regression gate. Eval cases live on their
-            own tab.
-          </p>
-        </div>
-      </header>
+ return (
+ <>
+ <header className="spec-tab-head">
+ <div>
+ <h2 className="section-title">Workflow spec</h2>
+ <p className="spec-tab-sub">
+ The generated artifacts that define this workflow. Edits to
+ the description are cosmetic; edits to the agent
+ environment, success metric, or operate-view primitives
+ flow through the regression gate. Eval cases live on their
+ own tab.
+ </p>
+ </div>
+ </header>
 
-      {description ? (
-        <InlineDescriptionBlock
-          wsId={wsId}
-          wfId={wfId}
-          description={description}
-        />
-      ) : null}
+ {description ? (
+ <InlineDescriptionBlock
+ wsId={wsId}
+ wfId={wfId}
+ description={description}
+ />
+ ) : null}
 
-      <SimulatorSection
-        meta={simMeta}
-        tools={tools}
-        personas={personas}
-        envGenerators={envGenerators}
-        dataSources={dataSources}
-        action={
-          <ProposeSimEdit
-            wsId={wsId}
-            wfId={wfId}
-            tools={tools}
-            personas={personas}
-            envGenerators={envGenerators}
-            dataSources={dataSources}
-          />
-        }
-      />
+ <SimulatorSection
+ meta={simMeta}
+ tools={tools}
+ personas={personas}
+ envGenerators={envGenerators}
+ dataSources={dataSources}
+ action={
+ <ProposeSimEdit
+ wsId={wsId}
+ wfId={wfId}
+ tools={tools}
+ personas={personas}
+ envGenerators={envGenerators}
+ dataSources={dataSources}
+ />
+ }
+ />
 
-      <MetricSection
-        metric={metricDef}
-        action={
-          <ProposeMetricEdit wsId={wsId} wfId={wfId} current={metricDef} />
-        }
-      />
+ <MetricSection
+ metric={metricDef}
+ action={
+ <ProposeMetricEdit wsId={wsId} wfId={wfId} current={metricDef} />
+ }
+ />
 
-      <PrimitivesSection
-        primitives={primitives}
-        operateHref={operateHref}
-        skillCount={skillCount}
-        action={
-          <ProposeUIPrimitiveEdit
-            wsId={wsId}
-            wfId={wfId}
-            current={primitives as Array<{ type: string }>}
-          />
-        }
-      />
+ <PrimitivesSection
+ primitives={primitives}
+ operateHref={operateHref}
+ skillCount={skillCount}
+ action={
+ <ProposeUIPrimitiveEdit
+ wsId={wsId}
+ wfId={wfId}
+ current={primitives as Array<{ type: string }>}
+ />
+ }
+ />
 
-      <p
-        className="spec-tab-sub"
-        style={{ marginTop: 24, fontSize: 13 }}
-      >
-        Looking for eval cases? They live on the{' '}
-        <a href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}>
-          Eval cases tab
-        </a>{' '}
-        — that's where you can generate cases from clustered failures,
-        add cases by hand, or delete stale ones.
-      </p>
-    </>
-  )
+ <p
+ className="spec-tab-sub"
+ style={{ marginTop: 24, fontSize: 13 }}
+ >
+ Looking for eval cases? They live on the{' '}
+ <a href={`/workspaces/${wsId}/workflows/${wfId}/eval-cases`}>
+ Eval cases tab
+ </a>{' '}
+ — that's where you can generate cases from clustered failures,
+ add cases by hand, or delete stale ones.
+ </p>
+ </>
+ )
 }

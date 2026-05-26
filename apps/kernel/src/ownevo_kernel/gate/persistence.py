@@ -73,7 +73,7 @@ from ..types import (
 from .result import GateDecision, GateResult
 from .runner import run_gate
 
-# The W2.2 gate's decision values are wire-compatible with
+# The gate's decision values are wire-compatible with
 # IterationState (deliberate — see GateDecision docstring). The
 # wrapper still uses an explicit map so a future divergence in the two
 # enums (e.g., a gate-only "in-progress" state) doesn't silently
@@ -307,9 +307,9 @@ async def persist_gate_run(
             related_id=iteration_id,
         )
 
-        # 5. Run the gate. Any exception triggers transaction rollback —
+        # 5. Run the gate. Any exception triggers transaction rollback
         # no partial iteration / proposal rows survive.
-        # NOTE(W4): connection held open for full benchmark duration.
+        # NOTE(): connection held open for full benchmark duration.
         # For synthetic M5 (~5s) this is fine. For τ³ (tens of minutes),
         # split into begin_iteration + finalize_iteration. See module docstring.
         gate_result = await run_gate(
@@ -401,14 +401,14 @@ async def persist_gate_run(
         # Other runners (M5) don't expose this attribute and skip silently.
         #
         # Schema notes:
-        #   events  — stored as a LIST (tau2 message dicts) so downstream
-        #             code that iterates events expecting a list (e.g.
-        #             _count_tool_errors) doesn't silently iterate over keys.
-        #   metric_outputs — includes "fold" so the train/test discipline
-        #             gate in analyze_failures (FOLD_KEY check) works for
-        #             τ³ just as it does for M5. Without "fold" every τ³
-        #             test-split trace is surfaced to the loop agent, letting
-        #             it overfit to the held-out set.
+        #  events — stored as a LIST (tau2 message dicts) so downstream
+        #  code that iterates events expecting a list (e.g.
+        #  _count_tool_errors) doesn't silently iterate over keys.
+        #  metric_outputs — includes "fold" so the train/test discipline
+        #  gate in analyze_failures (FOLD_KEY check) works for
+        #  τ³ just as it does for M5. Without "fold" every τ³
+        #  test-split trace is surfaced to the loop agent, letting
+        #  it overfit to the held-out set.
         _runner_split = getattr(runner, "split", None)
         per_task_sims = getattr(runner, "last_simulations", None)
         if isinstance(per_task_sims, list) and per_task_sims:
@@ -541,7 +541,7 @@ def _proposal_from_row(row: asyncpg.Record) -> Proposal:
     expected_impact_raw = row["expected_impact"]
     if isinstance(expected_impact_raw, str):
         # asyncpg returns jsonb as str unless a codec is set — be
-        # defensive across both possibilities so the test suite + W4
+        # defensive across both possibilities so the test suite +
         # callers don't have to think about it.
         expected_impact_raw = json.loads(expected_impact_raw)
     return Proposal(

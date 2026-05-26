@@ -72,11 +72,11 @@ from pathlib import Path
 
 # input_data is injected by run_pipeline as a Python global.
 # Schema (set by SandboxedTauBenchRunner.run):
-#   domain: str ("retail" | "airline" | "telecom" | ...)
-#   split:  str ("train" | "test")
-#   task_ids: list[str] | None  (None = full split)
-#   max_concurrency: int
-#   skill_override_path: str | None  (path to agent.py inside container)
+#  domain: str ("retail" | "airline" | "telecom" | ...)
+#  split: str ("train" | "test")
+#  task_ids: list[str] | None (None = full split)
+#  max_concurrency: int
+#  skill_override_path: str | None (path to agent.py inside container)
 
 domain = input_data["domain"]
 split = input_data["split"]

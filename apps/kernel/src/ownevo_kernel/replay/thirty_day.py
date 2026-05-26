@@ -57,7 +57,7 @@ CONDITION_B_STATIC_LLM = "B"  # deferred, see module docstring
 CONDITION_C_LOOP_AUTONOMOUS = "C"
 CONDITION_D_LOOP_GATED = "D"
 
-#: The conditions wired into the W6 30-day replay infra. B is deferred.
+#: The conditions wired into the 30-day replay infra. B is deferred.
 SUPPORTED_CONDITIONS: tuple[str, ...] = (
     CONDITION_A_FROZEN,
     CONDITION_C_LOOP_AUTONOMOUS,
@@ -431,7 +431,7 @@ async def run_improvement_loop_subprocess(
             stderr_tail=f"timed out after {timeout_s}s",
         )
     except (asyncio.CancelledError, BaseException):
-        # Task cancelled (e.g. TaskGroup abort) or any unexpected error —
+        # Task cancelled (e.g. TaskGroup abort) or any unexpected error
         # kill the OS subprocess so it doesn't become an orphan.
         proc.kill()
         try:

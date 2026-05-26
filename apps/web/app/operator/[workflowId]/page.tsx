@@ -1,19 +1,19 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
-  getWorkflowAnatomy,
-  getWorkflowCaseOutputs,
-  getWorkflowIterations,
-  KernelApiError,
-  listProposals,
-  listWorkflowEvalCases,
-  listWorkflows,
-  type CaseOutputList,
-  type EvalCaseSummary,
-  type IterationPoint,
-  type ProposalSummary,
-  type WorkflowSpecShape,
-  type WorkflowSummary,
+ getWorkflowAnatomy,
+ getWorkflowCaseOutputs,
+ getWorkflowIterations,
+ KernelApiError,
+ listProposals,
+ listWorkflowEvalCases,
+ listWorkflows,
+ type CaseOutputList,
+ type EvalCaseSummary,
+ type IterationPoint,
+ type ProposalSummary,
+ type WorkflowSpecShape,
+ type WorkflowSummary,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
 import { AlertList } from '@/app/components/primitives/alert-list'
@@ -29,8 +29,8 @@ import { resolveTabPrimitives, resolvePrimitives } from '@/lib/primitive-data-re
 import { WorkflowSwitcher } from './workflow-switcher'
 
 interface PageProps {
-  params: Promise<{ workflowId: string }>
-  searchParams: Promise<{ ws?: string }>
+ params: Promise<{ workflowId: string }>
+ searchParams: Promise<{ ws?: string }>
 }
 
 // Operator shell — mock parity: s26-rk7p3/28-operator-support, 29-contract,
@@ -41,246 +41,245 @@ interface PageProps {
 // What's wired today: the Operate spec's primitives (MetricCards,
 // TimeSeriesChart) plus a recent-runs table.
 //
-// Layer-D primitives (PLAN 8.4.10): TableView / AlertList / KanbanBoard
-// are wired to per-case output. ScheduleGrid / ConversationView /
-// SideBySideView / DocumentReader are wired but return `empty` until
-// per-workflow output_schema support lands (PLAN 8.4.9 follow-up).
+// Layer-D primitives: TableView / AlertList / KanbanBoard are wired to
+// per-case output. ScheduleGrid / ConversationView / SideBySideView /
+// DocumentReader are wired but return `empty` until per-workflow
+// output_schema support lands.
 export default async function OperatorPage({ params, searchParams }: PageProps) {
-  const { workflowId } = await params
-  const { ws } = await searchParams
-  // Validate wsId before interpolating into hrefs — an unvalidated ?ws=../../x
-  // would path-traverse to /x/workflows/... via browser normalization.
-  const wsId = /^[\w-]+$/.test(ws ?? '') ? ws! : 'acme'
+ const { workflowId } = await params
+ const { ws } = await searchParams
+ // Validate wsId before interpolating into hrefs — an unvalidated ?ws=../../x
+ // would path-traverse to /x/workflows/... via browser normalization.
+ const wsId = /^[\w-]+$/.test(ws ?? '') ? ws! : 'acme'
 
-  let spec: WorkflowSpecShape | null = null
-  let description: string | null = null
-  let workflowName: string = workflowId
-  let iterations: IterationPoint[] = []
-  let evalCases: EvalCaseSummary[] = []
-  let proposals: ProposalSummary[] = []
-  let allWorkflows: WorkflowSummary[] = []
-  let caseOutputs: CaseOutputList | null = null
+ let spec: WorkflowSpecShape | null = null
+ let description: string | null = null
+ let workflowName: string = workflowId
+ let iterations: IterationPoint[] = []
+ let evalCases: EvalCaseSummary[] = []
+ let proposals: ProposalSummary[] = []
+ let allWorkflows: WorkflowSummary[] = []
+ let caseOutputs: CaseOutputList | null = null
 
-  try {
-    const [anatomy, iterList, evalList, propList, wfList, coList] = await Promise.all([
-      getWorkflowAnatomy(workflowId),
-      getWorkflowIterations(workflowId),
-      listWorkflowEvalCases(workflowId),
-      listProposals({ workflow_id: workflowId, limit: 100 }),
-      listWorkflows(),
-      // Tolerate per-fetch failures here — case-outputs is best-effort
-      // and the page still renders without them (empty TableView).
-      getWorkflowCaseOutputs(workflowId).catch(() => null),
-    ])
-    spec = anatomy.spec
-    description = anatomy.description
-    workflowName = workflowDisplayTitle(anatomy.id, anatomy.description, 60)
-    iterations = iterList.items
-    evalCases = evalList.items
-    proposals = propList.items
-    allWorkflows = wfList.items
-    caseOutputs = coList
-  } catch (err) {
-    if (err instanceof KernelApiError && err.status === 404) {
-      notFound()
-    }
-    throw err
-  }
+ try {
+ const [anatomy, iterList, evalList, propList, wfList, coList] = await Promise.all([
+ getWorkflowAnatomy(workflowId),
+ getWorkflowIterations(workflowId),
+ listWorkflowEvalCases(workflowId),
+ listProposals({ workflow_id: workflowId, limit: 100 }),
+ listWorkflows ,
+ // Tolerate per-fetch failures here — case-outputs is best-effort
+ // and the page still renders without them (empty TableView).
+ getWorkflowCaseOutputs(workflowId).catch( => null),
+ ])
+ spec = anatomy.spec
+ description = anatomy.description
+ workflowName = workflowDisplayTitle(anatomy.id, anatomy.description, 60)
+ iterations = iterList.items
+ evalCases = evalList.items
+ proposals = propList.items
+ allWorkflows = wfList.items
+ caseOutputs = coList
+ } catch (err) {
+ if (err instanceof KernelApiError && err.status === 404) {
+ notFound }
+ throw err
+ }
 
-  const tabs = spec?.ui?.tabs ?? []
-  const operateTab =
-    tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
-  // Operator persona view = production execution. Pass `context:
-  // 'operate'` so iteration-meta + eval-prediction primitives stay
-  // empty here; the operator is reviewing what the agent has produced
-  // for real, not how it scored against the eval suite.
-  const resolverInputs = {
-    spec,
-    iterations,
-    evalCases,
-    proposals,
-    caseOutputs,
-    wsId,
-    context: 'operate' as const,
-  }
-  const primitives = operateTab
-    ? resolveTabPrimitives(resolverInputs, operateTab.name ?? 'operate') ?? []
-    : resolvePrimitives(resolverInputs)
+ const tabs = spec?.ui?.tabs ?? []
+ const operateTab =
+ tabs.find((t) => (t.name ?? '').toLowerCase === 'operate') ?? tabs[1]
+ // Operator persona view = production execution. Pass `context:
+ // 'operate'` so iteration-meta + eval-prediction primitives stay
+ // empty here; the operator is reviewing what the agent has produced
+ // for real, not how it scored against the eval suite.
+ const resolverInputs = {
+ spec,
+ iterations,
+ evalCases,
+ proposals,
+ caseOutputs,
+ wsId,
+ context: 'operate' as const,
+ }
+ const primitives = operateTab
+ ? resolveTabPrimitives(resolverInputs, operateTab.name ?? 'operate') ?? []
+ : resolvePrimitives(resolverInputs)
 
-  const resolved = primitives.filter((p) => p.kind !== 'empty')
-  const unresolvedTypes = primitives
-    .filter((p): p is Extract<typeof primitives[number], { kind: 'empty' }> => p.kind === 'empty')
-    .map((p) => p.primitiveType)
+ const resolved = primitives.filter((p) => p.kind !== 'empty')
+ const unresolvedTypes = primitives
+ .filter((p): p is Extract<typeof primitives[number], { kind: 'empty' }> => p.kind === 'empty')
+ .map((p) => p.primitiveType)
 
-  const latest = iterations.length > 0 ? iterations[iterations.length - 1] : null
-  const pendingProposals = proposals.filter(
-    (p) => p.state === 'gate-passed' || p.state === 'pending',
-  )
+ const latest = iterations.length > 0 ? iterations[iterations.length - 1] : null
+ const pendingProposals = proposals.filter(
+ (p) => p.state === 'gate-passed' || p.state === 'pending',
+ )
 
-  return (
-    <>
-      <div className="op-bar">
-        <Link href={`/workspaces/${wsId}`} className="op-bar-brand">
-          <svg className="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="M12 1.75 L20.25 4.75 V12 C20.25 17 16.5 20.75 12 22.25 C7.5 20.75 3.75 17 3.75 12 V4.75 Z"
-              fill="#3b82f6"
-            />
-            <circle cx="12" cy="12.5" r="3.2" stroke="#07090e" strokeWidth={2} />
-            <path d="M9.6 7 L12 4.5 L14.4 7 Z" fill="#07090e" />
-          </svg>
-          <span className="op-bar-brand-label">ownEvo</span>
-        </Link>
-        <span className="op-bar-sep">/</span>
-        <WorkflowSwitcher
-          workflows={allWorkflows}
-          current={workflowId}
-          wsId={wsId}
-          currentLabel={workflowName}
-        />
-        <span className="op-bar-spacer" />
-        <Link
-          href={`/workspaces/${wsId}/workflows/${workflowId}`}
-          className="op-bar-action"
-          style={{ color: 'var(--accent)' }}
-        >
-          view as owner →
-        </Link>
-      </div>
+ return (
+ <>
+ <div className="op-bar">
+ <Link href={`/workspaces/${wsId}`} className="op-bar-brand">
+ <svg className="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden>
+ <path
+ d="M12 1.75 L20.25 4.75 V12 C20.25 17 16.5 20.75 12 22.25 C7.5 20.75 3.75 17 3.75 12 V4.75 Z"
+ fill="#3b82f6"
+ />
+ <circle cx="12" cy="12.5" r="3.2" stroke="#07090e" strokeWidth={2} />
+ <path d="M9.6 7 L12 4.5 L14.4 7 Z" fill="#07090e" />
+ </svg>
+ <span className="op-bar-brand-label">ownEvo</span>
+ </Link>
+ <span className="op-bar-sep">/</span>
+ <WorkflowSwitcher
+ workflows={allWorkflows}
+ current={workflowId}
+ wsId={wsId}
+ currentLabel={workflowName}
+ />
+ <span className="op-bar-spacer" />
+ <Link
+ href={`/workspaces/${wsId}/workflows/${workflowId}`}
+ className="op-bar-action"
+ style={{ color: 'var(--accent)' }}
+ >
+ view as owner →
+ </Link>
+ </div>
 
-      <main className="op-main">
-        <div className="op-shell-banner">
-          <strong>Operator view.</strong> Domain-expert review surface — no
-          improvement-loop chrome. Below: what the agent has produced for
-          this workflow.{' '}
-          <Link
-            href={`/workspaces/${wsId}/workflows/${workflowId}`}
-            style={{ color: 'var(--accent)' }}
-          >
-            Open the owner view ↗
-          </Link>{' '}
-          to see eval cases, failures, proposals, and the lift curve.
-        </div>
+ <main className="op-main">
+ <div className="op-shell-banner">
+ <strong>Operator view.</strong> Domain-expert review surface — no
+ improvement-loop chrome. Below: what the agent has produced for
+ this workflow.{' '}
+ <Link
+ href={`/workspaces/${wsId}/workflows/${workflowId}`}
+ style={{ color: 'var(--accent)' }}
+ >
+ Open the owner view ↗
+ </Link>{' '}
+ to see eval cases, failures, proposals, and the lift curve.
+ </div>
 
-        <div className="op-stats">
-          <div className="op-stat">
-            <div className="op-stat-label">Status</div>
-            <div className="op-stat-val">
-              {iterations.length > 0 ? 'Active' : 'Idle'}
-            </div>
-            <div className="op-stat-meta">
-              {latest?.ended_at ? (
-                <>last run {relativeTime(latest.ended_at)}</>
-              ) : (
-                'no runs yet'
-              )}
-            </div>
-          </div>
-          <div className="op-stat">
-            <div className="op-stat-label">Current accuracy</div>
-            <div className="op-stat-val">
-              {latest?.val_score !== null && latest?.val_score !== undefined
-                ? formatScore(latest.val_score)
-                : '—'}
-            </div>
-            <div className="op-stat-meta">val_score</div>
-          </div>
-          <div className="op-stat">
-            <div className="op-stat-label">Eval suite</div>
-            <div className="op-stat-val">{evalCases.length}</div>
-            <div className="op-stat-meta">cases under regression gate</div>
-          </div>
-          <div className="op-stat">
-            <div className="op-stat-label">Pending your review</div>
-            <div className="op-stat-val">
-              {pendingProposals.length > 0 ? (
-                <Link
-                  href={`/workspaces/${wsId}/workflows/${workflowId}/proposals`}
-                  style={{ color: 'var(--accent)' }}
-                >
-                  {pendingProposals.length}
-                </Link>
-              ) : (
-                <span style={{ color: 'var(--text-muted)' }}>0</span>
-              )}
-            </div>
-            <div className="op-stat-meta">approve to deploy</div>
-          </div>
-        </div>
+ <div className="op-stats">
+ <div className="op-stat">
+ <div className="op-stat-label">Status</div>
+ <div className="op-stat-val">
+ {iterations.length > 0 ? 'Active' : 'Idle'}
+ </div>
+ <div className="op-stat-meta">
+ {latest?.ended_at ? (
+ <>last run {relativeTime(latest.ended_at)}</>
+ ) : (
+ 'no runs yet'
+ )}
+ </div>
+ </div>
+ <div className="op-stat">
+ <div className="op-stat-label">Current accuracy</div>
+ <div className="op-stat-val">
+ {latest?.val_score !== null && latest?.val_score !== undefined
+ ? formatScore(latest.val_score)
+ : '—'}
+ </div>
+ <div className="op-stat-meta">val_score</div>
+ </div>
+ <div className="op-stat">
+ <div className="op-stat-label">Eval suite</div>
+ <div className="op-stat-val">{evalCases.length}</div>
+ <div className="op-stat-meta">cases under regression gate</div>
+ </div>
+ <div className="op-stat">
+ <div className="op-stat-label">Pending your review</div>
+ <div className="op-stat-val">
+ {pendingProposals.length > 0 ? (
+ <Link
+ href={`/workspaces/${wsId}/workflows/${workflowId}/proposals`}
+ style={{ color: 'var(--accent)' }}
+ >
+ {pendingProposals.length}
+ </Link>
+ ) : (
+ <span style={{ color: 'var(--text-muted)' }}>0</span>
+ )}
+ </div>
+ <div className="op-stat-meta">approve to deploy</div>
+ </div>
+ </div>
 
-        {description ? (
-          <p className="op-workflow-blurb">{description}</p>
-        ) : null}
+ {description ? (
+ <p className="op-workflow-blurb">{description}</p>
+ ) : null}
 
-        {resolved.length > 0 && (
-          <section className="overview-primitives" style={{ marginTop: 14 }}>
-            {resolved.map((p, i) => {
-              if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
-              if (p.kind === 'TimeSeriesChart')
-                return <TimeSeriesChart key={i} data={p.data} />
-              if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
-              if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
-              if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
-              if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
-              if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
-              if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
-              if (p.kind === 'DocumentReader') return <DocumentReader key={i} data={p.data} />
-              return null
-            })}
-          </section>
-        )}
+ {resolved.length > 0 && (
+ <section className="overview-primitives" style={{ marginTop: 14 }}>
+ {resolved.map((p, i) => {
+ if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
+ if (p.kind === 'TimeSeriesChart')
+ return <TimeSeriesChart key={i} data={p.data} />
+ if (p.kind === 'TableView') return <TableView key={i} data={p.data} />
+ if (p.kind === 'AlertList') return <AlertList key={i} data={p.data} />
+ if (p.kind === 'KanbanBoard') return <KanbanBoard key={i} data={p.data} />
+ if (p.kind === 'ScheduleGrid') return <ScheduleGrid key={i} data={p.data} />
+ if (p.kind === 'ConversationView') return <ConversationView key={i} data={p.data} />
+ if (p.kind === 'SideBySideView') return <SideBySideView key={i} data={p.data} />
+ if (p.kind === 'DocumentReader') return <DocumentReader key={i} data={p.data} />
+ return null
+ })}
+ </section>
+ )}
 
-        {unresolvedTypes.length > 0 && (
-          <div className="op-shell-coming">
-            <strong>Coming soon.</strong> Per-case agent recommendations
-            and alerts will appear here once the agent starts producing them.
-          </div>
-        )}
+ {unresolvedTypes.length > 0 && (
+ <div className="op-shell-coming">
+ <strong>Coming soon.</strong> Per-case agent recommendations
+ and alerts will appear here once the agent starts producing them.
+ </div>
+ )}
 
-        {iterations.length > 0 && (
-          <section style={{ marginTop: 18 }}>
-            <h2 className="section-title" style={{ marginBottom: 8 }}>
-              Recent runs
-            </h2>
-            <div className="iter-overview-list">
-              <div className="iter-overview-row iter-overview-head">
-                <span>Iter</span>
-                <span>val_score</span>
-                <span>Best ever</span>
-                <span>State</span>
-                <span>Approved?</span>
-                <span>Ended</span>
-              </div>
-              {[...iterations].reverse().slice(0, 12).map((it) => (
-                <Link
-                  key={it.iteration_index}
-                  href={`/workspaces/${wsId}/workflows/${workflowId}/iterations/${it.iteration_index}`}
-                  className="iter-overview-row"
-                >
-                  <span className="iter-overview-idx">#{it.iteration_index}</span>
-                  <span className="iter-overview-num">
-                    {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
-                  </span>
-                  <span className="iter-overview-num">
-                    {it.best_ever_score_after !== null
-                      ? it.best_ever_score_after.toFixed(3)
-                      : '—'}
-                  </span>
-                  <span className="iter-overview-state">{it.state}</span>
-                  <span className="iter-overview-approved">
-                    {it.has_approved_proposal ? '✓' : ''}
-                  </span>
-                  <span className="iter-overview-when">
-                    {it.ended_at
-                      ? formatDateTime(it.ended_at).slice(0, 16)
-                      : '—'}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
-    </>
-  )
+ {iterations.length > 0 && (
+ <section style={{ marginTop: 18 }}>
+ <h2 className="section-title" style={{ marginBottom: 8 }}>
+ Recent runs
+ </h2>
+ <div className="iter-overview-list">
+ <div className="iter-overview-row iter-overview-head">
+ <span>Iter</span>
+ <span>val_score</span>
+ <span>Best ever</span>
+ <span>State</span>
+ <span>Approved?</span>
+ <span>Ended</span>
+ </div>
+ {[...iterations].reverse.slice(0, 12).map((it) => (
+ <Link
+ key={it.iteration_index}
+ href={`/workspaces/${wsId}/workflows/${workflowId}/iterations/${it.iteration_index}`}
+ className="iter-overview-row"
+ >
+ <span className="iter-overview-idx">#{it.iteration_index}</span>
+ <span className="iter-overview-num">
+ {it.val_score !== null ? it.val_score.toFixed(3) : '—'}
+ </span>
+ <span className="iter-overview-num">
+ {it.best_ever_score_after !== null
+ ? it.best_ever_score_after.toFixed(3)
+ : '—'}
+ </span>
+ <span className="iter-overview-state">{it.state}</span>
+ <span className="iter-overview-approved">
+ {it.has_approved_proposal ? '✓' : ''}
+ </span>
+ <span className="iter-overview-when">
+ {it.ended_at
+ ? formatDateTime(it.ended_at).slice(0, 16)
+ : '—'}
+ </span>
+ </Link>
+ ))}
+ </div>
+ </section>
+ )}
+ </main>
+ </>
+ )
 }

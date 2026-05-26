@@ -187,7 +187,7 @@ async def analyze_failures(
                 eval_rationale=row["eval_rationale"],
             ),
         )
-    # Sandbox-error iterations rank first regardless of tool-call counts —
+    # Sandbox-error iterations rank first regardless of tool-call counts
     # the gate's failure rationale is exactly what the agent needs to read
     # to avoid re-triggering the same crash. Collect all fold-filtered
     # candidates before sorting so sandbox-error traces aren't crowded out

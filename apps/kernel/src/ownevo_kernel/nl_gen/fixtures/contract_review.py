@@ -229,7 +229,7 @@ CONTRACT_REVIEW_SPEC = WorkflowSpec(
                         title_field="clause_id",
                     ),
                     # Per-case outcome kanban — layer-D resolver fills
-                    # from `iteration_case_outputs` (PLAN 8.4.10).
+                    # from `iteration_case_outputs` ().
                     KanbanBoard(
                         type="KanbanBoard",
                         source="case-outputs",

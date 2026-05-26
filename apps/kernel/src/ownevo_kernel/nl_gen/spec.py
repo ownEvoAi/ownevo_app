@@ -124,13 +124,13 @@ class DataSource(_Base):
     entity: str | None = None
     provenance: Provenance | None = None
     # Connector data sources (Track 17.0):
-    #   kind="mcp"    — a registered MCP server (the `mcp_servers` row
-    #                   identified by `mcp_server_id`), whose tools the agent
-    #                   runtime lists + invokes transparently at run time.
-    #   kind="upload" — a parsed file upload (the `data_uploads` row identified
-    #                   by `upload_id`) the agent reads by id each iteration.
-    #   kind="standard" (default) — the simulator-backed source every existing
-    #                   spec already uses.
+    #  kind="mcp" — a registered MCP server (the `mcp_servers` row
+    #  identified by `mcp_server_id`), whose tools the agent
+    #  runtime lists + invokes transparently at run time.
+    #  kind="upload" — a parsed file upload (the `data_uploads` row identified
+    #  by `upload_id`) the agent reads by id each iteration.
+    #  kind="standard" (default) — the simulator-backed source every existing
+    #  spec already uses.
     kind: Literal["standard", "mcp", "upload"] = "standard"
     mcp_server_id: str | None = None
     upload_id: str | None = None

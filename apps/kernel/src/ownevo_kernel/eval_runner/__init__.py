@@ -48,7 +48,7 @@ __all__ = [
     "run_with_agent",
     "run_with_mock_agent",
     "build_inspect_task",
-    # A4.4 — re-exported lazily so installs without the `agent` extra
+    #  — re-exported lazily so installs without the `agent` extra
     # don't fail at import time.
     "AgentPrediction",
     "AgentSolverError",
@@ -56,7 +56,7 @@ __all__ = [
     "PredictToolValidationError",
     "predict_one",
     "solve_with_agent",
-    # A4.5 — guardrails. `TokenBudget` is defined in `token_budget.py`;
+    #  — guardrails. `TokenBudget` is defined in `token_budget.py`;
     # it imports `AgentSolverError` from `agent_solver` (which lives in
     # the `agent` extra), so both are lazy-shimmed together. `NondeterminismError`
     # and `verify_determinism` are sync and eagerly imported above.

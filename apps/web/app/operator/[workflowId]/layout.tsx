@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 interface LayoutProps {
-  children: ReactNode
+ children: ReactNode
 }
 
 // Operator shell — minimal layout, no workspace sidebar. The operator
@@ -12,5 +12,5 @@ interface LayoutProps {
 // belong to the owner shell which links here via "Open operator view ↗"
 // on the workflow header.
 export default function OperatorLayout({ children }: LayoutProps) {
-  return <div className="op-shell">{children}</div>
+ return <div className="op-shell">{children}</div>
 }

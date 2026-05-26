@@ -302,9 +302,9 @@ async def judge_label_match(
     else:
         payload = raw_input
 
-    # Defensive parsing: A4.6's live smoke caught two opus-4.7 quirks
+    # Defensive parsing: 's live smoke caught two opus-4.7 quirks
     # (string-wrapped payload + dimension-level schema_version leakage).
-    # B3.5 has neither (one-level schema, sonnet not opus), but we keep
+    #  has neither (one-level schema, sonnet not opus), but we keep
     # the JSON-string fallback because it's nearly free and would cost
     # us a re-run if the same quirk surfaces on sonnet under load.
     if isinstance(payload, str):

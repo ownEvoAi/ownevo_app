@@ -8,27 +8,27 @@ import type { PrimitiveCaseCaption } from './types'
 // produced it. Multi-row primitives embed the link per row/item
 // instead of using this footer.
 interface Props {
-  caption: PrimitiveCaseCaption | undefined
+ caption: PrimitiveCaseCaption | undefined
 }
 
 function isInternalHref(href: string): boolean {
-  return href.startsWith('/')
+ return href.startsWith('/')
 }
 
 export function CaseCaption({ caption }: Props) {
-  if (!caption || !isInternalHref(caption.href)) return null
-  return (
-    <div
-      style={{
-        marginTop: 10,
-        fontSize: 12,
-        color: 'var(--text-muted)',
-        textAlign: 'right',
-      }}
-    >
-      <Link href={caption.href} style={{ color: 'var(--accent)' }}>
-        {caption.text}
-      </Link>
-    </div>
-  )
+ if (!caption || !isInternalHref(caption.href)) return null
+ return (
+ <div
+ style={{
+ marginTop: 10,
+ fontSize: 12,
+ color: 'var(--text-muted)',
+ textAlign: 'right',
+ }}
+ >
+ <Link href={caption.href} style={{ color: 'var(--accent)' }}>
+ {caption.text}
+ </Link>
+ </div>
+ )
 }

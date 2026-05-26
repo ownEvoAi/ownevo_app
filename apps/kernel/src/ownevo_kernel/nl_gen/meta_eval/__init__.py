@@ -74,7 +74,7 @@ __all__ = [
     # Eval set
     "MetaEvalPair",
     "META_EVAL_SET",
-    # Preview fixtures (W5.5 UI badge)
+    # Preview fixtures ( UI badge)
     "PREVIEW_JUDGMENT_FIXTURES",
     # Judge — lazy (agent extra)
     "DEFAULT_MODEL",

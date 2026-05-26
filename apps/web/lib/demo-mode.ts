@@ -1,3 +1,3 @@
-export function isDemoMode(): boolean {
-  return process.env.DEMO_MODE?.toLowerCase() === 'true'
+export function isDemoMode : boolean {
+ return process.env.DEMO_MODE?.toLowerCase === 'true'
 }

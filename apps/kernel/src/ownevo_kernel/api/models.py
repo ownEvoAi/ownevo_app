@@ -252,7 +252,7 @@ class HealthResponse(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Workflow-list + lift-chart endpoints (W7 slice 2)
+# Workflow-list + lift-chart endpoints ( slice 2)
 # ---------------------------------------------------------------------------
 
 
@@ -281,7 +281,7 @@ class WorkflowSummary(_Strict):
     iteration_count: int
     running_iteration_count: int = 0
     # When >0 running iterations, the oldest one's started_at. Lets the
-    # Health page flag iterations that have been "running" for hours —
+    # Health page flag iterations that have been "running" for hours
     # almost always a crashed/abandoned run that didn't get marked
     # sandbox-error (e.g., kernel killed mid-loop). Null when nothing is
     # in flight.
@@ -461,7 +461,7 @@ class WorkflowAnatomy(_Strict):
     # free-form authoring. Kebab-case slug matching an entry in
     # `apps/web/.../workflows/new/templates.ts`.
     created_from_template: str | None = None
-    # Design-agent discovery transcript + ambiguity report (PLAN 9.1.4).
+    # Design-agent discovery transcript + ambiguity report ().
     # Persisted as JSONB on `workflows.design_agent_log` when the
     # operator ran the discovery interview before generation; null
     # otherwise. The web Audit tab renders this chronologically alongside
@@ -697,7 +697,7 @@ class IterationList(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Failure clusters (W7 slice 3)
+# Failure clusters ( slice 3)
 # ---------------------------------------------------------------------------
 
 
@@ -845,7 +845,7 @@ class FailureList(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Audit trail (W7 slice 4)
+# Audit trail ( slice 4)
 # ---------------------------------------------------------------------------
 
 
@@ -901,7 +901,7 @@ class AuditVerifyResponse(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Skills (W7 slice 9 + 10 — 7.1.10 / 7.1.11)
+# Skills ( slice 9 + 10 — 7.1.10 / 7.1.11)
 # ---------------------------------------------------------------------------
 
 
@@ -1009,7 +1009,7 @@ class SkillDetail(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Traces (W7 slice 8 — 7.1.9)
+# Traces ( slice 8 — 7.1.9)
 # ---------------------------------------------------------------------------
 
 

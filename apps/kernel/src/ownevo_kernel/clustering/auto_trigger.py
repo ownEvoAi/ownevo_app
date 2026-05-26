@@ -162,7 +162,7 @@ class ClusterAutoTrigger:
             # asyncio.wait avoids the asyncio.shield + asyncio.wait_for pattern,
             # which has a cancellation-propagation bug on Python 3.11 (bpo-45874):
             # wait_for cancels the shielded task immediately on timeout rather than
-            # protecting it.  asyncio.wait simply returns on timeout without
+            # protecting it. asyncio.wait simply returns on timeout without
             # cancelling, so we stay in control of when (and whether) to cancel.
             done, _ = await asyncio.wait({self._task}, timeout=timeout)
             if not done:

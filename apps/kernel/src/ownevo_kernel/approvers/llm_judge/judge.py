@@ -308,7 +308,7 @@ async def judge_proposal_explanation(
     else:
         payload = raw_input
 
-    # Defensive parsing: A4.6's live smoke caught two opus-4.7 quirks
+    # Defensive parsing: 's live smoke caught two opus-4.7 quirks
     # (string-wrapped payload + nested schema_version leakage).
     # Keeping the JSON-string fallback because it's free and would
     # cost a re-run if the same quirk surfaces under load.

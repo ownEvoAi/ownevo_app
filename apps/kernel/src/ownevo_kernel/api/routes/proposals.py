@@ -77,8 +77,8 @@ def _safe_commit_url(url: str) -> str:
 
 
 # Hard-cap on list-endpoint pagination so a misconfigured client can't
-# request the entire history in one call. The W5 polish UI will paginate
-# explicitly; W2.5 doesn't.
+# request the entire history in one call. The polish UI will paginate
+# explicitly; doesn't.
 _MAX_LIMIT = 200
 
 

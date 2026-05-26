@@ -100,7 +100,7 @@ class TriggerScheduler:
         # trigger_id -> monotonic timestamp of the next threshold/Slack/email/calendar poll.
         self._next_poll: dict[str, float] = {}
 
-        # Cached trigger definitions.  Refreshed every `_reload_interval`.
+        # Cached trigger definitions. Refreshed every `_reload_interval`.
         self._triggers: list[TriggerDefinition] = []
         self._last_reload: float = 0.0
 

@@ -941,7 +941,7 @@ async def _persist_case_outputs(
     if not outcomes:
         return
     case_ids = [o.case_id for o in outcomes]
-    # case_id lives in `expected_behavior->>'case_id'` — A4.1's NL-gen
+    # case_id lives in `expected_behavior->>'case_id'` — 's NL-gen
     # persistence routes the kebab-case identifier into expected_behavior
     # (see nl_gen/eval_persistence.py); `input` carries sim_seed / n_steps
     # / target_step_index instead. Mirror the same lookup the eval-cases
@@ -970,12 +970,12 @@ async def _persist_case_outputs(
         }
         # Domain-shaped artifact for the Operate tab. Kept in its own
         # column rather than nested inside output_json so:
-        #   * the gate-frame fields above stay schema-stable for the
-        #     eval-prediction TableView on Overview,
-        #   * the Operate resolver can do a tight `output_payload IS NOT
-        #     NULL` check without scanning JSONB,
-        #   * NULL clearly means "agent didn't emit one" instead of
-        #     fighting with `output_json` keys that happen to be missing.
+        #  * the gate-frame fields above stay schema-stable for the
+        #  eval-prediction TableView on Overview,
+        #  * the Operate resolver can do a tight `output_payload IS NOT
+        #  NULL` check without scanning JSONB,
+        #  * NULL clearly means "agent didn't emit one" instead of
+        #  fighting with `output_json` keys that happen to be missing.
         payload_clean: dict[str, Any] | None = None
         if outcome.output_payload is not None:
             payload_clean = _json_safe(outcome.output_payload)

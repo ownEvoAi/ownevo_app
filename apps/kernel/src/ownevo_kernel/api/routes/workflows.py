@@ -74,7 +74,7 @@ from ..models import (
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
-# Approved proposal states — W2.5 STATE_MACHINES.md.
+# Approved proposal states — STATE_MACHINES.md.
 # 'approved-awaiting-deploy' is the post-decision state before the
 # kernel deploys; 'deployed' is post-deploy. Both indicate human/LLM
 # judge approval, so both contribute to `last_improved_at`.
@@ -433,7 +433,7 @@ async def list_failure_clusters(
             detail="Workflow not found",
         )
 
-    # `latest_proposal_id` (W7 slice 7 / 7.1.4): correlated subquery
+    # `latest_proposal_id` ( slice 7 / 7.1.4): correlated subquery
     # picks the newest proposal whose iteration was spawned against
     # the cluster. The Failures-card click-through opens that proposal.
     # Null when the loop hasn't yet produced one for the cluster.
@@ -1494,7 +1494,7 @@ async def run_workflow_iteration(
 
 
 # ---------------------------------------------------------------------
-# POST /api/workflows/{id}/try (PLAN 8.5.2 — Try-it sandbox tab)
+# POST /api/workflows/{id}/try ( — Try-it sandbox tab)
 # ---------------------------------------------------------------------
 
 # Per-workflow concurrency guard. One try at a time per workflow

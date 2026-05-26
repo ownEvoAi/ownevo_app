@@ -149,12 +149,12 @@ _MIN_MFG = _minimal_bundle(MINIMAL_BUNDLES["manufacturing-defect-detection"])
 # 10 pairs — recipe assignment table
 # ---------------------------------------------------------------------------
 # Each recipe used at least once:
-#   * swap_metric_family_to_opposing — pairs 1, 6
-#   * swap_eval_cases               — pairs 2, 8
-#   * flip_metric_direction         — pairs 3, 9
-#   * swap_sim_plan                 — pairs 4, 10
-#   * set_unreachable_threshold     — pair 5
-#   * set_trivial_threshold         — pair 7
+#  * swap_metric_family_to_opposing — pairs 1, 6
+#  * swap_eval_cases — pairs 2, 8
+#  * flip_metric_direction — pairs 3, 9
+#  * swap_sim_plan — pairs 4, 10
+#  * set_unreachable_threshold — pair 5
+#  * set_trivial_threshold — pair 7
 # Distribution is uneven on purpose — see module docstring.
 
 META_EVAL_SET: list[MetaEvalPair] = [

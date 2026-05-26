@@ -78,7 +78,7 @@ async def list_audit(
     # TODO: export_audit_log fetches all rows before Python-side filtering.
     # At large log volumes this will OOM / timeout. Fix: push workflow_id
     # and payload->>'workflow_id' predicates into SQL with an expression
-    # index on (payload->>'workflow_id'). Tracked for TODO-18 keyset
+    # index on (payload->>'workflow_id'). Tracked for keyset
     # pagination work.
     try:
         entries = await export_audit_log(conn, since_seq=since_seq, kind=kind)
@@ -112,7 +112,7 @@ async def list_audit(
             e for e in entries
             if (e.related_id is not None and e.related_id in wf_related_ids)
             # design-agent-negotiation / design-agent-ambiguity rows write
-            # the workflow_id into payload but have no related_id anchor —
+            # the workflow_id into payload but have no related_id anchor
             # match them by payload field so the per-workflow Audit tab
             # surfaces the conversation rows alongside iteration/proposal
             # entries. Future row kinds that follow the same convention

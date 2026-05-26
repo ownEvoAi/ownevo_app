@@ -41,9 +41,9 @@ from .m5 import M5RunArtifacts
 # the fold suffix. Suffix is optional — a few datasets ship without it.
 #
 # Examples (all valid):
-#   HOBBIES_1_001_CA_1_validation
-#   FOODS_3_827_TX_2_evaluation
-#   HOUSEHOLD_2_516_WI_3
+#  HOBBIES_1_001_CA_1_validation
+#  FOODS_3_827_TX_2_evaluation
+#  HOUSEHOLD_2_516_WI_3
 _SERIES_ID_RE = re.compile(
     r"^(?P<cat_id>[A-Z]+)_(?P<dept_n>\d+)_(?P<item_n>\d+)"
     r"_(?P<state_id>[A-Z]+)_(?P<store_n>\d+)"

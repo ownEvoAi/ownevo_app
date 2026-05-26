@@ -139,7 +139,7 @@ class SlackIngester:
                     },
                 )
             # The MCP tool returns a list of message objects with at minimum
-            # `ts` and `text` fields.  Unknown keys are ignored.
+            # `ts` and `text` fields. Unknown keys are ignored.
             messages = result if isinstance(result, list) else []
             return [
                 {"ts": str(m.get("ts", "")), "text": str(m.get("text", ""))}

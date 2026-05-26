@@ -355,7 +355,7 @@ async def judge_artifacts(
 
     # Defensive parsing #1: opus 4.7 sometimes returns the wrapped
     # value as a JSON-encoded string instead of a dict (observed in
-    # the A4.6 live smoke 2026-05-06). Try one round of JSON-decoding
+    # the live smoke 2026-05-06). Try one round of JSON-decoding
     # if we see a string where a dict was expected; non-JSON strings
     # fall through to the normal validation path which raises the
     # typed error.
@@ -367,7 +367,7 @@ async def judge_artifacts(
 
     # Defensive parsing #2: opus 4.7 sometimes propagates the top-level
     # `schema_version` field into each dimension sub-object (observed in
-    # the A4.6 live smoke). `MetaEvalDimension` is `extra='forbid'` so
+    # the live smoke). `MetaEvalDimension` is `extra='forbid'` so
     # this would otherwise fail validation. Strip the spurious key only
     # — every other unexpected key still fails loudly so a real schema
     # regression doesn't slip through.

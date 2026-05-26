@@ -102,13 +102,13 @@ _PY_RE = re.compile(
 # ly, the agent **adds the opening `"""` but forgets the closing
 # one** in 8/8 write_skill calls. Shape:
 #
-#     """
-#     ---
-#     id: ...
-#     kind: python
-#     ---
+#  """
+#  ---
+#  id: ...
+#  kind: python
+#  ---
 #
-#     <code>
+#  <code>
 #
 # Same as the canonical `_PY_RE` minus the trailing `"""` requirement.
 # The captured frontmatter still goes through `_looks_like_skill_-
@@ -124,12 +124,12 @@ _PY_HALFWRAP_RE = re.compile(
 # **no docstring wrapper at all** — the model strips both the `"""`
 # and the leading `---`, leaving:
 #
-#     id: m5.baseline.v1.feature_engineer
-#     kind: python
-#     ...
-#     ---
+#  id: m5.baseline.v1.feature_engineer
+#  kind: python
+#  ...
+#  ---
 #
-#     <code>
+#  <code>
 #
 # This regex captures that shape: the leading run up to the first
 # `\n---\n` is the candidate frontmatter, the rest is the body. The

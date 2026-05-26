@@ -38,7 +38,7 @@ _logger = logging.getLogger(__name__)
 
 # Per-provider routing record. The `api_key_env` is the env var the
 # provider's SDK pulls credentials from; `base_url` is the OpenAI-compat
-# endpoint the SDK should target (None means "use the SDK default" —
+# endpoint the SDK should target (None means "use the SDK default"
 # anthropic + openai cloud).
 @dataclass(frozen=True)
 class _ProviderRoute:

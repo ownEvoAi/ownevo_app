@@ -31,7 +31,7 @@ from .models import CalendarConfig, TriggerDefinition
 _log = logging.getLogger(__name__)
 
 # Fire the trigger when the wall-clock is within this many seconds of the
-# computed fire time.  Generous tolerance compensates for polling jitter.
+# computed fire time. Generous tolerance compensates for polling jitter.
 _FIRE_TOLERANCE_SECONDS = 90
 
 # Look-ahead window: search for events within the next N hours.

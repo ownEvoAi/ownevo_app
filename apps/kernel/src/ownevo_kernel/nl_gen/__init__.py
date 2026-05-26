@@ -178,7 +178,7 @@ __all__ = [
     "WorkflowSpecValidationError",
     "NoToolUseError",
     "generate_workflow_spec",
-    # A3.2
+    # 
     "ALLOWED_IMPORTS",
     "EventField",
     "SimulationPlan",
@@ -192,7 +192,7 @@ __all__ = [
     "NoSimToolUseError",
     "SimulationPlanValidationError",
     "generate_simulation_plan",
-    # A4.1
+    # 
     "EVAL_CASE_SET_SCHEMA_VERSION",
     "EvalCaseSet",
     "GeneratedEvalCase",
@@ -209,7 +209,7 @@ __all__ = [
     "replay_case",
     "replay_set",
     "persist_eval_case_set",
-    # A4.2
+    # 
     "METRIC_DEFINITION_SCHEMA_VERSION",
     "MetricDefinition",
     "MetricFamily",
@@ -225,12 +225,12 @@ __all__ = [
     "MetricDefinitionValidationError",
     "MetricDirectionMismatchError",
     "generate_metric_definition",
-    # A4.4
+    # 
     "NLGenPipelineResult",
     "generate_full_pipeline",
-    # W5.3 — failure clustering wire-up
+    #  — failure clustering wire-up
     "NLGenFailureSnapshot",
     "analyze_nl_gen_failures",
-    # W5.5 — meta-eval gate
+    #  — meta-eval gate
     "MetaEvalGateFailedError",
 ]

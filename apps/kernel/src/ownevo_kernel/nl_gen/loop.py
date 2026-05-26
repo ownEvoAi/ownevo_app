@@ -127,7 +127,7 @@ user message (LLM-to-LLM injection guard)."""
 
 
 # ---------------------------------------------------------------------------
-# Stub clustering stages (deterministic, no network) — mirror W5.3 script
+# Stub clustering stages (deterministic, no network) — mirror script
 # ---------------------------------------------------------------------------
 
 
@@ -524,7 +524,7 @@ async def run_nl_gen_demo_loop(
             f"does not match spec.id={spec.id!r}"
         )
 
-    # Resolve clustering stages — defaults are W5.3-compatible stubs.
+    # Resolve clustering stages — defaults are -compatible stubs.
     embedder_inst = embedder if embedder is not None else _HashEmbedder()
     reducer_inst = reducer if reducer is not None else _IdentityReducer()
     labeler_inst = labeler if labeler is not None else _StubLabeler()
@@ -548,13 +548,13 @@ async def run_nl_gen_demo_loop(
 
         async with asyncio.timeout(_CYCLE_TIMEOUT_SECONDS):
             # 1. Run the agent over the full case set with the cumulative
-            #    instruction (None on cycle 0). Three tiers, picked
-            #    based on which tier-config was threaded through:
-            #      * mock   — deterministic curve-driven predictions
-            #      * replay — captured outputs from a prior real iter
-            #      * real   — LLM-backed solver (default)
-            #    Everything downstream (clustering, proposer, gate)
-            #    consumes the same EvalRunReport shape either way.
+            #  instruction (None on cycle 0). Three tiers, picked
+            #  based on which tier-config was threaded through:
+            #  * mock — deterministic curve-driven predictions
+            #  * replay — captured outputs from a prior real iter
+            #  * real — LLM-backed solver (default)
+            #  Everything downstream (clustering, proposer, gate)
+            #  consumes the same EvalRunReport shape either way.
             if mock_config is not None:
                 assert mock_iteration_index is not None  # guarded by ValueError check above
                 report = await run_with_mock_agent(
@@ -611,8 +611,8 @@ async def run_nl_gen_demo_loop(
                 decisions=decisions,
             )
 
-            # 3. Cluster the failures via the W5.3 pipeline. Empty failures
-            #    → empty clustering result (signal=insufficient-data).
+            # 3. Cluster the failures via the pipeline. Empty failures
+            #  → empty clustering result (signal=insufficient-data).
             clustering_result: ClusteringResult
             if snapshots:
                 clusterer = clusterer_factory_resolved(snapshots)
@@ -639,17 +639,17 @@ async def run_nl_gen_demo_loop(
             )
 
             # 4. Propose an instruction edit (skip on last cycle — no next
-            #    cycle to inject into; skip when no clusters; skip in
-            #    mock tier — the mock solver ignores instructions and the
-            #    iteration is designed to be LLM-free end-to-end).
-            #    Replay tier intentionally lets the proposer fire: replay
-            #    runs the captured agent predictions against the current
-            #    instruction and the proposer operates on the resulting
-            #    failure clusters. This is the primary replay use case —
-            #    validate that an instruction edit changes the gate verdict
-            #    without paying for fresh LLM agent calls. The proposer
-            #    itself still calls the LLM; "zero LLM calls" in the replay
-            #    description refers to the agent-prediction phase only.
+            #  cycle to inject into; skip when no clusters; skip in
+            #  mock tier — the mock solver ignores instructions and the
+            #  iteration is designed to be LLM-free end-to-end).
+            #  Replay tier intentionally lets the proposer fire: replay
+            #  runs the captured agent predictions against the current
+            #  instruction and the proposer operates on the resulting
+            #  failure clusters. This is the primary replay use case
+            #  validate that an instruction edit changes the gate verdict
+            #  without paying for fresh LLM agent calls. The proposer
+            #  itself still calls the LLM; "zero LLM calls" in the replay
+            #  description refers to the agent-prediction phase only.
             edit: InstructionEdit | None = None
             instruction_after = instruction_before
             if not is_last and top_cluster is not None and mock_config is None:

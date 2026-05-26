@@ -66,7 +66,7 @@ _CATALOG_MOUNT = "/data/m5"
 # (which copies `apps/kernel/baselines` to `/opt/ownevo/apps/kernel/baselines`).
 # A `skill_override_dir` bind-mount lands here read-only and shadows the
 # baked-in v1 skill bodies, so the gate can score whatever the agent
-# proposed instead of the on-disk baseline (B4.1).
+# proposed instead of the on-disk baseline ().
 _SKILL_V1_MOUNT = "/opt/ownevo/apps/kernel/baselines/m5_lightgbm/skill_v1"
 
 _ENTRYPOINT_SCRIPT = '''\

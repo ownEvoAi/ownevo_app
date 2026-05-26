@@ -67,7 +67,7 @@ _FORBIDDEN_CALL_NAMES = frozenset(
         # Blanket-banned: all four accept an arbitrary name string that the AST
         # check cannot verify statically (a variable holding a dunder string
         # bypasses the constant-check). Pure numeric/dict sim logic never needs
-        # them; the sandbox (A3.3) is the next barrier if something slips through.
+        # them; the sandbox () is the next barrier if something slips through.
         "getattr",
         "setattr",
         "delattr",

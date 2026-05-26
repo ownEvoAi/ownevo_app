@@ -366,7 +366,7 @@ async def next_question(
                 )
         finally:
             # Swallow DB errors so a transient Postgres issue never replaces
-            # an informative LLM error with an opaque 500. Best-effort only —
+            # an informative LLM error with an opaque 500. Best-effort only
             # Anthropic already billed for whatever rounds completed.
             if demo is not None and (
                 accountant.input_tokens or accountant.output_tokens

@@ -12,7 +12,7 @@ on Python, Zod on TS), and stable across the loop's downstream consumers.
 
 ## Status (2026-05-03)
 
-- **Spec written** at [`SPEC.md`](./SPEC.md). Pydantic + Zod implementations land in W1 against this spec.
+- **Spec written** at [`SPEC.md`](./SPEC.md). Pydantic + Zod implementations land in against this spec.
 - **License:** not selected for MVP. Internal use within `ownevo_app/` only.
 - **Public release:** no plan yet. Stays in this monorepo.
 - **Package naming:** deferred. Current Python import path is `ownevo_format` (workspace-internal); npm/PyPI naming is decided when public release becomes relevant.
@@ -20,7 +20,7 @@ on Python, Zod on TS), and stable across the loop's downstream consumers.
 
 The decisions above are deliberately deferred. The MVP doc § Open-Core Line names
 Apache 2 as the working assumption for if/when public release happens, but the
-formal commitment + LICENSE + publication metadata are not blocking W1 work.
+formal commitment + LICENSE + publication metadata are not blocking work.
 
 Revisit when any of these trigger:
 - A customer asks "what license is this under?"
@@ -34,10 +34,10 @@ The strategic surface (license, public-release timing, package naming) is tracke
 
 | Module | Purpose | Lands |
 |---|---|---|
-| `src/ownevo_format/agent_event.py` | Typed `AgentEvent` discriminated union (Pydantic) | W1 |
-| `src/ownevo_format/ui_primitives.py` | 8 workflow render primitives (Pydantic) | W3 alongside NL-gen schema freeze |
-| `src/ownevo_format/schemas/` | JSON Schema generated from Pydantic via `model_json_schema()` | W1 + W3 |
-| (TS bindings) | Zod schemas + types — co-located with `apps/web/lib/api/` for now; can extract later | W2 alongside web scaffold |
+| `src/ownevo_format/agent_event.py` | Typed `AgentEvent` discriminated union (Pydantic) | |
+| `src/ownevo_format/ui_primitives.py` | 8 workflow render primitives (Pydantic) | alongside NL-gen schema freeze |
+| `src/ownevo_format/schemas/` | JSON Schema generated from Pydantic via `model_json_schema()` | + |
+| (TS bindings) | Zod schemas + types — co-located with `apps/web/lib/api/` for now; can extract later | alongside web scaffold |
 | [`SPEC.md`](./SPEC.md) | Canonical spec — what the implementations conform to | Locked 2026-05-03 |
 
 ## How implementations use it
@@ -48,13 +48,13 @@ Python (kernel):
 from ownevo_format import AgentEvent, ToolCallResult
 
 event = ToolCallResult(
-    type="tool_call_result",
-    call_id="call_abc",
-    name="lookup_supplier",
-    status="error",
-    error="Sandbox timeout exceeded 10s",
-    error_class="Timeout",
-    duration_ms=10042,
+ type="tool_call_result",
+ call_id="call_abc",
+ name="lookup_supplier",
+ status="error",
+ error="Sandbox timeout exceeded 10s",
+ error_class="Timeout",
+ duration_ms=10042,
 )
 ```
 
@@ -64,19 +64,19 @@ TypeScript (web):
 import { AgentEvent, isToolCallResult } from "../lib/api/agent-event";
 
 function renderEvent(event: AgentEvent) {
-  if (isToolCallResult(event) && event.status === "error") {
-    return <ToolErrorCard event={event} />;
-  }
+ if (isToolCallResult(event) && event.status === "error") {
+ return <ToolErrorCard event={event} />;
+ }
 }
 ```
 
 ## Versioning during MVP
 
 `SPEC.md` carries a version line. While public release is deferred, the version
-is internal — used to gate the W3 NL-gen schema freeze and to detect drift in CI.
+is internal — used to gate the NL-gen schema freeze and to detect drift in CI.
 
-- `0.x` — pre-W3 freeze. Schema can change freely.
-- `1.0` — locked at end of W3 per the W3 schema-freeze deliverable in PLAN.md. After this, any structural change is a major bump and requires the team's W3-day-5 schema review.
+- `0.x` — pre- freeze. Schema can change freely.
+- `1.0` — locked at end of per the schema-freeze deliverable . After this, any structural change is a major bump and requires the team's -day-5 schema review.
 
 ## Cross-references
 

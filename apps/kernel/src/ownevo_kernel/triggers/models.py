@@ -178,7 +178,7 @@ class SlackConfig(_Base):
         default=None,
         description="Optional Python regex; only messages matching this pattern are ingested",
     )
-    # Poll interval for new messages (seconds).  The Slack Events API
+    # Poll interval for new messages (seconds). The Slack Events API
     # push model is preferred when available; polling is the fallback.
     poll_interval_seconds: int = Field(default=60, ge=10)
     # How far back to look on the first poll (avoids flooding with history).

@@ -342,7 +342,7 @@ async def propose_instruction_edit(
         )
 
     raw_input = tool_blocks[0].input
-    # Mirror A4.6's wrapped-payload + JSON-string-fallback recovery: opus
+    # Mirror 's wrapped-payload + JSON-string-fallback recovery: opus
     # 4.7 sometimes returns the payload as a JSON-encoded string under the
     # `edit` key. Sonnet 4.6 hasn't shown the quirk but the recovery is
     # near-free.

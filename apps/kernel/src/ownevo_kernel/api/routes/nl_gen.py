@@ -184,7 +184,7 @@ class GenerateRequest(BaseModel):
     # Vertical-template slug the user picked on /workflows/new.
     # Recorded on the workflow row for analytics. None = free-form description.
     template_id: str | None = Field(default=None, max_length=64)
-    # PLAN 9.1.4. The design-agent discovery transcript + ambiguity
+    # . The design-agent discovery transcript + ambiguity
     # report (if the operator ran the /workflows/new/design flow before
     # generate). Persisted to `workflows.design_agent_log` JSONB column
     # and mirrored into the hash-chained audit trail. None when the

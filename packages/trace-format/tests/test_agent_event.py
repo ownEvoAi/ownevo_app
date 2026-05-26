@@ -40,7 +40,7 @@ def _base_fields() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Discriminated-union parsing — the W3 schema-freeze contract
+# Discriminated-union parsing — the schema-freeze contract
 # ---------------------------------------------------------------------------
 
 
