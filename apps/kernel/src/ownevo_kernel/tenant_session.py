@@ -52,6 +52,10 @@ class WorkspaceDeletedError(WorkspaceBindError):
     """The requested workspace exists but has been soft-deleted."""
 
 
+class WorkspaceMembershipError(WorkspaceBindError):
+    """The authenticated user is not a member of the requested workspace."""
+
+
 async def set_workspace(conn: asyncpg.Connection, workspace_id: str) -> None:
     """Bind ``conn`` to ``workspace_id`` for the remainder of its session.
 
@@ -84,7 +88,10 @@ async def current_workspace(conn: asyncpg.Connection) -> str | None:
 
 @asynccontextmanager
 async def acquire_workspace_conn(
-    pool: asyncpg.Pool, workspace_id: str
+    pool: asyncpg.Pool,
+    workspace_id: str,
+    *,
+    user_id: str | None = None,
 ) -> AsyncIterator[asyncpg.Connection]:
     """Acquire a pooled connection already bound to ``workspace_id``.
 
@@ -95,8 +102,26 @@ async def acquire_workspace_conn(
     routing every such acquire through this helper guarantees the GUC is set
     before the first query. Raises the same errors as ``set_workspace`` for a
     missing or deleted workspace.
+
+    When called from a request context, pass ``user_id`` to enforce the same
+    membership gate that ``get_conn`` applies. Background workers that operate
+    at the system level (no per-user context) leave ``user_id`` unset.
+    Raises ``WorkspaceMembershipError`` when the user is not a member.
     """
     async with pool.acquire() as conn:
+        if user_id is not None:
+            member = await conn.fetchval(
+                "SELECT 1 FROM workspace_members wm "
+                "JOIN workspaces w ON w.id = wm.workspace_id "
+                "WHERE wm.user_id = $1 AND wm.workspace_id = $2 "
+                "AND w.deleted_at IS NULL",
+                user_id,
+                workspace_id,
+            )
+            if member is None:
+                raise WorkspaceMembershipError(
+                    f"user {user_id!r} is not a member of workspace {workspace_id!r}"
+                )
         await set_workspace(conn, workspace_id)
         yield conn
 

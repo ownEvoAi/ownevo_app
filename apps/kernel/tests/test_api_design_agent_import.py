@@ -50,6 +50,10 @@ class _FakeConn:
     async def fetchrow(self, _sql: str, *_args: Any) -> dict | None:
         return _LIVE_WORKSPACE_ROW
 
+    async def fetchval(self, _sql: str, *_args: Any) -> Any:
+        # Membership check: user is always a member in tests.
+        return 1
+
     async def execute(self, *_args: Any, **_kw: Any) -> str:
         return "SELECT 1"
 
@@ -91,6 +95,10 @@ class _FakeGenerateConn:
             return _LIVE_WORKSPACE_ROW
         self.fetchrow_args = (sql, *args)
         return self._fetchrow_result
+
+    async def fetchval(self, _sql: str, *_args: Any) -> Any:
+        # Membership check: user is always a member in tests.
+        return 1
 
     async def execute(self, *_args: Any, **_kw: Any) -> str:
         return "UPDATE 1"
@@ -221,6 +229,9 @@ async def test_unknown_trace_ids_404(monkeypatch):
         async def fetchrow(self, *_a):
             return _LIVE_WORKSPACE_ROW
 
+        async def fetchval(self, *_a):
+            return 1
+
         async def execute(self, *_a, **_k):
             return "SELECT 1"
 
@@ -288,6 +299,9 @@ async def test_import_summary_unknown_trace_ids_404(monkeypatch):
 
         async def fetchrow(self, *_a):
             return _LIVE_WORKSPACE_ROW
+
+        async def fetchval(self, *_a):
+            return 1
 
         async def execute(self, *_a, **_k):
             return "SELECT 1"
