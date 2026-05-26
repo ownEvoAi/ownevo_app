@@ -6,8 +6,8 @@
 // Three guards, in order:
 //   1. Demo-invite cookie: if DEMO_MODE=true and ?invite=<token> is present,
 //      strip it from the URL and set a HttpOnly cookie (existing behavior).
-//   2. Auth gate: unauthenticated requests → /api/auth/signin (except
-//      /api/auth/* itself, which Auth.js owns).
+//   2. Auth gate: unauthenticated requests → /auth/signin (except
+//      /api/auth/* and /auth/* which Auth.js / the sign-in UI own).
 //   3. Workspace gate: authenticated users with no workspace membership →
 //      /setup/new-workspace (the create-workspace screen). /setup/* itself is
 //      allowed so the user can fill in the form.
@@ -51,7 +51,8 @@ export default auth(function middleware(req) {
 
  // ── 2. Auth gate ──────────────────────────────────────────────────────────
  // /api/auth/* is owned by Auth.js — never redirect it.
- if (pathname.startsWith('/api/auth')) {
+ // /auth/* is the custom sign-in / error UI — never redirect it either.
+ if (pathname.startsWith('/api/auth') || pathname.startsWith('/auth/')) {
   return NextResponse.next()
  }
 
@@ -69,7 +70,7 @@ export default auth(function middleware(req) {
    return new NextResponse(null, { status: 401 })
   }
   const signInUrl = req.nextUrl.clone()
-  signInUrl.pathname = '/api/auth/signin'
+  signInUrl.pathname = '/auth/signin'
   signInUrl.searchParams.set('callbackUrl', req.url)
   return NextResponse.redirect(signInUrl)
  }
