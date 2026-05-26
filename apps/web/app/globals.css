@@ -5422,6 +5422,7 @@ a.anatomy-row-name:hover {
  transition: border-color 0.12s;
 }
 .setup-input:focus { border-color: var(--accent); }
+.setup-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
 .setup-error { font-size: 12px; color: #dc2626; margin: 0; }
 .setup-submit {
  padding: 9px 16px;
@@ -5434,4 +5435,5 @@ a.anatomy-row-name:hover {
  cursor: pointer;
  transition: opacity 0.12s;
 }
+.setup-submit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setup-submit:disabled { opacity: 0.55; cursor: not-allowed; }

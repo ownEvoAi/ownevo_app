@@ -82,6 +82,10 @@ function buildProviders(): Provider[] {
 export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
  ...authConfig,
  providers: buildProviders(),
+ pages: {
+  signIn: '/auth/signin',
+  error: '/auth/error',
+ },
  callbacks: {
   // Inherit the session callback from authConfig so auth.ts and middleware
   // produce identical Session shapes from the same JWT.
