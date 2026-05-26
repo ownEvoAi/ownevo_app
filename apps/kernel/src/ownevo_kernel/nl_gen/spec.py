@@ -4,11 +4,12 @@ Source-of-truth for what the natural-language workflow generator produces from
 a plain-English description. Stored as JSONB in `workflows.spec` (see
 `apps/kernel/migrations/0001_substrate.sql:94`).
 
-**Current schema version: "1.3"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
+**Current schema version: "1.4"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
 v1.1 added ScheduleGrid; v1.2 added `kind` + `mcp_server_id` to `DataSource`;
-v1.3 added `kind="upload"` + `upload_id` to `DataSource`). Structural changes
+v1.3 added `kind="upload"` + `upload_id` to `DataSource`;
+v1.4 added `triggers` list to `WorkflowSpec`). Structural changes
 are caught by `tests/test_nl_gen_schema_freeze.py` against the snapshot at
-`nl_gen/schemas/workflow_spec.v1.3.json`. Any diff requires an explicit
+`nl_gen/schemas/workflow_spec.v1.4.json`. Any diff requires an explicit
 version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and a W7 UI
 re-test before the snapshot is regenerated.
 
@@ -32,7 +33,9 @@ from typing import Literal
 from ownevo_format import UIPrimitive
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "1.3"
+from ..triggers.models import TriggerSpec
+
+SCHEMA_VERSION = "1.4"
 """Schema version history.
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
@@ -51,8 +54,13 @@ v1.2 → v1.3 (Track 17.0): added `kind="upload"` + `upload_id` to
 `DataSource` so a workflow can declare a parsed-file-upload data source.
 Same additive, union-widening shape as the v1.2 change.
 
+v1.3 → v1.4 (Track 17.1): added `triggers: list[TriggerSpec]` to
+`WorkflowSpec` so the design-time artifact can describe intended event
+triggers.  Additive — every v1.3 spec validates under v1.4 (triggers
+defaults to an empty list).
+
 Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
-against the snapshot at `nl_gen/schemas/workflow_spec.v1.3.json`. To
+against the snapshot at `nl_gen/schemas/workflow_spec.v1.4.json`. To
 intentionally change the schema, bump this constant + regenerate the
 snapshot via `scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
 
@@ -283,7 +291,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["1.1", "1.2", "1.3"] = SCHEMA_VERSION
+    schema_version: Literal["1.1", "1.2", "1.3", "1.4"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment
@@ -292,6 +300,10 @@ class WorkflowSpec(_Base):
     reviewer: ReviewerSpec
     success_criterion: SuccessCriterionStub
     ui: UILayout
+    # v1.4: design-time trigger descriptors (lightweight; no secrets).
+    # Live trigger definitions with full config are stored in the
+    # `trigger_definitions` DB table and managed via the triggers API.
+    triggers: list[TriggerSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _unique_tool_names(self) -> WorkflowSpec:
@@ -317,6 +329,7 @@ __all__ = [
     "AgentTool",
     "ReviewerSpec",
     "SuccessCriterionStub",
+    "TriggerSpec",
     "UITab",
     "UILayout",
     "WorkflowSpec",

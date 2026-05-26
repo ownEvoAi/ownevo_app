@@ -5,6 +5,7 @@
 #   - packages/trace-format: full pytest suite
 #   - Schema freeze guards catch structural drift before it reaches main
 #   - apps/web: production build (catches Lightning CSS parse errors invisible to next dev)
+#   - test-otel-emitter-conformance: verifies every emit_* method against CONVENTIONS.md
 #
 # Docker-gated tests (test_sandbox.py, test_nl_gen_sim_sandbox.py,
 # test_baselines_m5_lightgbm_sandboxed.py) require the sandbox image and are
@@ -60,6 +61,16 @@ jobs:
 
       - name: Run trace-format tests
         run: uv run pytest packages/trace-format/tests/ -v --tb=short
+
+      - name: Run OTel emitter conformance tests
+        # Verifies that every emit_* method sets the attributes required by
+        # docs/OTEL_EMITTER_CONVENTIONS.md.  opentelemetry-sdk is already
+        # present because the preceding `uv sync --all-extras` step installed
+        # the otel-emit extra.
+        run: |
+          uv run pytest \
+            apps/kernel/tests/test_otel_emitter_conformance.py \
+            -v --tb=short
 
   web-build:
     runs-on: ubuntu-latest
