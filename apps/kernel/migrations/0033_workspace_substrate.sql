@@ -1,4 +1,4 @@
--- 0026_workspace_substrate.sql
+-- 0033_workspace_substrate.sql
 --
 -- Multi-tenant substrate, step 1 of 2: workspaces table + a workspace_id
 -- column on every workspace-scoped domain table. This migration is

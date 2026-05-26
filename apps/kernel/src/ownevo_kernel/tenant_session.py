@@ -1,7 +1,7 @@
 """Workspace-scoped database sessions for multi-tenant isolation.
 
 Every workspace-scoped domain table carries a ``workspace_id`` column (added
-by migration ``0026_workspace_substrate.sql``). This module sets the Postgres
+by migration ``0033_workspace_substrate.sql``). This module sets the Postgres
 session GUC ``app.workspace_id`` on a connection so that row-level security
 policies can scope reads and writes to the active workspace.
 

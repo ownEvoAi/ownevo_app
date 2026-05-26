@@ -1,4 +1,4 @@
-"""DB-backed tests for the workspace substrate (migration 0026) + session GUC.
+"""DB-backed tests for the workspace substrate (migration 0033) + session GUC.
 
 Skipped in CI (no Postgres service); run locally with OWNEVO_DATABASE_URL set.
 Covers: the workspaces table is seeded, every scoped table gained a NOT NULL
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
     reason=f"{ENV_VAR} not set; DB-backed test",
 )
 
-# Every workspace-scoped table migration 0026 retrofits. Demo-mode tables are
+# Every workspace-scoped table migration 0033 retrofits. Demo-mode tables are
 # intentionally excluded (global rate-limiting state, not workspace data).
 SCOPED_TABLES = [
     "workflows",

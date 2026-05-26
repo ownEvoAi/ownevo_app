@@ -15,7 +15,7 @@ Why not pure Python: web UI is unavoidably TS/Next.
 
 ## Multi-tenant retrofit (in progress)
 
-Migration `0026_workspace_substrate.sql` added a `workspaces` table and a `workspace_id` column (non-null, default `'default'`) to every workspace-scoped domain table (17 tables). Row-level security is **not yet enabled** — that is the deliberate next step.
+Migration `0033_workspace_substrate.sql` added a `workspaces` table and a `workspace_id` column (non-null, default `'default'`) to every workspace-scoped domain table (17 tables). Row-level security is **not yet enabled** — that is the deliberate next step.
 
 `tenant_session.py` sets the Postgres session GUC `app.workspace_id` on every request-scoped connection via `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`.
 
