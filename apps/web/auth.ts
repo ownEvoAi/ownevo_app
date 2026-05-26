@@ -80,7 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // The raw Google profile always includes email_verified; NextAuth types
         // it as unknown via the Profile index signature.
         const emailVerified = (profile as Record<string, unknown>)?.email_verified
-        if (!emailVerified) {
+        if (emailVerified !== true) {
           return false
         }
       }

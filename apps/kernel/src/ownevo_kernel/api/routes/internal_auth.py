@@ -80,21 +80,36 @@ def _require_service_token(request: Request) -> None:
         )
 
 
-async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> str:
+async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> tuple[str, str]:
     """Resolve the internal user id for a provider identity, creating as needed.
 
     Precedence: an existing ``(provider, provider_sub)`` identity wins; failing
     that, an existing user with the same email is linked (so the seeded dev user
     and a later Google login under ``dev@ownevo.local`` collapse to one person);
-    otherwise a fresh user is created. Returns the internal user id.
+    otherwise a fresh user is created.
+
+    The email is normalised to lowercase before any DB read or write so that
+    providers which differ only in case (e.g. ``User@Gmail.com`` vs
+    ``user@gmail.com``) resolve to the same user row rather than creating
+    duplicates.
+
+    Returns ``(user_id, db_email)`` where ``db_email`` is the canonical address
+    stored in the ``users`` table (not the caller-supplied value, which may
+    differ if the provider reported a changed address on a re-login).
     """
+    email = body.email.lower()
+
     row = await conn.fetchrow(
-        "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_sub = $2",
+        "SELECT ui.user_id, u.email "
+        "FROM user_identities ui "
+        "JOIN users u ON u.id = ui.user_id "
+        "WHERE ui.provider = $1 AND ui.provider_sub = $2",
         body.provider,
         body.provider_sub,
     )
     if row is not None:
         user_id = row["user_id"]
+        db_email = row["email"]
         # Keep the display name fresh; leave email alone to avoid colliding with
         # the UNIQUE(email) constraint if the provider reports a changed address.
         if body.display_name:
@@ -103,11 +118,12 @@ async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> str:
                 user_id,
                 body.display_name,
             )
-        return user_id
+        return user_id, db_email
 
-    existing = await conn.fetchrow("SELECT id FROM users WHERE email = $1", body.email)
+    existing = await conn.fetchrow("SELECT id, email FROM users WHERE email = $1", email)
     if existing is not None:
         user_id = existing["id"]
+        db_email = existing["email"]
         # Keep the display name fresh for this path too (same as the existing-identity branch).
         if body.display_name:
             await conn.execute(
@@ -125,12 +141,13 @@ async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> str:
             "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) "
             "ON CONFLICT (email) DO UPDATE "
             "SET display_name = COALESCE(EXCLUDED.display_name, users.display_name) "
-            "RETURNING id",
+            "RETURNING id, email",
             f"usr_{secrets.token_urlsafe(16)}",
-            body.email,
+            email,
             body.display_name,
         )
         user_id = row["id"]
+        db_email = row["email"]
     await conn.execute(
         "INSERT INTO user_identities (user_id, provider, provider_sub) "
         "VALUES ($1, $2, $3) ON CONFLICT (provider, provider_sub) DO NOTHING",
@@ -138,7 +155,7 @@ async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> str:
         body.provider,
         body.provider_sub,
     )
-    return user_id
+    return user_id, db_email
 
 
 @router.post("/sync", response_model=AuthSyncResponse)
@@ -149,7 +166,7 @@ async def sync_principal(
     _require_service_token(request)
     async with pool.acquire() as conn:
         async with conn.transaction():
-            user_id = await _upsert_user(conn, body)
+            user_id, db_email = await _upsert_user(conn, body)
         memberships = await conn.fetch(
             "SELECT w.id, w.name, wm.role "
             "FROM workspace_members wm "
@@ -160,7 +177,7 @@ async def sync_principal(
         )
     return AuthSyncResponse(
         user_id=user_id,
-        email=body.email,
+        email=db_email,  # DB-canonical address, not the caller-supplied value
         workspaces=[
             WorkspaceMembership(id=r["id"], name=r["name"], role=r["role"])
             for r in memberships
