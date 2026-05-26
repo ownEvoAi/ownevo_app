@@ -40,6 +40,17 @@ from ..deps import ConnDep, is_demo_mode
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
 
+# NOTE: these routes use ConnDep, which now requires an authenticated principal
+# (bearer assertion or OWNEVO_DEV_AUTH=true). Public demo visitors are
+# anonymous and won't carry a bearer token. In any deployment where dev-auth
+# is disabled, these routes return 401 to unauthenticated visitors.
+#
+# Follow-up (web-side auth wiring): the demo flow should either
+# (a) issue a short-lived signed assertion for the demo workspace, or
+# (b) switch to a connection path that skips the membership gate for the
+#     demo-only global tables (demo_budget, demo_identity, demo_quota),
+#     which don't require workspace binding.
+
 # Match the anonymous-cookie lifetime in _demo_identity.py.
 _INVITE_COOKIE_MAX_AGE = 365 * 86400
 

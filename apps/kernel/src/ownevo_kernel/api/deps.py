@@ -19,7 +19,7 @@ from typing import Annotated
 import asyncpg
 from fastapi import Depends, HTTPException, Request, status
 
-from ..tenant_session import set_workspace
+from ..tenant_session import WorkspaceBindError, WorkspaceMembershipError, set_workspace
 from ._internal_auth import (
     INTERNAL_AUTH_KEY_ENV,
     AssertionInvalid,
@@ -136,7 +136,15 @@ async def get_conn(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="not a member of this workspace",
             )
-        await set_workspace(conn, principal.workspace_id)
+        try:
+            await set_workspace(conn, principal.workspace_id)
+        except (WorkspaceBindError, WorkspaceMembershipError) as exc:
+            # Workspace was soft-deleted between the membership SELECT and here
+            # (narrow race). Return 403 consistent with the member-check above.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="workspace unavailable",
+            ) from exc
         yield conn
 
 

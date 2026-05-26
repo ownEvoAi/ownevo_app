@@ -119,6 +119,8 @@ def verify_workspace_assertion(token: str, signing_key: str) -> Principal:
     user_id, workspace_id = raw["u"], raw["w"]
     if not isinstance(user_id, str) or not isinstance(workspace_id, str):
         raise AssertionInvalid("u and w must be strings")
+    if not user_id.strip() or not workspace_id.strip():
+        raise AssertionInvalid("u and w must be non-empty")
     return Principal(user_id=user_id, workspace_id=workspace_id)
 
 

@@ -30,14 +30,14 @@ from ...nl_gen.design_brief_context import (
     format_dimensions_block,
 )
 from ...nl_gen.eval_generator import generate_eval_case_set
-from ...nl_gen.input_pool import build_input_pool_block
 from ...nl_gen.eval_persistence import persist_eval_case_set
+from ...nl_gen.input_pool import build_input_pool_block
 from ...nl_gen.metric_generator import generate_metric_definition
 from ...nl_gen.sim_generator import generate_simulation_plan
 from ...tenant_session import acquire_workspace_conn
 from ...types import AuditKind
 from .._anthropic_client import build_async_anthropic
-from ..deps import ConnDep, DemoModeCheck, PoolDep, WorkspaceIdDep, is_demo_mode
+from ..deps import ConnDep, DemoModeCheck, PoolDep, PrincipalDep, WorkspaceIdDep, is_demo_mode
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
@@ -1382,7 +1382,7 @@ async def generate_workflow_eval_cases(
 async def run_workflow_iteration(
     workflow_id: str,
     pool: PoolDep,
-    workspace_id: WorkspaceIdDep,
+    principal: PrincipalDep,
     _: DemoModeCheck,
 ) -> RunIterationResponse:
     """Run one improvement-loop iteration synchronously, persist the result.
@@ -1429,7 +1429,9 @@ async def run_workflow_iteration(
     # Concurrent-run guard: reject immediately if another iteration is
     # already in-flight. One running iteration per workflow at a time;
     # the 30-90s LLM window makes queuing impractical for the MVP.
-    async with acquire_workspace_conn(pool, workspace_id) as conn:
+    async with acquire_workspace_conn(
+        pool, principal.workspace_id, user_id=principal.user_id
+    ) as conn:
         workflow_exists = await conn.fetchval(
             "SELECT 1 FROM workflows WHERE id = $1", workflow_id
         )
@@ -1460,7 +1462,7 @@ async def run_workflow_iteration(
         outcome = await run_one_iteration_for_workflow(
             pool,
             workflow_id=workflow_id,
-            workspace_id=workspace_id,
+            workspace_id=principal.workspace_id,
             client=client,
         )
     except WorkflowNotIterableError as exc:
