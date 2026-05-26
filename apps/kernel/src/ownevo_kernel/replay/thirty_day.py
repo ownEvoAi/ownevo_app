@@ -44,6 +44,7 @@ from typing import Any
 import asyncpg
 
 from ownevo_kernel.approvers import APPROVER_AUTONOMOUS, APPROVER_LLM_JUDGE, APPROVER_NONE
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -650,6 +651,7 @@ async def run_all_conditions_parallel(
     condition_workflow_ids = {spec.condition: spec.workflow_id for spec in specs}
     conn = await asyncpg.connect(resolved_db_url, timeout=10)
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         merged = await merge_results(conn, condition_workflow_ids=condition_workflow_ids)
     finally:
         await conn.close()

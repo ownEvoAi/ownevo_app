@@ -44,6 +44,7 @@ from ownevo_kernel.replay import (  # noqa: E402
     ReplayReport,
     run_seven_day_replay,
 )
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 
@@ -224,6 +225,7 @@ async def main_async(args: CliArgs) -> int:
         return 3
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         cfg = ReplayConfig(
             n_cycles=args.cycles,
             workflow_id=args.workflow_id,

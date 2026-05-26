@@ -69,6 +69,7 @@ from ownevo_kernel.datasets import (  # noqa: E402
     make_held_out_fold,
 )
 from ownevo_kernel.eval_cases import promote_clusters_to_eval_cases  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -303,6 +304,7 @@ async def main_async(args: CliArgs) -> int:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
         try:
+            await set_workspace(conn, DEFAULT_WORKSPACE_ID)
             async with conn.transaction():
                 await _ensure_workflow_row(conn, args.workflow_id)
                 persisted = await persist_clustering_result(

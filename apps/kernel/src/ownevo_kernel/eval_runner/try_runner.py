@@ -201,6 +201,7 @@ async def try_one_eval_case(
     eval_case_id: UUID,
     *,
     workspace_id: str,
+    user_id: str | None = None,
     client: "AsyncAnthropic",
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -215,7 +216,7 @@ async def try_one_eval_case(
         AgentSolverError: the agent call failed (LLM error, tool-use
             validation, etc.) — caller maps to 502.
     """
-    async with acquire_workspace_conn(pool, workspace_id) as conn:
+    async with acquire_workspace_conn(pool, workspace_id, user_id=user_id) as conn:
         row = await conn.fetchrow(
             """
             SELECT spec, simulation_plan, metric_definition

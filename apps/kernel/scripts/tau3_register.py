@@ -234,6 +234,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     import asyncpg
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
     try:
         conn = await asyncpg.connect(db_url, timeout=10)
@@ -242,6 +243,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         result = await seed_tau3_retail(
             conn,
             workflow_id=args.workflow_id,

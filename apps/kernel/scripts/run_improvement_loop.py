@@ -120,6 +120,7 @@ from ownevo_kernel.middleware.claude_sdk import (  # noqa: E402
 from ownevo_kernel.observability import fetch_past_attempts, format_past_attempts  # noqa: E402
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 from ownevo_kernel.types import ApproverType  # noqa: E402
 from scripts.seed_m5_baseline import DEFAULT_WORKFLOW_ID  # noqa: E402
 
@@ -420,6 +421,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         if args.seed_first:
             seed_result = await seed_baseline(
                 conn,

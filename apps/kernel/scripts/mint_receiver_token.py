@@ -30,6 +30,7 @@ import sys
 
 import asyncpg
 from ownevo_kernel.middleware.otel_receiver import mint_token
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -64,6 +65,7 @@ async def _insert(
 
     conn = await asyncpg.connect(db_url)
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         if workflow_id is not None:
             exists = await conn.fetchval(
                 "SELECT 1 FROM workflows WHERE id = $1",

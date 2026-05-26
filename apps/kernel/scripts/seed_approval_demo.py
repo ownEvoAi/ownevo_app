@@ -32,6 +32,7 @@ import sys
 from uuid import UUID
 
 import asyncpg
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 _ENV_VAR = "OWNEVO_DATABASE_URL"
 _WORKFLOW_ID = "demo-demand-prediction"
@@ -86,6 +87,7 @@ _EXPECTED_IMPACT = {
 async def _seed(db_url: str) -> int:
     conn = await asyncpg.connect(db_url)
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         # Workflow.
         await conn.execute(
             """

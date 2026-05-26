@@ -34,10 +34,10 @@ from ...nl_gen.eval_persistence import persist_eval_case_set
 from ...nl_gen.input_pool import build_input_pool_block
 from ...nl_gen.metric_generator import generate_metric_definition
 from ...nl_gen.sim_generator import generate_simulation_plan
-from ...tenant_session import acquire_workspace_conn
+from ...tenant_session import WorkspaceBindError, WorkspaceMembershipError, acquire_workspace_conn
 from ...types import AuditKind
 from .._anthropic_client import build_async_anthropic
-from ..deps import ConnDep, DemoModeCheck, PoolDep, PrincipalDep, WorkspaceIdDep, is_demo_mode
+from ..deps import ConnDep, DemoModeCheck, PoolDep, PrincipalDep, is_demo_mode
 from ..jsonb import decode_jsonb_obj
 from ..models import (
     CaseOutputList,
@@ -1530,7 +1530,7 @@ async def try_workflow_one_case(
     workflow_id: str,
     payload: TryItRequest,
     pool: PoolDep,
-    workspace_id: WorkspaceIdDep,
+    principal: PrincipalDep,
     _: DemoModeCheck,
 ) -> TryItResponse:
     """Execute one eval case against the workflow's current spec.
@@ -1606,7 +1606,8 @@ async def try_workflow_one_case(
                 try_one_eval_case(
                     pool,
                     workflow_id=workflow_id,
-                    workspace_id=workspace_id,
+                    workspace_id=principal.workspace_id,
+                    user_id=principal.user_id,
                     eval_case_id=payload.eval_case_id,
                     client=client,
                     model=model,
@@ -1643,6 +1644,11 @@ async def try_workflow_one_case(
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Agent call failed: {exc}",
+            ) from exc
+        except (WorkspaceMembershipError, WorkspaceBindError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="not a member of this workspace",
             ) from exc
 
     return TryItResponse(
