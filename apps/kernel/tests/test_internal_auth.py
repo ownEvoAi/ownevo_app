@@ -153,3 +153,7 @@ def test_verify_service_token_both_none() -> None:
 
 def test_verify_service_token_empty_token() -> None:
     assert verify_internal_service_token("", "secret") is False
+
+
+def test_verify_service_token_empty_key() -> None:
+    assert verify_internal_service_token("sometoken", "") is False

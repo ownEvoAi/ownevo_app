@@ -36,6 +36,11 @@ export async function syncPrincipal(input: {
   const res = await fetch(`${API_URL}/api/internal/auth/sync`, {
     method: 'POST',
     cache: 'no-store',
+    // Bound sign-in latency: if the kernel is down, a missing timeout causes
+    // every new sign-in to hang until the OS connection timeout fires (minutes).
+    // 10 s is generous for a loopback/private-network call and keeps the Auth.js
+    // jwt callback from blocking indefinitely.
+    signal: AbortSignal.timeout(10_000),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify({
       provider: input.provider,
