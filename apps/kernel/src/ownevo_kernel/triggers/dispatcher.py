@@ -3,24 +3,27 @@
 `TriggerDispatcher` is the central coordinator:
 
 1.  Receives a `TriggerDefinition` and an optional payload.
-2.  Validates any kind-specific prerequisites (HMAC already checked by the
+2.  Resolves the ``workspace_id`` for the trigger's workflow so every
+    workspace-scoped DB write is properly bound under RLS.
+3.  Validates any kind-specific prerequisites (HMAC already checked by the
     webhook route; cron/threshold triggers have no incoming payload to validate).
-3.  Dispatches to `action_run_clustering`, `action_run_iteration`, or
+4.  Dispatches to `action_run_clustering`, `action_run_iteration`, or
     `action_ingest_failures`.
-4.  Records a `TriggerFire` row via `TriggerRegistry.record_fire`.
-5.  Returns a `DispatchResult` for the caller to surface in the API response.
+5.  Records a `TriggerFire` row via `TriggerRegistry.record_fire`.
+6.  Returns a `DispatchResult` for the caller to surface in the API response.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import asyncpg
 
 from pydantic import BaseModel, ConfigDict
 
+from ..tenant_session import DEFAULT_WORKSPACE_ID, acquire_workspace_conn
 from .models import TriggerAction, TriggerDefinition, TriggerFire
 from .registry import TriggerRegistry
 
@@ -66,22 +69,30 @@ class TriggerDispatcher:
         workflow_id = str(trigger.workflow_id)
         trigger_id = str(trigger.id)
 
+        # Resolve the workspace so action helpers can scope their DB writes
+        # through acquire_workspace_conn.  trigger_definitions is not
+        # workspace-scoped, so workflow_id is always readable here; the
+        # workspace_id is fetched from the workflows row.
+        workspace_id = await _fetch_workflow_workspace_id(self._pool, workflow_id)
+
         status = "ok"
         detail = ""
         error_msg: str | None = None
 
         try:
             if trigger.action == "run_clustering":
-                n = await _dispatch_clustering(self._pool, workflow_id)
+                n = await _dispatch_clustering(self._pool, workflow_id, workspace_id)
                 detail = f"clustering completed: {n} cluster(s)"
 
             elif trigger.action == "run_iteration":
-                iteration_id = await _dispatch_iteration(self._pool, workflow_id)
-                detail = f"iteration {iteration_id} started"
+                await _dispatch_iteration(self._pool, workflow_id, workspace_id)
+                detail = "iteration task spawned"
 
             elif trigger.action == "ingest_failures":
                 texts = failure_texts or []
-                trace_id = await _dispatch_ingest(self._pool, workflow_id, texts, payload_summary)
+                trace_id = await _dispatch_ingest(
+                    self._pool, workflow_id, workspace_id, texts, payload_summary
+                )
                 detail = f"ingested {len(texts)} failure(s) → trace {trace_id}"
 
             else:
@@ -98,7 +109,8 @@ class TriggerDispatcher:
             error_msg = str(exc)
             detail = f"error: {exc}"
 
-        # Record the fire regardless of outcome.
+        # Record the fire regardless of outcome.  trigger_fires is not
+        # workspace-scoped, so a raw pool.acquire() is correct here.
         fire: TriggerFire | None = None
         try:
             async with self._pool.acquire() as conn:
@@ -128,26 +140,58 @@ class TriggerDispatcher:
 
 
 # ---------------------------------------------------------------------------
-# Internal dispatch helpers
+# Internal helpers
 # ---------------------------------------------------------------------------
 
 
-async def _dispatch_clustering(pool: asyncpg.Pool, workflow_id: str) -> int:
+async def _fetch_workflow_workspace_id(pool: asyncpg.Pool, workflow_id: str) -> str:
+    """Return the workspace_id for the given workflow.
+
+    Queries ``workflows`` under the ``DEFAULT_WORKSPACE_ID`` scope so the
+    connection is RLS-bound.  In the single-tenant MVP every workflow
+    belongs to the default workspace, so the scoped query always resolves.
+    Falls back to ``DEFAULT_WORKSPACE_ID`` when the workflow row is not
+    found — this can happen when a trigger fires for a workflow that was
+    deleted after the trigger was scheduled; the downstream action will
+    then fail cleanly under RLS rather than silently operating on the
+    wrong scope.
+    """
+    async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+        row = await conn.fetchrow(
+            "SELECT workspace_id FROM workflows WHERE id = $1",
+            workflow_id,
+        )
+    if row is None:
+        _log.warning(
+            "trigger dispatcher: workflow %s not found; "
+            "falling back to default workspace for RLS scope",
+            workflow_id,
+        )
+        return DEFAULT_WORKSPACE_ID
+    return str(row["workspace_id"])
+
+
+async def _dispatch_clustering(
+    pool: asyncpg.Pool, workflow_id: str, workspace_id: str
+) -> int:
     from .actions import action_run_clustering
-    return await action_run_clustering(pool, workflow_id)
+    return await action_run_clustering(pool, workflow_id, workspace_id)
 
 
-async def _dispatch_iteration(pool: asyncpg.Pool, workflow_id: str) -> str | None:
+async def _dispatch_iteration(
+    pool: asyncpg.Pool, workflow_id: str, workspace_id: str
+) -> None:
     from .actions import action_run_iteration
-    return await action_run_iteration(pool, workflow_id)
+    await action_run_iteration(pool, workflow_id, workspace_id)
 
 
 async def _dispatch_ingest(
     pool: asyncpg.Pool,
     workflow_id: str,
+    workspace_id: str,
     texts: list[str],
     payload_summary: str | None,
 ) -> str | None:
     from .actions import action_ingest_failures
     source = payload_summary or "trigger"
-    return await action_ingest_failures(pool, workflow_id, texts, source=source)
+    return await action_ingest_failures(pool, workflow_id, texts, workspace_id, source=source)

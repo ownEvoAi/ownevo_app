@@ -24,9 +24,19 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+from ..tenant_session import DEFAULT_WORKSPACE_ID, acquire_workspace_conn
 from .models import EmailConfig, TriggerDefinition
 
 _log = logging.getLogger(__name__)
+
+
+async def _fetch_workspace_id(pool: asyncpg.Pool, workflow_id: str) -> str:
+    """Return the workspace_id for *workflow_id*, falling back to the default."""
+    async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+        row = await conn.fetchrow(
+            "SELECT workspace_id FROM workflows WHERE id = $1", workflow_id
+        )
+    return str(row["workspace_id"]) if row else DEFAULT_WORKSPACE_ID
 
 
 class EmailIngester:
@@ -98,12 +108,15 @@ class EmailIngester:
         for t in threads:
             seen.add(t["id"])
 
+        workspace_id = await _fetch_workspace_id(pool, workflow_id)
+
         from .actions import action_ingest_failures
 
         await action_ingest_failures(
             pool,
             workflow_id,
             failure_texts,
+            workspace_id,
             source=f"email:{cfg.provider}",
         )
         _log.info(
