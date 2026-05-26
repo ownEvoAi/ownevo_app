@@ -15,6 +15,7 @@ from ownevo_kernel.api._internal_auth import (
     dev_auth_enabled,
     dev_principal,
     mint_workspace_assertion,
+    verify_internal_service_token,
     verify_workspace_assertion,
 )
 
@@ -125,3 +126,30 @@ def test_bearer_token(header: str, expected: str | None) -> None:
 def test_bearer_token_missing_header() -> None:
     request = SimpleNamespace(headers={})
     assert bearer_token(request) is None  # type: ignore[arg-type]
+
+
+# --- verify_internal_service_token ---
+
+
+def test_verify_service_token_match() -> None:
+    assert verify_internal_service_token("secret", "secret") is True
+
+
+def test_verify_service_token_wrong() -> None:
+    assert verify_internal_service_token("wrong", "secret") is False
+
+
+def test_verify_service_token_none_token() -> None:
+    assert verify_internal_service_token(None, "secret") is False
+
+
+def test_verify_service_token_none_key() -> None:
+    assert verify_internal_service_token("token", None) is False
+
+
+def test_verify_service_token_both_none() -> None:
+    assert verify_internal_service_token(None, None) is False
+
+
+def test_verify_service_token_empty_token() -> None:
+    assert verify_internal_service_token("", "secret") is False

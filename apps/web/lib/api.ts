@@ -14,6 +14,24 @@ import { cache } from 'react'
 
 const API_URL = process.env.OWNEVO_KERNEL_API_URL ?? 'http://localhost:8000'
 
+// Auth-header injection seam. This module is imported by client components, so
+// it must not import `next/headers` / Auth.js directly. The server registers a
+// provider (see lib/kernel-auth-register) that mints the per-request bearer
+// assertion; on the client the provider stays null and calls go out
+// unauthenticated (the kernel's dev fallback covers local dev). The provider
+// is a stateless function set once at server start — it reads request context
+// at call time, so it is safe to hold at module scope.
+type KernelAuthProvider = () => Promise<Record<string, string>>
+let _kernelAuthProvider: KernelAuthProvider | null = null
+
+export function registerKernelAuthProvider(provider: KernelAuthProvider): void {
+  _kernelAuthProvider = provider
+}
+
+async function kernelAuthHeaders(): Promise<Record<string, string>> {
+  return _kernelAuthProvider ? _kernelAuthProvider() : {}
+}
+
 export type ProposalState =
  | 'pending'
  | 'in-gate'
@@ -171,10 +189,11 @@ async function jsonFetch<T>(
  init?: RequestInit & { revalidate?: number },
 ): Promise<T> {
  const url = `${API_URL}${path}`
+ const authHeaders = await kernelAuthHeaders()
  const res = await fetch(url, {
  cache: 'no-store',
  ...init,
- headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+ headers: { 'content-type': 'application/json', ...authHeaders, ...(init?.headers ?? {}) },
  })
  if (!res.ok) {
  let detail = res.statusText
@@ -1372,7 +1391,7 @@ export async function deleteEvalCase(
  // Custom fetch — the endpoint returns 204 No Content; jsonFetch would
  // choke trying to parse an empty body.
  const url = `${API_URL}/api/workflows/${encodeURIComponent(workflowId)}/eval-cases/${encodeURIComponent(caseId)}`
- const res = await fetch(url, { method: 'DELETE', cache: 'no-store' })
+ const res = await fetch(url, { method: 'DELETE', cache: 'no-store', headers: await kernelAuthHeaders() })
  if (!res.ok) {
  let detail = res.statusText
  try {
@@ -1867,6 +1886,7 @@ export async function uploadDataFile(file: File): Promise<DataUpload> {
  method: 'POST',
  body: form,
  cache: 'no-store',
+ headers: await kernelAuthHeaders(),
  })
  if (!res.ok) {
  let detail = res.statusText

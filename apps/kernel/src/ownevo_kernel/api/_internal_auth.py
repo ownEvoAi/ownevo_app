@@ -26,6 +26,7 @@ fails closed (401) rather than granting anonymous default-workspace access.
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import time
@@ -127,3 +128,17 @@ def verify_workspace_assertion(token: str, signing_key: str) -> Principal:
 def dev_principal() -> Principal:
     """The principal an assertion-less request resolves to under dev-auth."""
     return Principal(user_id=DEV_USER_ID, workspace_id=DEFAULT_WORKSPACE_ID)
+
+
+def verify_internal_service_token(token: str | None, service_key: str | None) -> bool:
+    """Constant-time check that ``token`` matches the shared service key.
+
+    Authenticates trusted web→kernel service calls (e.g. the auth-sync
+    endpoint) that run *before* any workspace is bound, so they cannot present
+    a workspace assertion: the caller has no membership to assert yet. The web
+    app presents ``OWNEVO_INTERNAL_AUTH_KEY`` directly as a bearer token.
+    Returns False when either side is missing rather than raising.
+    """
+    if not token or not service_key:
+        return False
+    return hmac.compare_digest(token, service_key)

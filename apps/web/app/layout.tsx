@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import './globals.css'
 import { DemoBanner } from '../components/demo-banner'
+// Side effect (server-only): registers the kernel auth-header provider so
+// server-side kernel calls carry the per-request signed assertion.
+import '../lib/kernel-auth-register'
 
 export const metadata: Metadata = {
  title: 'ownEvo',

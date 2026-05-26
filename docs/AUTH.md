@@ -1,16 +1,14 @@
 # Authentication & Workspace Resolution
 
-Status: **kernel layer implemented; web sign-in pending.** This document
-fixed the decisions for the authentication layer; the kernel-side resolver
-has since landed (rollout steps 1-2 below). It exists because the
+Status: **in progress** — rollout steps 1–3 below have landed (auth schema,
+kernel-side assertion verify + membership gate, and the web-edge Auth.js
+wiring with the dev and Google providers). Step 4 (workspace provisioning UI +
+active-workspace switcher) is the remaining slice. This document fixes the
+decisions the authentication layer is built on. It exists because the
 multi-tenant substrate is live — every workspace-scoped table enforces
 row-level security against the `app.workspace_id` session GUC — and the
-per-request resolver that decides *which* workspace a request operates in
-now reads a verified principal from a signed identity assertion (with a
-membership gate) rather than a constant. What remains is the web sign-in
-surface (Auth.js providers, the create/join-workspace screen, and the
-workspace switcher — steps 3-4). Until those land, local and test runs use
-the dev-auth fallback, which resolves to the seeded `default` workspace.
+per-request resolver now derives the workspace from the authenticated
+principal rather than the hard-coded `default`.
 
 ## Goals
 
@@ -209,15 +207,15 @@ silently granting access.
 
 ## Rollout
 
-1. **Done** — landed the schema (`users`, `user_identities`,
-   `workspace_members`) in migration `0035_auth_users.sql`; seeded a single
-   dev user as a member of the `default` workspace so existing local flows
-   keep working.
-2. **Done** — added the kernel-side assertion verify + membership check + dev
-   fallback and switched `get_workspace_id` to use it. With
-   `OWNEVO_DEV_AUTH=true` this resolves to the seeded dev principal.
-3. **Pending** — wire Auth.js into the web app with the dev provider first,
-   then the Google provider behind configured credentials.
-4. **Pending** — add the workspace provisioning surface and the
-   active-workspace switcher in the web app; now a second real tenant can
-   exist end to end.
+1. **(done)** Land the schema (`users`, `user_identities`,
+   `workspace_members`) as a migration; backfill a single seeded dev user as a
+   member of the `default` workspace so existing local flows keep working.
+2. **(done)** Add the kernel-side assertion verify + membership check + dev
+   fallback; flip `get_workspace_id` to use it. With `OWNEVO_DEV_AUTH=true`
+   this is a no-op for current single-tenant behaviour.
+3. **(done)** Wire Auth.js into the web app with the dev provider first, then
+   the Google provider behind configured credentials. The web app upserts the
+   principal through the kernel's internal auth-sync endpoint on first sign-in
+   and mints a per-request bearer assertion for every kernel call.
+4. Add the workspace provisioning surface and the active-workspace switcher
+   in the web app; now a second real tenant can exist end to end.
