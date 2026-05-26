@@ -12,14 +12,14 @@ export async function tryWorkflowAction(
  body: TryItRequest,
 ): Promise<TryWorkflowResult> {
  try {
-  return { data: await tryWorkflow(wfId, body), error: null }
+ return { data: await tryWorkflow(wfId, body), error: null }
  } catch (err) {
-  const msg =
-   err instanceof KernelApiError
-    ? err.message
-    : err instanceof Error
-     ? err.message
-     : String(err)
-  return { data: null, error: msg }
+ const msg =
+ err instanceof KernelApiError
+ ? err.message
+ : err instanceof Error
+ ? err.message
+ : String(err)
+ return { data: null, error: msg }
  }
 }
