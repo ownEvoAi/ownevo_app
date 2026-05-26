@@ -28,7 +28,7 @@ CREATE TYPE trigger_action AS ENUM (
 
 CREATE TABLE trigger_definitions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workflow_id     UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    workflow_id     text NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
     name            TEXT NOT NULL CHECK (char_length(name) > 0),
     kind            trigger_kind NOT NULL,
     action          trigger_action NOT NULL DEFAULT 'run_clustering',
@@ -54,7 +54,7 @@ CREATE INDEX trigger_definitions_kind_idx
 CREATE TABLE trigger_fires (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     trigger_id      UUID NOT NULL REFERENCES trigger_definitions(id) ON DELETE CASCADE,
-    workflow_id     UUID NOT NULL,
+    workflow_id     text NOT NULL,
     fired_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     action          trigger_action NOT NULL,
     status          TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'error')),
@@ -76,7 +76,7 @@ REVOKE UPDATE, DELETE ON trigger_fires FROM PUBLIC;
 -- poller queries them with a time-window GROUP BY.
 CREATE TABLE metric_samples (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workflow_id     UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    workflow_id     text NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
     metric_name     TEXT NOT NULL,
     value           DOUBLE PRECISION NOT NULL,
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
