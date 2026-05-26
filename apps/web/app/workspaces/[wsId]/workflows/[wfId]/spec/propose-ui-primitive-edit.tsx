@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createUIPrimitiveProposal, KernelApiError } from '@/lib/api'
+import { createUIPrimitiveProposalAction } from '../actions'
 
 interface Props {
  wsId: string
@@ -91,23 +91,19 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  (t) => byType.get(t) ?? { type: t },
  )
  startTransition(async () => {
- try {
- const proposal = await createUIPrimitiveProposal(wfId, {
- plain_language_summary: summary.trim() ,
+ const result = await createUIPrimitiveProposalAction(wfId, {
+ plain_language_summary: summary.trim(),
  proposed_primitives: proposed,
  rationale: rationale.trim() || null,
  })
+ if (result.error || !result.proposal) {
+ setError(result.error ?? 'Unknown error')
+ return
+ }
  setEditing(false)
  reset()
  router.refresh()
- router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
- } catch (err) {
- if (err instanceof KernelApiError) {
- setError(err.detail || err.message)
- } else {
- setError(err instanceof Error ? err.message : 'Unknown error')
- }
- }
+ router.push(`/workspaces/${wsId}/proposals/${result.proposal.id}`)
  })
  }
 

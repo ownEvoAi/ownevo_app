@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createDescriptionProposal, KernelApiError } from '@/lib/api'
+import { createDescriptionProposalAction } from './actions'
 
 interface Props {
  wsId: string
@@ -48,23 +48,19 @@ export function ProposeDescriptionEdit({ wsId, wfId, current }: Props) {
  return
  }
  startTransition(async () => {
- try {
- const proposal = await createDescriptionProposal(wfId, {
- plain_language_summary: summary.trim() ,
- proposed_description: draft.trim() ,
+ const result = await createDescriptionProposalAction(wfId, {
+ plain_language_summary: summary.trim(),
+ proposed_description: draft.trim(),
  rationale: rationale.trim() || null,
  })
+ if (result.error || !result.proposal) {
+ setError(result.error ?? 'Unknown error')
+ return
+ }
  setEditing(false)
  reset()
  router.refresh()
- router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
- } catch (err) {
- if (err instanceof KernelApiError) {
- setError(err.detail || err.message)
- } else {
- setError(err instanceof Error ? err.message : 'Unknown error')
- }
- }
+ router.push(`/workspaces/${wsId}/proposals/${result.proposal.id}`)
  })
  }
 

@@ -2,9 +2,11 @@
 
 import { redirect } from 'next/navigation'
 import {
+ fetchDescriptionConflicts,
  fetchNextDiscoveryQuestion,
  generateWorkflow,
  KernelApiError,
+ type AmbiguityFinding,
  type DesignAgentLog,
  type DesignAgentLogEntry,
  type DiscoveryQuestionKind,
@@ -183,5 +185,27 @@ function buildDesignAgentLog(
  return {
  discovery_transcript: entries,
  ambiguity_report: null,
+ }
+}
+
+export interface DescriptionConflictsState {
+ findings: AmbiguityFinding[]
+ error: string | null
+}
+
+export async function fetchDescriptionConflictsAction(
+ description: string,
+): Promise<DescriptionConflictsState> {
+ try {
+ const resp = await fetchDescriptionConflicts(description)
+ return { findings: resp.findings, error: null }
+ } catch (err) {
+ const errMsg =
+ err instanceof KernelApiError
+ ? `Kernel error (${err.status}): ${err.detail}`
+ : err instanceof Error
+ ? err.message
+ : String(err)
+ return { findings: [], error: errMsg }
  }
 }
