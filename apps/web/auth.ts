@@ -32,7 +32,12 @@ function devAuthEnabled(): boolean {
 
 function buildProviders(): Provider[] {
   const providers: Provider[] = []
-  if (devAuthEnabled()) {
+  // The dev credentials provider accepts any email with no password. It must
+  // never run alongside OWNEVO_INTERNAL_AUTH_KEY: the kernel's email-based
+  // account-linking would let an attacker claim any existing user's workspaces
+  // by submitting their email. Guard here so a staging env with both flags set
+  // fails safely rather than silently opening an account-takeover path.
+  if (devAuthEnabled() && !process.env.OWNEVO_INTERNAL_AUTH_KEY) {
     providers.push(
       Credentials({
         id: 'dev',

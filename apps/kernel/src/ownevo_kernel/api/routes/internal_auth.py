@@ -34,7 +34,11 @@ from .._internal_auth import (
 )
 from ..deps import PoolDep
 
-router = APIRouter(prefix="/api/internal/auth", tags=["internal-auth"])
+router = APIRouter(
+    prefix="/api/internal/auth",
+    tags=["internal-auth"],
+    include_in_schema=False,  # internal service endpoint; not part of the public API
+)
 
 
 class AuthSyncRequest(BaseModel):
@@ -67,7 +71,7 @@ def _require_service_token(request: Request) -> None:
     if not key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"{INTERNAL_AUTH_KEY_ENV} not set; internal auth unavailable",
+            detail="internal auth endpoint is not configured",
         )
     if not verify_internal_service_token(bearer_token(request), key):
         raise HTTPException(
@@ -104,14 +108,29 @@ async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> str:
     existing = await conn.fetchrow("SELECT id FROM users WHERE email = $1", body.email)
     if existing is not None:
         user_id = existing["id"]
+        # Keep the display name fresh for this path too (same as the existing-identity branch).
+        if body.display_name:
+            await conn.execute(
+                "UPDATE users SET display_name = $2 WHERE id = $1",
+                user_id,
+                body.display_name,
+            )
     else:
-        user_id = f"usr_{secrets.token_urlsafe(16)}"
-        await conn.execute(
-            "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)",
-            user_id,
+        # ON CONFLICT handles the narrow race where two concurrent first sign-ins
+        # for the same brand-new email both see no existing row and both attempt
+        # to INSERT. The loser's transaction hits the UNIQUE(email) constraint;
+        # DO UPDATE returns the winner's id so both callers resolve to the same
+        # user without a 500 error.
+        row = await conn.fetchrow(
+            "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) "
+            "ON CONFLICT (email) DO UPDATE "
+            "SET display_name = COALESCE(EXCLUDED.display_name, users.display_name) "
+            "RETURNING id",
+            f"usr_{secrets.token_urlsafe(16)}",
             body.email,
             body.display_name,
         )
+        user_id = row["id"]
     await conn.execute(
         "INSERT INTO user_identities (user_id, provider, provider_sub) "
         "VALUES ($1, $2, $3) ON CONFLICT (provider, provider_sub) DO NOTHING",
