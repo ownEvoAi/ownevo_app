@@ -90,6 +90,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
         )
         names = {r["table_name"] for r in tables}
         assert names == {
+            "agents",
             "approvals",
             "audit_entries",
             "captured_sandbox_runs",
@@ -107,12 +108,15 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "mcp_oauth_states",
             "mcp_servers",
             "meta_evals",
+            "metric_samples",
             "proposals",
             "receiver_tokens",
             "skill_deployments",
             "skill_versions",
             "skills",
             "traces",
+            "trigger_definitions",
+            "trigger_fires",
             "workflows",
             "workspaces",
         }
@@ -129,6 +133,8 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "provenance_kind",
             "sandbox_error_class",
             "skill_kind",
+            "trigger_action",
+            "trigger_kind",
             "workflow_mode",
         }
     finally:
