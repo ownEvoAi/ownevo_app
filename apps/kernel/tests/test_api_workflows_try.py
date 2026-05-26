@@ -23,6 +23,11 @@ from uuid import UUID
 import asyncpg
 import httpx
 import pytest
+from ownevo_kernel.api._internal_auth import (
+    DEV_AUTH_ENV,
+    INTERNAL_AUTH_KEY_ENV,
+    mint_workspace_assertion,
+)
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.eval_cases.registry import add_eval_case
 from ownevo_kernel.nl_gen.fixtures import (
@@ -373,3 +378,36 @@ async def test_try_renders_agent_failure_inline(
     assert result_evt["status"] == "error"
     assert result_evt["error_class"]  # name of the exception class
     assert result_evt["error"]  # the message from the solver
+
+
+async def test_try_403_for_non_member(
+    api_client: httpx.AsyncClient,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A signed assertion for a user with no workspace membership → 403.
+
+    Exercises the WorkspaceMembershipError path in try_workflow_one_case
+    that was added when the route switched from WorkspaceIdDep (no gate)
+    to PrincipalDep + acquire_workspace_conn(user_id=...).
+    """
+    _KEY = "test-signing-key-try-403"
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    monkeypatch.delenv(DEV_AUTH_ENV, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+    case_id = await _seed_full_workflow(db, workflow_id="wf-try-403")
+
+    # Mint an assertion for a user who has no workspace_members row.
+    token = mint_workspace_assertion(
+        user_id="usr_nonmember",
+        workspace_id="default",
+        ttl_seconds=300,
+        signing_key=_KEY,
+    )
+    res = await api_client.post(
+        "/api/workflows/wf-try-403/try",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"eval_case_id": str(case_id)},
+    )
+    assert res.status_code == 403, res.text

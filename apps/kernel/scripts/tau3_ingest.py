@@ -47,6 +47,7 @@ from ownevo_kernel.benchmark.tau3 import (
     Tau3FailureAnalyzerError,
     analyze_tau3_failures,
 )
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
@@ -238,6 +239,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         # Ensure workflow + baseline skill exist before inserting iterations.
         from scripts.tau3_register import seed_tau3_retail  # noqa: PLC0415
         async with conn.transaction():

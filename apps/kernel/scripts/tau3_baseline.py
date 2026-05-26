@@ -218,6 +218,7 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
         return 4
 
     import asyncpg
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
     try:
         conn = await asyncpg.connect(db_url, timeout=10)
@@ -226,6 +227,7 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
         return 4
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         async with conn.transaction():
             # Reuse the M5 register-style seed (workflow + skill +
             # eval cases). Idempotent.
