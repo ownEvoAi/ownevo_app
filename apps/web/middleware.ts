@@ -51,8 +51,13 @@ export default auth(function middleware(req) {
 
  // ── 2. Auth gate ──────────────────────────────────────────────────────────
  // /api/auth/* is owned by Auth.js — never redirect it.
- // /auth/* is the custom sign-in / error UI — never redirect it either.
- if (pathname.startsWith('/api/auth') || pathname.startsWith('/auth/')) {
+ // Enumerate the two custom auth pages explicitly so any future /auth/* route
+ // is NOT automatically public — it would need a deliberate addition here.
+ if (
+  pathname.startsWith('/api/auth') ||
+  pathname === '/auth/signin' ||
+  pathname === '/auth/error'
+ ) {
   return NextResponse.next()
  }
 
