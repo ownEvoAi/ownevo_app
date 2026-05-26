@@ -110,7 +110,12 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
    if (trigger === 'update' && session != null) {
     const s = session as { activeWorkspaceId?: string | null; workspaces?: SyncedWorkspace[] }
     if (s.workspaces !== undefined) {
-     token.workspaces = s.workspaces
+     // Validate each workspace entry so a buggy or future server action
+     // cannot write an unrecognised role into the JWT.
+     const VALID_ROLES = new Set<string>(['owner', 'admin', 'member'])
+     token.workspaces = s.workspaces.filter(
+      (w) => typeof w?.id === 'string' && w.id && VALID_ROLES.has(String(w.role)),
+     )
     }
     if (typeof s.activeWorkspaceId !== 'undefined') {
      token.activeWorkspaceId = s.activeWorkspaceId

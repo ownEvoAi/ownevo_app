@@ -15,9 +15,13 @@ export default async function SetupWorkspacePage() {
  const session = await auth()
 
  // If somehow reached with a workspace (e.g. back-button after create),
- // send to the workspace root.
- if (session?.activeWorkspaceId) {
-  redirect(`/workspaces/${session.activeWorkspaceId}`)
+ // send to the workspace root. Use the same predicate as the middleware
+ // workspace gate (workspaces.length > 0) to avoid a state where the user
+ // has memberships but activeWorkspaceId is null — fall back to the first
+ // membership in that case.
+ if (session?.workspaces?.length) {
+  const target = session.activeWorkspaceId ?? session.workspaces[0]?.id
+  redirect(`/workspaces/${target}`)
  }
 
  return (

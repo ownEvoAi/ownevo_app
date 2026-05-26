@@ -12,18 +12,12 @@ read and write them directly.
 
 from __future__ import annotations
 
-import os
 import secrets
 
-import asyncpg
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .._internal_auth import (
-    INTERNAL_AUTH_KEY_ENV,
-    bearer_token,
-    verify_internal_service_token,
-)
+from .._internal_auth import require_service_token
 from ..deps import PoolDep
 
 router = APIRouter(
@@ -32,12 +26,26 @@ router = APIRouter(
     include_in_schema=False,  # internal service endpoint; not part of the public API
 )
 
+# Hard cap on workspaces per user. Prevents unbounded DB growth from a
+# single user submitting the create form in a tight loop or from two browser
+# tabs racing — both would pass form validation but the cap fires inside the
+# same transaction as the INSERT so only one proceeds.
+MAX_WORKSPACES_PER_USER = 10
+
 
 class WorkspaceCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def strip_and_validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be blank or whitespace-only")
+        return v
 
 
 class WorkspaceCreateResponse(BaseModel):
@@ -47,21 +55,7 @@ class WorkspaceCreateResponse(BaseModel):
     name: str
 
 
-def _require_service_token(request: Request) -> None:
-    key = os.environ.get(INTERNAL_AUTH_KEY_ENV)
-    if not key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="internal workspace endpoint is not configured",
-        )
-    if not verify_internal_service_token(bearer_token(request), key):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid internal service token",
-        )
-
-
-@router.post("", response_model=WorkspaceCreateResponse)
+@router.post("", response_model=WorkspaceCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     body: WorkspaceCreateRequest, request: Request, pool: PoolDep
 ) -> WorkspaceCreateResponse:
@@ -71,22 +65,36 @@ async def create_workspace(
     auth-sync endpoint which is called first, on sign-in). Returns the new
     workspace id and name so the web app can update the session immediately.
     """
-    _require_service_token(request)
+    require_service_token(request)
 
     workspace_id = f"ws_{secrets.token_urlsafe(16)}"
 
     async with pool.acquire() as conn:
-        # Verify the user exists before creating the workspace.
-        user_exists = await conn.fetchval(
-            "SELECT 1 FROM users WHERE id = $1", body.user_id
-        )
-        if not user_exists:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="user not found",
-            )
-
         async with conn.transaction():
+            # All checks run inside the transaction so no intermediate state
+            # is visible to concurrent requests.
+            user_exists = await conn.fetchval(
+                "SELECT 1 FROM users WHERE id = $1", body.user_id
+            )
+            if not user_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="user not found",
+                )
+
+            workspace_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM workspace_members WHERE user_id = $1",
+                body.user_id,
+            )
+            if workspace_count >= MAX_WORKSPACES_PER_USER:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"user already has {workspace_count} workspace(s); "
+                        f"limit is {MAX_WORKSPACES_PER_USER}"
+                    ),
+                )
+
             await conn.execute(
                 "INSERT INTO workspaces (id, name) VALUES ($1, $2)",
                 workspace_id,

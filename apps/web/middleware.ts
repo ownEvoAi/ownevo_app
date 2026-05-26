@@ -57,6 +57,17 @@ export default auth(function middleware(req) {
 
  const session = req.auth
  if (!session) {
+  // RSC and prefetch requests (sent by the App Router internally) expect a
+  // JSON/streaming body, not an HTML redirect page. Returning an HTML 302
+  // to these requests can break page hydration. Return 401 so the router
+  // handles unauthenticated state gracefully.
+  const isDataRequest =
+   req.headers.get('rsc') === '1' ||
+   req.headers.get('next-router-prefetch') === '1' ||
+   req.headers.get('next-router-state-tree') != null
+  if (isDataRequest) {
+   return new NextResponse(null, { status: 401 })
+  }
   const signInUrl = req.nextUrl.clone()
   signInUrl.pathname = '/api/auth/signin'
   signInUrl.searchParams.set('callbackUrl', req.url)

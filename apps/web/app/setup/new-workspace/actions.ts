@@ -36,8 +36,10 @@ export async function createWorkspaceAction(_prev: ActionResult, formData: FormD
  try {
   provisioned = await createWorkspace(session.user.id, rawName)
  } catch (err) {
-  const msg = err instanceof Error ? err.message : String(err)
-  return { error: `Could not create workspace: ${msg}` }
+  // Log the full error server-side; return a generic message to the browser
+  // so internal details (kernel status codes, host names) are not exposed.
+  console.error('[createWorkspaceAction] workspace create failed:', err)
+  return { error: 'Could not create workspace. Please try again.' }
  }
 
  // Merge the new workspace into the existing session memberships and activate it.
@@ -47,10 +49,20 @@ export async function createWorkspaceAction(_prev: ActionResult, formData: FormD
   name: provisioned.name,
   role: 'owner',
  }
- await unstable_update({
-  workspaces: [...existing, newWorkspace],
-  activeWorkspaceId: provisioned.workspace_id,
- })
+
+ // unstable_update is an experimental API — wrap so that a failure does not
+ // orphan the newly-created workspace. If the JWT update fails the redirect
+ // still fires; the next auth() call re-reads memberships from the session
+ // on sign-in or from the kernel on the next sync, recovering gracefully.
+ try {
+  await unstable_update({
+   workspaces: [...existing, newWorkspace],
+   activeWorkspaceId: provisioned.workspace_id,
+  })
+ } catch (err) {
+  console.error('[createWorkspaceAction] unstable_update failed:', err)
+  // Continue to redirect — workspace exists in the DB.
+ }
 
  redirect(`/workspaces/${provisioned.workspace_id}`)
 }

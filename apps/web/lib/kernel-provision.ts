@@ -6,7 +6,7 @@
 import 'server-only'
 
 const INTERNAL_AUTH_KEY = process.env.OWNEVO_INTERNAL_AUTH_KEY
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const API_URL = process.env.OWNEVO_KERNEL_API_URL ?? 'http://localhost:8000'
 
 export interface ProvisionedWorkspace {
  workspace_id: string
@@ -38,6 +38,7 @@ export async function createWorkspace(
    authorization: `Bearer ${INTERNAL_AUTH_KEY}`,
   },
   body: JSON.stringify({ user_id: userId, name }),
+  signal: AbortSignal.timeout(10_000),
  })
 
  if (!res.ok) {
@@ -45,5 +46,9 @@ export async function createWorkspace(
   throw new Error(`workspace create failed (${res.status}): ${detail}`)
  }
 
- return res.json() as Promise<ProvisionedWorkspace>
+ const data = (await res.json()) as ProvisionedWorkspace
+ if (typeof data?.workspace_id !== 'string' || !data.workspace_id) {
+  throw new Error('kernel returned an invalid workspace payload')
+ }
+ return data
 }
