@@ -56,7 +56,7 @@ from ...middleware.otel_receiver import (
 from ...middleware.watsonx_adk.translator import (
     _walk_and_rewrite_inplace as _watsonx_rewrite_inplace,
 )
-from ..deps import ConnDep
+from ..deps import ConnDep, WorkspaceIdDep
 
 _log = logging.getLogger(__name__)
 
@@ -287,6 +287,7 @@ async def _apply_provenance_hints(
 async def ingest_otlp_traces(
     request: Request,
     conn: ConnDep,
+    workspace_id: WorkspaceIdDep,
     authorization: str | None = Header(default=None),
     workflow_id: str | None = Query(default=None),
 ) -> IngestResponse:
@@ -389,7 +390,7 @@ async def ingest_otlp_traces(
         # once the workflow has been quiet for the debounce window.
         trigger = getattr(request.app.state, "cluster_auto_trigger", None)
         if trigger is not None and _batch_has_tool_failure(batch):
-            trigger.signal(bound_workflow_id)
+            trigger.signal(workspace_id, bound_workflow_id)
 
     _log.info(
         "otel-ingest: accepted %d events, %d warnings, "

@@ -35,11 +35,23 @@ _TRACE_EVENTS = [
 # Fake asyncpg plumbing
 # ---------------------------------------------------------------------------
 
+# acquire_workspace_conn binds the workspace before yielding the conn, so every
+# fake conn the routes acquire must answer set_workspace's existence check (a
+# fetchrow against `workspaces`) with a live, non-deleted row.
+_LIVE_WORKSPACE_ROW = {"deleted_at": None}
+
+
 class _FakeConn:
     """Minimal asyncpg.Connection substitute used by the question endpoint."""
 
     async def fetch(self, _query: str, trace_ids: Any, _limit: Any) -> list[dict]:
         return [{"id": tid, "events": _TRACE_EVENTS} for tid in trace_ids]
+
+    async def fetchrow(self, _sql: str, *_args: Any) -> dict | None:
+        return _LIVE_WORKSPACE_ROW
+
+    async def execute(self, *_args: Any, **_kw: Any) -> str:
+        return "SELECT 1"
 
 
 class _FakeTransaction:
@@ -72,8 +84,12 @@ class _FakeGenerateConn:
     async def fetch(self, _query: str, trace_ids: Any, _limit: Any) -> list[dict]:
         return [{"id": tid, "events": _TRACE_EVENTS} for tid in trace_ids]
 
-    async def fetchrow(self, *args: Any) -> dict | None:
-        self.fetchrow_args = args
+    async def fetchrow(self, sql: str, *args: Any) -> dict | None:
+        # set_workspace probes `workspaces` first; the workflow INSERT comes
+        # after. Branch so the binding check sees a live workspace row.
+        if "workspaces" in sql:
+            return _LIVE_WORKSPACE_ROW
+        self.fetchrow_args = (sql, *args)
         return self._fetchrow_result
 
     async def execute(self, *_args: Any, **_kw: Any) -> str:
@@ -202,6 +218,12 @@ async def test_unknown_trace_ids_404(monkeypatch):
         async def fetch(self, *_):
             return []
 
+        async def fetchrow(self, *_a):
+            return _LIVE_WORKSPACE_ROW
+
+        async def execute(self, *_a, **_k):
+            return "SELECT 1"
+
     class _EmptyAcquire:
         async def __aenter__(self):
             return _EmptyConn()
@@ -263,6 +285,12 @@ async def test_import_summary_unknown_trace_ids_404(monkeypatch):
     class _EmptyConn:
         async def fetch(self, *_):
             return []
+
+        async def fetchrow(self, *_a):
+            return _LIVE_WORKSPACE_ROW
+
+        async def execute(self, *_a, **_k):
+            return "SELECT 1"
 
     class _EmptyAcquire:
         async def __aenter__(self):

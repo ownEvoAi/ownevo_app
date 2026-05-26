@@ -42,6 +42,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from ..tenant_session import acquire_workspace_conn
+
 if TYPE_CHECKING:
     import asyncpg
 
@@ -111,24 +113,29 @@ class ClusterAutoTrigger:
         self._poll_interval = poll_interval_seconds
         self._run = cluster_runner or _default_cluster_runner
         self._clock = clock
-        # workflow_id -> monotonic timestamp of its most recent signal.
-        self._pending: dict[str, float] = {}
+        # (workspace_id, workflow_id) -> monotonic timestamp of its most recent
+        # signal. Keyed by workspace too so the off-request clustering run binds
+        # the same workspace the ingest happened in (the connection it acquires
+        # is workspace-scoped under RLS).
+        self._pending: dict[tuple[str, str], float] = {}
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
         # Set once the extras prove absent — stops accepting further signals
         # so a misconfigured kernel doesn't log on every ingest.
         self._disabled = False
 
-    def signal(self, workflow_id: str) -> None:
+    def signal(self, workspace_id: str, workflow_id: str) -> None:
         """Mark a workflow as having new failures to (re)cluster.
 
         Synchronous and cheap — safe to call from the request path. The
         actual clustering happens later, on the background task, after the
-        debounce window elapses with no further signal.
+        debounce window elapses with no further signal. ``workspace_id`` is
+        the workspace the ingest landed in; it is carried through so the
+        deferred run scopes its connection to the same workspace.
         """
         if self._disabled:
             return
-        self._pending[workflow_id] = self._clock()
+        self._pending[(workspace_id, workflow_id)] = self._clock()
 
     async def start(self) -> None:
         """Spawn the background coalescing task (idempotent)."""
@@ -181,18 +188,19 @@ class ClusterAutoTrigger:
     async def _drain_due(self) -> None:
         """Cluster every workflow whose debounce window has elapsed."""
         now = self._clock()
-        due = [wf for wf, ts in self._pending.items() if now - ts >= self._debounce]
-        for workflow_id in due:
+        due = [key for key, ts in self._pending.items() if now - ts >= self._debounce]
+        for key in due:
             if self._stopping.is_set():
                 break
             # Pop before running so a signal arriving mid-run re-marks the
             # workflow with a fresh timestamp and gets picked up next cycle.
-            self._pending.pop(workflow_id, None)
-            await self._run_for(workflow_id)
+            self._pending.pop(key, None)
+            workspace_id, workflow_id = key
+            await self._run_for(workspace_id, workflow_id)
 
-    async def _run_for(self, workflow_id: str) -> None:
+    async def _run_for(self, workspace_id: str, workflow_id: str) -> None:
         try:
-            async with self._pool.acquire() as conn:
+            async with acquire_workspace_conn(self._pool, workspace_id) as conn:
                 persisted = await self._run(conn, workflow_id)
         except ImportError:
             _log.warning(

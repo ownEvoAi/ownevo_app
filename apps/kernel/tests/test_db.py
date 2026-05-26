@@ -20,6 +20,7 @@ import uuid
 import asyncpg
 import pytest
 from ownevo_kernel.db import ENV_VAR, migrate, migration_files, open_pool
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
@@ -146,6 +147,9 @@ async def test_audit_entries_worm_blocks_update_delete_truncate(fresh_db: str):
     conn = await asyncpg.connect(fresh_db)
     try:
         await migrate(conn)
+        # Bind a workspace so the post-0027 RLS policy admits the insert and the
+        # WORM trigger (not RLS) is what blocks the later UPDATE/DELETE/TRUNCATE.
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
 
         await conn.execute(
             "INSERT INTO audit_entries (kind, payload, actor) "

@@ -72,10 +72,12 @@ from ...nl_gen.workflow_spec_from_traces import (
     WorkflowSpecValidationError,
     generate_workflow_spec_from_traces,
 )
+from ...tenant_session import acquire_workspace_conn
 from .._anthropic_client import build_async_anthropic
 from .._demo_gate import DemoGateDep
 from .._demo_quota import record_usage as record_demo_usage
 from .._demo_token_accountant import TokenAccountant, wrap_client_for_accounting
+from ..deps import WorkspaceIdDep
 from .design_agent import (
     NextQuestionResponse,
     PriorAnswerIn,
@@ -209,10 +211,12 @@ class ImportSummaryResponse(BaseModel):
     agent_definition_truncated: bool = False
 
 
-async def _summarize(request: Request, trace_ids: list[UUID]) -> TraceSummary:
+async def _summarize(
+    request: Request, workspace_id: str, trace_ids: list[UUID]
+) -> TraceSummary:
     """Load + summarise the imported traces, or 404 when none resolve."""
     pool = request.app.state.pool
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         trace_rows = await load_trace_events(conn, trace_ids)
     if not trace_rows:
         raise HTTPException(
@@ -291,6 +295,7 @@ def _summary_to_response(
 async def import_summary(
     req: ImportSummaryRequest,
     request: Request,
+    workspace_id: WorkspaceIdDep,
     demo: DemoGateDep,
 ) -> ImportSummaryResponse:
     """Open the discovery conversation with a "this agent does X" inference.
@@ -302,7 +307,7 @@ async def import_summary(
     when no LLM is available or the LLM call fails — the conversation is
     never blocked.
     """
-    trace_summary = await _summarize(request, req.trace_ids)
+    trace_summary = await _summarize(request, workspace_id, req.trace_ids)
 
     client = _llm_client_or_none()
     if client is None:
@@ -351,9 +356,10 @@ async def import_summary(
 async def import_next_question(
     req: ImportNextQuestionRequest,
     request: Request,
+    workspace_id: WorkspaceIdDep,
     demo: DemoGateDep,
 ) -> NextQuestionResponse:
-    summary = await _summarize(request, req.trace_ids)
+    summary = await _summarize(request, workspace_id, req.trace_ids)
     answered_count = len(req.prior_answers)
     total_questions = len(DIMENSION_SPECS)
 
@@ -415,9 +421,10 @@ async def import_next_question(
 async def import_generate(
     req: ImportGenerateRequest,
     request: Request,
+    workspace_id: WorkspaceIdDep,
     demo: DemoGateDep,
 ) -> ImportGenerateResponse:
-    summary = await _summarize(request, req.trace_ids)
+    summary = await _summarize(request, workspace_id, req.trace_ids)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -502,7 +509,7 @@ async def import_generate(
     description = summary.as_prompt_text()[:_DESCRIPTION_MAX_LEN]
 
     pool = request.app.state.pool
-    async with pool.acquire() as conn, conn.transaction():
+    async with acquire_workspace_conn(pool, workspace_id) as conn, conn.transaction():
         row = await conn.fetchrow(
             """
                 INSERT INTO workflows (id, description, spec,

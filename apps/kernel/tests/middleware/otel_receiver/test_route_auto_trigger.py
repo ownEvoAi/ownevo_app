@@ -77,7 +77,9 @@ async def test_failing_batch_marks_workflow_pending(
 
             trigger = app.state.cluster_auto_trigger
             assert trigger is not None
-            assert "wf-fail" in trigger._pending
+            # _pending is keyed by (workspace_id, workflow_id) so the deferred
+            # clustering run binds the same workspace the ingest landed in.
+            assert ("default", "wf-fail") in trigger._pending
     finally:
         await pool.close()
 

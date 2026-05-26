@@ -68,7 +68,10 @@ async def test_table_has_workspace_id_column(
     )
     assert row is not None, f"{table} missing workspace_id"
     assert row["is_nullable"] == "NO"
-    assert "default" in (row["column_default"] or "")
+    # Migration 0034 replaced the literal 'default' default with the session
+    # GUC, so an insert auto-stamps the active workspace (and fails closed when
+    # the GUC is unset, since current_setting then yields NULL).
+    assert "current_setting" in (row["column_default"] or "")
 
 
 async def test_insert_backfills_default_workspace(db: asyncpg.Connection) -> None:
@@ -85,6 +88,10 @@ async def test_insert_backfills_default_workspace(db: asyncpg.Connection) -> Non
 
 
 async def test_set_and_current_workspace_round_trip(db: asyncpg.Connection) -> None:
-    assert await current_workspace(db) is None
+    # The db fixture binds the default workspace, mirroring get_conn.
+    assert await current_workspace(db) == DEFAULT_WORKSPACE_ID
+    await db.execute(
+        "INSERT INTO workspaces (id, name) VALUES ('acme', 'Acme')"
+    )
     await set_workspace(db, "acme")
     assert await current_workspace(db) == "acme"

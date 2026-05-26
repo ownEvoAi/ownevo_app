@@ -46,6 +46,7 @@ from .nl_gen.metric_def import MetricDefinition
 from .nl_gen.sim_plan import SimulationPlan
 from .nl_gen.spec import Provenance, WorkflowSpec
 from .skills.registry import register_skill
+from .tenant_session import acquire_workspace_conn
 from .types import AuditKind, EvalCase, IterationState, ProposalState
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -392,12 +393,16 @@ async def run_one_iteration_for_workflow(
     pool: asyncpg.Pool,
     *,
     workflow_id: str,
+    workspace_id: str,
     client: AsyncAnthropic,
 ) -> IterationOutcome:
     """Run one cycle and persist its outcome.
 
     Accepts a pool rather than a bare connection so the DB connection is
-    not held during the 30-90s LLM window. Three phases:
+    not held during the 30-90s LLM window. Every connection it acquires is
+    bound to ``workspace_id`` (resolved by the caller from the request) so
+    each phase's reads and writes stay within the workspace under RLS.
+    Three phases:
 
     1. Pre-LLM (brief): load artifacts, insert 'running' iteration row.
        Connection acquired and released before LLM calls begin.
@@ -410,7 +415,7 @@ async def run_one_iteration_for_workflow(
     transaction) before re-raising.
     """
     # --- Phase 1: pre-LLM setup (connection released before LLM starts) ---
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         spec, sim_plan, metric, case_set = await _load_artifacts(conn, workflow_id)
         instruction_before = await _current_head_instruction(conn, workflow_id)
         parent_skill_version_id = await _current_head_version_id(conn, workflow_id)
@@ -504,7 +509,7 @@ async def run_one_iteration_for_workflow(
         try:
             chat_handle = build_chat_client(agent_model_slug)
         except RouterError as exc:
-            async with pool.acquire() as conn:
+            async with acquire_workspace_conn(pool, workspace_id) as conn:
                 await conn.execute(
                     """
                     UPDATE iterations
@@ -524,7 +529,9 @@ async def run_one_iteration_for_workflow(
     # For real / mock tiers we keep phase 2 connection-free so the
     # 30-90s LLM window doesn't pin a connection from the pool.
     replay_conn_ctx = (
-        pool.acquire() if replay_config is not None else contextlib.nullcontext()
+        acquire_workspace_conn(pool, workspace_id)
+        if replay_config is not None
+        else contextlib.nullcontext()
     )
     try:
         async with replay_conn_ctx as replay_conn:
@@ -557,7 +564,7 @@ async def run_one_iteration_for_workflow(
                         **agent_overrides,
                     )
                 except (Exception, asyncio.CancelledError):
-                    async with pool.acquire() as conn:
+                    async with acquire_workspace_conn(pool, workspace_id) as conn:
                         await conn.execute(
                             """
                             UPDATE iterations
@@ -569,7 +576,7 @@ async def run_one_iteration_for_workflow(
                         )
                     raise
                 if not fallback_report.cycles:
-                    async with pool.acquire() as conn:
+                    async with acquire_workspace_conn(pool, workspace_id) as conn:
                         await conn.execute(
                             """
                             UPDATE iterations
@@ -582,7 +589,7 @@ async def run_one_iteration_for_workflow(
                     raise IterationRunnerError("fallback loop produced no cycles") from None
                 cycle = fallback_report.cycles[0]
             except (Exception, asyncio.CancelledError):
-                async with pool.acquire() as conn:
+                async with acquire_workspace_conn(pool, workspace_id) as conn:
                     await conn.execute(
                         """
                         UPDATE iterations
@@ -614,7 +621,7 @@ async def run_one_iteration_for_workflow(
     new_instruction: str | None = cycle.instruction_after
     persisted_clusters: list = []
 
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         try:
             async with conn.transaction():
                 case_id_to_trace_id = await _persist_traces(

@@ -17,6 +17,7 @@ import asyncpg
 import pytest
 from ownevo_format import AgentEventAdapter, ContentDelta, ToolCallStart
 from ownevo_kernel.db import ENV_VAR, migrate
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 from ownevo_kernel.traces import TraceCollector, trace_session
 
 pytestmark = pytest.mark.skipif(
@@ -43,6 +44,9 @@ async def db():
     conn = await asyncpg.connect(test_url)
     try:
         await migrate(conn)
+        # Bind the default workspace so inserts auto-stamp workspace_id; without
+        # it the post-0027 column default resolves to NULL (GUC unset).
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         yield conn
     finally:
         await conn.close()

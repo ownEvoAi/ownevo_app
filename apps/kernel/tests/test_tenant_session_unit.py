@@ -14,17 +14,34 @@ import pytest
 from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
     WORKSPACE_GUC,
+    UnknownWorkspaceError,
+    WorkspaceDeletedError,
     current_workspace,
     set_workspace,
 )
 
+_LIVE_WORKSPACE = object()  # sentinel: stub a live (non-deleted) workspace row
+
 
 class _RecorderConn:
-    """Minimal asyncpg-shaped stub recording execute() and fetchval() calls."""
+    """Minimal asyncpg-shaped stub recording the calls set_workspace issues.
 
-    def __init__(self, fetchval_return: Any = None) -> None:
+    `set_workspace` first reads the workspace row (fetchrow) to confirm it
+    exists and is not soft-deleted, then issues set_config. The stub returns a
+    live workspace row by default; pass `fetchrow_return=None` for a missing
+    workspace or a dict with a non-null `deleted_at` for a soft-deleted one.
+    """
+
+    def __init__(
+        self, fetchval_return: Any = None, fetchrow_return: Any = _LIVE_WORKSPACE
+    ) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self._fetchval_return = fetchval_return
+        self._fetchrow_return = (
+            {"deleted_at": None}
+            if fetchrow_return is _LIVE_WORKSPACE
+            else fetchrow_return
+        )
 
     async def execute(self, sql: str, *args: Any) -> str:
         self.calls.append((sql, args))
@@ -34,14 +51,21 @@ class _RecorderConn:
         self.calls.append((sql, args))
         return self._fetchval_return
 
+    async def fetchrow(self, sql: str, *args: Any) -> Any:
+        self.calls.append((sql, args))
+        return self._fetchrow_return
+
+
+def _set_config_calls(conn: _RecorderConn) -> list[tuple[str, tuple[Any, ...]]]:
+    return [(sql, args) for sql, args in conn.calls if "set_config" in sql]
+
 
 async def test_set_workspace_issues_set_config() -> None:
     conn = _RecorderConn()
     await set_workspace(conn, "acme")  # type: ignore[arg-type]
-    assert len(conn.calls) == 1
-    sql, args = conn.calls[0]
-    assert "set_config" in sql
-    assert args == (WORKSPACE_GUC, "acme")
+    set_config = _set_config_calls(conn)
+    assert len(set_config) == 1
+    assert set_config[0][1] == (WORKSPACE_GUC, "acme")
 
 
 @pytest.mark.parametrize("bad", ["", "   "])
@@ -52,14 +76,31 @@ async def test_set_workspace_rejects_empty(bad: str) -> None:
     assert conn.calls == []
 
 
+async def test_set_workspace_rejects_unknown_workspace() -> None:
+    # No workspace row -> bind is refused and no GUC is set.
+    conn = _RecorderConn(fetchrow_return=None)
+    with pytest.raises(UnknownWorkspaceError):
+        await set_workspace(conn, "ghost")  # type: ignore[arg-type]
+    assert _set_config_calls(conn) == []
+
+
+async def test_set_workspace_rejects_deleted_workspace() -> None:
+    # A soft-deleted workspace is unbindable -> its rows stay unreachable.
+    import datetime
+
+    conn = _RecorderConn(fetchrow_return={"deleted_at": datetime.datetime.now()})
+    with pytest.raises(WorkspaceDeletedError):
+        await set_workspace(conn, "gone")  # type: ignore[arg-type]
+    assert _set_config_calls(conn) == []
+
+
 async def test_set_workspace_passes_padded_value_verbatim() -> None:
     # workspace_id.strip() guards against all-whitespace IDs, but a value
     # like '  acme  ' passes the guard and is stored verbatim. Document this
     # so any future strip-on-write change is an explicit decision.
     conn = _RecorderConn()
     await set_workspace(conn, "  acme  ")  # type: ignore[arg-type]
-    _, args = conn.calls[0]
-    assert args[1] == "  acme  "
+    assert _set_config_calls(conn)[0][1][1] == "  acme  "
 
 
 async def test_current_workspace_returns_none_when_unset() -> None:

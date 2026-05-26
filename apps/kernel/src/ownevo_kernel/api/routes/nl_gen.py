@@ -46,10 +46,12 @@ from ...nl_gen.workflow_spec_generator import (
     WorkflowSpecValidationError,
     generate_workflow_spec,
 )
+from ...tenant_session import acquire_workspace_conn
 from .._anthropic_client import build_async_anthropic
 from .._demo_gate import DemoGateDep
 from .._demo_quota import record_usage as record_demo_usage
 from .._demo_token_accountant import TokenAccountant, wrap_client_for_accounting
+from ..deps import WorkspaceIdDep
 
 router = APIRouter(prefix="/api/nl-gen", tags=["nl-gen"])
 
@@ -213,6 +215,7 @@ class GenerateResponse(BaseModel):
 async def generate_workflow(
     request: Request,
     body: GenerateRequest,
+    workspace_id: WorkspaceIdDep,
     demo: DemoGateDep,
 ) -> GenerateResponse:
     """Generate a WorkflowSpec from a plain-English description, persist it.
@@ -345,7 +348,7 @@ async def generate_workflow(
     workflow_id = body.workflow_id or spec.id
 
     pool = request.app.state.pool
-    async with pool.acquire() as conn, conn.transaction():
+    async with acquire_workspace_conn(pool, workspace_id) as conn, conn.transaction():
         row = await conn.fetchrow(
             """
                 INSERT INTO workflows (id, description, spec,
