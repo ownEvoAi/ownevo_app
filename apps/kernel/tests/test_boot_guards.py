@@ -1,21 +1,23 @@
-"""Boot-time guard tests.
+"""Boot-time and per-request guard tests.
 
-Verify that the FastAPI lifespan refuses to start when environment variables
-are in a mutually-exclusive or dangerous combination, rather than silently
-allowing the misconfiguration to serve requests.
+Verify that the kernel refuses to start (lifespan guard) and refuses to serve
+(per-request guard in get_principal) when environment variables are in a
+mutually-exclusive or dangerous combination, rather than silently allowing the
+misconfiguration.
 
 These tests do not require a database — they exercise the pre-pool-open
-guard logic only.
+guard logic (lifespan) and the request-resolution guard (deps) only.
 """
 
 from __future__ import annotations
 
-import pytest
-from httpx import ASGITransport
-import httpx
+from types import SimpleNamespace
 
-from ownevo_kernel.api.app import create_app
+import pytest
+from fastapi import HTTPException
 from ownevo_kernel.api._internal_auth import DEV_AUTH_ENV, INTERNAL_AUTH_KEY_ENV
+from ownevo_kernel.api.app import create_app
+from ownevo_kernel.api.deps import get_principal
 
 
 @pytest.mark.asyncio
@@ -30,7 +32,6 @@ async def test_dev_auth_with_signing_key_refuses_to_start(monkeypatch):
     monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, "some-production-key")
 
     app = create_app()
-    transport = ASGITransport(app=app)
 
     with pytest.raises(RuntimeError, match=DEV_AUTH_ENV):
         async with app.router.lifespan_context(app):
@@ -62,6 +63,9 @@ async def test_dev_auth_without_signing_key_starts_normally(monkeypatch):
     assert DEV_AUTH_ENV not in str(exc_info.value), (
         "Expected a DB-url error, not the dev-auth guard"
     )
+    assert "OWNEVO_DATABASE_URL" in str(exc_info.value), (
+        "Expected the DB-url missing error"
+    )
 
 
 @pytest.mark.asyncio
@@ -79,3 +83,43 @@ async def test_no_dev_auth_with_signing_key_starts_normally(monkeypatch):
             pass
 
     assert DEV_AUTH_ENV not in str(exc_info.value)
+    assert "OWNEVO_DATABASE_URL" in str(exc_info.value), (
+        "Expected the DB-url missing error"
+    )
+
+
+# --- Per-request guard in get_principal ---
+#
+# The lifespan guard fires once at startup. If OWNEVO_DEV_AUTH and
+# OWNEVO_INTERNAL_AUTH_KEY are both injected into a running process (e.g.
+# `kubectl set env` without a restart), the lifespan guard doesn't re-fire.
+# get_principal() has a matching per-request check that closes this window.
+
+
+def _request_no_auth() -> object:
+    """Minimal mock of a FastAPI Request with no Authorization header."""
+    return SimpleNamespace(headers={})
+
+
+def test_get_principal_rejects_dev_auth_with_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_principal() must raise HTTP 500 when dev-auth and signing key are
+    both present — even if the lifespan guard was bypassed at startup."""
+    monkeypatch.setenv(DEV_AUTH_ENV, "true")
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, "live-production-key")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_principal(_request_no_auth())  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 500
+    assert "misconfiguration" in exc_info.value.detail
+
+
+def test_get_principal_dev_auth_without_key_returns_dev_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The normal local-dev path: dev-auth on, no signing key → dev principal."""
+    monkeypatch.setenv(DEV_AUTH_ENV, "true")
+    monkeypatch.delenv(INTERNAL_AUTH_KEY_ENV, raising=False)
+
+    principal = get_principal(_request_no_auth())  # type: ignore[arg-type]
+    assert principal.user_id == "dev-user"

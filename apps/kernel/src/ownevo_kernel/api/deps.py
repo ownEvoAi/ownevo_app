@@ -21,6 +21,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from ..tenant_session import WorkspaceBindError, WorkspaceMembershipError, set_workspace
 from ._internal_auth import (
+    DEV_AUTH_ENV,
     INTERNAL_AUTH_KEY_ENV,
     AssertionInvalid,
     Principal,
@@ -72,6 +73,21 @@ def get_principal(request: Request) -> Principal:
     token = bearer_token(request)
     if token is None:
         if dev_auth_enabled():
+            # Defense-in-depth: the boot-time guard (lifespan) already refuses
+            # to start when both flags are set, but if environment variables are
+            # mutated on a running process (e.g. kubectl set env without restart)
+            # that guard won't re-fire. Reject here too so a post-startup
+            # misconfiguration never silently grants the dev identity.
+            if os.environ.get(INTERNAL_AUTH_KEY_ENV):
+                _log.error(
+                    "%s=true alongside %s; refusing dev-auth fallback",
+                    DEV_AUTH_ENV,
+                    INTERNAL_AUTH_KEY_ENV,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="server misconfiguration: dev-auth and signing key are mutually exclusive",  # noqa: E501
+                )
             return dev_principal()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
