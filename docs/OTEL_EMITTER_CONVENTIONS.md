@@ -30,7 +30,7 @@ exporter) so they never add latency to the critical path.
 |-----------|------|---------|-------|
 | `service.name` | string | `"ownevo"` | Set from `OWNEVO_OTEL_SERVICE_NAME` |
 | `service.version` | string | `"0.1.0"` | Kernel package version |
-| `ownevo.schema.version` | string | `"1.3"` | WorkflowSpec schema version |
+| `ownevo.schema.version` | string | `"1.4"` | WorkflowSpec schema version |
 
 ---
 
