@@ -18,11 +18,12 @@ interface Props {
 export function StatusControl({ wsId, agentId, status }: Props) {
  const [value, setValue] = useState<AgentStatus>(status)
  const [error, setError] = useState<string | null>(null)
- const [pending, startTransition] = useTransition function onChange(next: AgentStatus) {
+ const [pending, startTransition] = useTransition()
+ function onChange(next: AgentStatus) {
  const previous = value
  setValue(next)
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await updateAgentStatusAction({ wsId, agentId, status: next })
  if (!result.ok) {
  setValue(previous)
@@ -40,7 +41,7 @@ export function StatusControl({ wsId, agentId, status }: Props) {
  aria-label="Agent status"
  onChange={(e) => onChange(e.target.value as AgentStatus)}
  // Row is itself a link; keep clicks on the select from navigating.
- onClick={(e) => e.stopPropagation }
+ onClick={(e) => e.stopPropagation() }
  >
  {STATUSES.map((s) => (
  <option key={s} value={s}>

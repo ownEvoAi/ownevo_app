@@ -51,7 +51,7 @@ export default async function DesignAgentPage({
  // clicked "Run discovery" — preserve their text)
  // 2. template's sample_description (template-anchored entry)
  // 3. empty string (generic / free-form entry — left pane will warn)
- const description = (sp.description ?? template?.sample_description ?? '').trim // Pre-fetch question #0 so the chat panel doesn't flash an empty state
+ const description = (sp.description ?? template?.sample_description ?? '').trim() // Pre-fetch question #0 so the chat panel doesn't flash an empty state
  // on first paint. Subsequent questions load client-side via the server
  // action. The LLM interviewer runs Sonnet 4.6 which is ~6-12s end to
  // end; budget 25s so a normal call lands before SSR returns. The
@@ -81,11 +81,13 @@ export default async function DesignAgentPage({
  </p>
  <p className="design-back-row">
  <Link
- href={`/workspaces/${wsId}/workflows/new${( => {
- const qs = new URLSearchParams if (templateId) qs.set('template_id', templateId)
+ href={`/workspaces/${wsId}/workflows/new${(() => {
+ const qs = new URLSearchParams()
+  if (templateId) qs.set('template_id', templateId)
  if (description) qs.set('description', description)
- const s = qs.toString return s ? `?${s}` : ''
- }) }`}
+ const s = qs.toString()
+  return s ? `?${s}` : ''
+ })() }`}
  className="design-back-link"
  >
  &lsaquo; Back to description

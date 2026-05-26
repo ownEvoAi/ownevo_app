@@ -26,37 +26,40 @@ export function NewWorkflowForm({
  // call we already know will 429.
  demoGate?: { disabled: boolean; reason: string | null }
 }) {
- const router = useRouter const action = generateWorkflowAction.bind(null, wsId)
+ const router = useRouter()
+ const action = generateWorkflowAction.bind(null, wsId)
  const [state, formAction] = useActionState(action, initialState)
  const [description, setDescription] = useState('')
  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
  null,
  )
  const formRef = useRef<HTMLFormElement | null>(null)
- // `useTransition` lets us keep a pending flag while the design page is
+ // `useTransition()` lets us keep a pending flag while the design page is
  // server-rendering. The SSR pre-fetch makes one LLM call (Sonnet 4.6,
  // ~6–12s), and without a pending state the button looks frozen. Wrap
  // the router.push so the button can swap to a spinner + ETA copy.
- const [discoveryPending, startDiscoveryTransition] = useTransition const runDiscovery = => {
- const qs = new URLSearchParams if (selectedTemplateId) qs.set('template_id', selectedTemplateId)
- if (description.trim ) qs.set('description', description.trim )
+ const [discoveryPending, startDiscoveryTransition] = useTransition()
+ const runDiscovery = () => {
+ const qs = new URLSearchParams()
+  if (selectedTemplateId) qs.set('template_id', selectedTemplateId)
+ if (description.trim() ) qs.set('description', description.trim() )
  const href = `/workspaces/${wsId}/workflows/new/design${
- qs.toString ? `?${qs}` : ''
+ qs.toString() ? `?${qs}` : ''
  }`
- startDiscoveryTransition( => {
+ startDiscoveryTransition(() => {
  router.push(href)
  })
  }
  const demoBlocked = demoGate?.disabled ?? false
  const canRunDiscovery =
- description.trim.length >= 50 && !discoveryPending && !demoBlocked
+ description.trim().length >= 50 && !discoveryPending && !demoBlocked
 
  const pickTemplate = (t: VerticalTemplate) => {
  setSelectedTemplateId(t.id)
  setDescription(t.sample_description)
  }
 
- const clearTemplate = => {
+ const clearTemplate = () => {
  const seed = templates.find((t) => t.id === selectedTemplateId)?.sample_description
  if (seed && description !== seed) {
  if (!window.confirm('Clear your edited description and start blank?')) return
@@ -74,7 +77,9 @@ export function NewWorkflowForm({
  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
  if (discoveryPending) return
  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
- e.preventDefault formRef.current?.requestSubmit }
+ e.preventDefault()
+ formRef.current?.requestSubmit()
+ }
  }
 
  return (
@@ -88,7 +93,7 @@ export function NewWorkflowForm({
  key={t.id}
  type="button"
  className={`template-card${active ? ' active' : ''}`}
- onClick={ => pickTemplate(t)}
+ onClick={() => pickTemplate(t)}
  aria-pressed={active}
  >
  <div className="template-card-name">{t.name}</div>
@@ -231,7 +236,8 @@ function SubmitButton({
  demoBlocked: boolean
  demoReason: string | null
 }) {
- const { pending } = useFormStatus const isDisabled = pending || discoveryPending || demoBlocked
+ const { pending } = useFormStatus()
+ const isDisabled = pending || discoveryPending || demoBlocked
  return (
  <button
  type="submit"

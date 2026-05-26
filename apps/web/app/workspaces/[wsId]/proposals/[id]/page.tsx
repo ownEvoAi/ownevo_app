@@ -163,7 +163,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
  <DecideForm
  proposalId={proposal.id}
  wsId={wsId}
- demoMode={isDemoMode }
+ demoMode={isDemoMode()}
  />
  ) : (
  <DecisionRecorded proposal={proposal} />
@@ -175,21 +175,21 @@ export default async function ProposalDetailPage({ params }: PageProps) {
  workflowId={proposal.workflow.id}
  state={canDeploy ? 'approved-awaiting-deploy' : 'deployed'}
  kind={proposal.kind}
- demoMode={isDemoMode }
+ demoMode={isDemoMode()}
  />
  )}
  {proposal.state === 'deployed' && proposal.kind === 'skill' && (
  <ShipLangSmithForm
  proposalId={proposal.id}
  wsId={wsId}
- demoMode={isDemoMode }
+ demoMode={isDemoMode()}
  />
  )}
  {proposal.state === 'deployed' && proposal.kind === 'skill' && (
  <ShipCopilotStudioForm
  proposalId={proposal.id}
  wsId={wsId}
- demoMode={isDemoMode }
+ demoMode={isDemoMode()}
  />
  )}
  </aside>

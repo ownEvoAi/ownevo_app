@@ -28,12 +28,14 @@ export function UploadForm({
  uploads: DataUpload[]
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
  const inputRef = useRef<HTMLInputElement>(null)
 
  function upload(formData: FormData) {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await uploadFileAction(wsId, formData)
  if (!r.ok) return setError(r.error)
  if (inputRef.current) inputRef.current.value = ''
@@ -42,7 +44,7 @@ export function UploadForm({
 
  function remove(id: string) {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await deleteUploadAction(wsId, id)
  if (!r.ok) return setError(r.error)
  router.refresh })
@@ -111,7 +113,7 @@ export function UploadForm({
  </span>
  <button
  type="button"
- onClick={ => remove(u.id)}
+ onClick={() => remove(u.id)}
  disabled={isPending || demoMode}
  className="btn btn-danger"
  >

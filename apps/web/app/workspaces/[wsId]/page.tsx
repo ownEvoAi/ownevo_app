@@ -40,7 +40,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
  let apiError: { title: string; detail: string } | null = null
 
  try {
- workflows = await listWorkflows } catch (err) {
+ workflows = await listWorkflows() } catch (err) {
  apiError = kernelError(err)
  }
 
@@ -104,7 +104,7 @@ export default async function WorkspaceHealthPage({ params }: PageProps) {
  const s = w.oldest_running_started_at ?? null
  if (!s) return acc
  if (!acc) return s
- return new Date(s).getTime < new Date(acc).getTime ? s : acc
+ return new Date(s).getTime() < new Date(acc).getTime() ? s : acc
  },
  null,
  )

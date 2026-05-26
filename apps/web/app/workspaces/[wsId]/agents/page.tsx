@@ -22,7 +22,7 @@ export default async function AgentsRegistryPage({ params }: PageProps) {
  let agents: Agent[] = []
  let apiError: { title: string; detail: string } | null = null
  try {
- agents = (await listAgents ).items
+ agents = (await listAgents()).items
  } catch (err) {
  apiError = kernelError(err)
  }

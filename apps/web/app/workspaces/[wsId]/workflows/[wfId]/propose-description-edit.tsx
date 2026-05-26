@@ -16,42 +16,48 @@ interface Props {
 // kind='description' proposal — the path for substantive rewrites
 // that need a domain expert's approval before they ship.
 export function ProposeDescriptionEdit({ wsId, wfId, current }: Props) {
- const router = useRouter const [editing, setEditing] = useState(false)
+ const router = useRouter()
+ const [editing, setEditing] = useState(false)
  const [draft, setDraft] = useState(current)
  const [summary, setSummary] = useState('')
  const [rationale, setRationale] = useState('')
- const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
 
- const dirty = draft.trim !== current.trim function reset {
+ const dirty = draft.trim() !== current.trim()
+ function reset() {
  setDraft(current)
  setSummary('')
  setRationale('')
  setError(null)
  }
 
- function handleCancel {
+ function handleCancel() {
  setEditing(false)
- reset }
+ reset()
+ }
 
- function handleSubmit {
+ function handleSubmit() {
  setError(null)
- if (summary.trim.length === 0) {
+ if (summary.trim().length === 0) {
  setError('Plain-language summary is required.')
  return
  }
- if (draft.trim.length < 10) {
+ if (draft.trim().length < 10) {
  setError('Proposed description must be at least 10 characters.')
  return
  }
- startTransition(async => {
+ startTransition(async () => {
  try {
  const proposal = await createDescriptionProposal(wfId, {
- plain_language_summary: summary.trim ,
- proposed_description: draft.trim ,
- rationale: rationale.trim || null,
+ plain_language_summary: summary.trim() ,
+ proposed_description: draft.trim() ,
+ rationale: rationale.trim() || null,
  })
  setEditing(false)
- reset router.refresh router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
+ reset()
+ router.refresh()
+ router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
  } catch (err) {
  if (err instanceof KernelApiError) {
  setError(err.detail || err.message)
@@ -66,7 +72,7 @@ export function ProposeDescriptionEdit({ wsId, wfId, current }: Props) {
  return (
  <button
  type="button"
- onClick={ => setEditing(true)}
+ onClick={() => setEditing(true)}
  className="inline-desc-propose-btn"
  aria-label="Propose substantive change to description"
  >
@@ -122,7 +128,7 @@ export function ProposeDescriptionEdit({ wsId, wfId, current }: Props) {
  <button
  type="button"
  onClick={handleSubmit}
- disabled={isPending || !dirty || draft.trim.length < 10}
+ disabled={isPending || !dirty || draft.trim().length < 10}
  className="btn btn-primary"
  >
  {isPending ? 'Creating…' : 'Create proposal'}

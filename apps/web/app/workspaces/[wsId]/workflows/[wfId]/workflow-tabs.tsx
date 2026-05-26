@@ -14,7 +14,7 @@ interface TabsProps {
 }
 
 // Tab strip — Overview / Failures / Traces / Audit. Active state from
-// usePathname. Traces tab added in (7.1.9). Mock parity:
+// usePathname(). Traces tab added in (7.1.9). Mock parity:
 // `05-workflow-overview.html`.
 //
 // Benchmark workflows hide Operate (no production caller) and the
@@ -28,7 +28,7 @@ export function WorkflowTabs({
  isBenchmark = false,
  activeOverride,
 }: TabsProps) {
- const pathname = usePathname ?? ''
+ const pathname = usePathname() ?? ''
  const root = `/workspaces/${wsId}/workflows/${wfId}`
 
  const allTabs: Array<{

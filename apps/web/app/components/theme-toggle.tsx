@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 // flips and persists.
 const STORAGE_KEY = 'ownevo-theme'
 
-export function ThemeToggle {
+export function ThemeToggle() {
  // Always renders "light" on the server, then syncs to the actual
  // applied theme on mount. Label briefly says "Dark mode" before
  // the effect runs even in dark mode; that's one render frame and
@@ -17,14 +17,14 @@ export function ThemeToggle {
  // already painted correctly.
  const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
- useEffect( => {
+ useEffect(() => {
  const applied = document.documentElement.getAttribute('data-theme')
  if (applied === 'dark' || applied === 'light') {
  setTheme(applied)
  }
  }, [])
 
- function toggle {
+ function toggle() {
  const next = theme === 'dark' ? 'light' : 'dark'
  setTheme(next)
  document.documentElement.setAttribute('data-theme', next)

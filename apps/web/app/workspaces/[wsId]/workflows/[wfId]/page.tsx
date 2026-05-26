@@ -190,7 +190,8 @@ function IterationList({
  iterations: IterationPoint[]
 }) {
  // Newest first — easier to scan the most recent runs.
- const rows = [...iterations].reverse return (
+ const rows = [...iterations].reverse()
+ return (
  <section style={{ marginTop: 24 }}>
  <h2 className="section-title" style={{ marginBottom: 8 }}>
  Iterations · {iterations.length}
@@ -226,7 +227,7 @@ function IterationList({
  {it.has_approved_proposal ? '✓' : ''}
  </span>
  <span className="iter-overview-when">
- {it.ended_at ? new Date(it.ended_at).toISOString.slice(0, 16).replace('T', ' ') : '—'}
+ {it.ended_at ? new Date(it.ended_at).toISOString().slice(0, 16).replace('T', ' ') : '—'}
  </span>
  </Link>
  ))}

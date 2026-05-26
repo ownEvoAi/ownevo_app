@@ -67,10 +67,10 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  getWorkflowIterations(workflowId),
  listWorkflowEvalCases(workflowId),
  listProposals({ workflow_id: workflowId, limit: 100 }),
- listWorkflows ,
+ listWorkflows(),
  // Tolerate per-fetch failures here — case-outputs is best-effort
  // and the page still renders without them (empty TableView).
- getWorkflowCaseOutputs(workflowId).catch( => null),
+ getWorkflowCaseOutputs(workflowId).catch(() => null),
  ])
  spec = anatomy.spec
  description = anatomy.description
@@ -82,13 +82,13 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  caseOutputs = coList
  } catch (err) {
  if (err instanceof KernelApiError && err.status === 404) {
- notFound }
+ notFound() }
  throw err
  }
 
  const tabs = spec?.ui?.tabs ?? []
  const operateTab =
- tabs.find((t) => (t.name ?? '').toLowerCase === 'operate') ?? tabs[1]
+ tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
  // Operator persona view = production execution. Pass `context:
  // 'operate'` so iteration-meta + eval-prediction primitives stay
  // empty here; the operator is reviewing what the agent has produced
@@ -250,7 +250,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  <span>Approved?</span>
  <span>Ended</span>
  </div>
- {[...iterations].reverse.slice(0, 12).map((it) => (
+ {[...iterations].reverse().slice(0, 12).map((it) => (
  <Link
  key={it.iteration_index}
  href={`/workspaces/${wsId}/workflows/${workflowId}/iterations/${it.iteration_index}`}

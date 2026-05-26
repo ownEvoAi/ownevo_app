@@ -4,8 +4,9 @@
 // list and the proposal detail page render timestamps and scores; a
 // single source of truth for "5h ago" beats two off-by-one drifts.
 
-export function relativeTime(iso: string, now: Date = new Date ): string {
- const t = new Date(iso).getTime const dt = (now.getTime - t) / 1000
+export function relativeTime(iso: string, now: Date = new Date()): string {
+ const t = new Date(iso).getTime()
+ const dt = (now.getTime() - t) / 1000
  if (dt < 60) return 'just now'
  if (dt < 3600) return `${Math.round(dt / 60)}m ago`
  if (dt < 86400) return `${Math.round(dt / 3600)}h ago`
@@ -22,11 +23,12 @@ export const STALE_ITERATION_THRESHOLD_SEC = 3600
 
 export function isStaleRunningIteration(
  startedAtIso: string | null | undefined,
- now: Date = new Date ,
+ now: Date = new Date(),
 ): boolean {
  if (!startedAtIso) return false
- const t = new Date(startedAtIso).getTime if (Number.isNaN(t)) return false
- return (now.getTime - t) / 1000 >= STALE_ITERATION_THRESHOLD_SEC
+ const t = new Date(startedAtIso).getTime()
+ if (Number.isNaN(t)) return false
+ return (now.getTime() - t) / 1000 >= STALE_ITERATION_THRESHOLD_SEC
 }
 
 export function formatScore(value: number | null, digits = 4): string {
@@ -47,7 +49,7 @@ export function formatDateTime(iso: string): string {
 // Title-case a workspace slug for display in the nav + page subtitle.
 // Cosmetic only — the slug is ignored by the backend per D4.
 export function workspaceLabel(slug: string): string {
- return slug.charAt(0).toUpperCase + slug.slice(1)
+ return slug.charAt(0).toUpperCase() + slug.slice(1)
 }
 
 // Human-readable mode label + one-line meaning. The workflow_mode
@@ -104,14 +106,15 @@ export function workflowDisplayTitle(
 ): string {
  if (!description) return id
  const firstSentence = description.split(/(?<=[.!?])\s/, 1)[0] ?? description
- const trimmed = firstSentence.trim if (trimmed.length <= maxLen) return trimmed
+ const trimmed = firstSentence.trim()
+ if (trimmed.length <= maxLen) return trimmed
  // Word-boundary truncation — find the last space within the budget so
  // we don't cut a word in half. Falls back to hard cut when there's no
  // space (e.g. a long URL or single-word title).
  const sliced = trimmed.slice(0, maxLen - 1)
  const lastSpace = sliced.lastIndexOf(' ')
  if (lastSpace > maxLen / 2) {
- return sliced.slice(0, lastSpace).trimEnd + '…'
+ return sliced.slice(0, lastSpace).trimEnd() + '…'
  }
- return sliced.trimEnd + '…'
+ return sliced.trimEnd() + '…'
 }

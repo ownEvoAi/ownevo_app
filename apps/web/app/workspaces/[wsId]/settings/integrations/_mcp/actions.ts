@@ -39,14 +39,14 @@ export async function saveMcpClientAction(
  clientSecret: string,
  tenant: string | null,
 ): Promise<ActionResult> {
- if (!clientId.trim || !clientSecret.trim ) {
+ if (!clientId.trim() || !clientSecret.trim() ) {
  return { ok: false, error: 'Client ID and client secret are both required.' }
  }
  try {
  await setMcpOAuthClient(provider, {
- client_id: clientId.trim ,
- client_secret: clientSecret.trim ,
- config: tenant && tenant.trim ? { tenant: tenant.trim } : {},
+ client_id: clientId.trim() ,
+ client_secret: clientSecret.trim() ,
+ config: tenant && tenant.trim() ? { tenant: tenant.trim() } : {},
  })
  } catch (err) {
  return { ok: false, error: errorMessage(err) }
@@ -72,11 +72,11 @@ export async function startMcpConnectAction(
  provider: string,
  serverName: string,
 ): Promise<StartResult> {
- if (!serverName.trim ) {
+ if (!serverName.trim() ) {
  return { ok: false, error: 'A connection name is required.' }
  }
  try {
- const res = await startMcpOAuth(provider, { server_name: serverName.trim })
+ const res = await startMcpOAuth(provider, { server_name: serverName.trim() })
  return { ok: true, authorizeUrl: res.authorize_url }
  } catch (err) {
  return { ok: false, error: errorMessage(err) }

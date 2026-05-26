@@ -37,13 +37,15 @@ const KNOWN_PRIMITIVE_TYPES: ReadonlyArray<string> = [
 // `type` field set — the agent-solver layer populates payload shape
 // at run-time, not here.
 export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
- const router = useRouter const currentTypes = current.map((p) => p.type)
+ const router = useRouter()
+ const currentTypes = current.map((p) => p.type)
  const [editing, setEditing] = useState(false)
- const [selected, setSelected] = useState<Set<string>>( => new Set(currentTypes),
+ const [selected, setSelected] = useState<Set<string>>(() => new Set(currentTypes),
  )
  const [summary, setSummary] = useState('')
  const [rationale, setRationale] = useState('')
- const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
 
  const toggle = (t: string) => {
  setSelected((prev) => {
@@ -54,24 +56,26 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  })
  }
 
- const dirty = ( => {
+ const dirty = (() => {
  if (selected.size !== currentTypes.length) return true
  for (const t of currentTypes) if (!selected.has(t)) return true
  return false
- }) function reset {
+ })()
+ function reset() {
  setSelected(new Set(currentTypes))
  setSummary('')
  setRationale('')
  setError(null)
  }
 
- function handleCancel {
+ function handleCancel() {
  setEditing(false)
- reset }
+ reset()
+ }
 
- function handleSubmit {
+ function handleSubmit() {
  setError(null)
- if (summary.trim.length === 0) {
+ if (summary.trim().length === 0) {
  setError('Plain-language summary is required.')
  return
  }
@@ -86,15 +90,17 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  const proposed = Array.from(selected).map(
  (t) => byType.get(t) ?? { type: t },
  )
- startTransition(async => {
+ startTransition(async () => {
  try {
  const proposal = await createUIPrimitiveProposal(wfId, {
- plain_language_summary: summary.trim ,
+ plain_language_summary: summary.trim() ,
  proposed_primitives: proposed,
- rationale: rationale.trim || null,
+ rationale: rationale.trim() || null,
  })
  setEditing(false)
- reset router.refresh router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
+ reset()
+ router.refresh()
+ router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
  } catch (err) {
  if (err instanceof KernelApiError) {
  setError(err.detail || err.message)
@@ -109,7 +115,7 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  return (
  <button
  type="button"
- onClick={ => setEditing(true)}
+ onClick={() => setEditing(true)}
  className="btn btn-secondary propose-edit-btn"
  >
  Propose edit
@@ -138,7 +144,7 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  <input
  type="checkbox"
  checked={selected.has(t)}
- onChange={ => toggle(t)}
+ onChange={() => toggle(t)}
  disabled={isPending}
  />
  <span className="propose-ui-checkbox-label">{t}</span>

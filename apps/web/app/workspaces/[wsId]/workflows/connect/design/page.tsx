@@ -75,7 +75,8 @@ export default async function ConnectDesignPage({
  let allTraces: TraceSummary[] = []
  let loadError: string | null = null
  try {
- const resp = await listAllTraces allTraces = resp.items
+ const resp = await listAllTraces()
+ allTraces = resp.items
  } catch (err) {
  loadError = err instanceof Error ? err.message : String(err)
  }
@@ -84,7 +85,7 @@ export default async function ConnectDesignPage({
  // excluded; they belong to a workflow that already exists.
  const ingested = allTraces.filter((t) => t.iteration_id === null)
  const requestedIds = traceIdsParam
- ? new Set(traceIdsParam.split(',').map((s) => s.trim ).filter(Boolean))
+ ? new Set(traceIdsParam.split(',').map((s) => s.trim() ).filter(Boolean))
  : null
  const selected = (requestedIds
  ? ingested.filter((t) => requestedIds.has(t.id))
@@ -174,7 +175,8 @@ export default async function ConnectDesignPage({
  // without a cap if the LLM is slow. The first discovery question is
  // fetched client-side after the reviewer confirms the summary, since it
  // depends on the confirmed agent definition.
- const controller = new AbortController const timer = setTimeout( => controller.abort , _SSR_SUMMARY_TIMEOUT_MS)
+ const controller = new AbortController()
+ const timer = setTimeout(() => controller.abort() , _SSR_SUMMARY_TIMEOUT_MS)
  let initialSummary
  try {
  const resp = await fetchImportSummary(traceIds, agentDefinition, controller.signal)

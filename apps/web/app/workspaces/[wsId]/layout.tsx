@@ -20,7 +20,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps)
 
  let workflows: WorkflowSummary[] = []
  try {
- workflows = (await listWorkflows ).items
+ workflows = (await listWorkflows()).items
  } catch {
  // Sidebar still renders without the workflow list — Health page
  // surfaces the API-down banner.

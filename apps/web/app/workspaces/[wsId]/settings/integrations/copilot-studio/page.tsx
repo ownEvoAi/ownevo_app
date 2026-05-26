@@ -14,10 +14,12 @@ interface PageProps {
 // Entra service principal (tenant / client id / secret / environment URL).
 export default async function CopilotStudioIntegrationPage({ params }: PageProps) {
  const { wsId } = await params
- const demoMode = isDemoMode let status: CopilotStudioStatus | null = null
+ const demoMode = isDemoMode()
+ let status: CopilotStudioStatus | null = null
  let apiError: { title: string; detail: string } | null = null
  try {
- status = await getCopilotStudioStatus } catch (err) {
+ status = await getCopilotStudioStatus()
+ } catch (err) {
  apiError = kernelError(err)
  }
 

@@ -23,7 +23,8 @@ export async function verifyAuditChainAction(
  wsId: string,
 ): Promise<VerifyState> {
  try {
- const result = await verifyAuditChain revalidatePath(`/workspaces/${wsId}/audit`)
+ const result = await verifyAuditChain()
+ revalidatePath(`/workspaces/${wsId}/audit`)
  return { ok: true, result, error: null }
  } catch (err) {
  return { ok: false, result: null, error: kernelErrorMessage(err) }

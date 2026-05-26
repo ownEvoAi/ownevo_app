@@ -34,7 +34,9 @@ export function CopilotStudioForm({
  initialStatus: CopilotStudioStatus
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [tenantId, setTenantId] = useState('')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [tenantId, setTenantId] = useState('')
  const [clientId, setClientId] = useState('')
  const [clientSecret, setClientSecret] = useState('')
  const [environmentUrl, setEnvironmentUrl] = useState('')
@@ -43,10 +45,11 @@ export function CopilotStudioForm({
  const [testMsg, setTestMsg] = useState<string | null>(null)
 
  const canSave =
- !!tenantId.trim && !!clientId.trim && !!clientSecret.trim && !!environmentUrl.trim function save {
+ !!tenantId.trim() && !!clientId.trim() && !!clientSecret.trim() && !!environmentUrl.trim()
+ function save() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await saveCopilotStudioCredentialAction(wsId, {
  tenant_id: tenantId,
  client_id: clientId,
@@ -66,10 +69,10 @@ export function CopilotStudioForm({
  router.refresh })
  }
 
- function test {
+ function test() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await testCopilotStudioConnectionAction(wsId)
  if (!r.ok) {
  setError(r.error)
@@ -85,10 +88,10 @@ export function CopilotStudioForm({
  router.refresh })
  }
 
- function remove {
+ function remove() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await deleteCopilotStudioCredentialAction(wsId)
  if (!r.ok) {
  setError(r.error)

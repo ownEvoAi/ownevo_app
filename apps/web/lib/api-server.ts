@@ -31,10 +31,12 @@ export * from './api'
 
 const DEMO_COOKIE_NAMES = ['ownevo_demo_id', 'ownevo_demo_invite'] as const
 
-async function getDemoCookieHeader : Promise<string | undefined> {
- if (!isDemoMode ) return undefined
- const jar = await cookies const relevant = jar
- .getAll .filter((c) => (DEMO_COOKIE_NAMES as readonly string[]).includes(c.name))
+async function getDemoCookieHeader() : Promise<string | undefined> {
+ if (!isDemoMode()) return undefined
+ const jar = await cookies()
+ const relevant = jar
+ .getAll()
+ .filter((c) => (DEMO_COOKIE_NAMES as readonly string[]).includes(c.name))
  .map((c) => `${c.name}=${c.value}`)
  .join('; ')
  return relevant || undefined
@@ -46,7 +48,8 @@ export async function generateWorkflow(
  templateId?: string,
  designAgentLog?: DesignAgentLog | null,
 ): Promise<GenerateWorkflowResponse> {
- const cookieHeader = await getDemoCookieHeader return _generateWorkflow(description, workflowId, templateId, designAgentLog, cookieHeader)
+ const cookieHeader = await getDemoCookieHeader()
+ return _generateWorkflow(description, workflowId, templateId, designAgentLog, cookieHeader)
 }
 
 export async function fetchNextDiscoveryQuestion(
@@ -55,7 +58,8 @@ export async function fetchNextDiscoveryQuestion(
  priorAnswers: PriorDiscoveryAnswer[],
  signal?: AbortSignal,
 ): Promise<NextDiscoveryQuestionResponse> {
- const cookieHeader = await getDemoCookieHeader return _fetchNextDiscoveryQuestion(
+ const cookieHeader = await getDemoCookieHeader()
+ return _fetchNextDiscoveryQuestion(
  description,
  templateId,
  priorAnswers,
@@ -70,7 +74,8 @@ export async function fetchImportNextQuestion(
  priorAnswers: PriorDiscoveryAnswer[],
  signal?: AbortSignal,
 ): Promise<NextDiscoveryQuestionResponse> {
- const cookieHeader = await getDemoCookieHeader return _fetchImportNextQuestion(
+ const cookieHeader = await getDemoCookieHeader()
+ return _fetchImportNextQuestion(
  traceIds,
  agentDefinition,
  priorAnswers,
@@ -84,7 +89,8 @@ export async function fetchImportSummary(
  agentDefinition: string | null,
  signal?: AbortSignal,
 ): Promise<ImportSummaryResponse> {
- const cookieHeader = await getDemoCookieHeader return _fetchImportSummary(traceIds, agentDefinition, signal, cookieHeader)
+ const cookieHeader = await getDemoCookieHeader()
+ return _fetchImportSummary(traceIds, agentDefinition, signal, cookieHeader)
 }
 
 export async function generateFromImport(
@@ -95,7 +101,8 @@ export async function generateFromImport(
  origin?: WorkflowOrigin | null,
  workflowId?: string,
 ): Promise<ImportGenerateResponse> {
- const cookieHeader = await getDemoCookieHeader return _generateFromImport(
+ const cookieHeader = await getDemoCookieHeader()
+ return _generateFromImport(
  traceIds,
  agentDefinition,
  designAgentLog,
@@ -109,5 +116,6 @@ export async function generateFromImport(
 export async function exportCopilotStudioDefinition(
  solutionName: string,
 ): Promise<CopilotStudioDefinitionResult> {
- const cookieHeader = await getDemoCookieHeader return _exportCopilotStudioDefinition(solutionName, cookieHeader)
+ const cookieHeader = await getDemoCookieHeader()
+ return _exportCopilotStudioDefinition(solutionName, cookieHeader)
 }

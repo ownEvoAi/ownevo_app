@@ -51,14 +51,15 @@ const SOURCES: SourceDef[] = [
 // NL-gen flow with a `from=connect` query so the form shows a thin
 // BYO-context header.
 export function SourcePicker({ wsId }: { wsId: string }) {
- const router = useRouter const [selected, setSelected] = useState<SourceKey>('manual')
+ const router = useRouter()
+ const [selected, setSelected] = useState<SourceKey>('manual')
  const [solution, setSolution] = useState('')
 
- function advance {
+ function advance() {
  if (selected === 'manual') {
  router.push(`/workspaces/${wsId}/workflows/new?from=connect`)
  } else if (selected === 'copilot-studio') {
- const q = solution.trim ? `&solution=${encodeURIComponent(solution.trim )}`
+ const q = solution.trim() ? `&solution=${encodeURIComponent(solution.trim() )}`
  : ''
  router.push(
  `/workspaces/${wsId}/workflows/connect/design?source=copilot-studio${q}`,
@@ -80,7 +81,7 @@ export function SourcePicker({ wsId }: { wsId: string }) {
  <button
  key={s.key}
  type="button"
- onClick={ => setSelected(s.key)}
+ onClick={() => setSelected(s.key)}
  className={`source-card${selected === s.key ? ' selected' : ''}`}
  >
  <div className="source-title">{s.title}</div>

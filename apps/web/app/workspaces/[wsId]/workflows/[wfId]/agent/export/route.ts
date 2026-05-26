@@ -25,7 +25,9 @@ export async function GET(_req: Request, { params }: RouteContext): Promise<Resp
  if (!skillsRes.ok) {
  return NextResponse.json({ error: 'Could not load skills.' }, { status: skillsRes.status })
  }
- anatomy = await anatomyRes.json skillList = await skillsRes.json } catch {
+ anatomy = await anatomyRes.json()
+ skillList = await skillsRes.json()
+ } catch {
  return NextResponse.json({ error: 'Kernel API not reachable.' }, { status: 502 })
  }
 
@@ -34,14 +36,14 @@ export async function GET(_req: Request, { params }: RouteContext): Promise<Resp
  skills = await Promise.all(
  skillList.items.map(async (s) => {
  const res = await fetch(`${API_URL}/api/skills/${encodeURIComponent(s.id)}`, { cache: 'no-store' })
- return res.ok ? res.json : { id: s.id, error: 'not_found' }
+ return res.ok ? res.json() : { id: s.id, error: 'not_found' }
  }),
  )
  } catch {
  return NextResponse.json({ error: 'Kernel API not reachable.' }, { status: 502 })
  }
 
- const timestamp = new Date.toISOString.replace(/[:.]/g, '-').slice(0, 19)
+ const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
  const filename = `agent-${wfId.slice(0, 8)}-${timestamp}.json`
  const body = JSON.stringify({ workflow: anatomy, skills }, null, 2)
 

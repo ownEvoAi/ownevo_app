@@ -16,8 +16,9 @@ const SERIES_STROKE = ['var(--accent)', 'var(--green)', 'var(--amber)']
 
 function formatTick(v: number, fmt: TimeSeriesData['y_format']): string {
  if (fmt === 'percent') return `${v.toFixed(0)}%`
- if (fmt === 'currency') return `$${v.toLocaleString }`
- return v.toLocaleString }
+ if (fmt === 'currency') return `$${v.toLocaleString()}`
+ return v.toLocaleString()
+}
 
 export function TimeSeriesChart({ data }: Props) {
  const allPoints = data.series.flatMap((s) => s.points)
@@ -123,7 +124,7 @@ export function TimeSeriesChart({ data }: Props) {
  </g>
  ) : null}
  {/* Area fill behind the first series only — keeps the chart legible. */}
- {( => {
+ {(() => {
  const s = data.series[0]
  if (!s) return null
  const path = s.points
@@ -131,7 +132,7 @@ export function TimeSeriesChart({ data }: Props) {
  .join(' ')
  const area = `${path} L ${xAt(s.points.length - 1)},${H - PAD_B} L ${xAt(0)},${H - PAD_B} Z`
  return <path d={area} className="chart-area" />
- }) }
+ })()} 
  {data.series.map((s, sIdx) => {
  const path = s.points
  .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)},${yAt(p.value)}`)

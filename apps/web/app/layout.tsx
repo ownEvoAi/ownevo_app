@@ -26,14 +26,14 @@ export const viewport: Viewport = {
 // default when nothing is stored. The `try/catch` keeps Safari
 // private-mode (no localStorage access) from breaking rendering.
 const THEME_BOOTSTRAP = `
-(function {
+(function() {
  try {
  var t = localStorage.getItem('ownevo-theme');
  if (t === 'dark' || t === 'light') {
  document.documentElement.setAttribute('data-theme', t);
  }
  } catch (e) {}
-}) ;
+})();
 `
 
 export default function RootLayout({ children }: { children: ReactNode }) {

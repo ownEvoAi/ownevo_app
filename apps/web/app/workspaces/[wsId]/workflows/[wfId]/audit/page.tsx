@@ -181,8 +181,8 @@ function AuditRow({ entry }: { entry: AuditEntryRow }) {
 
 function formatWhen(iso: string): string {
  const d = new Date(iso)
- if (Number.isNaN(d.getTime )) return iso
- return d.toISOString.replace('T', ' ').slice(0, 19) + ' UTC'
+ if (Number.isNaN(d.getTime() )) return iso
+ return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
 }
 
 // Friendly read of the design-agent discovery session that ran before
@@ -194,7 +194,7 @@ function DiscoveryTranscriptCard({ log }: { log: DesignAgentLog }) {
  (a, b) => a.question_index - b.question_index,
  )
  const answered = transcript.filter(
- (e) => e.answer !== null && e.answer.trim !== '',
+ (e) => e.answer !== null && e.answer.trim() !== '',
  ).length
  const report = log.ambiguity_report
  return (
@@ -245,7 +245,7 @@ function DiscoveryTranscriptCard({ log }: { log: DesignAgentLog }) {
 
 function TranscriptRow({ entry }: { entry: DesignAgentLogEntry }) {
  const kindLabel = DISCOVERY_KIND_LABEL[entry.kind] ?? entry.kind
- const skipped = entry.answer === null || entry.answer.trim === ''
+ const skipped = entry.answer === null || entry.answer.trim() === ''
  return (
  <li
  style={{

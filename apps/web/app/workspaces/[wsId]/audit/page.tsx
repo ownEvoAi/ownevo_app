@@ -132,6 +132,6 @@ function AuditRow({ entry }: { entry: AuditEntryRow }) {
 
 function formatWhen(iso: string): string {
  const d = new Date(iso)
- if (Number.isNaN(d.getTime )) return iso
- return d.toISOString.replace('T', ' ').slice(0, 19) + ' UTC'
+ if (Number.isNaN(d.getTime() )) return iso
+ return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
 }

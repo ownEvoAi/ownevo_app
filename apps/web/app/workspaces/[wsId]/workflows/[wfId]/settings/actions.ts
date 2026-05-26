@@ -24,7 +24,8 @@ type UpdateResult =
 export async function updateDescriptionAction(
  input: UpdateDescriptionInput,
 ): Promise<UpdateResult> {
- const trimmed = input.description.trim if (trimmed.length < 10) {
+ const trimmed = input.description.trim()
+ if (trimmed.length < 10) {
  return {
  ok: false,
  error: 'Description must be at least 10 characters.',
@@ -58,7 +59,8 @@ interface UpdateAgentModelInput {
 export async function updateAgentModelAction(
  input: UpdateAgentModelInput,
 ): Promise<UpdateResult> {
- const slug = input.agentModelId.trim if (!slug.includes(':')) {
+ const slug = input.agentModelId.trim()
+ if (!slug.includes(':')) {
  return {
  ok: false,
  error: 'Model id must be a provider:model slug.',
@@ -101,7 +103,7 @@ type DeleteResult =
 export async function deleteWorkflowAction(
  input: DeleteWorkflowInput,
 ): Promise<DeleteResult> {
- if (input.confirmation.trim !== input.wfId) {
+ if (input.confirmation.trim() !== input.wfId) {
  return {
  ok: false,
  error: `Type "${input.wfId}" to confirm deletion.`,

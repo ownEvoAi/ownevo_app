@@ -27,13 +27,14 @@ export function TryItForm({ wfId, cases }: Props) {
  const [selectedId, setSelectedId] = useState<string>(cases[0]?.id ?? '')
  const [result, setResult] = useState<TryItResponse | null>(null)
  const [error, setError] = useState<string | null>(null)
- const [pending, startTransition] = useTransition const selected = cases.find((c) => c.id === selectedId) ?? null
+ const [pending, startTransition] = useTransition()
+ const selected = cases.find((c) => c.id === selectedId) ?? null
 
- function onRun {
+ function onRun() {
  if (!selectedId) return
  setError(null)
  setResult(null)
- startTransition(async => {
+ startTransition(async () => {
  try {
  const res = await tryWorkflow(wfId, { eval_case_id: selectedId })
  setResult(res)

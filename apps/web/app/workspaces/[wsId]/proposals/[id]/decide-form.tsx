@@ -22,23 +22,25 @@ export function DecideForm({
  wsId: string
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [comment, setComment] = useState('')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [comment, setComment] = useState('')
  const [decidedBy, setDecidedBy] = useState('human:reviewer')
  const [error, setError] = useState<string | null>(null)
 
  function handleDecision(decision: 'approve' | 'reject' | 'request-changes') {
  setError(null)
- if (decision === 'request-changes' && !comment.trim ) {
+ if (decision === 'request-changes' && !comment.trim() ) {
  setError('Add a comment first — the steering text drives the next iteration.')
  return
  }
- startTransition(async => {
+ startTransition(async () => {
  const result = await decideAction({
  proposalId,
  wsId,
  decision,
  decidedBy,
- comment: comment.trim || undefined,
+ comment: comment.trim() || undefined,
  })
  if (!result.ok) {
  setError(result.error)
@@ -84,7 +86,7 @@ export function DecideForm({
  fontWeight: 600,
  }}
  >
- {decidedBy.replace('human:', '').slice(0, 2).toUpperCase }
+ {decidedBy.replace('human:', '').slice(0, 2).toUpperCase() }
  </div>
  <div>
  <input
@@ -148,7 +150,7 @@ export function DecideForm({
  >
  <button
  type="button"
- onClick={ => handleDecision('approve')}
+ onClick={() => handleDecision('approve')}
  disabled={isPending || demoMode}
  title={demoMode ? 'Disabled in read-only demo' : undefined}
  className="btn btn-primary"
@@ -163,7 +165,7 @@ export function DecideForm({
  </button>
  <button
  type="button"
- onClick={ => handleDecision('request-changes')}
+ onClick={() => handleDecision('request-changes')}
  disabled={isPending || demoMode}
  title={demoMode ? 'Disabled in read-only demo' : undefined}
  className="btn btn-secondary"
@@ -178,7 +180,7 @@ export function DecideForm({
  </button>
  <button
  type="button"
- onClick={ => handleDecision('reject')}
+ onClick={() => handleDecision('reject')}
  disabled={isPending || demoMode}
  title={demoMode ? 'Disabled in read-only demo' : undefined}
  className="btn btn-ghost"

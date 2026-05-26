@@ -43,13 +43,15 @@ function entryDimension(entry: DesignAgentLogEntry): DesignDimension | null {
 }
 
 function isAnswered(entry: DesignAgentLogEntry): boolean {
- const hasOption = (entry.chosen_option ?? '').trim.length > 0
- const hasText = (entry.answer ?? '').trim.length > 0
+ const hasOption = (entry.chosen_option ?? '').trim().length > 0
+ const hasText = (entry.answer ?? '').trim().length > 0
  return hasOption || hasText
 }
 
 function answerSummary(entry: DesignAgentLogEntry): string {
- const option = (entry.chosen_option ?? '').trim const text = (entry.answer ?? '').trim if (option && text) return `${option} · "${text}"`
+ const option = (entry.chosen_option ?? '').trim()
+ const text = (entry.answer ?? '').trim()
+ if (option && text) return `${option} · "${text}"`
  return option || text || '(skipped)'
 }
 

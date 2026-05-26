@@ -15,7 +15,7 @@ interface NavProps {
 // derived from the current pathname; workflow list comes from the
 // kernel (passed in from the workspace layout server component).
 export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
- const pathname = usePathname ?? ''
+ const pathname = usePathname() ?? ''
  const root = `/workspaces/${wsId}`
 
  const isActive = (href: string) => {
@@ -25,7 +25,7 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
  const cls = (href: string) => `nav-item${isActive(href) ? ' active' : ''}`
 
  const wsLabel = workspaceLabel(wsId)
- const wsAvatar = wsId.charAt(0).toUpperCase // Partition by workflow.kind. Production workflows are real customer
+ const wsAvatar = wsId.charAt(0).toUpperCase() // Partition by workflow.kind. Production workflows are real customer
  // surfaces; benchmarks (M5 forecasting, tau-bench replays) are kernel
  // validation runs that share the substrate. They get their own
  // sidebar section so the demo viewer doesn't confuse "Recalibrate

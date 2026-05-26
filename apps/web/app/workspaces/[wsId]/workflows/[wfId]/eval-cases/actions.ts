@@ -46,10 +46,12 @@ export async function pushEvalCasesCopilotStudioAction(
  _prev: PushEvalCasesActionState,
  formData: FormData,
 ): Promise<PushEvalCasesActionState> {
- const agentId = String(formData.get('agent_id') ?? '').trim if (!agentId) {
+ const agentId = String(formData.get('agent_id') ?? '').trim()
+ if (!agentId) {
  return { error: 'Copilot Studio agent id is required.', result: null }
  }
- const testSetName = String(formData.get('test_set_name') ?? '').trim const testFoldOnly = formData.get('test_fold_only') === 'on'
+ const testSetName = String(formData.get('test_set_name') ?? '').trim()
+ const testFoldOnly = formData.get('test_fold_only') === 'on'
  try {
  const res = await pushEvalCasesCopilotStudio(wfId, {
  agent_id: agentId,

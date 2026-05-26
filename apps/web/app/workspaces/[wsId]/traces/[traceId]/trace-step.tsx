@@ -14,7 +14,8 @@ interface Props {
 }
 
 export function TraceStep({ event, startedAtMs }: Props) {
- const ts = new Date(event.timestamp).getTime const offsetMs = Number.isFinite(ts) ? ts - startedAtMs : 0
+ const ts = new Date(event.timestamp).getTime()
+ const offsetMs = Number.isFinite(ts) ? ts - startedAtMs : 0
  const offsetLabel =
  offsetMs >= 1000 ? `+${(offsetMs / 1000).toFixed(2)}s` : `+${offsetMs}ms`
 

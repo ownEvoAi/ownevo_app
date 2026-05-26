@@ -23,8 +23,10 @@ interface Props {
 // resulting proposal detail page where a reviewer approves the
 // change.
 export function ProposeMetricEdit({ wsId, wfId, current }: Props) {
- const router = useRouter const [editing, setEditing] = useState(false)
- const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const router = useRouter()
+ const [editing, setEditing] = useState(false)
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
 
  const [name, setName] = useState(current?.name ?? '')
  const [family, setFamily] = useState(current?.family ?? '')
@@ -33,7 +35,7 @@ export function ProposeMetricEdit({ wsId, wfId, current }: Props) {
  const [summary, setSummary] = useState('')
  const [rationale, setRationale] = useState('')
 
- function reset {
+ function reset() {
  setName(current?.name ?? '')
  setFamily(current?.family ?? '')
  setDirection(current?.direction ?? 'higher')
@@ -43,34 +45,36 @@ export function ProposeMetricEdit({ wsId, wfId, current }: Props) {
  setError(null)
  }
 
- function handleCancel {
+ function handleCancel() {
  setEditing(false)
  reset }
 
- function handleSubmit {
+ function handleSubmit() {
  setError(null)
- if (summary.trim.length === 0) {
+ if (summary.trim().length === 0) {
  setError('Plain-language summary is required.')
  return
  }
- if (name.trim.length === 0) {
+ if (name.trim().length === 0) {
  setError('Metric name is required.')
  return
  }
- startTransition(async => {
+ startTransition(async () => {
  try {
  const proposal = await createMetricProposal(wfId, {
- plain_language_summary: summary.trim ,
+ plain_language_summary: summary.trim() ,
  proposed_metric: {
- name: name.trim ,
- family: family.trim || null,
- direction: direction.trim || null,
- description: description.trim || null,
+ name: name.trim() ,
+ family: family.trim() || null,
+ direction: direction.trim() || null,
+ description: description.trim() || null,
  },
- rationale: rationale.trim || null,
+ rationale: rationale.trim() || null,
  })
  setEditing(false)
- reset router.refresh router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
+ reset()
+ router.refresh()
+ router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
  } catch (err) {
  if (err instanceof KernelApiError) {
  setError(err.detail || err.message)
@@ -85,7 +89,7 @@ export function ProposeMetricEdit({ wsId, wfId, current }: Props) {
  return (
  <button
  type="button"
- onClick={ => setEditing(true)}
+ onClick={() => setEditing(true)}
  className="btn btn-secondary propose-edit-btn"
  >
  Propose edit

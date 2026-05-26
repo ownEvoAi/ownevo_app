@@ -22,7 +22,7 @@ interface SidePart {
 function lcsDiff(a: string[], b: string[]): DiffSegment[] {
  const n = a.length
  const m = b.length
- const dp: number[][] = Array.from({ length: n + 1 }, =>
+ const dp: number[][] = Array.from({ length: n + 1 }, () =>
  new Array(m + 1).fill(0),
  )
  for (let i = n - 1; i >= 0; i--) {

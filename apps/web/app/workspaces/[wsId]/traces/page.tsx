@@ -22,7 +22,8 @@ export default async function WorkspaceTracesPage({ params }: PageProps) {
  let traces: TraceList = { workflow_id: '', items: [] }
  let apiError: { title: string; detail: string } | null = null
  try {
- traces = await listAllTraces } catch (err) {
+ traces = await listAllTraces()
+ } catch (err) {
  apiError = kernelError(err)
  }
 
@@ -83,8 +84,8 @@ function TraceRow({ wsId, trace }: { wsId: string; trace: TraceSummary }) {
  )
  const startedDur =
  trace.ended_at !== null
- ? new Date(trace.ended_at).getTime -
- new Date(trace.started_at).getTime : null
+ ? new Date(trace.ended_at).getTime() -
+ new Date(trace.started_at).getTime() : null
  return (
  <Link
  href={`/workspaces/${wsId}/traces/${trace.id}`}

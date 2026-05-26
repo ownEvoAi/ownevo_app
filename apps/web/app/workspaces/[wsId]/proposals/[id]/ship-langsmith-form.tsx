@@ -20,13 +20,15 @@ export function ShipLangSmithForm({
  wsId: string
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
  const [commitUrl, setCommitUrl] = useState<string | null>(null)
  const [alreadyShipped, setAlreadyShipped] = useState(false)
 
- function handle {
+ function handle() {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await shipLangSmithAction({ proposalId, wsId })
  if (!result.ok) {
  setError(result.error)

@@ -62,7 +62,7 @@ function humaniseLabel(slug: string | null | undefined): string {
  if (!slug) return ''
  return slug
  .split(/[_-]/)
- .map((p) => p.charAt(0).toUpperCase + p.slice(1))
+ .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
  .join(' ')
 }
 
@@ -100,17 +100,20 @@ export function ImportDesignFlow({
  const [transcript, setTranscript] = useState<DiscoveryTranscriptEntry[]>([])
  const [draft, setDraft] = useState('')
  const [generateError, setGenerateError] = useState<string | null>(null)
- const [isFetching, startFetch] = useTransition const [isGenerating, startGenerate] = useTransition const [isSummaryFetching, startSummaryFetch] = useTransition const inputRef = useRef<HTMLTextAreaElement | null>(null)
+ const [isFetching, startFetch] = useTransition()
+ const [isGenerating, startGenerate] = useTransition()
+ const [isSummaryFetching, startSummaryFetch] = useTransition()
+ const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
  // Client-side retry for the reverse-discovery summary: the page's SSR
  // pre-fetch has a short budget, but the LLM commonly takes longer. Fire
  // again from the client (no timeout cap) when SSR returned nothing.
  const summaryRetryTried = useRef(false)
- useEffect( => {
+ useEffect(() => {
  if (summaryRetryTried.current) return
  if (summaryState.loaded) return
  summaryRetryTried.current = true
- startSummaryFetch(async => {
+ startSummaryFetch(async () => {
  const resp = await loadImportSummary(traceIds, agentDefinition)
  setSummaryState(resp)
  })
@@ -123,7 +126,7 @@ export function ImportDesignFlow({
  definition: string | null,
  decision: 'confirmed' | 'corrected' | 'skipped',
  ) => {
- const cleaned = definition && definition.trim !== '' ? definition.trim : null
+ const cleaned = definition && definition.trim() !== '' ? definition.trim() : null
  setEffectiveDefinition(cleaned)
  // Only record a reverse-discovery turn when there was an inferred
  // summary to react to; a skip forced by a summary error has none.
@@ -137,7 +140,7 @@ export function ImportDesignFlow({
  })
  }
  setPhase('interview')
- startFetch(async => {
+ startFetch(async () => {
  const resp = await loadNextImportQuestion({
  traceIds,
  agentDefinition: cleaned,
@@ -149,13 +152,13 @@ export function ImportDesignFlow({
 
  const current = questionState.next
 
- useEffect( => {
+ useEffect(() => {
  if (current) inputRef.current?.focus }, [current?.question_index, current?.question])
 
  const submitAnswer = (rawAnswer: string | null, isOptionSelect = false) => {
  if (!current) return
  const trimmed =
- rawAnswer === null ? null : rawAnswer.trim === '' ? null : rawAnswer.trim // chosen_option = the label of the structured option the user clicked;
+ rawAnswer === null ? null : rawAnswer.trim() === '' ? null : rawAnswer.trim() // chosen_option = the label of the structured option the user clicked;
  // free_text (stored as answer) = what the user typed in the textarea.
  // The LLM interviewer uses chosen_option to detect structured selection
  // and free_text for elaboration — conflating them biases next-question logic.
@@ -178,7 +181,7 @@ export function ImportDesignFlow({
  setTranscript(nextTranscript)
  setDraft('')
 
- startFetch(async => {
+ startFetch(async () => {
  const priorAnswers = nextTranscript.map((t) => ({
  dimension: (t.dimension ?? null) as
  | import('@/lib/api').DesignDimension
@@ -199,18 +202,20 @@ export function ImportDesignFlow({
  }
 
  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
- e.preventDefault submitAnswer(draft)
+ e.preventDefault()
+ submitAnswer(draft)
  }
 
  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
- e.preventDefault submitAnswer(draft)
+ e.preventDefault()
+ submitAnswer(draft)
  }
  }
 
- const generate = => {
+ const generate = () => {
  setGenerateError(null)
- startGenerate(async => {
+ startGenerate(async () => {
  const result = await generateFromImportAction({
  wsId,
  traceIds,
@@ -223,15 +228,16 @@ export function ImportDesignFlow({
  })
  }
 
- const coveredDimensions = useMemo( => {
- const s = new Set<string> for (const t of transcript) if (t.dimension) s.add(t.dimension)
+ const coveredDimensions = useMemo(() => {
+ const s = new Set<string>()
+ for (const t of transcript) if (t.dimension) s.add(t.dimension)
  return s
  }, [transcript])
 
  const total = questionState.totalQuestions
  const answered = transcript.length
  const percent = total > 0 ? Math.round((answered / total) * 100) : 0
- const draftIsEmpty = draft.trim.length === 0
+ const draftIsEmpty = draft.trim().length === 0
  const discoveryDone = questionState.done
  const composerBusy = isFetching
 
@@ -298,7 +304,7 @@ export function ImportDesignFlow({
  <button
  type="button"
  className="option-card option-card-recommended"
- onClick={ =>
+ onClick={() =>
  confirmDefinition(summaryState.summary, 'confirmed')
  }
  disabled={isFetching}
@@ -315,7 +321,8 @@ export function ImportDesignFlow({
  className="chat-composer"
  style={{ marginTop: 16 }}
  onSubmit={(e) => {
- e.preventDefault if (correctionDraft.trim )
+ e.preventDefault()
+ if (correctionDraft.trim())
  confirmDefinition(correctionDraft, 'corrected')
  }}
  >
@@ -337,9 +344,9 @@ export function ImportDesignFlow({
  <button
  type="submit"
  className="btn btn-primary"
- disabled={isFetching || correctionDraft.trim.length === 0}
+ disabled={isFetching || correctionDraft.trim().length === 0}
  aria-disabled={
- isFetching || correctionDraft.trim.length === 0
+ isFetching || correctionDraft.trim().length === 0
  }
  >
  {isFetching ? 'Loading…' : 'Use this instead ›'}
@@ -356,7 +363,7 @@ export function ImportDesignFlow({
  <button
  type="button"
  className="btn btn-secondary"
- onClick={ => confirmDefinition(null, 'skipped')}
+ onClick={() => confirmDefinition(null, 'skipped')}
  disabled={isFetching}
  >
  Skip — start discovery anyway
@@ -460,7 +467,7 @@ export function ImportDesignFlow({
  className={`option-card${
  isRecommended ? ' option-card-recommended' : ''
  }`}
- onClick={ => submitAnswer(opt.label, true)}
+ onClick={() => submitAnswer(opt.label, true)}
  disabled={composerBusy}
  >
  <div className="option-card-header">
@@ -530,7 +537,7 @@ export function ImportDesignFlow({
  <button
  type="button"
  className="btn btn-secondary chat-skip"
- onClick={ => submitAnswer(null)}
+ onClick={() => submitAnswer(null)}
  disabled={composerBusy}
  >
  Skip

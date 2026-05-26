@@ -22,19 +22,19 @@ export function WorkflowSwitcher({
  const [open, setOpen] = useState(false)
  const ref = useRef<HTMLDivElement>(null)
 
- useEffect( => {
+ useEffect(() => {
  function onDoc(e: MouseEvent) {
  if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
  }
  document.addEventListener('mousedown', onDoc)
- return => document.removeEventListener('mousedown', onDoc)
+ return () => document.removeEventListener('mousedown', onDoc)
  }, [])
 
  return (
  <div className="op-bar-workflow-wrap" ref={ref}>
  <button
  type="button"
- onClick={ => setOpen((o) => !o)}
+ onClick={() => setOpen((o) => !o)}
  className="op-bar-workflow"
  aria-haspopup="menu"
  aria-expanded={open}
@@ -52,7 +52,7 @@ export function WorkflowSwitcher({
  key={wf.id}
  href={`/operator/${wf.id}?ws=${encodeURIComponent(wsId)}`}
  className={`op-bar-menu-item${wf.id === current ? ' active' : ''}`}
- onClick={ => setOpen(false)}
+ onClick={() => setOpen(false)}
  >
  <div className="op-bar-menu-name">
  {workflowDisplayTitle(wf.id, wf.description, 60)}

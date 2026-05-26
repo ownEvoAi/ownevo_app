@@ -24,7 +24,7 @@ type DeployResult =
 // a return-value protocol (instead of throwing) so the form can show
 // inline errors without crashing the page.
 export async function deployAction(input: DeployInput): Promise<DeployResult> {
- if (!input.decidedBy.trim ) {
+ if (!input.decidedBy.trim() ) {
  return { ok: false, error: 'Reviewer identity is required.' }
  }
 

@@ -36,14 +36,15 @@ export default async function SkillsLibraryPage({
  let workflows: WorkflowSummary[] = []
  let apiError: { title: string; detail: string } | null = null
  try {
- const [s, w] = await Promise.all([listSkills , listWorkflows ])
+ const [s, w] = await Promise.all([listSkills(), listWorkflows()])
  liveSkills = s.items
  workflows = w.items
  } catch (err) {
  apiError = kernelError(err)
  }
 
- const workflowTitleById = new Map<string, string> for (const w of workflows) {
+ const workflowTitleById = new Map<string, string>()
+ for (const w of workflows) {
  workflowTitleById.set(w.id, workflowDisplayTitle(w.id, w.description, 50))
  }
 
@@ -63,7 +64,8 @@ export default async function SkillsLibraryPage({
  // "(unscoped)" chip when there are skills with no workflow_id.
  // Built from the full row set so the chip strip doesn't disappear
  // after a filter narrows the list to one workflow.
- const workflowFacets = new Map<string, number> let unscopedCount = 0
+ const workflowFacets = new Map<string, number>()
+ let unscopedCount = 0
  for (const r of allRows) {
  if (!r.workflow_id) {
  unscopedCount += 1
@@ -71,7 +73,7 @@ export default async function SkillsLibraryPage({
  }
  workflowFacets.set(r.workflow_id, (workflowFacets.get(r.workflow_id) ?? 0) + 1)
  }
- const orderedFacets = [...workflowFacets.entries ].sort((a, b) => b[1] - a[1])
+ const orderedFacets = [...workflowFacets.entries()].sort((a, b) => b[1] - a[1])
 
  const activeFilter = workflowFilter && workflowFilter.length > 0 ? workflowFilter : null
  const rows =

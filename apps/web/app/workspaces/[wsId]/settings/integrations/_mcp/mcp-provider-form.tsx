@@ -42,7 +42,9 @@ export function McpProviderForm({
  banner?: { kind: 'connected' | 'error'; detail: string } | null
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [clientId, setClientId] = useState(client.client_id ?? '')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [clientId, setClientId] = useState(client.client_id ?? '')
  const [clientSecret, setClientSecret] = useState('')
  const [tenant, setTenant] = useState(
  typeof client.config?.tenant === 'string' ? (client.config.tenant as string) : '',
@@ -51,29 +53,29 @@ export function McpProviderForm({
  const [error, setError] = useState<string | null>(null)
  const [msg, setMsg] = useState<string | null>(null)
 
- function saveClient {
+ function saveClient() {
  setError(null)
  setMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await saveMcpClientAction(wsId, info.provider, clientId, clientSecret, tenant)
  if (!r.ok) return setError(r.error)
  setClientSecret('')
  router.refresh })
  }
 
- function removeClient {
+ function removeClient() {
  setError(null)
  setMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await deleteMcpClientAction(wsId, info.provider)
  if (!r.ok) return setError(r.error)
  router.refresh })
  }
 
- function connect {
+ function connect() {
  setError(null)
  setMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await startMcpConnectAction(info.provider, serverName)
  if (!r.ok) return setError(r.error)
  // Hand the browser to the provider's consent screen. The kernel
@@ -85,7 +87,7 @@ export function McpProviderForm({
  function test(serverId: string) {
  setError(null)
  setMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await testMcpServerAction(wsId, info.provider, serverId)
  if (!r.ok) return setError(r.error)
  setMsg(
@@ -99,7 +101,7 @@ export function McpProviderForm({
  function remove(serverId: string) {
  setError(null)
  setMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await removeMcpServerAction(wsId, info.provider, serverId)
  if (!r.ok) return setError(r.error)
  router.refresh })
@@ -188,7 +190,7 @@ export function McpProviderForm({
  <button
  type="button"
  onClick={saveClient}
- disabled={isPending || demoMode || !clientId.trim || !clientSecret.trim }
+ disabled={isPending || demoMode || !clientId.trim() || !clientSecret.trim() }
  className="btn btn-primary"
  >
  {isPending ? 'Saving…' : 'Save credentials'}
@@ -234,7 +236,7 @@ export function McpProviderForm({
  <button
  type="button"
  onClick={connect}
- disabled={isPending || demoMode || !client.configured || !serverName.trim }
+ disabled={isPending || demoMode || !client.configured || !serverName.trim() }
  className="btn btn-primary"
  >
  Connect with {info.display_name}
@@ -281,7 +283,7 @@ export function McpProviderForm({
  <span style={{ display: 'flex', gap: 8 }}>
  <button
  type="button"
- onClick={ => test(s.id)}
+ onClick={() => test(s.id)}
  disabled={isPending || demoMode}
  className="btn"
  >
@@ -289,7 +291,7 @@ export function McpProviderForm({
  </button>
  <button
  type="button"
- onClick={ => remove(s.id)}
+ onClick={() => remove(s.id)}
  disabled={isPending || demoMode}
  className="btn btn-danger"
  >

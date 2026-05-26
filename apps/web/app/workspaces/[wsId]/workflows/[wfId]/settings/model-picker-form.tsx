@@ -26,17 +26,19 @@ export function ModelPickerForm({
  providers: ProviderModels[]
  readOnly?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [selected, setSelected] = useState(initialAgentModelId)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [selected, setSelected] = useState(initialAgentModelId)
  const [savedAt, setSavedAt] = useState<string | null>(null)
  const [error, setError] = useState<string | null>(null)
 
  const dirty = selected !== initialAgentModelId
  const empty = providers.length === 0
 
- function handleSave {
+ function handleSave() {
  setError(null)
  setSavedAt(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await updateAgentModelAction({
  wsId,
  wfId,
@@ -50,7 +52,7 @@ export function ModelPickerForm({
  router.refresh })
  }
 
- function handleReset {
+ function handleReset() {
  setSelected(initialAgentModelId)
  setError(null)
  setSavedAt(null)

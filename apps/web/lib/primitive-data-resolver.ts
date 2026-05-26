@@ -105,7 +105,7 @@ export function resolveTabPrimitives(
 ): ResolvedPrimitive[] | null {
  const tabs = inputs.spec?.ui?.tabs ?? []
  const tab = tabs.find(
- (t) => (t.name ?? '').toLowerCase === tabName.toLowerCase ,
+ (t) => (t.name ?? '').toLowerCase() === tabName.toLowerCase() ,
  )
  if (!tab) return null
  return (tab.primitives ?? []).map((primitive) =>
@@ -269,7 +269,7 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
  v === true ? '✓' : v === false ? '✗' : '—'
  const TRUNC = 140
  const truncate = (s: string): string =>
- s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd + '…' : s
+ s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
 
  const wsId = inputs.wsId
  const rows = co.items.map((it) => {
@@ -336,7 +336,7 @@ function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
  }
  const TRUNC = 160
  const truncate = (s: string): string =>
- s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd + '…' : s
+ s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
  const data: AlertItem[] = failed.slice(0, 5).map((it) => {
  const rationale = it.output_json?.rationale
  const meta = typeof rationale === 'string' ? truncate(rationale) : ''
@@ -371,7 +371,7 @@ function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
 
  const TRUNC = 110
  const truncate = (s: string): string =>
- s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd + '…' : s
+ s.length > TRUNC ? s.slice(0, TRUNC - 1).trimEnd() + '…' : s
 
  const colKey = (it: { passed: boolean; is_test_fold: boolean }): string => {
  if (!it.passed && it.is_test_fold) return 'failed-test'

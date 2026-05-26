@@ -38,14 +38,16 @@ const FALLBACK: DemoStatus = {
 // network errors and when DEMO_MODE is off — pages then render as
 // usual.
 //
-// Wrapped with React `cache ` so multiple callers within the same
+// Wrapped with React `cache()` so multiple callers within the same
 // server render (e.g. the root-layout DemoBanner + a page-level gate
 // check) share one network round-trip.
-export const getDemoStatus = cache(async : Promise<DemoStatus> => {
- if (!isDemoMode ) return FALLBACK
+export const getDemoStatus = cache(async (): Promise<DemoStatus> => {
+ if (!isDemoMode()) return FALLBACK
  const apiUrl = process.env.OWNEVO_KERNEL_API_URL || 'http://localhost:8000'
- const jar = await cookies const cookieHeader = jar
- .getAll .filter((c) => DEMO_COOKIE_NAMES.includes(c.name))
+ const jar = await cookies()
+ const cookieHeader = jar
+ .getAll()
+ .filter((c) => DEMO_COOKIE_NAMES.includes(c.name))
  .map((c) => `${c.name}=${c.value}`)
  .join('; ')
 
@@ -55,7 +57,7 @@ export const getDemoStatus = cache(async : Promise<DemoStatus> => {
  headers: cookieHeader ? { cookie: cookieHeader } : undefined,
  })
  if (!res.ok) return FALLBACK
- const body = (await res.json ) as Record<string, unknown>
+ const body = (await res.json() ) as Record<string, unknown>
  return {
  demoMode: Boolean(body.demo_mode),
  tier: (body.tier as DemoStatus['tier']) ?? null,
@@ -94,7 +96,7 @@ export function gateStateFor(status: DemoStatus): DemoGateState {
  }
  if (status.exhausted) {
  const resetCopy = status.resetAt
- ? ` Resets at ${new Date(status.resetAt).toUTCString }.`
+ ? ` Resets at ${new Date(status.resetAt).toUTCString()}.`
  : ''
  return {
  disabled: true,
