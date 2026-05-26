@@ -59,6 +59,7 @@ from ownevo_kernel.datasets import (  # noqa: E402
     make_held_out_fold,
 )
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -243,6 +244,7 @@ async def main_async(args: CliArgs) -> int:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         await record_baseline(
             conn,
             workflow_id=args.workflow_id,

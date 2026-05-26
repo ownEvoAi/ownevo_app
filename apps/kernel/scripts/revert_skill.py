@@ -40,6 +40,7 @@ import asyncpg
 
 from ownevo_kernel.audit.writer import append_audit_entry
 from ownevo_kernel.db import ENV_VAR
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -51,6 +52,7 @@ async def _run(args: argparse.Namespace) -> int:
 
     conn = await asyncpg.connect(db_url)
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         skill = await conn.fetchrow(
             "SELECT id, kind::text AS kind, head_version_id, workflow_id "
             "FROM skills WHERE id = $1",

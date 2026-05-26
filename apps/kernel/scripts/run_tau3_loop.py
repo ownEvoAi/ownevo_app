@@ -76,6 +76,7 @@ from ownevo_kernel.observability import (  # noqa: E402
     format_past_attempts,
 )
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
 from ownevo_kernel.traces import trace_session  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -480,6 +481,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     try:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         if args.seed_first:
             seed_result = await seed_tau3_retail(
                 conn, workflow_id=args.workflow_id,
