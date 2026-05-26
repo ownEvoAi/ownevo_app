@@ -10,11 +10,16 @@ info:
       - Python Pydantic models: `apps/kernel/src/ownevo_kernel/api/models.py`
       - TypeScript types: `apps/web/lib/api.ts` (hand-maintained; no codegen step)
 
-    Auth model (MVP, single-tenant per D4): no auth in development;
-    dev-token middleware in staging. Production auth is Phase 2.
+    Auth model: requests carry a signed identity assertion in the
+    `Authorization: Bearer` header, minted by the web app, that the kernel
+    verifies and resolves to `(user_id, workspace_id)`. Every scoped table
+    is under FORCE row-level security via the `app.workspace_id` session
+    GUC, and a membership check gates each connection. Local/test runs use
+    a dev-auth fallback (`OWNEVO_DEV_AUTH=true`) that resolves to the seeded
+    `default` workspace and fails closed in production. See `docs/AUTH.md`.
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8000
     description: Local dev
 
 tags:
@@ -557,8 +562,10 @@ paths:
       description: |
         Returns every skill across all workflows in the workspace, sorted
         by kind (instruction → python → composite) then id ASC.
-        Single-tenant for MVP — no workspace filter applied yet.
-        Multi-tenant retrofit will add a `WHERE workspace_id = $1` clause.
+        No explicit `WHERE workspace_id` clause is needed — FORCE row-level
+        security transparently scopes the query to the session workspace
+        (the `app.workspace_id` GUC bound by `tenant_session.py`, resolved
+        from the request's identity assertion).
       tags: [skills]
       responses:
         '200':

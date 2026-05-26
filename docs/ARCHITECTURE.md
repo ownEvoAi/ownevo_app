@@ -233,13 +233,15 @@ The `(legacy)/` group uses Next.js's route group syntax (parens hide it from the
 
 The improvement-loop operator and the day-of operator are different jobs. The improvement-loop operator reviews proposals, approves diffs, reads the lift chart — they need the full sidebar and Activity tab. The day-of operator runs the workflow against real inputs and reads the recommended-action output — they need a focused view that embeds in their own product without ownEvo chrome. Same underlying workflow row, two different render surfaces.
 
-The `[wsId]` slug is cosmetic today — single-tenant MVP, no `workspace_id` column on any domain table. Multi-tenant retrofit will give `[wsId]` real meaning; until then, treat it as a fixed string like `acme` in dev.
+The `[wsId]` slug names a real tenant: per-request resolution comes from a signed identity assertion (see §7), and every scoped table is under FORCE row-level security keyed on the resolved workspace. In local dev the dev-auth fallback resolves to the seeded `default` workspace, so the slug behaves like a fixed string there, but the isolation underneath it is enforced.
 
 ---
 
-## 7. Single-tenant by design (for now)
+## 7. Multi-tenant with row-level security
 
-There is **no `workspace_id` column on any domain table** today. The `[wsId]` URL slug is cosmetic. Multi-tenant retrofit is a bounded 1-2 week job whenever a second deployment requires it, and the schema is designed retrofit-friendly. Do not add patterns that would fight a future `workspace_id` column.
+The multi-tenant substrate has **landed**. Every workspace-scoped table (17 of them) carries a `workspace_id text NOT NULL` FK to `workspaces(id)`, and `ENABLE` + `FORCE ROW LEVEL SECURITY` with a per-table isolation policy scopes both reads and writes to the session workspace (the `app.workspace_id` GUC). `tenant_session.py` is the single chokepoint that binds the GUC (`set_workspace` for request connections, `acquire_workspace_conn` for background workers), and it refuses to bind a missing or soft-deleted workspace. See [`SCHEMA.md`](SCHEMA.md#multi-tenant-row-level-security) for the full design and [`MIGRATIONS.md`](MIGRATIONS.md#0033--workspace-substrate) (0033/0034).
+
+Per-request resolution is **also wired** (migration 0035, [`AUTH.md`](AUTH.md)): the web app mints a signed identity assertion carrying `(user_id, workspace_id)`, the kernel verifies it (`get_principal`), and `get_conn` checks `workspace_members` before binding the GUC — so a valid-but-unauthorized assertion can't reach another tenant. Local/test use a dev-auth fallback to the seeded `default` workspace that fails closed in production. Do not add patterns that bypass `tenant_session.py` (e.g. raw `pool.acquire()` without binding the GUC), or they will silently fail closed under RLS.
 
 ---
 
@@ -265,7 +267,6 @@ Platform primitives drive the **improvement-loop surface** (what the platform te
 ## 9. Known boundaries (not yet built)
 
 - **Layer D resolver:** real agent output → primitive `source` field → typed render data. Today the resolver is hand-curated mocks.
-- **Multi-tenant retrofit:** `workspace_id` column + RLS across every domain table.
 - **Sandbox provider migration:** e2b / Modal swap behind the `SandboxRuntime` Protocol.
 - **Audit-chain crypto upgrade:** Merkle root + signed export on top of the existing parent-hash chain. The shipped claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
 - **Multi-metric Pareto gate:** the gate today compares a single composite `val_score`. A signal-layer Pareto rule (per-dimension metrics, "all improve, none regress") is implied by the talk narrative but not yet in code or schema. See [`MULTI_METRIC_GATE_GAP.md`](MULTI_METRIC_GATE_GAP.md).

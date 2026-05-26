@@ -71,9 +71,11 @@ inbox — the proposal moves from "Awaiting review" to "Recently decided".
 ## What's not in scope yet
 
 - SSE-driven live gate updates.
-- Workspace switcher / multi-tenant UX. Slug is cosmetic today;
-  authentication + tenant resolution land with the multi-tenant
-  retrofit.
+- Workspace switcher UI. The multi-tenant substrate is enforced
+  server-side (`workspace_id` columns + FORCE row-level security) and
+  per-request tenant resolution is wired through signed identity
+  assertions (see kernel `docs/AUTH.md`); the remaining gap is the
+  in-app switcher control for moving between workspaces.
 - Pagination for trace events and the per-workflow list endpoints
   (workflows / iterations / failure_clusters / traces / skills) —
   deferred until production volume surfaces it.

@@ -1,6 +1,8 @@
 # Database Schema
 
-**Source of truth:** [`apps/kernel/migrations/0001_substrate.sql`](../apps/kernel/migrations/0001_substrate.sql).
+**Source of truth:** the migrations in [`apps/kernel/migrations/`](../apps/kernel/migrations/),
+starting from [`0001_substrate.sql`](../apps/kernel/migrations/0001_substrate.sql)
+and applied in filename order through the latest (`0035`).
 This doc explains the shape; the SQL is authoritative. Changes go through
 migrations (`0002_*.sql`, etc.); this doc is updated with every
 schema-affecting commit.
@@ -9,12 +11,23 @@ schema-affecting commit.
 
 - **Append-only audit (WORM).** `audit_entries` blocks UPDATE/DELETE via a row trigger and via app-role grants. Crypto-grade tamper-evidence (Merkle root + signed export on top of the SHA-256 chain) is Phase 2.
 - **Sandbox-error class.** `iterations.sandbox_error_class` captures Timeout / OOM / Crash distinctly. The gate consumer does **not** advance best-ever when an iteration ends in a sandbox error.
-- **Single-tenant for MVP.** There are no `workspace_id` columns. The Phase-2 retrofit is a single-pass `ALTER TABLE ... ADD COLUMN workspace_id` across every domain table + RLS policies.
+- **Multi-tenant with enforced row-level security.** Every workspace-scoped table carries a `workspace_id text NOT NULL` FK to `workspaces(id)`, and `ENABLE` + `FORCE ROW LEVEL SECURITY` with a per-table isolation policy scopes both reads and writes to the session workspace (the `app.workspace_id` GUC). Added in two migrations — `0033` (columns, non-enforcing) and `0034` (FORCE RLS + policies). See [Multi-tenant row-level security](#multi-tenant-row-level-security) below.
 - **NL-gen meta-eval storage.** The `meta_evals` table stores judge-vs-human meta-eval results from the NL-gen quality gate.
 
-## ER diagram (substrate, MVP)
+## ER diagram (substrate)
+
+Every table below except `workspaces` itself carries a `workspace_id text NOT NULL`
+FK to `workspaces(id)` and is under FORCE row-level security (omitted from the
+boxes to keep the diagram legible — see [Multi-tenant row-level security](#multi-tenant-row-level-security)).
 
 ```
+            ┌────────────────────┐
+            │     workspaces      │  tenant registry (NOT under RLS)
+            │  id (PK, text)      │  ◄── workspace_id FK on every scoped table
+            │  name               │
+            │  deleted_at         │  non-null = soft-deleted, unbindable
+            └────────────────────┘
+
                                     ┌──────────────────────┐
                                     │      workflows       │
                                     │  id (PK, text)       │
@@ -155,16 +168,18 @@ Per-workflow, with provenance tracking. `is_test_fold` enforces train/test disci
 ### `failure_clusters`
 *Introduced by: [0001](MIGRATIONS.md#0001--substrate). Extended by: [0002](MIGRATIONS.md#0002--failure-cluster-fingerprint) (fingerprint + dedup index).*
 
-HDBSCAN output. `centroid vector(384)` matches `sentence-transformers/all-MiniLM-L6-v2`'s output dim. `quality_score` is HDBSCAN cluster persistence; below threshold the UI shows "more iterations needed" rather than an unhelpful card. `label_eval_score` is the cluster-label-vs-human agreement score. `fingerprint` (with partial unique index) makes re-runs of `cluster_m5_failures.py` idempotent.
+HDBSCAN output. `centroid vector(384)` matches `sentence-transformers/all-MiniLM-L6-v2`'s output dim. `quality_score` is HDBSCAN cluster persistence; below threshold the UI shows "more iterations needed" rather than an unhelpful card. `label_eval_score` is the cluster-label-vs-human agreement score. `fingerprint` (with partial unique index) makes re-runs of `cluster_m5_failures.py` idempotent. Since [0034](MIGRATIONS.md#0034--workspace-rls-enforcement) the dedup index `failure_clusters_fingerprint_unique` is scoped to `(workspace_id, fingerprint)` so two workspaces can independently dedup clusters with the same fingerprint.
 
 ### `audit_entries` (append-only WORM)
-*Introduced by: [0001](MIGRATIONS.md#0001--substrate). Extended by: [0009](MIGRATIONS.md#0009--audit-hash-chain) (parent_hash + entry_hash), [0010](MIGRATIONS.md#0010--worm-grants--sentinel-guard) (role-level grants).*
+*Introduced by: [0001](MIGRATIONS.md#0001--substrate). Extended by: [0009](MIGRATIONS.md#0009--audit-hash-chain) (parent_hash + entry_hash), [0010](MIGRATIONS.md#0010--worm-grants--sentinel-guard) (role-level grants), [0033](MIGRATIONS.md#0033--workspace-substrate)/[0034](MIGRATIONS.md#0034--workspace-rls-enforcement) (workspace_id + FORCE RLS).*
 
 Append-only spine. Every state change in proposals/iterations/skills/clusters/etc. writes a row here. `seq` is the canonical export ordering. WORM-enforced **three ways** (see [`AUDIT_HARDENING.md`](AUDIT_HARDENING.md) for the full threat model):
 
 1. Row trigger raises on UPDATE/DELETE (works against any role; migration 0001).
 2. App-role grants only allow INSERT and SELECT (migration 0010 — operator runs the REVOKE manually).
 3. SHA-256 hash chain (`parent_hash` + `entry_hash`) makes post-hoc tampering detectable via `POST /api/audit/verify` (migration 0009).
+
+Like every scoped table, `audit_entries` is under FORCE RLS (0034), so a session only ever sees its own workspace's entries. This composes with the append-only guarantee on workspace deletion: `soft_delete_workspace` sets `workspaces.deleted_at` rather than cascading row deletes, so the workspace's audit rows become unreachable (no session can bind a soft-deleted workspace) while staying physically present — the WORM trigger still forbids deleting them.
 
 ### `meta_evals`
 Stores judge-vs-human meta-eval results from the NL-gen quality gate. `coverage_score` is the headline number; `per_dimension` breaks it down (sim_completeness / eval_coverage / metric_alignment). Surfaced in the workspace UI as the "sim covers 11/12 of your description" badge.
@@ -184,14 +199,17 @@ Indexes target the hot queries:
 - Failure cluster vector search: `ivfflat (centroid vector_cosine_ops)`.
 - Audit log export: `audit_entries(seq)` is the canonical order.
 
-## Phase-2 retrofit (multi-tenant)
+## Multi-tenant row-level security
 
-When a second tenant onboards, run a migration that:
+Tenancy landed in two migrations:
 
-1. Adds `workspace_id text NOT NULL` to every domain table (`skills`, `skill_versions`, `eval_cases`, `traces`, `failure_clusters`, `iterations`, `proposals`, `approvals`, `audit_entries`, `meta_evals`, `learnings`, `workflows`).
-2. Backfills `workspace_id = 'mvp-default'` on existing rows.
-3. Enables RLS: `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ... USING (workspace_id = current_setting('app.workspace_id'))`.
-4. Wraps every kernel session start with `SET LOCAL app.workspace_id = ...`.
-5. Drops the old "single-tenant" assumption from API endpoints.
+- **[0033](MIGRATIONS.md#0033--workspace-substrate) — substrate (non-enforcing).** Adds the `workspaces` table and a `workspace_id text NOT NULL DEFAULT 'default'` FK + supporting index to all 17 workspace-scoped tables, backfilled to a single `'default'` workspace. RLS is deliberately left off so the columns can be verified against backfilled data first.
+- **[0034](MIGRATIONS.md#0034--workspace-rls-enforcement) — enforcement.** Changes each scoped table's `workspace_id` default from the literal `'default'` to `current_setting('app.workspace_id', true)` (so an insert auto-stamps the session workspace and an unscoped connection's NULL fails the NOT NULL check), then `ENABLE` + `FORCE ROW LEVEL SECURITY` with a per-table `<table>_workspace_isolation` policy that constrains reads (`USING`) and writes (`WITH CHECK`) to the session GUC. `FORCE` is required because the kernel connects as the table owner, which a plain `ENABLE` would leave exempt. Also widens `integration_credentials` PK to `(workspace_id, provider)`, scopes the failure-cluster fingerprint index by `workspace_id`, and adds `workspaces.deleted_at` for soft delete.
 
-Estimated 1-2 weeks of work whenever a second deployment requires it.
+The 17 scoped tables: `workflows`, `skills`, `skill_versions`, `skill_deployments`, `eval_cases`, `failure_clusters`, `traces`, `iterations`, `iteration_case_outputs`, `proposals`, `approvals`, `meta_evals`, `learnings`, `captured_sandbox_runs`, `receiver_tokens`, `integration_credentials`, `audit_entries`. The demo-mode infrastructure tables (`demo_usage` / `demo_invite_revocations` / `demo_budget_state`) are intentionally excluded — they are global rate-limiting state, not customer domain data. `workspaces` itself is the tenant registry and is intentionally NOT under RLS, so a session can look up a workspace's existence / `deleted_at` before binding to it.
+
+`tenant_session.py` is the single chokepoint that binds the GUC: `set_workspace` (used by the request-scoped `get_conn`) and `acquire_workspace_conn(pool, workspace_id)` (used by background workers and scripts that acquire connections directly). Both refuse to bind a missing or soft-deleted workspace. A connection with no `app.workspace_id` set sees zero rows in every scoped table and cannot insert into any of them.
+
+Per-request workspace resolution is wired through the auth layer (migration [0035](MIGRATIONS.md#0035--authentication-substrate), [`AUTH.md`](AUTH.md)): the web app mints a signed identity assertion carrying `(user_id, workspace_id)`, the kernel verifies it in `get_principal`, and `get_workspace_id` returns the principal's workspace. `get_conn` then confirms the principal is a member of a live workspace (via the global `workspace_members` table) before `set_workspace` binds the GUC — so a valid-but-unauthorized assertion cannot read another tenant's rows. Local/test runs use a dev-auth fallback (`OWNEVO_DEV_AUTH=true`) that resolves to the seeded `dev-user` + `default` workspace; it fails closed in production.
+
+The auth substrate adds three **global, non-RLS** tables (0035): `users`, `user_identities`, and `workspace_members`. They are deliberately outside row-level security — a person spans workspaces, and `workspace_members` is the table the resolver reads *before* a workspace is bound, so scoping it by the GUC it helps establish would be circular. Authorization is enforced in the resolver, not by RLS.

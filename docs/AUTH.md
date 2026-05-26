@@ -1,13 +1,16 @@
 # Authentication & Workspace Resolution
 
-Status: **design** (no code yet). This document fixes the decisions needed
-before the authentication layer is implemented. It exists because the
+Status: **kernel layer implemented; web sign-in pending.** This document
+fixed the decisions for the authentication layer; the kernel-side resolver
+has since landed (rollout steps 1-2 below). It exists because the
 multi-tenant substrate is live — every workspace-scoped table enforces
-row-level security against the `app.workspace_id` session GUC — but the
+row-level security against the `app.workspace_id` session GUC — and the
 per-request resolver that decides *which* workspace a request operates in
-is still a stub that returns the `default` workspace. Until a real
-principal is resolved, the system runs single-tenant in practice even
-though isolation is enforced at the database.
+now reads a verified principal from a signed identity assertion (with a
+membership gate) rather than a constant. What remains is the web sign-in
+surface (Auth.js providers, the create/join-workspace screen, and the
+workspace switcher — steps 3-4). Until those land, local and test runs use
+the dev-auth fallback, which resolves to the seeded `default` workspace.
 
 ## Goals
 
@@ -87,16 +90,18 @@ trust boundary auditable rather than "the web app said so."
 
 ### Kernel changes
 
-`get_workspace_id` in `apps/kernel/src/ownevo_kernel/api/deps.py` stops
-returning the `default` constant and instead:
+Request resolution in `apps/kernel/src/ownevo_kernel/api/deps.py` no longer
+returns the `default` constant. The implemented flow:
 
-1. Reads the bearer assertion from the request.
-2. Verifies signature + expiry (reusing the `_demo_identity` sign/verify
-   helpers, factored into a small shared module).
-3. Confirms `(user_id, workspace_id)` membership against the new
-   `workspace_members` table and that the workspace is live.
-4. Returns the workspace id, which the existing `get_conn` binds via
-   `set_workspace` so row-level security scopes the request.
+1. `get_principal` reads the bearer assertion from the request and verifies
+   signature + expiry (via the shared `_signing` / `_internal_auth` helpers,
+   factored out of the `_demo_identity` primitive). No database access here.
+2. `get_workspace_id` returns the principal's `workspace_id`.
+3. `get_conn` — the single path to workspace-scoped data — confirms
+   `(user_id, workspace_id)` membership against the `workspace_members`
+   table and that the workspace is live, *before* binding.
+4. `set_workspace` binds `app.workspace_id` so row-level security scopes the
+   request.
 
 Failure modes: missing/invalid assertion → 401; valid principal but not a
 member of the requested workspace → 403; soft-deleted workspace → 403. These
@@ -105,7 +110,7 @@ soft-deleted workspace), which stay as the last-line database guard.
 
 ## Data model
 
-Two new tables, both workspace-aware where appropriate:
+Three new tables (migration `0035_auth_users.sql`):
 
 ```sql
 -- A person who can sign in. One row per identity, independent of provider.
@@ -169,9 +174,8 @@ silently granting access.
 
 ## How this unblocks the rest of the multi-tenant work
 
-- **Per-request workspace resolution** stops being blocked — it is the
-  direct output of step 3 above. Once assertions carry a verified workspace,
-  the resolver is a few lines.
+- **Per-request workspace resolution** is no longer blocked — the kernel
+  resolver described above now maps a verified assertion to a workspace.
 - **Workspace provisioning API** (create / list / soft-delete a workspace)
   plugs into the same outside-the-tenant-boundary surface as `users` /
   provisioning; creating a workspace also writes the creator's
@@ -205,13 +209,15 @@ silently granting access.
 
 ## Rollout
 
-1. Land the schema (`users`, `user_identities`, `workspace_members`) as a
-   migration; backfill a single seeded dev user as a member of the `default`
-   workspace so existing local flows keep working.
-2. Add the kernel-side assertion verify + membership check + dev fallback;
-   flip `get_workspace_id` to use it. With `OWNEVO_DEV_AUTH=true` this is a
-   no-op for current single-tenant behaviour.
-3. Wire Auth.js into the web app with the dev provider first, then the Google
-   provider behind configured credentials.
-4. Add the workspace provisioning surface and the active-workspace switcher
-   in the web app; now a second real tenant can exist end to end.
+1. **Done** — landed the schema (`users`, `user_identities`,
+   `workspace_members`) in migration `0035_auth_users.sql`; seeded a single
+   dev user as a member of the `default` workspace so existing local flows
+   keep working.
+2. **Done** — added the kernel-side assertion verify + membership check + dev
+   fallback and switched `get_workspace_id` to use it. With
+   `OWNEVO_DEV_AUTH=true` this resolves to the seeded dev principal.
+3. **Pending** — wire Auth.js into the web app with the dev provider first,
+   then the Google provider behind configured credentials.
+4. **Pending** — add the workspace provisioning surface and the
+   active-workspace switcher in the web app; now a second real tenant can
+   exist end to end.

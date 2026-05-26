@@ -193,6 +193,34 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0008_iteration_case_outputs.sql` | `iteration_case_outputs` table for operator shell primitives |
 | `0009_audit_hash_chain.sql` | `parent_hash` + `entry_hash` on `audit_entries` (SHA-256 chain) |
 | `0010_grants_and_constraints.sql` | `workflows.id <> '_unscoped'` constraint; REVOKE template for role-level WORM (edit before running) |
+| `0011_workflow_template_id.sql` | `workflows.created_from_template` (vertical-template provenance) |
+| `0012_design_agent_log.sql` | `workflows.design_agent_log` + design-agent audit kinds |
+| `0013_case_output_payload.sql` | `iteration_case_outputs.output_payload` (domain-shaped output) |
+| `0014_workflow_agent_model.sql` | `workflows.agent_model_id` (`provider:model` slug) |
+| `0015_changes_requested_enums.sql` | `proposal_state`/`audit_kind` values for "request changes" (ADD VALUE) |
+| `0015b_changes_requested_constraint.sql` | widen `approvals.decision` CHECK for `request-changes` |
+| `0016_demo_phase1.sql` | demo tables: `demo_usage`, `demo_invite_revocations`, `demo_budget_state` |
+| `0017_proposal_kind.sql` | `proposal_kind` enum + `proposals.proposed_payload` (non-skill artifacts) |
+| `0018_traces_ingest_source.sql` | `traces.ingest_source` + CHECK NOT VALID |
+| `0018b_traces_ingest_source_online.sql` | VALIDATE CONSTRAINT + `CREATE INDEX CONCURRENTLY` (no-txn) |
+| `0019_receiver_tokens.sql` | `receiver_tokens` (OTLP ingest bearer-token auth) |
+| `0020_mock_sim_tier.sql` | `workflows.sim_tier` + `mock_sim_config` |
+| `0021_replay_sim_tier.sql` | replay config + `captured_sandbox_runs` table |
+| `0022_langsmith_integration.sql` | `workflows.origin` + `skills.langsmith_prompt_id` |
+| `0023_audit_fix_shipped_langsmith.sql` | `audit_kind` `fix-shipped-langsmith` (ADD VALUE) |
+| `0024_audit_ship_langsmith_unique.sql` | single-push guard index (CONCURRENTLY, no-txn) |
+| `0025_design_agent_import_log.sql` | `workflows.design_agent_import_log` + import audit kind |
+| `0026_audit_fix_exported_copilot_studio.sql` | `audit_kind` `fix-exported-copilot-studio` (ADD VALUE) |
+| `0027_audit_ship_copilot_studio_unique.sql` | single-delivery guard index (CONCURRENTLY, no-txn) |
+| `0028_agent_registry.sql` | `agent_registry` table (one agent per workflow) |
+| `0028_audit_eval_cases_pushed_copilot_studio.sql` | `audit_kind` `eval-cases-pushed-copilot-studio` (ADD VALUE) |
+| `0029_mcp_servers.sql` | `mcp_servers` (external MCP data sources, sealed secrets) |
+| `0030_mcp_oauth.sql` | `mcp_oauth_clients` + `mcp_oauth_states` (authorization-code grant) |
+| `0031_data_uploads.sql` | `data_uploads` (parsed file data sources) |
+| `0032_triggers.sql` | `trigger_kind` enum + `triggers` + `trigger_fires` |
+| `0033_workspace_substrate.sql` | `workspaces` table + `workspace_id` on all 17 scoped tables (non-enforcing) |
+| `0034_workspace_rls_enforcement.sql` | FORCE RLS + isolation policies + GUC default; PK/index/soft-delete fixes |
+| `0035_auth_users.sql` | `users` + `user_identities` + `workspace_members` (global, non-RLS) + seeded dev user |
 
 **Local:** `make api` and `make dev-up` both run migrations automatically on start.
 
@@ -328,3 +356,19 @@ flyctl secrets set OWNEVO_CORS_ORIGINS=https://ownevo-web.fly.dev,https://demo.o
 ```
 
 The default value is dev-friendly (permissive); production must override.
+
+### 6. Workspace RLS — app role must not bypass it
+
+Migrations `0033`/`0034` put every workspace-scoped table under `FORCE ROW LEVEL SECURITY`. `FORCE` makes the policy apply even to the table owner, but it does **not** override Postgres's unconditional bypass for superusers and roles with the `BYPASSRLS` attribute. If the kernel connects as a superuser or a `BYPASSRLS` role, RLS is silently skipped and tenant isolation is not enforced.
+
+The production app role must therefore be **neither** a superuser **nor** `BYPASSRLS`:
+
+```bash
+# The kernel's role should show neither "Superuser" nor "Bypass RLS"
+# in the attributes column.
+fly pg connect -a ownevo-pg -c "\du"
+```
+
+If the role has either attribute, isolation is not enforced regardless of the policies. (The isolation test suite proves the policies under a dedicated non-superuser role via the `rls_db` fixture — production must match that property.) No GUC needs setting at deploy time: `tenant_session.py` binds `app.workspace_id` per connection from the request's resolved workspace, and an unset GUC fails closed (zero rows visible, inserts rejected).
+
+Production must also set `OWNEVO_INTERNAL_AUTH_KEY` (the secret shared with the web app that the kernel uses to verify identity assertions; see [`AUTH.md`](AUTH.md)) and must **not** set `OWNEVO_DEV_AUTH=true` — with the dev fallback off, unauthenticated requests are rejected rather than served the default workspace.
