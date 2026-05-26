@@ -130,6 +130,28 @@ def dev_principal() -> Principal:
     return Principal(user_id=DEV_USER_ID, workspace_id=DEFAULT_WORKSPACE_ID)
 
 
+def require_service_token(request: Request, detail: str = "invalid internal service token") -> None:
+    """Raise HTTPException if the request's bearer token does not match the
+    shared ``OWNEVO_INTERNAL_AUTH_KEY``.
+
+    Used by all internal service endpoints (auth-sync, workspace provisioning)
+    so the check stays in one place as the endpoint list grows.
+    """
+    from fastapi import HTTPException, status  # local import avoids circular dep
+
+    key = os.environ.get(INTERNAL_AUTH_KEY_ENV)
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="internal endpoint is not configured",
+        )
+    if not verify_internal_service_token(bearer_token(request), key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+        )
+
+
 def verify_internal_service_token(token: str | None, service_key: str | None) -> bool:
     """Constant-time check that ``token`` matches the shared service key.
 

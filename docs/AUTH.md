@@ -1,9 +1,9 @@
 # Authentication & Workspace Resolution
 
-Status: **in progress** — rollout steps 1–3 below have landed (auth schema,
-kernel-side assertion verify + membership gate, and the web-edge Auth.js
-wiring with the dev and Google providers). Step 4 (workspace provisioning UI +
-active-workspace switcher) is the remaining slice. This document fixes the
+Status: **complete** — all four rollout steps have landed. The full path
+is live: schema (step 1), kernel assertion verify + membership gate (step 2),
+web-edge Auth.js wiring (step 3), and workspace provisioning UI +
+active-workspace switcher (step 4). This document fixes the
 decisions the authentication layer is built on. It exists because the
 multi-tenant substrate is live — every workspace-scoped table enforces
 row-level security against the `app.workspace_id` session GUC — and the
@@ -217,5 +217,32 @@ silently granting access.
    the Google provider behind configured credentials. The web app upserts the
    principal through the kernel's internal auth-sync endpoint on first sign-in
    and mints a per-request bearer assertion for every kernel call.
-4. Add the workspace provisioning surface and the active-workspace switcher
-   in the web app; now a second real tenant can exist end to end.
+4. **(done)** Add the workspace provisioning surface and the active-workspace
+   switcher in the web app. New users with no membership land on
+   `/setup/new-workspace`; creating a workspace calls `POST /api/internal/workspaces`
+   (service-token authenticated) and updates the session JWT in place via
+   `unstable_update`. Users with multiple workspaces can switch via a form-based
+   switcher in the sidebar. A second real tenant can now exist end to end.
+
+## Known limitations and deferred items
+
+- **JWT membership staleness on externally-triggered changes.** If an admin
+  removes a user from a workspace from outside their session (e.g. via another
+  account), the affected user's JWT continues to list the membership until they
+  re-sign-in. Self-triggered changes (workspace create / switch from the UI) are
+  reflected immediately via `unstable_update`. Fixing externally-triggered
+  staleness would require a server-side session store or a short-TTL JWT with a
+  per-session denylist — deferred until revocation becomes a hard requirement.
+- **`WorkspaceIdDep` bypass in `try_workflow_one_case`.** Pre-existing, read-only,
+  bounded to a 120 s window. Tracked separately; not part of the auth rollout.
+- **Sign-in redirect and route-gating polish.** The middleware now redirects
+  unauthenticated requests to `/api/auth/signin`. Error pages (e.g. Google
+  `email_verified` failure, expired session) show Auth.js defaults; custom
+  error UI is deferred.
+- **Browser-direct kernel calls.** The design-flow conflict check and any future
+  client-side kernel calls currently lean on `OWNEVO_DEV_AUTH`; before a
+  non-dev deploy they should route through Next.js server actions so the
+  assertion is minted server-side.
+- **Workspace invite flow.** Joining an existing workspace requires an invitation.
+  The schema supports it (`workspace_members`); the invite creation and redemption
+  UI is a later slice.

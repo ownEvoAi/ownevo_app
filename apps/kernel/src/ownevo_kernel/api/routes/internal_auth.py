@@ -20,18 +20,13 @@ and writes them directly.
 
 from __future__ import annotations
 
-import os
 import secrets
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from .._internal_auth import (
-    INTERNAL_AUTH_KEY_ENV,
-    bearer_token,
-    verify_internal_service_token,
-)
+from .._internal_auth import require_service_token
 from ..deps import PoolDep
 
 router = APIRouter(
@@ -65,19 +60,6 @@ class AuthSyncResponse(BaseModel):
     email: str
     workspaces: list[WorkspaceMembership]
 
-
-def _require_service_token(request: Request) -> None:
-    key = os.environ.get(INTERNAL_AUTH_KEY_ENV)
-    if not key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="internal auth endpoint is not configured",
-        )
-    if not verify_internal_service_token(bearer_token(request), key):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid internal service token",
-        )
 
 
 async def _upsert_user(conn: asyncpg.Connection, body: AuthSyncRequest) -> tuple[str, str]:
@@ -163,7 +145,7 @@ async def sync_principal(
     body: AuthSyncRequest, request: Request, pool: PoolDep
 ) -> AuthSyncResponse:
     """Upsert the authenticated principal and return its live memberships."""
-    _require_service_token(request)
+    require_service_token(request)
     async with pool.acquire() as conn:
         async with conn.transaction():
             user_id, db_email = await _upsert_user(conn, body)
