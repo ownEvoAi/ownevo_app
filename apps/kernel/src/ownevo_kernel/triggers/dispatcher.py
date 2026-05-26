@@ -69,17 +69,20 @@ class TriggerDispatcher:
         workflow_id = str(trigger.workflow_id)
         trigger_id = str(trigger.id)
 
-        # Resolve the workspace so action helpers can scope their DB writes
-        # through acquire_workspace_conn.  trigger_definitions is not
-        # workspace-scoped, so workflow_id is always readable here; the
-        # workspace_id is fetched from the workflows row.
-        workspace_id = await _fetch_workflow_workspace_id(self._pool, workflow_id)
-
         status = "ok"
         detail = ""
         error_msg: str | None = None
 
         try:
+            # Resolve the workspace so action helpers can scope their DB writes
+            # through acquire_workspace_conn.  trigger_definitions is not
+            # workspace-scoped, so workflow_id is always readable here; the
+            # workspace_id is fetched from the workflows row.  Keeping the
+            # lookup inside the try block ensures a DB blip here is caught and
+            # recorded as a fire with status="error" rather than bubbling as an
+            # unhandled exception.
+            workspace_id = await _fetch_workflow_workspace_id(self._pool, workflow_id)
+
             if trigger.action == "run_clustering":
                 n = await _dispatch_clustering(self._pool, workflow_id, workspace_id)
                 detail = f"clustering completed: {n} cluster(s)"
