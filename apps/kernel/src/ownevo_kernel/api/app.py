@@ -47,6 +47,7 @@ from .routes import (
     proposals,
     skills,
     traces,
+    triggers,
     uploads,
     workflows,
 )
@@ -59,6 +60,14 @@ logger = logging.getLogger(__name__)
 # `POST /api/workflows/{id}/cluster-production-failures` endpoint works either way.
 _AUTOTRIGGER_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER"
 _AUTOTRIGGER_DEBOUNCE_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER_DEBOUNCE_SECONDS"
+
+# Opt-in: trigger scheduler runs cron/threshold/Slack/email/calendar triggers.
+# Disabled by default; enable with OWNEVO_TRIGGER_SCHEDULER=true.
+_TRIGGER_SCHEDULER_ENV = "OWNEVO_TRIGGER_SCHEDULER"
+
+
+def _trigger_scheduler_enabled() -> bool:
+    return os.environ.get(_TRIGGER_SCHEDULER_ENV, "").strip().lower() in ("1", "true", "yes")
 
 
 def _autotrigger_enabled() -> bool:
@@ -141,11 +150,23 @@ def create_app(
             app.state.pool = pool
 
         app.state.cluster_auto_trigger = await _maybe_start_auto_trigger(app.state.pool)
+
+        # Opt-in trigger scheduler (cron / threshold / Slack / email / calendar).
+        app.state.trigger_scheduler = None
+        if _trigger_scheduler_enabled() and not is_demo_mode():
+            from ..triggers.scheduler import TriggerScheduler
+            scheduler = TriggerScheduler(app.state.pool)
+            await scheduler.start()
+            app.state.trigger_scheduler = scheduler
+            logger.info("trigger scheduler: enabled")
+
         try:
             yield
         finally:
             if app.state.cluster_auto_trigger is not None:
                 await app.state.cluster_auto_trigger.stop()
+            if app.state.trigger_scheduler is not None:
+                await app.state.trigger_scheduler.stop()
             if own_pool:
                 await app.state.pool.close()
 
@@ -193,6 +214,7 @@ def create_app(
     api.include_router(mcp.router)
     api.include_router(mcp_oauth.router)
     api.include_router(uploads.router)
+    api.include_router(triggers.router)
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:

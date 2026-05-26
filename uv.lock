@@ -553,6 +553,19 @@ wheels = [
 ]
 
 [[package]]
+name = "croniter"
+version = "3.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/07/ea/98665cd116af6d3c4e79c8dc91bbd9a13746cb3c7d72efbfdef5b720c43b/croniter-3.0.4.tar.gz", hash = "sha256:f9dcd4bdb6c97abedb6f09d6ed3495b13ede4d4544503fa580b6372a56a0c520", size = 54500, upload-time = "2024-10-25T12:22:33.14Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/f5/135d0e57e5bdd2f978388d77ee818f1ac5ac584eb48034362770001f4cad/croniter-3.0.4-py2.py3-none-any.whl", hash = "sha256:96e14cdd5dcb479dd48d7db14b53d8434b188dfb9210448bef6f65663524a6f0", size = 23220, upload-time = "2024-10-25T12:22:30.75Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "45.0.7"
 source = { registry = "https://pypi.org/simple" }
@@ -3260,6 +3273,10 @@ langsmith = [
 mcp = [
     { name = "mcp" },
 ]
+otel-emit = [
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+]
 otel-integration = [
     { name = "traceloop-sdk" },
 ]
@@ -3267,11 +3284,15 @@ test = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
+triggers = [
+    { name = "croniter" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'agent'", specifier = ">=0.95,<1" },
     { name = "asyncpg", specifier = ">=0.29" },
+    { name = "croniter", marker = "extra == 'triggers'", specifier = ">=3.0,<4" },
     { name = "cryptography", marker = "extra == 'api'", specifier = ">=42,<46" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110,<1" },
     { name = "google-adk", marker = "extra == 'adk'", specifier = ">=2.1,<3" },
@@ -3285,8 +3306,10 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "openai", marker = "extra == 'agent'", specifier = ">=1.30,<2" },
     { name = "openpyxl", marker = "extra == 'data-ingest'", specifier = ">=3.1,<4" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel-emit'", specifier = ">=1.36,<2" },
     { name = "opentelemetry-proto", marker = "extra == 'api'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'adk'", specifier = ">=1.36,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel-emit'", specifier = ">=1.36,<2" },
     { name = "ownevo-trace-format", editable = "packages/trace-format" },
     { name = "pandas", marker = "extra == 'baselines-m5'", specifier = ">=2.2,<3" },
     { name = "pandas", marker = "extra == 'data-ingest'", specifier = ">=2.2,<3" },
@@ -3302,7 +3325,7 @@ requires-dist = [
     { name = "umap-learn", marker = "extra == 'clustering'", specifier = ">=0.5,<0.6" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.27,<1" },
 ]
-provides-extras = ["test", "baselines-m5", "agent", "api", "data-ingest", "mcp", "eval", "adk", "clustering", "otel-integration", "langsmith"]
+provides-extras = ["test", "baselines-m5", "agent", "api", "data-ingest", "mcp", "eval", "adk", "clustering", "otel-integration", "langsmith", "triggers", "otel-emit"]
 
 [[package]]
 name = "ownevo-trace-format"

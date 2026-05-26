@@ -1,5 +1,5 @@
 """Route modules for the approval REST API."""
 
-from . import proposals
+from . import proposals, triggers
 
-__all__ = ["proposals"]
+__all__ = ["proposals", "triggers"]

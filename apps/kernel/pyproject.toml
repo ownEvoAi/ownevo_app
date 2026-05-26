@@ -118,6 +118,24 @@ langsmith = [
     "langsmith>=0.8,<1",
     "langchain-core>=0.3,<1",
 ]
+# Generic event-trigger framework (Track 17.1). croniter parses cron
+# expressions; only the cron trigger kind needs it. The other trigger kinds
+# (webhook, threshold, Slack, email, calendar) have no extra deps beyond the
+# kernel core (Slack/email/calendar rely on the `mcp` extra for MCP calls).
+triggers = [
+    "croniter>=3.0,<4",
+]
+# OTel emitter — emit ownEvo analysis events as OTLP spans to any OTLP
+# backend (Datadog, Honeycomb, Jaeger, etc.). Optional so the kernel core
+# stays SDK-free; the emitter becomes a no-op when this extra is absent.
+# `opentelemetry-exporter-otlp-proto-http` is needed for OTLP-HTTP export
+# (the most widely supported format). The base SDK is already pulled in by
+# the `adk` extra; keeping it separate means the emitter can be enabled
+# without pulling in google-adk.
+otel-emit = [
+    "opentelemetry-sdk>=1.36,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.36,<2",
+]
 # Note: τ³-bench (Sierra tau2-bench) is NOT exposed as a kernel extra.
 # Same pattern as `baselines-m5`: deps live in the sandbox image
 # (`apps/kernel/sandbox/Dockerfile.tau3`), not in the host install.
