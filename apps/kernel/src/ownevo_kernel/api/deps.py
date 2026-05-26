@@ -18,6 +18,8 @@ from typing import Annotated
 import asyncpg
 from fastapi import Depends, HTTPException, Request, status
 
+from ..tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+
 
 async def get_pool(request: Request) -> asyncpg.Pool:
     """Return the asyncpg pool stored on `app.state.pool`.
@@ -38,8 +40,15 @@ PoolDep = Annotated[asyncpg.Pool, Depends(get_pool)]
 
 
 async def get_conn(pool: PoolDep) -> AsyncGenerator[asyncpg.Connection, None]:
-    """Acquire one connection from the pool for the request's duration."""
+    """Acquire one connection from the pool for the request's duration.
+
+    Each connection is bound to the active workspace before it is handed to
+    the route, so workspace-scoped row-level security applies once enabled.
+    Today every request resolves to the single ``default`` workspace;
+    per-request resolution lands with the auth layer.
+    """
     async with pool.acquire() as conn:
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
         yield conn
 
 
