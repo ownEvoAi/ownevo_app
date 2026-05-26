@@ -71,6 +71,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: buildProviders(),
   session: { strategy: 'jwt' },
   callbacks: {
+    async signIn({ account, profile }) {
+      // Google: require email_verified before allowing account linking.
+      // An attacker can create an unverified Google OAuth account using someone
+      // else's email address. Without this guard the kernel's email-match path
+      // would link their identity to the victim's existing user row.
+      if (account?.provider === 'google') {
+        // The raw Google profile always includes email_verified; NextAuth types
+        // it as unknown via the Profile index signature.
+        const emailVerified = (profile as Record<string, unknown>)?.email_verified
+        if (!emailVerified) {
+          return false
+        }
+      }
+      return true
+    },
     async jwt({ token, user, account }) {
       // Only runs the sync on initial sign-in, when `account` + `user` are set.
       if (!account || !user) {
