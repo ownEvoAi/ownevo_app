@@ -64,10 +64,11 @@ jobs:
 
       - name: Run OTel emitter conformance tests
         # Verifies that every emit_* method sets the attributes required by
-        # docs/OTEL_EMITTER_CONVENTIONS.md.  Runs with the `otel-emit` extra
-        # so the opentelemetry-sdk InMemorySpanExporter is available.
+        # docs/OTEL_EMITTER_CONVENTIONS.md.  opentelemetry-sdk is already
+        # present because the preceding `uv sync --all-extras` step installed
+        # the otel-emit extra.
         run: |
-          uv run --extra otel-emit pytest \
+          uv run pytest \
             apps/kernel/tests/test_otel_emitter_conformance.py \
             -v --tb=short
 
