@@ -40,6 +40,7 @@ from .routes import (
     design_agent_import,
     integrations,
     internal_auth,
+    internal_workspaces,
     mcp,
     mcp_oauth,
     models,
@@ -212,6 +213,7 @@ def create_app(
     api.include_router(otel_ingest.router)
     api.include_router(integrations.router)
     api.include_router(internal_auth.router)
+    api.include_router(internal_workspaces.router)
     api.include_router(agents.router)
     api.include_router(mcp.router)
     api.include_router(mcp_oauth.router)

@@ -4,17 +4,23 @@ import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { workflowDisplayTitle, workspaceLabel } from '../../../lib/format'
 import type { WorkflowSummary } from '../../../lib/api'
+import type { SyncedWorkspace } from '../../../lib/kernel-sync'
+import { switchWorkspaceAction } from '../actions'
 
 interface NavProps {
  wsId: string
  workflows: WorkflowSummary[]
+ workspaces: SyncedWorkspace[]
+ activeWorkspaceId: string | null
  themeToggle: ReactNode
 }
 
 // Sidebar for /workspaces/[wsId]/... routes. Active-item highlight
 // derived from the current pathname; workflow list comes from the
 // kernel (passed in from the workspace layout server component).
-export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
+// Workspace memberships and the active workspace come from the session
+// (also passed from the layout) so the switcher reflects real memberships.
+export function WorkspaceNav({ wsId, workflows, workspaces, activeWorkspaceId, themeToggle }: NavProps) {
  const pathname = usePathname() ?? ''
  const root = `/workspaces/${wsId}`
 
@@ -24,8 +30,14 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
  }
  const cls = (href: string) => `nav-item${isActive(href) ? ' active' : ''}`
 
- const wsLabel = workspaceLabel(wsId)
- const wsAvatar = wsId.charAt(0).toUpperCase() // Partition by workflow.kind. Production workflows are real customer
+ // Resolve the display name for the active workspace from the membership list.
+ // Fall back to the URL slug label so the nav always shows something even if
+ // the session is momentarily stale (e.g. right after a workspace switch).
+ const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)
+ const wsLabel = activeWorkspace?.name ?? workspaceLabel(wsId)
+ const wsAvatar = wsLabel.charAt(0).toUpperCase()
+
+ // Partition by workflow.kind. Production workflows are real customer
  // surfaces; benchmarks (M5 forecasting, tau-bench replays) are kernel
  // validation runs that share the substrate. They get their own
  // sidebar section so the demo viewer doesn't confuse "Recalibrate
@@ -50,11 +62,43 @@ export function WorkspaceNav({ wsId, workflows, themeToggle }: NavProps) {
  </span>
  </div>
 
- <div className="workspace-switcher">
- <span className="workspace-avatar">{wsAvatar}</span>
- <span className="nav-label">{wsLabel}</span>
- <span className="chev">▾</span>
- </div>
+ {workspaces.length > 1 ? (
+  // Multiple workspaces: render a form-based switcher. The native <select>
+  // submits to the switchWorkspaceAction server action on change, keeping
+  // the switch flow entirely server-side without client-state management.
+  <form action={switchWorkspaceAction} className="workspace-switcher workspace-switcher--select">
+   <span className="workspace-avatar" aria-hidden>
+    {wsAvatar}
+   </span>
+   <select
+    name="workspaceId"
+    defaultValue={activeWorkspaceId ?? wsId}
+    onChange={(e) => {
+     const form = e.target.form
+     if (form) form.requestSubmit()
+    }}
+    className="workspace-select"
+    aria-label="Switch workspace"
+   >
+    {workspaces.map((w) => (
+     <option key={w.id} value={w.id}>
+      {w.name}
+     </option>
+    ))}
+   </select>
+   <span className="chev" aria-hidden>
+    ▾
+   </span>
+  </form>
+ ) : (
+  // Single workspace: no switcher needed — just the name.
+  <div className="workspace-switcher">
+   <span className="workspace-avatar" aria-hidden>
+    {wsAvatar}
+   </span>
+   <span className="nav-label">{wsLabel}</span>
+  </div>
+ )}
 
  <div className="nav-section">Activity</div>
  <a href={root} className={cls(root)}>

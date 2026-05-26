@@ -127,6 +127,15 @@ button { font-family: inherit; cursor: pointer; }
 }
 .workspace-switcher .chev { margin-left: auto; color: var(--text-faint); font-size: 11px; }
 
+/* Select-based workspace switcher (multi-workspace) */
+.workspace-switcher--select { cursor: default; }
+.workspace-select {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  font-size: 13px; color: var(--text-2);
+  cursor: pointer; appearance: none;
+}
+
 .nav-section { font-size: 10px; font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase; color: var(--text-faint); padding: 14px 12px 6px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
