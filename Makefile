@@ -201,7 +201,7 @@ sandbox-image-tau3:
 # Reload-on-change uvicorn dev server. Production deployment runs the same
 # `ownevo_kernel.api.app:app` ASGI target without --reload.
 api:
-	uv run --package ownevo-kernel --extra api \
+	OWNEVO_DEV_AUTH=true uv run --package ownevo-kernel --extra api \
 	    uvicorn ownevo_kernel.api.app:app --reload --port 8000
 
 web-dev:

@@ -87,6 +87,12 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+# The test suite runs under dev-auth: API requests carry no signed identity
+# assertion, so they resolve to the seeded dev principal in the default
+# workspace (see api/_internal_auth.py). `setdefault` lets a single test opt
+# out (e.g. to exercise the fail-closed 401 path) by clearing the var.
+os.environ.setdefault("OWNEVO_DEV_AUTH", "true")
+
 
 def stub_cycle(
     idx: int, *, val_score: float | None, n_prior_cases: int = 10

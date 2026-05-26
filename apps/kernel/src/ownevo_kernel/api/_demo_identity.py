@@ -27,7 +27,6 @@ keep validating until their TTL runs out.
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import hmac
 import json
@@ -39,12 +38,15 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Annotated, Literal
 
-_log = logging.getLogger(__name__)
-
 import asyncpg
 from fastapi import Depends, Request, Response
 
+from ._signing import b64url_decode as _b64url_decode
+from ._signing import b64url_encode as _b64url_encode
+from ._signing import sign as _sign
 from .deps import ConnDep
+
+_log = logging.getLogger(__name__)
 
 DemoTier = Literal["anonymous", "elevated", "unlimited"]
 
@@ -76,20 +78,6 @@ class DemoIdentity:
 
 class InviteInvalid(ValueError):
     """Raised when an invite token fails any validation step."""
-
-
-def _b64url_encode(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
-def _b64url_decode(s: str) -> bytes:
-    pad = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + pad)
-
-
-def _sign(payload: str, key: str) -> str:
-    sig = hmac.new(key.encode(), payload.encode(), sha256).digest()
-    return _b64url_encode(sig)
 
 
 # Short-form ↔ long-form claim key map. Mint always writes short; verify
