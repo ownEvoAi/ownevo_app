@@ -12,6 +12,9 @@ from ownevo_kernel.triggers.email import EmailIngester
 
 # Patch at canonical location (action is imported inside function body).
 _INGEST_PATH = "ownevo_kernel.triggers.actions.action_ingest_failures"
+# Patch the workspace lookup so tests don't need a live DB.
+_FETCH_WS_PATH = "ownevo_kernel.triggers.email._fetch_workspace_id"
+_FAKE_WORKSPACE_ID = "default"
 
 
 def _make_email_trigger(config: dict) -> TriggerDefinition:
@@ -61,6 +64,7 @@ class TestEmailIngester:
             patch.object(
                 ingester, "_fetch_gmail_threads", new=AsyncMock(return_value=fake_threads)
             ),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock(return_value="trace-1")) as mock_ingest,
         ):
             count = await ingester.poll(pool, trigger)
@@ -112,6 +116,7 @@ class TestEmailIngester:
             patch.object(
                 ingester, "_fetch_outlook_messages", new=AsyncMock(return_value=fake_messages)
             ),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock(return_value="trace-2")) as mock_ingest,
         ):
             count = await ingester.poll(pool, trigger)
@@ -136,6 +141,7 @@ class TestEmailIngester:
             patch.object(
                 ingester, "_fetch_gmail_threads", new=AsyncMock(return_value=fake_threads)
             ),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock()) as mock_ingest,
         ):
             count = await ingester.poll(pool, trigger)

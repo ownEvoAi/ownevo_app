@@ -13,6 +13,9 @@ from ownevo_kernel.triggers.slack import SlackIngester
 # The action is imported inside the function in slack.py, so patch the
 # canonical location in the actions module.
 _INGEST_PATH = "ownevo_kernel.triggers.actions.action_ingest_failures"
+# Patch the workspace lookup so tests don't need a live DB.
+_FETCH_WS_PATH = "ownevo_kernel.triggers.slack._fetch_workspace_id"
+_FAKE_WORKSPACE_ID = "default"
 
 
 def _make_slack_trigger(config: dict | None = None) -> TriggerDefinition:
@@ -51,6 +54,7 @@ class TestSlackIngester:
 
         with (
             patch.object(ingester, "_fetch_messages", new=AsyncMock(return_value=fake_messages)),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock(return_value="trace-1")) as mock_ingest,
         ):
             count = await ingester.poll(pool, trigger)
@@ -70,6 +74,7 @@ class TestSlackIngester:
 
         with (
             patch.object(ingester, "_fetch_messages", new=AsyncMock(return_value=fake_messages)),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock()),
         ):
             await ingester.poll(pool, trigger)
@@ -94,6 +99,7 @@ class TestSlackIngester:
 
         with (
             patch.object(ingester, "_fetch_messages", new=AsyncMock(return_value=messages)),
+            patch(_FETCH_WS_PATH, new=AsyncMock(return_value=_FAKE_WORKSPACE_ID)),
             patch(_INGEST_PATH, new=AsyncMock()) as mock_ingest,
         ):
             count = await ingester.poll(pool, trigger)
