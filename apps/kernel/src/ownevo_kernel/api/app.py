@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR
 from ..llm.router import check_provider_api_keys
+from ._internal_auth import DEV_AUTH_ENV, INTERNAL_AUTH_KEY_ENV, dev_auth_enabled
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -131,6 +132,21 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Boot-time guard: dev-auth and the shared signing key are mutually
+        # exclusive. With both set the kernel would silently fall back to the
+        # seeded dev principal for any unauthenticated request, effectively
+        # bypassing workspace isolation in a production deployment.
+        # Fail here — at startup — rather than silently granting access at
+        # runtime where the misconfiguration is invisible in logs.
+        if dev_auth_enabled() and os.environ.get(INTERNAL_AUTH_KEY_ENV):
+            raise RuntimeError(
+                f"{DEV_AUTH_ENV}=true is set alongside {INTERNAL_AUTH_KEY_ENV}. "
+                "These flags are mutually exclusive: dev-auth makes the kernel "
+                "resolve every unauthenticated request to the seeded dev user, "
+                "bypassing workspace isolation when a real signing key is in use. "
+                f"Unset {DEV_AUTH_ENV} in any deployment that authenticates real users."
+            )
+
         for warning in check_provider_api_keys():
             logger.warning("llm-router: %s", warning)
 

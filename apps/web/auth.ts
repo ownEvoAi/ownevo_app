@@ -143,6 +143,17 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
    } else if (devAuthEnabled()) {
     // Zero-config local dev: no shared key, so mirror the kernel's seeded
     // dev fallback rather than calling the (key-gated) sync endpoint.
+    // Guard: the dev-auth stub is only safe when the user actually came in
+    // through the dev credentials provider. If a real OAuth provider (Google)
+    // is configured without a signing key the stub would silently assign the
+    // dev-user identity to a real Google account — reject instead.
+    if (provider !== 'dev') {
+     throw new Error(
+      `OWNEVO_INTERNAL_AUTH_KEY is required for provider '${provider}'. ` +
+      'The dev-auth fallback only applies to the credentials (dev) provider. ' +
+      'Set OWNEVO_INTERNAL_AUTH_KEY or remove the OAuth provider credentials.',
+     )
+    }
     token.userId = DEV_USER_ID
     token.workspaces = [
      { id: DEFAULT_WORKSPACE_ID, name: 'Default workspace', role: 'owner' },
