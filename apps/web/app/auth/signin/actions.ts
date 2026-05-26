@@ -9,7 +9,7 @@ export type SignInResult = { error?: string }
 // Relative paths (excluding protocol-relative //host) are always safe.
 // Absolute URLs must match AUTH_URL's origin. When AUTH_URL is not set,
 // defers to Auth.js's own redirectTo validation.
-export function isSafeCallbackUrl(url: string): boolean {
+function isSafeCallbackUrl(url: string): boolean {
   // Protocol-relative URLs (//evil.com) look like relative paths but resolve
   // to an absolute external URL in browser contexts — always reject them.
   if (url.startsWith('//')) return false
