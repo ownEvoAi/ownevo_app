@@ -118,7 +118,10 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "traces",
             "trigger_definitions",
             "trigger_fires",
+            "user_identities",
+            "users",
             "workflows",
+            "workspace_members",
             "workspaces",
         }
 
@@ -138,6 +141,39 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "trigger_kind",
             "workflow_mode",
         }
+    finally:
+        await conn.close()
+
+
+async def test_auth_seed_makes_dev_user_owner_of_default(fresh_db: str):
+    """0035 seeds a dev user as owner of the default workspace.
+
+    The auth tables (`users` / `user_identities` / `workspace_members`) are
+    global, not workspace-scoped, so they must be readable on a connection
+    bound to the default workspace — the resolver queries membership before a
+    tenant is established. This also confirms the seed backfill ran.
+    """
+    conn = await asyncpg.connect(fresh_db)
+    try:
+        await migrate(conn)
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+
+        role = await conn.fetchval(
+            "SELECT role FROM workspace_members "
+            "WHERE workspace_id = $1 AND user_id = 'dev-user'",
+            DEFAULT_WORKSPACE_ID,
+        )
+        assert role == "owner"
+
+        email = await conn.fetchval(
+            "SELECT email FROM users WHERE id = 'dev-user'",
+        )
+        assert email == "dev@ownevo.local"
+
+        provider = await conn.fetchval(
+            "SELECT provider FROM user_identities WHERE user_id = 'dev-user'",
+        )
+        assert provider == "dev"
     finally:
         await conn.close()
 
