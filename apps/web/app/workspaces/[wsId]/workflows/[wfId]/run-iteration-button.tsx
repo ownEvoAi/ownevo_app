@@ -72,7 +72,8 @@ export function RunIterationButton({
 }
 
 function SubmitButton({ iterationCount }: { iterationCount: number }) {
- const { pending } = useFormStatus return (
+ const { pending } = useFormStatus()
+ return (
  <button
  type="submit"
  className="btn btn-primary"

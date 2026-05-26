@@ -25,7 +25,9 @@ export function DeployForm({
  kind?: 'skill' | 'description' | 'metric' | 'sim' | 'ui-primitive'
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [decidedBy, setDecidedBy] = useState('human:reviewer')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [decidedBy, setDecidedBy] = useState('human:reviewer')
  const [error, setError] = useState<string | null>(null)
 
  const isDeploy = state === 'approved-awaiting-deploy'
@@ -41,9 +43,9 @@ export function DeployForm({
  ? 'Reverts the deployed_version_id. The skill returns to its previous deployed version (or null if this was the first deployment).'
  : `Rollback for non-skill artifact proposals isn't supported yet — create a new ${kind} proposal pointing at the previous value to revert.`
 
- function handle {
+ function handle() {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await deployAction({
  proposalId,
  wsId,

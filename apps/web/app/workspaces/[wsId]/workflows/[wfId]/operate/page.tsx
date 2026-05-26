@@ -62,7 +62,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  getWorkflowIterations(wfId),
  listWorkflowEvalCases(wfId),
  listProposals({ workflow_id: wfId, limit: 100 }),
- getWorkflowCaseOutputs(wfId).catch( => null),
+ getWorkflowCaseOutputs(wfId).catch(() => null),
  ])
  spec = anatomy.spec
  description = anatomy.description
@@ -100,7 +100,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  // tabs[0]), so /operate and /operator/[wf] stay in sync.
  const tabs = spec?.ui?.tabs ?? []
  const operateTab =
- tabs.find((t) => (t.name ?? '').toLowerCase === 'operate') ??
+ tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ??
  tabs[1] ??
  tabs[0]
 

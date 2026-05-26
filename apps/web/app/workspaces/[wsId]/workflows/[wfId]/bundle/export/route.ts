@@ -59,12 +59,12 @@ export async function GET(
 
  // Parse all responses — treat non-critical fetch failures as empty
  // so a single missing dataset doesn't abort the whole bundle.
- const safeJson = async (res: Response) => res.ok ? res.json : null
+ const safeJson = async (res: Response) => res.ok ? res.json() : null
 
  ;[anatomy, skillList, evalCases, proposals, failures, audit] =
  await Promise.all([
- anatomyRes.json ,
- skillsRes.ok ? skillsRes.json : { items: [] },
+ anatomyRes.json() ,
+ skillsRes.ok ? skillsRes.json() : { items: [] },
  safeJson(evalsRes),
  safeJson(proposalsRes),
  safeJson(failuresRes),
@@ -83,7 +83,7 @@ export async function GET(
  const res = await fetch(`${API_URL}/api/skills/${encodeURIComponent(s.id)}`, {
  cache: 'no-store',
  })
- return res.ok ? res.json : { id: s.id, error: 'not_found' }
+ return res.ok ? res.json() : { id: s.id, error: 'not_found' }
  }),
  )
  } catch {
@@ -91,7 +91,8 @@ export async function GET(
  skills = []
  }
 
- const generatedAt = new Date.toISOString const timestamp = generatedAt.replace(/[:.]/g, '-').slice(0, 19)
+ const generatedAt = new Date().toISOString()
+ const timestamp = generatedAt.replace(/[:.]/g, '-').slice(0, 19)
  const filename = `bundle-${wfId.slice(0, 8)}-${timestamp}.json`
 
  const bundle = {

@@ -7,7 +7,7 @@ interface Props {
 
 function initials(author: string | undefined, role: ConvoMessage['role']): string {
  if (author) {
- const parts = author.trim.split(/\s+/)
+ const parts = author.trim().split(/\s+/)
  return (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')
  }
  return role === 'agent' ? 'AI' : role === 'user' ? 'CS' : 'SY'

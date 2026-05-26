@@ -19,20 +19,23 @@ interface Props {
 // with the Settings page form) and refreshes the route so the layout
 // title and sidebar pick up the new value.
 export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
- const router = useRouter const [editing, setEditing] = useState(false)
+ const router = useRouter()
+ const [editing, setEditing] = useState(false)
  const [draft, setDraft] = useState(description)
- const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
 
- const dirty = draft.trim !== description.trim const paragraphs = description
+ const dirty = draft.trim() !== description.trim()
+ const paragraphs = description
  .split(/\n\s*\n/)
- .map((p) => p.trim )
+ .map((p) => p.trim() )
  .filter((p) => p.length > 0)
  if (paragraphs.length === 0 && !editing) return null
  const [first, ...rest] = paragraphs
 
- function handleSave {
+ function handleSave() {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await updateDescriptionAction({
  wsId,
  wfId,
@@ -46,7 +49,7 @@ export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
  router.refresh })
  }
 
- function handleCancel {
+ function handleCancel() {
  setDraft(description)
  setEditing(false)
  setError(null)
@@ -69,7 +72,7 @@ export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
  <div className="inline-desc-actions-row">
  <button
  type="button"
- onClick={ => setEditing(true)}
+ onClick={() => setEditing(true)}
  className="inline-desc-edit-btn"
  aria-label="Quick edit (cosmetic, direct save)"
  title="Quick edit · cosmetic, direct save"
@@ -142,7 +145,7 @@ export function InlineDescriptionBlock({ wsId, wfId, description }: Props) {
  <button
  type="button"
  onClick={handleSave}
- disabled={isPending || !dirty || draft.trim.length < 10}
+ disabled={isPending || !dirty || draft.trim().length < 10}
  className="btn btn-primary"
  >
  {isPending ? 'Saving…' : 'Save'}

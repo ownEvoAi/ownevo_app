@@ -179,7 +179,7 @@ async function jsonFetch<T>(
  if (!res.ok) {
  let detail = res.statusText
  try {
- const body = (await res.json ) as { detail?: string | Array<{ msg?: string }> }
+ const body = (await res.json() ) as { detail?: string | Array<{ msg?: string }> }
  if (Array.isArray(body?.detail)) {
  // FastAPI Pydantic validation errors return detail as an array of {loc, msg, type}.
  detail = body.detail.map((e) => e.msg ?? JSON.stringify(e)).join('; ')
@@ -193,16 +193,17 @@ async function jsonFetch<T>(
  }
  // 204 No Content — no body to parse.
  if (res.status === 204) return undefined as T
- return (await res.json ) as T
+ return (await res.json() ) as T
 }
 
 export async function listProposals(
  params: { state?: ProposalState; workflow_id?: string; limit?: number } = {},
 ): Promise<ProposalList> {
- const qs = new URLSearchParams if (params.state) qs.set('state', params.state)
+ const qs = new URLSearchParams()
+ if (params.state) qs.set('state', params.state)
  if (params.workflow_id) qs.set('workflow_id', params.workflow_id)
  if (params.limit !== undefined) qs.set('limit', String(params.limit))
- const path = qs.toString ? `/api/proposals?${qs}` : '/api/proposals'
+ const path = qs.toString() ? `/api/proposals?${qs}` : '/api/proposals'
  return jsonFetch<ProposalList>(path)
 }
 
@@ -923,7 +924,7 @@ export interface IterationList {
  items: IterationPoint[]
 }
 
-export async function listWorkflows : Promise<WorkflowList> {
+export async function listWorkflows() : Promise<WorkflowList> {
  return jsonFetch<WorkflowList>('/api/workflows')
 }
 
@@ -1077,7 +1078,7 @@ export interface ModelCatalog {
  providers: ProviderModels[]
 }
 
-export async function getModelCatalog : Promise<ModelCatalog> {
+export async function getModelCatalog() : Promise<ModelCatalog> {
  return jsonFetch<ModelCatalog>('/api/models')
 }
 
@@ -1221,15 +1222,16 @@ export async function listAudit(
  workflowId?: string
  } = {},
 ): Promise<AuditList> {
- const qs = new URLSearchParams if (params.kind) qs.set('kind', params.kind)
+ const qs = new URLSearchParams()
+ if (params.kind) qs.set('kind', params.kind)
  if (params.sinceSeq !== undefined) qs.set('since_seq', String(params.sinceSeq))
  if (params.limit !== undefined) qs.set('limit', String(params.limit))
  if (params.workflowId) qs.set('workflow_id', params.workflowId)
- const path = qs.toString ? `/api/audit?${qs}` : '/api/audit'
+ const path = qs.toString() ? `/api/audit?${qs}` : '/api/audit'
  return jsonFetch<AuditList>(path)
 }
 
-export async function verifyAuditChain : Promise<AuditVerifyResponse> {
+export async function verifyAuditChain() : Promise<AuditVerifyResponse> {
  return jsonFetch<AuditVerifyResponse>('/api/audit/verify', { method: 'POST' })
 }
 
@@ -1374,7 +1376,7 @@ export async function deleteEvalCase(
  if (!res.ok) {
  let detail = res.statusText
  try {
- const body = (await res.json ) as { detail?: string }
+ const body = (await res.json() ) as { detail?: string }
  if (typeof body?.detail === 'string') detail = body.detail
  } catch {
  // body wasn't JSON
@@ -1383,7 +1385,7 @@ export async function deleteEvalCase(
  }
 }
 
-export async function listAllTraces : Promise<TraceList> {
+export async function listAllTraces() : Promise<TraceList> {
  return jsonFetch<TraceList>(`/api/traces`)
 }
 
@@ -1503,7 +1505,7 @@ export async function getWorkflowSkills(
 
 // Workspace-scoped Skills library index. Single-tenant for MVP
 // every skill in the DB belongs to the active workspace.
-export async function listSkills : Promise<SkillList> {
+export async function listSkills() : Promise<SkillList> {
  return jsonFetch<SkillList>('/api/skills')
 }
 
@@ -1539,7 +1541,7 @@ export interface LangSmithBindingResponse {
  langsmith_prompt_id: string | null
 }
 
-export async function getLangSmithStatus : Promise<LangSmithStatus> {
+export async function getLangSmithStatus() : Promise<LangSmithStatus> {
  return jsonFetch<LangSmithStatus>('/api/integrations/langsmith')
 }
 
@@ -1550,11 +1552,11 @@ export async function setLangSmithCredential(apiKey: string): Promise<LangSmithS
  })
 }
 
-export async function deleteLangSmithCredential : Promise<void> {
+export async function deleteLangSmithCredential() : Promise<void> {
  await jsonFetch<unknown>('/api/integrations/langsmith', { method: 'DELETE' })
 }
 
-export async function testLangSmithConnection : Promise<LangSmithTestResult> {
+export async function testLangSmithConnection() : Promise<LangSmithTestResult> {
  return jsonFetch<LangSmithTestResult>('/api/integrations/langsmith/test', {
  method: 'POST',
  body: '{}',
@@ -1610,7 +1612,7 @@ export interface ShipCopilotStudioResponse {
  already_delivered: boolean
 }
 
-export async function getCopilotStudioStatus : Promise<CopilotStudioStatus> {
+export async function getCopilotStudioStatus() : Promise<CopilotStudioStatus> {
  return jsonFetch<CopilotStudioStatus>('/api/integrations/copilot-studio')
 }
 
@@ -1623,11 +1625,11 @@ export async function setCopilotStudioCredential(
  })
 }
 
-export async function deleteCopilotStudioCredential : Promise<void> {
+export async function deleteCopilotStudioCredential() : Promise<void> {
  await jsonFetch<unknown>('/api/integrations/copilot-studio', { method: 'DELETE' })
 }
 
-export async function testCopilotStudioConnection : Promise<CopilotStudioTestResult> {
+export async function testCopilotStudioConnection() : Promise<CopilotStudioTestResult> {
  return jsonFetch<CopilotStudioTestResult>('/api/integrations/copilot-studio/test', {
  method: 'POST',
  body: '{}',
@@ -1714,7 +1716,7 @@ export interface AgentList {
  total: number
 }
 
-export async function listAgents : Promise<AgentList> {
+export async function listAgents() : Promise<AgentList> {
  return jsonFetch<AgentList>('/api/agents')
 }
 
@@ -1772,7 +1774,7 @@ export interface McpOAuthClientView {
  config: Record<string, unknown>
 }
 
-export async function listMcpServers : Promise<McpServer[]> {
+export async function listMcpServers() : Promise<McpServer[]> {
  return jsonFetch<McpServer[]>('/api/mcp/servers')
 }
 
@@ -1789,7 +1791,7 @@ export async function testMcpServer(id: string): Promise<McpServerTestResult> {
  )
 }
 
-export async function listMcpProviders : Promise<McpProviderInfo[]> {
+export async function listMcpProviders() : Promise<McpProviderInfo[]> {
  return jsonFetch<McpProviderInfo[]>('/api/mcp/oauth/providers')
 }
 
@@ -1845,7 +1847,7 @@ export interface DataUpload {
  retention_expires_at: string | null
 }
 
-export async function listDataUploads : Promise<DataUpload[]> {
+export async function listDataUploads() : Promise<DataUpload[]> {
  return jsonFetch<DataUpload[]>('/api/uploads')
 }
 
@@ -1859,7 +1861,8 @@ export async function deleteDataUpload(id: string): Promise<void> {
 // content-type). Forwards the browser File to the kernel and reuses the
 // KernelApiError shape on failure.
 export async function uploadDataFile(file: File): Promise<DataUpload> {
- const form = new FormData form.append('file', file)
+ const form = new FormData()
+ form.append('file', file)
  const res = await fetch(`${API_URL}/api/uploads`, {
  method: 'POST',
  body: form,
@@ -1868,12 +1871,12 @@ export async function uploadDataFile(file: File): Promise<DataUpload> {
  if (!res.ok) {
  let detail = res.statusText
  try {
- const body = (await res.json ) as { detail?: string }
+ const body = (await res.json() ) as { detail?: string }
  if (typeof body?.detail === 'string') detail = body.detail
  } catch {
  // non-JSON body — keep statusText
  }
  throw new KernelApiError(res.status, detail)
  }
- return (await res.json ) as DataUpload
+ return (await res.json() ) as DataUpload
 }

@@ -61,8 +61,8 @@ export default async function BaselineCompletePage({ params }: PageProps) {
  const durationSec =
  detail.ended_at !== null
  ? Math.round(
- (new Date(detail.ended_at).getTime -
- new Date(detail.started_at).getTime ) /
+ (new Date(detail.ended_at).getTime() -
+ new Date(detail.started_at).getTime() ) /
  1000,
  )
  : null

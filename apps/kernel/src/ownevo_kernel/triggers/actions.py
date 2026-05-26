@@ -20,7 +20,12 @@ When a trigger fires it dispatches one of three actions:
     first-class traces before clustering picks them up.
 
 All actions accept a `pool` rather than a single connection so they can
-manage their own transaction scope.
+manage their own transaction scope.  Every action also accepts a
+``workspace_id`` so that the connection it acquires is bound to the
+workspace before any workspace-scoped table is touched.  Under RLS an
+unbound connection sees no rows and cannot insert into workspace-scoped
+tables — routing through ``acquire_workspace_conn`` is the only correct
+path for background workers.
 """
 
 from __future__ import annotations
@@ -33,18 +38,25 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+from ..tenant_session import acquire_workspace_conn
+
 _log = logging.getLogger(__name__)
 
 
 async def action_run_clustering(
     pool: asyncpg.Pool,
     workflow_id: str,
+    workspace_id: str,
 ) -> int:
     """Run the production-failure clustering pipeline for `workflow_id`.
 
     Returns the number of clusters persisted.  Imports the heavy
     clustering extras lazily — the caller can catch `ImportError` and
     log a meaningful message when the extras are absent.
+
+    ``workspace_id`` must match the workspace the workflow belongs to so
+    the connection is properly scoped under RLS before any workspace-scoped
+    table (``traces``, ``failure_clusters``) is read or written.
     """
     from ..clustering.default_impl import (
         AnthropicLabeler,
@@ -54,7 +66,7 @@ async def action_run_clustering(
     )
     from ..clustering.from_traces import cluster_production_failures
 
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         results = await cluster_production_failures(
             conn,
             workflow_id,
@@ -69,49 +81,69 @@ async def action_run_clustering(
 async def action_run_iteration(
     pool: asyncpg.Pool,
     workflow_id: str,
-) -> str | None:
+    workspace_id: str,
+) -> None:
     """Start one improvement-loop iteration for `workflow_id`.
 
-    Creates an `iterations` row with state='running', then spawns the
-    iteration runner as a background task.  Returns the new iteration ID.
+    Spawns `run_one_iteration_for_workflow` as a fire-and-forget background
+    task so the trigger dispatcher returns promptly.  The iteration runner
+    creates the ``iterations`` row (in ``running`` state), drives the full
+    LLM + regression-gate cycle, and persists the outcome — all using
+    ``workspace_id``-scoped connections under RLS.
 
     The iteration runner is imported lazily to keep the trigger module
-    free of the heavy `agent` extra.
-    """
-    from ..iteration_runner import run_iteration_for_workflow
+    free of the heavy ``agent`` extra.
 
-    iteration_id = str(uuid.uuid4())
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO iterations (id, workflow_id, iteration_index, state)
-            VALUES ($1, $2,
-                (SELECT COALESCE(MAX(iteration_index), 0) + 1
-                 FROM iterations WHERE workflow_id = $2),
-                'running')
-            """,
-            iteration_id,
+    ``workspace_id`` must match the workspace the workflow belongs to so
+    every workspace-scoped write the runner makes is correctly scoped.
+    """
+    import os
+
+    from ..api._anthropic_client import build_async_anthropic
+    from ..iteration_runner import run_one_iteration_for_workflow
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        _log.error(
+            "trigger: ANTHROPIC_API_KEY is not set; "
+            "cannot start iteration for workflow %s",
             workflow_id,
         )
+        return
 
-    # Fire-and-forget the heavy iteration in a background task.
-    # Exceptions are logged inside run_iteration_for_workflow.
+    client = build_async_anthropic(api_key)
+
+    async def _run_bg() -> None:
+        try:
+            await run_one_iteration_for_workflow(
+                pool,
+                workflow_id=workflow_id,
+                workspace_id=workspace_id,
+                client=client,
+            )
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "trigger: iteration runner failed for workflow %s",
+                workflow_id,
+            )
+        finally:
+            await client.close()
+
     asyncio.create_task(
-        run_iteration_for_workflow(pool, workflow_id, iteration_id),
-        name=f"trigger-iteration-{iteration_id[:8]}",
+        _run_bg(),
+        name=f"trigger-iteration-{workflow_id[:8]}",
     )
     _log.info(
-        "trigger: started iteration %s for workflow %s",
-        iteration_id,
+        "trigger: spawned iteration background task for workflow %s",
         workflow_id,
     )
-    return iteration_id
 
 
 async def action_ingest_failures(
     pool: asyncpg.Pool,
     workflow_id: str,
     failure_texts: list[str],
+    workspace_id: str,
     source: str = "trigger",
 ) -> str | None:
     """Persist `failure_texts` as a synthetic trace bound to `workflow_id`.
@@ -121,7 +153,11 @@ async def action_ingest_failures(
     tagged with ``source`` so the UI can distinguish synthetic traces from
     real production traces.
 
-    Returns the new `trace_id`, or None when `failure_texts` is empty.
+    ``workspace_id`` must match the workspace the workflow belongs to so
+    the ``traces`` insert is correctly scoped under RLS.
+
+    Returns the new ``trace_id``, or ``None`` when ``failure_texts`` is
+    empty.
     """
     if not failure_texts:
         return None
@@ -144,7 +180,7 @@ async def action_ingest_failures(
 
     import json
 
-    async with pool.acquire() as conn:
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
         await conn.execute(
             """
             INSERT INTO traces

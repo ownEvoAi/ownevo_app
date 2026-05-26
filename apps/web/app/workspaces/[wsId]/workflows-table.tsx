@@ -99,12 +99,15 @@ export function WorkflowsTable({ workflows, wsId }: WorkflowsTableProps) {
 }
 
 function formatRelative(isoTimestamp: string): string {
- const then = new Date(isoTimestamp).getTime if (Number.isNaN(then)) return isoTimestamp
- const now = Date.now const deltaMin = Math.round((now - then) / 60000)
+ const then = new Date(isoTimestamp).getTime()
+ if (Number.isNaN(then)) return isoTimestamp
+ const now = Date.now()
+ const deltaMin = Math.round((now - then) / 60000)
  if (deltaMin < 1) return 'just now'
  if (deltaMin < 60) return `${deltaMin}m ago`
  const deltaHr = Math.round(deltaMin / 60)
  if (deltaHr < 24) return `${deltaHr}h ago`
  const deltaDay = Math.round(deltaHr / 24)
  if (deltaDay < 30) return `${deltaDay}d ago`
- return new Date(isoTimestamp).toLocaleDateString }
+ return new Date(isoTimestamp).toLocaleDateString()
+}

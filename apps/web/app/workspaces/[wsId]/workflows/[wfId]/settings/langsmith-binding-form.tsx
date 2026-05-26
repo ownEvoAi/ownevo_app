@@ -61,15 +61,18 @@ function SkillBindingRow({
  skillId: string
  demoMode: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [promptId, setPromptId] = useState('')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [promptId, setPromptId] = useState('')
  const [saved, setSaved] = useState(false)
  const [error, setError] = useState<string | null>(null)
 
- function save {
+ function save() {
  setError(null)
  setSaved(false)
- startTransition(async => {
- const trimmed = promptId.trim const r = await updateLangSmithBindingAction({
+ startTransition(async () => {
+ const trimmed = promptId.trim()
+ const r = await updateLangSmithBindingAction({
  wsId,
  wfId,
  skillId,

@@ -165,7 +165,7 @@ const SECTIONS: Section[] = [
  },
 ]
 
-export default async function PrimitivesPage {
+export default async function PrimitivesPage() {
  return (
  <>
  <header className="page-header" style={{ marginBottom: 12 }}>

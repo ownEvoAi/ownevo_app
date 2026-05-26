@@ -79,8 +79,9 @@ export function PushEvalCasesCopilotStudioButton({
  )
 }
 
-function SubmitButton {
- const { pending } = useFormStatus return (
+function SubmitButton() {
+ const { pending } = useFormStatus()
+ return (
  <button type="submit" className="btn btn-primary" disabled={pending} aria-disabled={pending}>
  {pending ? (
  <>

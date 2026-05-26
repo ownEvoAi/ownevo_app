@@ -15,25 +15,27 @@ export function AddEvalCaseForm({
  wfId: string
  defaultTargetLabel: string
 }) {
- const router = useRouter const [open, setOpen] = useState(false)
- const [isPending, startTransition] = useTransition const [caseId, setCaseId] = useState('')
+ const router = useRouter()
+ const [open, setOpen] = useState(false)
+ const [isPending, startTransition] = useTransition()
+ const [caseId, setCaseId] = useState('')
  const [expected, setExpected] = useState<'true' | 'false'>('true')
  const [targetField, setTargetField] = useState(defaultTargetLabel || 'label')
  const [rationale, setRationale] = useState('')
  const [isTestFold, setIsTestFold] = useState(false)
  const [error, setError] = useState<string | null>(null)
 
- function submit {
+ function submit() {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await addEvalCaseAction({
  wsId,
  wfId,
  payload: {
- case_id: caseId.trim ,
+ case_id: caseId.trim() ,
  expected_value: expected === 'true',
- target_label_field: targetField.trim ,
- rationale: rationale.trim || undefined,
+ target_label_field: targetField.trim() ,
+ rationale: rationale.trim() || undefined,
  is_test_fold: isTestFold,
  },
  })
@@ -51,7 +53,7 @@ export function AddEvalCaseForm({
  return (
  <button
  type="button"
- onClick={ => setOpen(true)}
+ onClick={() => setOpen(true)}
  className="btn btn-secondary"
  style={{ fontSize: 12, padding: '6px 12px' }}
  >
@@ -119,7 +121,7 @@ export function AddEvalCaseForm({
  <button
  type="button"
  onClick={submit}
- disabled={isPending || !caseId.trim || !targetField.trim }
+ disabled={isPending || !caseId.trim() || !targetField.trim() }
  className="btn btn-primary"
  style={{ fontSize: 12, padding: '6px 14px' }}
  >
@@ -127,7 +129,7 @@ export function AddEvalCaseForm({
  </button>
  <button
  type="button"
- onClick={ => {
+ onClick={() => {
  setOpen(false)
  setError(null)
  }}

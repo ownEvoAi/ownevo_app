@@ -36,7 +36,8 @@ export function GenerateEvalCasesButton({
 }
 
 function SubmitButton({ hasExisting }: { hasExisting: boolean }) {
- const { pending } = useFormStatus return (
+ const { pending } = useFormStatus()
+ return (
  <button
  type="submit"
  className="btn btn-primary"

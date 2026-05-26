@@ -29,9 +29,11 @@ export function FailuresControls({
  const params = (next: Partial<{ view: string; source: string }>) => {
  const v = next.view ?? view
  const s = 'source' in next ? next.source : source ?? ''
- const qs = new URLSearchParams if (v === 'list') qs.set('view', 'list')
+ const qs = new URLSearchParams()
+ if (v === 'list') qs.set('view', 'list')
  if (s) qs.set('source', s)
- const q = qs.toString return q ? `${base}?${q}` : base
+ const q = qs.toString()
+ return q ? `${base}?${q}` : base
  }
 
  const totalAll = totalProd + totalEval

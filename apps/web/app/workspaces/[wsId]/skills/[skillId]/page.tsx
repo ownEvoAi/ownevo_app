@@ -211,7 +211,9 @@ function extractSignatures(source: string): string[] {
  while ((m = re.exec(source)) !== null) {
  const kw = m[1]
  const name = m[2]
- const args = m[3].replace(/\s+/g, ' ').trim const ret = (m[4] ?? '').trim out.push(ret ? `${kw} ${name}(${args}) ${ret}` : `${kw} ${name}(${args})`)
+ const args = m[3].replace(/\s+/g, ' ').trim()
+ const ret = (m[4] ?? '').trim()
+ out.push(ret ? `${kw} ${name}(${args}) ${ret}` : `${kw} ${name}(${args})`)
  if (out.length > MAX_SIGNATURES) break
  }
  return out
@@ -379,7 +381,7 @@ function RelatedEvalCasesEmpty({ kind }: { kind: SkillDetail['kind'] }) {
 
 function summarizeExpected(expected: Record<string, unknown>): string {
  const note = expected['note']
- if (typeof note === 'string' && note.trim.length > 0) {
+ if (typeof note === 'string' && note.trim().length > 0) {
  return note.length > 90 ? `${note.slice(0, 90)}…` : note
  }
  const keys = Object.keys(expected)

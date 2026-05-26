@@ -33,7 +33,8 @@ export function ProposeSimEdit({
  envGenerators,
  dataSources,
 }: Props) {
- const router = useRouter const initial = JSON.stringify(
+ const router = useRouter()
+ const initial = JSON.stringify(
  {
  tools,
  personas,
@@ -47,22 +48,24 @@ export function ProposeSimEdit({
  const [draft, setDraft] = useState(initial)
  const [summary, setSummary] = useState('')
  const [rationale, setRationale] = useState('')
- const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
 
- function reset {
+ function reset() {
  setDraft(initial)
  setSummary('')
  setRationale('')
  setError(null)
  }
 
- function handleCancel {
+ function handleCancel() {
  setEditing(false)
- reset }
+ reset()
+ }
 
- function handleSubmit {
+ function handleSubmit() {
  setError(null)
- if (summary.trim.length === 0) {
+ if (summary.trim().length === 0) {
  setError('Plain-language summary is required.')
  return
  }
@@ -80,15 +83,17 @@ export function ProposeSimEdit({
  setError('Proposed agent environment must be a JSON object.')
  return
  }
- startTransition(async => {
+ startTransition(async () => {
  try {
  const proposal = await createSimProposal(wfId, {
- plain_language_summary: summary.trim ,
+ plain_language_summary: summary.trim() ,
  proposed_spec: parsed,
- rationale: rationale.trim || null,
+ rationale: rationale.trim() || null,
  })
  setEditing(false)
- reset router.refresh router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
+ reset()
+ router.refresh()
+ router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
  } catch (err) {
  if (err instanceof KernelApiError) {
  setError(err.detail || err.message)
@@ -103,7 +108,7 @@ export function ProposeSimEdit({
  return (
  <button
  type="button"
- onClick={ => setEditing(true)}
+ onClick={() => setEditing(true)}
  className="btn btn-secondary propose-edit-btn"
  >
  Propose edit

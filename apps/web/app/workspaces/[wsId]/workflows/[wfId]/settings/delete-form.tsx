@@ -14,15 +14,16 @@ export function DeleteWorkflowForm({
  wsId: string
  wfId: string
 }) {
- const [isPending, startTransition] = useTransition const [confirmation, setConfirmation] = useState('')
+ const [isPending, startTransition] = useTransition()
+ const [confirmation, setConfirmation] = useState('')
  const [error, setError] = useState<string | null>(null)
 
- const armed = confirmation.trim === wfId
+ const armed = confirmation.trim() === wfId
 
- function handleDelete {
+ function handleDelete() {
  if (!armed) return
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await deleteWorkflowAction({
  wsId,
  wfId,

@@ -16,14 +16,17 @@ export function DescriptionForm({
  wfId: string
  initialDescription: string
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [description, setDescription] = useState(initialDescription)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [description, setDescription] = useState(initialDescription)
  const [error, setError] = useState<string | null>(null)
  const [saved, setSaved] = useState(false)
 
- const dirty = description.trim !== initialDescription.trim function handleSave {
+ const dirty = description.trim() !== initialDescription.trim()
+ function handleSave() {
  setError(null)
  setSaved(false)
- startTransition(async => {
+ startTransition(async () => {
  const result = await updateDescriptionAction({
  wsId,
  wfId,
@@ -37,7 +40,7 @@ export function DescriptionForm({
  router.refresh })
  }
 
- function handleReset {
+ function handleReset() {
  setDescription(initialDescription)
  setError(null)
  setSaved(false)

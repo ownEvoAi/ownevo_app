@@ -9,12 +9,13 @@ import { reviseWorkflowAction } from './actions'
 export function ReviseButton({ wsId, wfId }: { wsId: string; wfId: string }) {
  const [confirming, setConfirming] = useState(false)
  const [error, setError] = useState<string | null>(null)
- const [isPending, startTransition] = useTransition if (!confirming) {
+ const [isPending, startTransition] = useTransition()
+ if (!confirming) {
  return (
  <button
  type="button"
  className="btn btn-secondary"
- onClick={ => setConfirming(true)}
+ onClick={() => setConfirming(true)}
  >
  Revise &mdash; this isn&rsquo;t quite right
  </button>
@@ -30,7 +31,7 @@ export function ReviseButton({ wsId, wfId }: { wsId: string; wfId: string }) {
  <button
  type="button"
  className="btn btn-secondary"
- onClick={ => {
+ onClick={() => {
  setConfirming(false)
  setError(null)
  }}
@@ -43,8 +44,8 @@ export function ReviseButton({ wsId, wfId }: { wsId: string; wfId: string }) {
  className="btn btn-danger"
  disabled={isPending}
  aria-disabled={isPending}
- onClick={ => {
- startTransition(async => {
+ onClick={() => {
+ startTransition(async () => {
  const result = await reviseWorkflowAction({ wsId, wfId })
  if (result && result.ok === false) {
  setError(result.error)

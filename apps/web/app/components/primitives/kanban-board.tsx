@@ -38,7 +38,8 @@ function CardBody({ card }: { card: KanbanCardDef }) {
 }
 
 export function KanbanBoard({ data }: Props) {
- const cardsByColumn = new Map<string, typeof data.cards> for (const col of data.columns) cardsByColumn.set(col.key, [])
+ const cardsByColumn = new Map<string, typeof data.cards>()
+ for (const col of data.columns) cardsByColumn.set(col.key, [])
  for (const card of data.cards) {
  cardsByColumn.get(card.column_key)?.push(card)
  }

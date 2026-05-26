@@ -28,12 +28,14 @@ function formatCell(value: unknown, col: TableColumn): React.ReactNode {
  if (value === null || value === undefined) return ''
  if (col.type === 'pill') {
  const v = String(value)
- return <span className={PILL_TONES[v.toLowerCase ] ?? 'pill outline'}>{v}</span>
+ return <span className={PILL_TONES[v.toLowerCase() ] ?? 'pill outline'}>{v}</span>
  }
  if (col.type === 'number' && typeof value === 'number') {
- if (col.format === 'currency') return `$${value.toLocaleString }`
+ if (col.format === 'currency') return `$${value.toLocaleString()}`
  if (col.format === 'percent') return `${value.toFixed(1)}%`
- if (col.format === 'integer') return value.toLocaleString return value.toLocaleString }
+ if (col.format === 'integer') return value.toLocaleString()
+ return value.toLocaleString()
+ }
  return String(value)
 }
 

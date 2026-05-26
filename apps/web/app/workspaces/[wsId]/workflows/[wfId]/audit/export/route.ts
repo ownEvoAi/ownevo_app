@@ -28,7 +28,7 @@ export async function GET(
  }
 
  if (!upstream.ok) {
- const detail = await upstream.text.catch( => upstream.statusText)
+ const detail = await upstream.text().catch(() => upstream.statusText)
  return NextResponse.json(
  { error: 'Kernel API error.', status: upstream.status, detail },
  { status: upstream.status },
@@ -36,10 +36,10 @@ export async function GET(
  }
 
  // Forward the kernel's Content-Disposition so the filename it stamped
- // (audit-chain-wf-<id>-<timestamp>.json) reaches the browser unchanged.
+ // (audit-chain-wf-<id>-<timestamp>.json()) reaches the browser unchanged.
  const contentDisposition =
  upstream.headers.get('content-disposition') ??
- `attachment; filename="audit-chain-wf-${wfId.slice(0, 8)}.json"`
+ `attachment; filename="audit-chain-wf-${wfId.slice(0, 8)}.json()"`
 
  const headers: Record<string, string> = {
  'content-type': 'application/json',

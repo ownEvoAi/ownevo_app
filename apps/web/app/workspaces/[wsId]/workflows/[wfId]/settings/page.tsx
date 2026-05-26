@@ -24,7 +24,8 @@ interface PageProps {
 export default async function WorkflowSettingsPage({ params }: PageProps) {
  const { wsId, wfId } = await params
 
- const demoMode = isDemoMode let description: string | null = null
+ const demoMode = isDemoMode()
+ let description: string | null = null
  let agentModelId: string | null = null
  let providers: ProviderModels[] = []
  let apiError: { title: string; detail: string } | null = null
@@ -34,7 +35,7 @@ export default async function WorkflowSettingsPage({ params }: PageProps) {
  // description form — each fetch fails independently.
  const [anatomyResult, catalogResult, skillsResult] = await Promise.allSettled([
  getWorkflowAnatomy(wfId),
- getModelCatalog ,
+ getModelCatalog() ,
  getWorkflowSkills(wfId),
  ])
 

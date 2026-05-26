@@ -21,14 +21,16 @@ export function LangSmithForm({
  initialStatus: LangSmithStatus
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [apiKey, setApiKey] = useState('')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [apiKey, setApiKey] = useState('')
  const [error, setError] = useState<string | null>(null)
  const [testMsg, setTestMsg] = useState<string | null>(null)
 
- function save {
+ function save() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await saveLangSmithKeyAction(wsId, apiKey)
  if (!r.ok) {
  setError(r.error)
@@ -38,10 +40,10 @@ export function LangSmithForm({
  router.refresh })
  }
 
- function test {
+ function test() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await testLangSmithKeyAction(wsId)
  if (!r.ok) {
  setError(r.error)
@@ -57,10 +59,10 @@ export function LangSmithForm({
  router.refresh })
  }
 
- function remove {
+ function remove() {
  setError(null)
  setTestMsg(null)
- startTransition(async => {
+ startTransition(async () => {
  const r = await deleteLangSmithKeyAction(wsId)
  if (!r.ok) {
  setError(r.error)
@@ -122,7 +124,7 @@ export function LangSmithForm({
  <button
  type="button"
  onClick={save}
- disabled={isPending || demoMode || !apiKey.trim }
+ disabled={isPending || demoMode || !apiKey.trim() }
  className="btn btn-primary"
  >
  {isPending ? 'Saving…' : 'Save'}

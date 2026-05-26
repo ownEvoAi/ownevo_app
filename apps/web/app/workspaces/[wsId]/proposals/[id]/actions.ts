@@ -29,7 +29,7 @@ type DecideResult =
 // a return-value protocol (instead of throwing) so the form can show
 // inline errors without crashing the page.
 export async function decideAction(input: DecideInput): Promise<DecideResult> {
- if (!input.decidedBy.trim ) {
+ if (!input.decidedBy.trim() ) {
  return { ok: false, error: 'Reviewer identity is required.' }
  }
 
@@ -87,7 +87,7 @@ type DeployResult =
 // skill detail, Health). We use a unified action with an `action`
 // discriminator so the client island has one code path.
 export async function deployAction(input: DeployInput): Promise<DeployResult> {
- if (!input.decidedBy.trim ) {
+ if (!input.decidedBy.trim() ) {
  return { ok: false, error: 'Reviewer identity is required.' }
  }
  const fn = input.action === 'deploy' ? deployProposal : rollbackProposal

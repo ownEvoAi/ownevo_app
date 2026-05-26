@@ -8,6 +8,6 @@ import { redirect } from 'next/navigation'
 //
 // Slug is hardcoded to "acme" per the W7_SLICE.md cosmetic-URL
 // decision; D4 single-tenant means the backend ignores it.
-export default function LegacyInboxRedirect {
+export default function LegacyInboxRedirect() {
  redirect('/workspaces/acme/inbox')
 }

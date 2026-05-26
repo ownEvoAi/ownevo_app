@@ -25,11 +25,11 @@ export async function saveLangSmithKeyAction(
  wsId: string,
  apiKey: string,
 ): Promise<ActionResult> {
- if (!apiKey.trim ) {
+ if (!apiKey.trim() ) {
  return { ok: false, error: 'API key must not be empty.' }
  }
  try {
- await setLangSmithCredential(apiKey.trim )
+ await setLangSmithCredential(apiKey.trim() )
  } catch (err) {
  return { ok: false, error: errorMessage(err) }
  }
@@ -39,7 +39,8 @@ export async function saveLangSmithKeyAction(
 
 export async function testLangSmithKeyAction(wsId: string): Promise<TestResult> {
  try {
- const res = await testLangSmithConnection revalidatePath(`/workspaces/${wsId}/settings/integrations/langsmith`)
+ const res = await testLangSmithConnection()
+ revalidatePath(`/workspaces/${wsId}/settings/integrations/langsmith`)
  return { ok: true, status: res.status, detail: res.detail }
  } catch (err) {
  return { ok: false, error: errorMessage(err) }

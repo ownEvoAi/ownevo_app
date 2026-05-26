@@ -33,7 +33,9 @@ export function DeployRollbackPanel({
  deployedProposalId,
  deployedVersionSeq,
 }: Props) {
- const router = useRouter const [isPending, startTransition] = useTransition const [decidedBy, setDecidedBy] = useState('human:operator')
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [decidedBy, setDecidedBy] = useState('human:operator')
  const [error, setError] = useState<string | null>(null)
  const [pendingAction, setPendingAction] = useState<
  'deploy' | 'rollback' | null
@@ -49,7 +51,7 @@ export function DeployRollbackPanel({
  if (!proposalId) return
  setError(null)
  setPendingAction(action)
- startTransition(async => {
+ startTransition(async () => {
  const result = await deployAction({
  proposalId,
  wsId,
@@ -109,7 +111,7 @@ export function DeployRollbackPanel({
  {deployableProposalId && (
  <button
  type="button"
- onClick={ => handle('deploy')}
+ onClick={() => handle('deploy')}
  disabled={isPending}
  className="btn btn-primary"
  style={{
@@ -129,7 +131,7 @@ export function DeployRollbackPanel({
  {deployedProposalId && (
  <button
  type="button"
- onClick={ => handle('rollback')}
+ onClick={() => handle('rollback')}
  disabled={isPending}
  className="btn btn-ghost"
  style={{

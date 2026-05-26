@@ -23,15 +23,16 @@ export async function McpProviderPage({
  provider: string
  searchParams: { connected?: string; error?: string }
 }) {
- const demoMode = isDemoMode let info: McpProviderInfo | undefined
+ const demoMode = isDemoMode()
+ let info: McpProviderInfo | undefined
  let client: McpOAuthClientView | null = null
  let servers: McpServer[] = []
  let apiError: { title: string; detail: string } | null = null
  try {
  const [providers, clientView, allServers] = await Promise.all([
- listMcpProviders ,
+ listMcpProviders() ,
  getMcpOAuthClient(provider),
- listMcpServers ,
+ listMcpServers() ,
  ])
  info = providers.find((p) => p.provider === provider)
  client = clientView

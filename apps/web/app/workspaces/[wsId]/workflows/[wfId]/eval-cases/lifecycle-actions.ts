@@ -17,10 +17,10 @@ interface AddInput {
 type AddResult = { ok: true } | { ok: false; error: string }
 
 export async function addEvalCaseAction(input: AddInput): Promise<AddResult> {
- if (!input.payload.case_id.trim ) {
+ if (!input.payload.case_id.trim() ) {
  return { ok: false, error: 'case_id is required.' }
  }
- if (!input.payload.target_label_field.trim ) {
+ if (!input.payload.target_label_field.trim() ) {
  return { ok: false, error: 'target_label_field is required.' }
  }
  try {

@@ -60,7 +60,7 @@ function humaniseLabel(slug: string | null | undefined): string {
  if (!slug) return ''
  return slug
  .split(/[_-]/)
- .map((p) => p.charAt(0).toUpperCase + p.slice(1))
+ .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
  .join(' ')
 }
 
@@ -143,7 +143,10 @@ export function DesignFlow({
  const [ambiguityIndex, setAmbiguityIndex] = useState(0)
  const [ambiguityLoaded, setAmbiguityLoaded] = useState(false)
  const [ambiguityError, setAmbiguityError] = useState<string | null>(null)
- const [isFetching, startFetch] = useTransition const [isLoadingFindings, startFindingsLoad] = useTransition const [isGenerating, startGenerate] = useTransition const inputRef = useRef<HTMLTextAreaElement | null>(null)
+ const [isFetching, startFetch] = useTransition()
+ const [isLoadingFindings, startFindingsLoad] = useTransition()
+ const [isGenerating, startGenerate] = useTransition()
+ const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
  // Once the static discovery interview returns done=true, fire the
  // pre-generation conflict scan exactly once. Called directly (not via
@@ -164,13 +167,13 @@ export function DesignFlow({
  // again from the client without the timeout cap. Runs once per
  // page load thanks to the empty deps + the `tried.current` guard.
  const initialRetryTried = useRef(false)
- useEffect( => {
+ useEffect(() => {
  if (initialRetryTried.current) return
  if (questionState.loaded && (questionState.next || questionState.done)) {
  return
  }
  initialRetryTried.current = true
- startFetch(async => {
+ startFetch(async () => {
  const resp = await loadNextQuestion({
  description,
  templateId,
@@ -180,9 +183,10 @@ export function DesignFlow({
  })
  }, [questionState.loaded, questionState.next, questionState.done, description, templateId])
 
- useEffect( => {
+ useEffect(() => {
  if (!questionState.done || ambiguityLoaded) return
- const controller = new AbortController startFindingsLoad(async => {
+ const controller = new AbortController()
+ startFindingsLoad(async () => {
  try {
  const resp = await fetchDescriptionConflicts(description, controller.signal)
  setAmbiguityFindings(resp.findings)
@@ -201,7 +205,7 @@ export function DesignFlow({
  setAmbiguityLoaded(true)
  }
  })
- return => controller.abort // eslint-disable-next-line react-hooks/exhaustive-deps
+ return () => controller.abort() // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [questionState.done, ambiguityLoaded, description])
 
  // Total questions to surface in the chat = static count + findings
@@ -230,7 +234,7 @@ export function DesignFlow({
 
  // Keep input focused as the conversation advances so the operator can
  // type or hit Skip without mousing back to the field.
- useEffect( => {
+ useEffect(() => {
  if (displayedCurrent) {
  inputRef.current?.focus }
  }, [displayedCurrent?.question_index])
@@ -241,9 +245,9 @@ export function DesignFlow({
  const answer =
  rawAnswer === null
  ? null
- : rawAnswer.trim === ''
+ : rawAnswer.trim() === ''
  ? null
- : rawAnswer.trim // Detect ambiguity-finding questions by index range: kernel-side
+ : rawAnswer.trim() // Detect ambiguity-finding questions by index range: kernel-side
  // LLM-driven questions don't carry a question_index (it's optional/
  // 0); ambiguity findings synthesised client-side use question_index
  // >= staticTotal. The fallback (legacy) path uses 0..staticTotal-1.
@@ -278,7 +282,7 @@ export function DesignFlow({
  return
  }
 
- startFetch(async => {
+ startFetch(async () => {
  // Echo every non-finding answer back to the kernel. The LLM path
  // uses `dimension` for coverage tracking; the fallback path uses
  // `question_index`. We pass both so either backend works.
@@ -309,7 +313,8 @@ export function DesignFlow({
  }
 
  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
- e.preventDefault submitAnswer(draft)
+ e.preventDefault()
+ submitAnswer(draft)
  }
 
  // ⌘↵ / Ctrl-↵ inside the textarea submits the current draft, matching
@@ -317,13 +322,14 @@ export function DesignFlow({
  // newline (default textarea behaviour).
  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
- e.preventDefault submitAnswer(draft)
+ e.preventDefault()
+ submitAnswer(draft)
  }
  }
 
- const generate = => {
+ const generate = () => {
  setGenerateError(null)
- startGenerate(async => {
+ startGenerate(async () => {
  const result = await generateWithDiscoveryAction({
  wsId,
  description,
@@ -337,8 +343,9 @@ export function DesignFlow({
  }
 
  const current = displayedCurrent
- const coveredDimensions = useMemo( => {
- const s = new Set<string> for (const t of transcript) {
+ const coveredDimensions = useMemo(() => {
+ const s = new Set<string>()
+ for (const t of transcript) {
  if (t.dimension) s.add(t.dimension)
  }
  return s
@@ -349,7 +356,7 @@ export function DesignFlow({
  // immediately on submit, even before the next-question fetch resolves.
  const answered = transcript.length
  const percent = total > 0 ? Math.round((answered / total) * 100) : 0
- const draftIsEmpty = draft.trim.length === 0
+ const draftIsEmpty = draft.trim().length === 0
  const allFindingsAddressed =
  ambiguityLoaded && ambiguityIndex >= ambiguityFindings.length
  const discoveryDone = questionState.done && allFindingsAddressed
@@ -469,7 +476,7 @@ export function DesignFlow({
  className={`option-card${
  isRecommended ? ' option-card-recommended' : ''
  }`}
- onClick={ => submitAnswer(opt.label)}
+ onClick={() => submitAnswer(opt.label)}
  disabled={composerBusy}
  >
  <div className="option-card-header">
@@ -545,7 +552,7 @@ export function DesignFlow({
  <button
  type="button"
  className="btn btn-secondary chat-skip"
- onClick={ => submitAnswer(null)}
+ onClick={() => submitAnswer(null)}
  disabled={composerBusy}
  >
  Skip
@@ -709,6 +716,6 @@ function findingToQuestion(
 }
 
 // Silence "unused import" if startTransition gets eliminated by a future
-// refactor; React 19 splits transitions vs useTransition and we keep
+// refactor; React 19 splits transitions vs useTransition() and we keep
 // both available.
 void startTransition

@@ -18,7 +18,7 @@ export default async function NewWorkflowPage({
  const { wsId } = await params
  const { from } = await searchParams
  const fromConnect = from === 'connect'
- const demoGate = gateStateFor(await getDemoStatus )
+ const demoGate = gateStateFor(await getDemoStatus())
 
  return (
  <div className="preview-wrap">

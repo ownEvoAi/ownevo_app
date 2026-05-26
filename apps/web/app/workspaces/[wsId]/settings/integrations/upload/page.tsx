@@ -10,10 +10,12 @@ interface PageProps {
 // data sources (Track 17.0.3 / 17.0.4).
 export default async function UploadIntegrationPage({ params }: PageProps) {
  const { wsId } = await params
- const demoMode = isDemoMode let uploads: DataUpload[] = []
+ const demoMode = isDemoMode()
+ let uploads: DataUpload[] = []
  let apiError: { title: string; detail: string } | null = null
  try {
- uploads = await listDataUploads } catch (err) {
+ uploads = await listDataUploads()
+ } catch (err) {
  apiError = kernelError(err)
  }
 

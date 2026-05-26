@@ -80,7 +80,7 @@ export function FailureClusterCard({ cluster, wsId, wfId }: CardProps) {
  <div className="cluster-id">cluster #{idShort}</div>
  <div className="cluster-meta-row">
  <span className={severityClass}>
- {cluster.severity[0].toUpperCase + cluster.severity.slice(1)}
+ {cluster.severity[0].toUpperCase() + cluster.severity.slice(1)}
  </span>
  <SourcePills prod={cluster.prod_count} eval_={cluster.eval_count} />
  <span>
@@ -144,6 +144,6 @@ export function FailureClusterCard({ cluster, wsId, wfId }: CardProps) {
 
 function formatDate(iso: string): string {
  const d = new Date(iso)
- if (Number.isNaN(d.getTime )) return iso
- return d.toISOString.slice(0, 10)
+ if (Number.isNaN(d.getTime() )) return iso
+ return d.toISOString().slice(0, 10)
 }

@@ -100,7 +100,7 @@ function TraceRow({ wsId, trace }: { wsId: string; trace: TraceSummary }) {
  )
  const startedDur =
  trace.ended_at !== null
- ? new Date(trace.ended_at).getTime - new Date(trace.started_at).getTime : null
+ ? new Date(trace.ended_at).getTime() - new Date(trace.started_at).getTime() : null
  return (
  <Link
  href={`/workspaces/${wsId}/traces/${trace.id}`}

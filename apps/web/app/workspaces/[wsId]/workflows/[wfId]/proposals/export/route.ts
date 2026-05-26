@@ -29,14 +29,15 @@ export async function GET(
  }
 
  if (!upstream.ok) {
- const detail = await upstream.text.catch( => upstream.statusText)
+ const detail = await upstream.text().catch(() => upstream.statusText)
  return NextResponse.json(
  { error: 'Kernel API error.', status: upstream.status, detail },
  { status: upstream.status },
  )
  }
 
- const data = await upstream.json const timestamp = new Date.toISOString.replace(/[:.]/g, '-').slice(0, 19)
+ const data = await upstream.json()
+ const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
  const filename = `proposals-${wfId.slice(0, 8)}-${timestamp}.json`
 
  return new Response(JSON.stringify(data, null, 2), {

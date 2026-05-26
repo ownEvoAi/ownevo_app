@@ -13,10 +13,12 @@ interface PageProps {
 // area rather than a per-workflow tab.
 export default async function LangSmithIntegrationPage({ params }: PageProps) {
  const { wsId } = await params
- const demoMode = isDemoMode let status: LangSmithStatus | null = null
+ const demoMode = isDemoMode()
+ let status: LangSmithStatus | null = null
  let apiError: { title: string; detail: string } | null = null
  try {
- status = await getLangSmithStatus } catch (err) {
+ status = await getLangSmithStatus()
+ } catch (err) {
  apiError = kernelError(err)
  }
 

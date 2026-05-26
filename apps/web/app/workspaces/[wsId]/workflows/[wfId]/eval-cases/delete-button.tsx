@@ -16,19 +16,21 @@ export function DeleteEvalCaseButton({
  wfId: string
  caseId: string
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [armed, setArmed] = useState(false)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [armed, setArmed] = useState(false)
  const [error, setError] = useState<string | null>(null)
 
- function handleClick {
+ function handleClick() {
  if (!armed) {
  setArmed(true)
  // Auto-disarm after 4s so a stray click on row 1 doesn't linger
  // when the operator moves to row 5.
- setTimeout( => setArmed(false), 4000)
+ setTimeout(() => setArmed(false), 4000)
  return
  }
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await deleteEvalCaseAction({ wsId, wfId, caseId })
  if (!result.ok) {
  setError(result.error)

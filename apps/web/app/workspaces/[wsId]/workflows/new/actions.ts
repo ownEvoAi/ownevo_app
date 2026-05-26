@@ -12,8 +12,11 @@ export async function generateWorkflowAction(
  _prev: GenerateState,
  formData: FormData,
 ): Promise<GenerateState> {
- const description = String(formData.get('description') ?? '').trim const workflowIdInput = String(formData.get('workflow_id') ?? '').trim const workflowId = workflowIdInput || undefined
- const templateIdInput = String(formData.get('template_id') ?? '').trim const templateId = templateIdInput || undefined
+ const description = String(formData.get('description') ?? '').trim()
+ const workflowIdInput = String(formData.get('workflow_id') ?? '').trim()
+ const workflowId = workflowIdInput || undefined
+ const templateIdInput = String(formData.get('template_id') ?? '').trim()
+ const templateId = templateIdInput || undefined
 
  if (description.length < 50) {
  return {

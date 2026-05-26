@@ -28,9 +28,10 @@ export default async function TraceDetailPage({ params }: PageProps) {
  throw err
  }
 
- const startedAtMs = new Date(trace.started_at).getTime const durationMs =
+ const startedAtMs = new Date(trace.started_at).getTime()
+  const durationMs =
  trace.ended_at !== null
- ? new Date(trace.ended_at).getTime - startedAtMs
+ ? new Date(trace.ended_at).getTime() - startedAtMs
  : null
  const wfHref =
  trace.workflow_id !== null

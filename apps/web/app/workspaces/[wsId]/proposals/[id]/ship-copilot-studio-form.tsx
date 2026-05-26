@@ -21,16 +21,18 @@ export function ShipCopilotStudioForm({
  wsId: string
  demoMode?: boolean
 }) {
- const router = useRouter const [isPending, startTransition] = useTransition const [error, setError] = useState<string | null>(null)
+ const router = useRouter()
+ const [isPending, startTransition] = useTransition()
+ const [error, setError] = useState<string | null>(null)
  const [delivered, setDelivered] = useState<{
  summary: string
  instructionText: string
  already: boolean
  } | null>(null)
 
- function handle {
+ function handle() {
  setError(null)
- startTransition(async => {
+ startTransition(async () => {
  const result = await shipCopilotStudioAction({ proposalId, wsId })
  if (!result.ok) {
  setError(result.error)

@@ -34,7 +34,7 @@ export default async function ActivityFeedPage({ params, searchParams }: PagePro
  workflowId: workflowFilter || undefined,
  kind: kindFilter || undefined,
  }),
- listWorkflows ,
+ listWorkflows(),
  ])
  audit = a
  workflows = w.items
@@ -138,16 +138,18 @@ interface DayBucket {
 }
 
 function bucketByDay(entries: AuditEntryRow[]): DayBucket[] {
- const now = new Date const today = startOfDay(now)
+ const now = new Date()
+ const today = startOfDay(now)
  const yesterday = new Date(today)
- yesterday.setDate(today.getDate - 1)
- const buckets = new Map<string, AuditEntryRow[]> const labelOrder: string[] = []
+ yesterday.setDate(today.getDate() - 1)
+ const buckets = new Map<string, AuditEntryRow[]>()
+ const labelOrder: string[] = []
  for (const e of entries) {
  const d = startOfDay(new Date(e.created_at))
  let label: string
- if (d.getTime === today.getTime ) {
+ if (d.getTime() === today.getTime() ) {
  label = 'Today'
- } else if (d.getTime === yesterday.getTime ) {
+ } else if (d.getTime() === yesterday.getTime() ) {
  label = 'Yesterday'
  } else {
  label = d.toLocaleDateString(undefined, {
@@ -169,7 +171,7 @@ function bucketByDay(entries: AuditEntryRow[]): DayBucket[] {
 }
 
 function startOfDay(d: Date): Date {
- return new Date(d.getFullYear , d.getMonth , d.getDate )
+ return new Date(d.getFullYear() , d.getMonth() , d.getDate() )
 }
 
 function FilterStrip({
@@ -193,9 +195,11 @@ function FilterStrip({
 
  const baseHref = `/workspaces/${wsId}/activity`
  const hrefWith = (params: Record<string, string | null>) => {
- const qs = new URLSearchParams if (params.workflow) qs.set('workflow', params.workflow)
+ const qs = new URLSearchParams()
+ if (params.workflow) qs.set('workflow', params.workflow)
  if (params.kind) qs.set('kind', params.kind)
- const s = qs.toString return s ? `${baseHref}?${s}` : baseHref
+ const s = qs.toString()
+ return s ? `${baseHref}?${s}` : baseHref
  }
 
  return (

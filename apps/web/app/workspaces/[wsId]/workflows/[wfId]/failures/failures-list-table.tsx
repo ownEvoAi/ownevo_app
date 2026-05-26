@@ -56,7 +56,7 @@ export function FailuresListTable({ rows, wsId, wfId }: TableProps) {
  </td>
  <td>
  <span className={SEVERITY_PILL[r.severity] ?? 'pill'}>
- {r.severity[0].toUpperCase + r.severity.slice(1)}
+ {r.severity[0].toUpperCase() + r.severity.slice(1)}
  </span>
  </td>
  <td className="failures-list-label">{r.cluster_label}</td>
@@ -92,8 +92,8 @@ export function FailuresListTable({ rows, wsId, wfId }: TableProps) {
 function formatDateTime(iso: string | null): string {
  if (!iso) return '—'
  const d = new Date(iso)
- if (Number.isNaN(d.getTime )) return iso
- const date = d.toISOString.slice(0, 10)
- const time = d.toISOString.slice(11, 16)
+ if (Number.isNaN(d.getTime() )) return iso
+ const date = d.toISOString().slice(0, 10)
+ const time = d.toISOString().slice(11, 16)
  return `${date} ${time}`
 }

@@ -108,7 +108,8 @@ export interface GenerateWithDiscoveryState {
 export async function generateWithDiscoveryAction(
  input: GenerateWithDiscoveryInput,
 ): Promise<GenerateWithDiscoveryState> {
- const description = input.description.trim if (description.length < 50) {
+ const description = input.description.trim()
+  if (description.length < 50) {
  return { error: 'Description must be at least 50 characters.' }
  }
 
