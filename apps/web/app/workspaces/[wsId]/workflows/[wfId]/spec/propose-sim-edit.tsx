@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSimProposal, KernelApiError } from '@/lib/api'
+import { createSimProposalAction } from '../actions'
 
 interface Props {
  wsId: string
@@ -84,23 +84,19 @@ export function ProposeSimEdit({
  return
  }
  startTransition(async () => {
- try {
- const proposal = await createSimProposal(wfId, {
- plain_language_summary: summary.trim() ,
+ const result = await createSimProposalAction(wfId, {
+ plain_language_summary: summary.trim(),
  proposed_spec: parsed,
  rationale: rationale.trim() || null,
  })
+ if (result.error || !result.proposal) {
+ setError(result.error ?? 'Unknown error')
+ return
+ }
  setEditing(false)
  reset()
  router.refresh()
- router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
- } catch (err) {
- if (err instanceof KernelApiError) {
- setError(err.detail || err.message)
- } else {
- setError(err instanceof Error ? err.message : 'Unknown error')
- }
- }
+ router.push(`/workspaces/${wsId}/proposals/${result.proposal.id}`)
  })
  }
 

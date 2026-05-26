@@ -2,7 +2,19 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { KernelApiError, runWorkflowIteration } from '@/lib/api'
+import {
+ createDescriptionProposal,
+ createMetricProposal,
+ createSimProposal,
+ createUIPrimitiveProposal,
+ KernelApiError,
+ runWorkflowIteration,
+ type CreateDescriptionProposalBody,
+ type CreateMetricProposalBody,
+ type CreateSimProposalBody,
+ type CreateUIPrimitiveProposalBody,
+ type ProposalSummary,
+} from '@/lib/api'
 
 export interface RunIterationState {
  error: string | null
@@ -61,5 +73,59 @@ export async function runIterationAction(
  nFailed: r.n_failed,
  nCases: r.n_cases,
  proposalId: r.proposal_id,
+ }
+}
+
+export interface ProposalActionResult {
+ proposal: ProposalSummary | null
+ error: string | null
+}
+
+function proposalErrMsg(err: unknown): string {
+ if (err instanceof KernelApiError) return err.detail || err.message
+ return err instanceof Error ? err.message : String(err)
+}
+
+export async function createDescriptionProposalAction(
+ wfId: string,
+ body: CreateDescriptionProposalBody,
+): Promise<ProposalActionResult> {
+ try {
+ return { proposal: await createDescriptionProposal(wfId, body), error: null }
+ } catch (err) {
+ return { proposal: null, error: proposalErrMsg(err) }
+ }
+}
+
+export async function createMetricProposalAction(
+ wfId: string,
+ body: CreateMetricProposalBody,
+): Promise<ProposalActionResult> {
+ try {
+ return { proposal: await createMetricProposal(wfId, body), error: null }
+ } catch (err) {
+ return { proposal: null, error: proposalErrMsg(err) }
+ }
+}
+
+export async function createSimProposalAction(
+ wfId: string,
+ body: CreateSimProposalBody,
+): Promise<ProposalActionResult> {
+ try {
+ return { proposal: await createSimProposal(wfId, body), error: null }
+ } catch (err) {
+ return { proposal: null, error: proposalErrMsg(err) }
+ }
+}
+
+export async function createUIPrimitiveProposalAction(
+ wfId: string,
+ body: CreateUIPrimitiveProposalBody,
+): Promise<ProposalActionResult> {
+ try {
+ return { proposal: await createUIPrimitiveProposal(wfId, body), error: null }
+ } catch (err) {
+ return { proposal: null, error: proposalErrMsg(err) }
  }
 }

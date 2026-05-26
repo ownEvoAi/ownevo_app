@@ -1,12 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import {
- type EvalCaseSummary,
- KernelApiError,
- type TryItResponse,
- tryWorkflow,
-} from '@/lib/api'
+import { type EvalCaseSummary, type TryItResponse } from '@/lib/api'
+import { tryWorkflowAction } from './actions'
 
 interface Props {
  wfId: string
@@ -35,18 +31,12 @@ export function TryItForm({ wfId, cases }: Props) {
  setError(null)
  setResult(null)
  startTransition(async () => {
- try {
- const res = await tryWorkflow(wfId, { eval_case_id: selectedId })
- setResult(res)
- } catch (err) {
- const msg =
- err instanceof KernelApiError
- ? err.message
- : err instanceof Error
- ? err.message
- : String(err)
- setError(msg)
+ const result = await tryWorkflowAction(wfId, { eval_case_id: selectedId })
+ if (result.error || !result.data) {
+ setError(result.error ?? 'Unknown error')
+ return
  }
+ setResult(result.data)
  })
  }
 

@@ -2,11 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import {
- createMetricProposal,
- KernelApiError,
- type MetricDefinitionShape,
-} from '@/lib/api'
+import { type MetricDefinitionShape } from '@/lib/api'
+import { createMetricProposalAction } from '../actions'
 
 interface Props {
  wsId: string
@@ -60,28 +57,24 @@ export function ProposeMetricEdit({ wsId, wfId, current }: Props) {
  return
  }
  startTransition(async () => {
- try {
- const proposal = await createMetricProposal(wfId, {
- plain_language_summary: summary.trim() ,
+ const result = await createMetricProposalAction(wfId, {
+ plain_language_summary: summary.trim(),
  proposed_metric: {
- name: name.trim() ,
+ name: name.trim(),
  family: family.trim() || null,
  direction: direction.trim() || null,
  description: description.trim() || null,
  },
  rationale: rationale.trim() || null,
  })
+ if (result.error || !result.proposal) {
+ setError(result.error ?? 'Unknown error')
+ return
+ }
  setEditing(false)
  reset()
  router.refresh()
- router.push(`/workspaces/${wsId}/proposals/${proposal.id}`)
- } catch (err) {
- if (err instanceof KernelApiError) {
- setError(err.detail || err.message)
- } else {
- setError(err instanceof Error ? err.message : 'Unknown error')
- }
- }
+ router.push(`/workspaces/${wsId}/proposals/${result.proposal.id}`)
  })
  }
 

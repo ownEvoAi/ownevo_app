@@ -11,13 +11,13 @@ import {
  type KeyboardEvent,
 } from 'react'
 import {
- fetchDescriptionConflicts,
- KernelApiError,
  type AmbiguityFinding,
  type NextDiscoveryQuestion,
 } from '@/lib/api'
 import {
+ type DescriptionConflictsState,
  type DiscoveryTranscriptEntry,
+ fetchDescriptionConflictsAction,
  generateWithDiscoveryAction,
  loadNextQuestion,
  type NextQuestionState,
@@ -149,16 +149,14 @@ export function DesignFlow({
  const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
  // Once the static discovery interview returns done=true, fire the
- // pre-generation conflict scan exactly once. Called directly (not via
- // a server action) so the AbortController can cancel the in-flight
- // fetch on cleanup — prevents double-POST in React Strict Mode.
+ // pre-generation conflict scan exactly once via a server action so
+ // the kernel call carries the user assertion.
  //
  // `isLoadingFindings` intentionally NOT in deps: `startFindingsLoad`
- // flips it on, which would re-fire the effect, abort the in-flight
- // request, hit the AbortError early-return, and never set
+ // flips it on, which would re-fire the effect and never set
  // `ambiguityLoaded` — looping forever. The single-load guard is
  // `ambiguityLoaded`, set inside the transition after the fetch
- // resolves (success path) or after a non-abort error (failure path).
+ // resolves (success path) or on error.
  // Client-side retry for the initial question. The page's
  // server-side pre-fetch has a 5s timeout so the page never blocks
  // indefinitely on a slow kernel; the LLM-driven interviewer
@@ -185,27 +183,13 @@ export function DesignFlow({
 
  useEffect(() => {
  if (!questionState.done || ambiguityLoaded) return
- const controller = new AbortController()
  startFindingsLoad(async () => {
- try {
- const resp = await fetchDescriptionConflicts(description, controller.signal)
- setAmbiguityFindings(resp.findings)
- setAmbiguityError(null)
+ const result = await fetchDescriptionConflictsAction(description)
+ setAmbiguityFindings(result.findings)
+ setAmbiguityError(result.error)
  setAmbiguityLoaded(true)
- } catch (err) {
- if (err instanceof DOMException && err.name === 'AbortError') return
- const errMsg =
- err instanceof KernelApiError
- ? `Kernel error (${err.status}): ${err.detail}`
- : err instanceof Error
- ? err.message
- : String(err)
- setAmbiguityFindings([])
- setAmbiguityError(errMsg)
- setAmbiguityLoaded(true)
- }
  })
- return () => controller.abort() // eslint-disable-next-line react-hooks/exhaustive-deps
+ // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [questionState.done, ambiguityLoaded, description])
 
  // Total questions to surface in the chat = static count + findings
