@@ -1,0 +1,362 @@
+"""Internal workspace-invite endpoints.
+
+Three operations make up the invite lifecycle. Each is authenticated by the
+shared ``OWNEVO_INTERNAL_AUTH_KEY`` bearer token — the same credential the web
+edge already presents for auth-sync and workspace provisioning. Authorization
+(is this caller allowed to invite to this workspace? to revoke this invite?
+to redeem on behalf of this user?) is layered on top by passing the acting
+user id in the request body, in line with the rest of the ``/api/internal/*``
+surface.
+
+  * ``POST /api/internal/workspaces/{workspace_id}/invites`` — mint
+        Caller must be an owner or admin of the workspace. Inserts a row in
+        ``workspace_invites``, mints a signed token addressing that row, and
+        returns the token + accept URL. The system does not deliver the URL;
+        the inviter sends it through their own channel.
+
+  * ``POST /api/internal/invites/redeem`` — redeem
+        Verifies token signature + expiry, looks up the row, checks
+        revocation / prior-redemption / row expiry, and inserts the redeemer
+        into ``workspace_members``. Idempotent for the original redeemer;
+        rejects a different user attempting to consume an already-redeemed
+        invite.
+
+  * ``POST /api/internal/invites/{invite_id}/revoke`` — revoke
+        Caller must be an owner or admin of the invite's workspace. Sets
+        ``revoked_at``; a revoked invite can never be redeemed even if its
+        token is still cryptographically valid.
+
+``workspace_invites`` sits outside row-level security (see migration 0036) so
+all three endpoints use a plain pooled connection with no workspace GUC.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from .._internal_auth import INTERNAL_AUTH_KEY_ENV, require_service_token
+from .._workspace_invites import (
+    InviteTokenInvalid,
+    mint_invite_token,
+    verify_invite_token,
+)
+from ..deps import PoolDep
+
+router = APIRouter(tags=["internal-invites"], include_in_schema=False)
+
+# TTL bounds. A workspace invite is meant to be used in days, not minutes
+# (admins may take a while to send the URL) and not months (stale invites
+# become a security liability if an inviter leaves).
+_MIN_TTL_DAYS = 1
+_MAX_TTL_DAYS = 30
+_DEFAULT_TTL_DAYS = 7
+
+# Roles available to invite. 'owner' is reserved for the workspace creator;
+# transferring ownership is a separate, deliberate operation.
+_INVITE_ROLES = ("admin", "member")
+
+
+# ---------------------------------------------------------------------------
+# Authorization helpers
+# ---------------------------------------------------------------------------
+
+
+async def _require_workspace_admin(conn, *, workspace_id: str, user_id: str) -> None:
+    """Refuse the request unless ``user_id`` is an owner or admin of the workspace.
+
+    Reads ``workspace_members`` directly (non-RLS table). Raises 403 on
+    insufficient role and 422 if the workspace does not exist or is
+    soft-deleted, so a caller cannot probe for workspace existence by getting
+    a 403.
+    """
+    workspace_live = await conn.fetchval(
+        "SELECT 1 FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
+        workspace_id,
+    )
+    if not workspace_live:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="workspace not found",
+        )
+    role = await conn.fetchval(
+        "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+        workspace_id,
+        user_id,
+    )
+    if role not in ("owner", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="caller is not an admin of this workspace",
+        )
+
+
+def _require_signing_key() -> str:
+    key = os.environ.get(INTERNAL_AUTH_KEY_ENV)
+    if not key:
+        # The same env-var gates the service-token check, so this is mostly
+        # unreachable on a real deployment; covered for explicitness.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="internal signing key is not configured",
+        )
+    return key
+
+
+# ---------------------------------------------------------------------------
+# Mint
+# ---------------------------------------------------------------------------
+
+
+class CreateInviteRequest(BaseModel):
+    """Mint-invite request. Email validation is a single-pass syntactic check
+    (`local@host`); we do not RFC-validate because deliverability gates would
+    add a heavy dep and we never deliver mail ourselves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inviter_user_id: str = Field(min_length=1, max_length=255)
+    invited_email: str = Field(min_length=3, max_length=320)
+    role: str = Field()
+    ttl_days: int = Field(default=_DEFAULT_TTL_DAYS, ge=_MIN_TTL_DAYS, le=_MAX_TTL_DAYS)
+
+
+class CreateInviteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invite_id: str
+    token: str
+    expires_at: str  # ISO-8601 UTC
+
+
+@router.post(
+    "/api/internal/workspaces/{workspace_id}/invites",
+    response_model=CreateInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_invite(
+    workspace_id: str,
+    body: CreateInviteRequest,
+    request: Request,
+    pool: PoolDep,
+) -> CreateInviteResponse:
+    """Mint a workspace invite. Caller (inviter) must be admin/owner."""
+    require_service_token(request)
+    if body.role not in _INVITE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"role must be one of {_INVITE_ROLES}; got {body.role!r}",
+        )
+    if "@" not in body.invited_email or body.invited_email.startswith("@") or body.invited_email.endswith("@"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="invited_email must contain a local-part and a host",
+        )
+    signing_key = _require_signing_key()
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=body.ttl_days)
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _require_workspace_admin(
+                conn, workspace_id=workspace_id, user_id=body.inviter_user_id
+            )
+            row = await conn.fetchrow(
+                "INSERT INTO workspace_invites "
+                "(workspace_id, invited_email, role, invited_by, expires_at) "
+                "VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                workspace_id,
+                body.invited_email.strip().lower(),
+                body.role,
+                body.inviter_user_id,
+                expires_at,
+            )
+    invite_id = str(row["id"])
+    token = mint_invite_token(
+        invite_id=invite_id,
+        ttl_seconds=int(timedelta(days=body.ttl_days).total_seconds()),
+        signing_key=signing_key,
+    )
+    return CreateInviteResponse(
+        invite_id=invite_id,
+        token=token,
+        expires_at=expires_at.isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Redeem
+# ---------------------------------------------------------------------------
+
+
+class RedeemInviteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=2048)
+    redeemer_user_id: str = Field(min_length=1, max_length=255)
+
+
+class RedeemInviteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    workspace_name: str
+    role: str
+
+
+def _invite_error(code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={"code": code, "message": message},
+    )
+
+
+@router.post("/api/internal/invites/redeem", response_model=RedeemInviteResponse)
+async def redeem_invite(
+    body: RedeemInviteRequest, request: Request, pool: PoolDep
+) -> RedeemInviteResponse:
+    """Add the redeemer to the workspace addressed by a valid invite token.
+
+    Idempotent for the original redeemer: a repeat call returns the same
+    success payload without erroring. A second user attempting to redeem an
+    already-redeemed invite is rejected.
+    """
+    require_service_token(request)
+    signing_key = _require_signing_key()
+    try:
+        invite_id = verify_invite_token(body.token, signing_key)
+    except InviteTokenInvalid as exc:
+        raise _invite_error("invite_invalid", str(exc)) from exc
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            redeemer_email = await conn.fetchval(
+                "SELECT email FROM users WHERE id = $1", body.redeemer_user_id
+            )
+            if redeemer_email is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="redeemer user not found",
+                )
+            invite = await conn.fetchrow(
+                "SELECT id, workspace_id, invited_email, role, expires_at, "
+                "       redeemed_at, redeemed_by, revoked_at "
+                "FROM workspace_invites WHERE id = $1 FOR UPDATE",
+                invite_id,
+            )
+            if invite is None:
+                raise _invite_error("invite_invalid", "invite not found")
+            if redeemer_email.lower() != invite["invited_email"]:
+                raise _invite_error(
+                    "invite_email_mismatch",
+                    "this invite was addressed to a different email address",
+                )
+            if invite["revoked_at"] is not None:
+                raise _invite_error("invite_revoked", "invite has been revoked")
+            # Row-stored expiry is the source of truth; the token expiry
+            # should match but is checked independently in verify_invite_token.
+            if invite["expires_at"] <= datetime.now(timezone.utc):
+                raise _invite_error("invite_expired", "invite has expired")
+            if invite["redeemed_at"] is not None:
+                # Idempotent for the same user; rejected for anyone else so an
+                # already-consumed invite cannot be re-used by a different
+                # account that happens to have the URL.
+                if invite["redeemed_by"] != body.redeemer_user_id:
+                    raise _invite_error(
+                        "invite_already_redeemed",
+                        "invite has already been redeemed",
+                    )
+            else:
+                # First redemption: insert membership and mark the invite
+                # consumed. ON CONFLICT handles the edge case where the
+                # redeemer was added to the workspace by some other path
+                # between mint and redeem.
+                await conn.execute(
+                    "INSERT INTO workspace_members (workspace_id, user_id, role) "
+                    "VALUES ($1, $2, $3) "
+                    "ON CONFLICT (workspace_id, user_id) DO NOTHING",
+                    invite["workspace_id"],
+                    body.redeemer_user_id,
+                    invite["role"],
+                )
+                await conn.execute(
+                    "UPDATE workspace_invites "
+                    "SET redeemed_at = now(), redeemed_by = $2 "
+                    "WHERE id = $1",
+                    invite_id,
+                    body.redeemer_user_id,
+                )
+            actual_role = await conn.fetchval(
+                "SELECT role FROM workspace_members "
+                "WHERE workspace_id = $1 AND user_id = $2",
+                invite["workspace_id"],
+                body.redeemer_user_id,
+            )
+            workspace = await conn.fetchrow(
+                "SELECT name FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
+                invite["workspace_id"],
+            )
+            if workspace is None:
+                # Workspace was soft-deleted between mint and redeem. Treat
+                # as invalid rather than letting the redeemer join a tombstone.
+                raise _invite_error("invite_invalid", "workspace no longer exists")
+    return RedeemInviteResponse(
+        workspace_id=invite["workspace_id"],
+        workspace_name=workspace["name"],
+        role=actual_role or invite["role"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Revoke
+# ---------------------------------------------------------------------------
+
+
+class RevokeInviteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor_user_id: str = Field(min_length=1, max_length=255)
+
+
+@router.post(
+    "/api/internal/invites/{invite_id}/revoke",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_invite(
+    invite_id: str, body: RevokeInviteRequest, request: Request, pool: PoolDep
+) -> None:
+    """Mark an invite as revoked. Caller must be admin/owner of its workspace."""
+    require_service_token(request)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            invite = await conn.fetchrow(
+                "SELECT workspace_id, redeemed_at, revoked_at "
+                "FROM workspace_invites WHERE id = $1 FOR UPDATE",
+                invite_id,
+            )
+            if invite is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="invite not found"
+                )
+            await _require_workspace_admin(
+                conn, workspace_id=invite["workspace_id"], user_id=body.actor_user_id
+            )
+            if invite["redeemed_at"] is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="invite has already been redeemed",
+                )
+            if invite["revoked_at"] is not None:
+                # Idempotent: revoking an already-revoked invite is a no-op.
+                return
+            await conn.execute(
+                "UPDATE workspace_invites "
+                "SET revoked_at = now(), revoked_by = $2 "
+                "WHERE id = $1",
+                invite_id,
+                body.actor_user_id,
+            )

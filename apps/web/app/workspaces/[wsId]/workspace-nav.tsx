@@ -109,7 +109,7 @@ export function WorkspaceNav({ wsId, workflows, workspaces, activeWorkspaceId, t
  </a>
  <a href={`${root}/inbox`} className={cls(`${root}/inbox`)}>
  <svg className="nav-icon" viewBox="0 0 16 16">
- <path d="M2 4 L2 12 1.5 0 0 0 3.5 13.5 L12.5 13.5 1.5 0 0 0 14 12 L14 4 M2 4 L8 9 L14 4 M2 4 L14 4" />
+ <path d="M2 4 L14 4 L14 12 L2 12 Z M2 4 L8 9 L14 4" />
  </svg>
  <span className="nav-label">Inbox</span>
  </a>
