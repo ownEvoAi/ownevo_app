@@ -21,6 +21,8 @@ const ERROR_COPY: Record<string, string> = {
   'This invite has been revoked. Ask the person who invited you for a new one.',
  invite_already_redeemed:
   'This invite has already been used by another account.',
+ invite_email_mismatch:
+  'This invite was sent to a different email address. Sign in with the correct account to accept it.',
 }
 
 export async function acceptInviteAction(
@@ -73,10 +75,14 @@ export async function acceptInviteAction(
    activeWorkspaceId: redeemed.workspace_id,
   })
  } catch (err) {
-  // The kernel state is correct; the JWT failed to update in place. The
-  // next sign-in will re-sync. Continue to the redirect so the user lands
-  // somewhere reasonable.
+  // JWT update failed. Redirect through sign-in to force a fresh JWT
+  // before navigating to the workspace — otherwise the middleware workspace
+  // gate sees the stale session (no workspaces) and kicks the user to
+  // /setup/new-workspace instead.
   console.error('[acceptInviteAction] unstable_update failed:', err)
+  redirect(
+   `/auth/signin?callbackUrl=${encodeURIComponent(`/workspaces/${redeemed.workspace_id}`)}`,
+  )
  }
 
  redirect(`/workspaces/${redeemed.workspace_id}`)

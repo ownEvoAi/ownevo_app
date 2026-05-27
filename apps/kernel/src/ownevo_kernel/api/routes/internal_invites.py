@@ -178,7 +178,7 @@ async def create_invite(
     invite_id = str(row["id"])
     token = mint_invite_token(
         invite_id=invite_id,
-        ttl_seconds=body.ttl_days * 86400,
+        ttl_seconds=int(timedelta(days=body.ttl_days).total_seconds()),
         signing_key=signing_key,
     )
     return CreateInviteResponse(
@@ -234,22 +234,27 @@ async def redeem_invite(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            redeemer_exists = await conn.fetchval(
-                "SELECT 1 FROM users WHERE id = $1", body.redeemer_user_id
+            redeemer_email = await conn.fetchval(
+                "SELECT email FROM users WHERE id = $1", body.redeemer_user_id
             )
-            if not redeemer_exists:
+            if redeemer_email is None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="redeemer user not found",
                 )
             invite = await conn.fetchrow(
-                "SELECT id, workspace_id, role, expires_at, "
+                "SELECT id, workspace_id, invited_email, role, expires_at, "
                 "       redeemed_at, redeemed_by, revoked_at "
                 "FROM workspace_invites WHERE id = $1 FOR UPDATE",
                 invite_id,
             )
             if invite is None:
                 raise _invite_error("invite_invalid", "invite not found")
+            if redeemer_email.lower() != invite["invited_email"]:
+                raise _invite_error(
+                    "invite_email_mismatch",
+                    "this invite was addressed to a different email address",
+                )
             if invite["revoked_at"] is not None:
                 raise _invite_error("invite_revoked", "invite has been revoked")
             # Row-stored expiry is the source of truth; the token expiry
@@ -285,6 +290,12 @@ async def redeem_invite(
                     invite_id,
                     body.redeemer_user_id,
                 )
+            actual_role = await conn.fetchval(
+                "SELECT role FROM workspace_members "
+                "WHERE workspace_id = $1 AND user_id = $2",
+                invite["workspace_id"],
+                body.redeemer_user_id,
+            )
             workspace = await conn.fetchrow(
                 "SELECT name FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
                 invite["workspace_id"],
@@ -296,7 +307,7 @@ async def redeem_invite(
     return RedeemInviteResponse(
         workspace_id=invite["workspace_id"],
         workspace_name=workspace["name"],
-        role=invite["role"],
+        role=actual_role or invite["role"],
     )
 
 
