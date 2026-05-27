@@ -485,18 +485,49 @@ async def test_list_pending_invites_filters_inactive(
 async def test_list_pending_invites_requires_admin(
     api_client: httpx.AsyncClient, monkeypatch
 ):
-    """A non-member cannot enumerate workspace invites."""
+    """Only owners and admins can enumerate workspace invites.
+
+    Both a non-member (outsider) and a workspace member with role='member'
+    must be refused — the gate checks the role value, not just presence.
+    """
     monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
     owner_id = await _create_user(api_client, "list-admin-owner@test.local")
     outsider_id = await _create_user(api_client, "list-admin-outsider@test.local")
+    member_id = await _create_user(api_client, "list-admin-member@test.local")
     ws_id = await _create_workspace(api_client, owner_id, "AdminGate")
 
-    r = await api_client.get(
+    # Invite and redeem so member_id is a workspace member with role='member'.
+    mint = await api_client.post(
+        f"/api/internal/workspaces/{ws_id}/invites",
+        headers=_AUTH_HEADERS,
+        json={
+            "inviter_user_id": owner_id,
+            "invited_email": "list-admin-member@test.local",
+            "role": "member",
+        },
+    )
+    assert mint.status_code == 201, mint.text
+    await api_client.post(
+        "/api/internal/invites/redeem",
+        headers=_AUTH_HEADERS,
+        json={"token": mint.json()["token"], "redeemer_user_id": member_id},
+    )
+
+    # Non-member gets 403.
+    r_outsider = await api_client.get(
         f"/api/internal/workspaces/{ws_id}/invites",
         headers=_AUTH_HEADERS,
         params={"actor_user_id": outsider_id},
     )
-    assert r.status_code == 403
+    assert r_outsider.status_code == 403
+
+    # Workspace member (role='member') also gets 403 — the gate requires admin/owner.
+    r_member = await api_client.get(
+        f"/api/internal/workspaces/{ws_id}/invites",
+        headers=_AUTH_HEADERS,
+        params={"actor_user_id": member_id},
+    )
+    assert r_member.status_code == 403
 
 
 @_db_skip

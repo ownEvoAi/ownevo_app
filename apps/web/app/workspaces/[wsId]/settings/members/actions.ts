@@ -19,7 +19,7 @@ function buildInviteUrl(token: string): string {
  // origin they're using right now.
  const origin = process.env.OWNEVO_WEB_ORIGIN ?? process.env.NEXTAUTH_URL
  const path = `/invites/${encodeURIComponent(token)}`
- if (!origin) return path
+ if (!origin || !origin.startsWith('http')) return path
  return `${origin.replace(/\/$/, '')}${path}`
 }
 

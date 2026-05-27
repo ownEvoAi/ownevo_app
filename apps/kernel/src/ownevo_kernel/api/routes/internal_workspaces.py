@@ -179,7 +179,11 @@ async def list_workspace_members(
             "ORDER BY "
             "  CASE m.role "
             "    WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
-            "  m.created_at ASC",
+            "  m.created_at ASC "
+            # The settings page is an admin surface for human-scale teams; 500
+            # is a hard ceiling that prevents unbounded payloads while staying
+            # well above any realistic workspace membership count.
+            "LIMIT 500",
             workspace_id,
         )
     return ListMembersResponse(

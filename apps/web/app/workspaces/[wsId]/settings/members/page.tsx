@@ -47,24 +47,27 @@ export default async function MembersPage({ params }: PageProps) {
  const myRole = myMembership?.role ?? null
  const isAdmin = myRole === 'owner' || myRole === 'admin'
 
+ const [membersResult, invitesResult] = await Promise.allSettled([
+  listWorkspaceMembers(wsId, session.user.id),
+  isAdmin ? listPendingInvites(wsId, session.user.id) : Promise.resolve([] as PendingInvite[]),
+ ])
+
  let members: WorkspaceMember[] = []
  let membersError: string | null = null
- try {
-  members = await listWorkspaceMembers(wsId, session.user.id)
- } catch (err) {
-  console.error('[members page] list members failed:', err)
+ if (membersResult.status === 'fulfilled') {
+  members = membersResult.value
+ } else {
+  console.error('[members page] list members failed:', membersResult.reason)
   membersError = 'Could not load workspace members.'
  }
 
  let invites: PendingInvite[] = []
  let invitesError: string | null = null
- if (isAdmin) {
-  try {
-   invites = await listPendingInvites(wsId, session.user.id)
-  } catch (err) {
-   console.error('[members page] list invites failed:', err)
-   invitesError = 'Could not load pending invites.'
-  }
+ if (invitesResult.status === 'rejected' && isAdmin) {
+  console.error('[members page] list invites failed:', invitesResult.reason)
+  invitesError = 'Could not load pending invites.'
+ } else if (invitesResult.status === 'fulfilled') {
+  invites = invitesResult.value
  }
 
  const cellStyle = { padding: '10px 12px', borderBottom: '1px solid var(--border)' } as const

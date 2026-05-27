@@ -1,6 +1,6 @@
 """Internal workspace-invite endpoints.
 
-Five operations make up the invite lifecycle. Each is authenticated by the
+Four operations make up the invite lifecycle. Each is authenticated by the
 shared ``OWNEVO_INTERNAL_AUTH_KEY`` bearer token — the same credential the web
 edge already presents for auth-sync and workspace provisioning. Authorization
 (is this caller allowed to invite to this workspace? to revoke this invite?
@@ -423,7 +423,10 @@ async def list_pending_invites(
             "  AND i.redeemed_at IS NULL "
             "  AND i.revoked_at IS NULL "
             "  AND i.expires_at > now() "
-            "ORDER BY i.created_at DESC",
+            "ORDER BY i.created_at DESC "
+            # Hard ceiling: the admin page renders every pending invite with a
+            # Revoke button; 200 is well above realistic invite volumes.
+            "LIMIT 200",
             workspace_id,
         )
     return ListInvitesResponse(
