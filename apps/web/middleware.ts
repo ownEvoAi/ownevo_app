@@ -82,8 +82,15 @@ export default auth(function middleware(req) {
 
  // ── 3. Workspace gate ─────────────────────────────────────────────────────
  // /setup/* is the workspace creation screen; allow it even without a workspace.
+ // /invites/* is the invite-accept landing — a brand-new user with no
+ // workspace IS the typical visitor there, so the gate must not kick them
+ // to /setup/new-workspace before they can redeem.
  const hasWorkspace = Array.isArray(session.workspaces) && session.workspaces.length > 0
- if (!hasWorkspace && !pathname.startsWith('/setup/')) {
+ if (
+  !hasWorkspace &&
+  !pathname.startsWith('/setup/') &&
+  !pathname.startsWith('/invites/')
+ ) {
   const setupUrl = req.nextUrl.clone()
   setupUrl.pathname = '/setup/new-workspace'
   return NextResponse.redirect(setupUrl)

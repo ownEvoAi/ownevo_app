@@ -41,6 +41,7 @@ from .routes import (
     design_agent_import,
     integrations,
     internal_auth,
+    internal_invites,
     internal_workspaces,
     mcp,
     mcp_oauth,
@@ -230,6 +231,7 @@ def create_app(
     api.include_router(integrations.router)
     api.include_router(internal_auth.router)
     api.include_router(internal_workspaces.router)
+    api.include_router(internal_invites.router)
     api.include_router(agents.router)
     api.include_router(mcp.router)
     api.include_router(mcp_oauth.router)
