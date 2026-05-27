@@ -1,11 +1,11 @@
 """Internal workspace-invite endpoints.
 
-Three operations make up the invite lifecycle. Each is authenticated by the
+Four operations make up the invite lifecycle. Each is authenticated by the
 shared ``OWNEVO_INTERNAL_AUTH_KEY`` bearer token — the same credential the web
 edge already presents for auth-sync and workspace provisioning. Authorization
 (is this caller allowed to invite to this workspace? to revoke this invite?
 to redeem on behalf of this user?) is layered on top by passing the acting
-user id in the request body, in line with the rest of the ``/api/internal/*``
+user id in the request, in line with the rest of the ``/api/internal/*``
 surface.
 
   * ``POST /api/internal/workspaces/{workspace_id}/invites`` — mint
@@ -26,8 +26,13 @@ surface.
         ``revoked_at``; a revoked invite can never be redeemed even if its
         token is still cryptographically valid.
 
+  * ``GET /api/internal/workspaces/{workspace_id}/invites`` — list pending
+        Caller must be an owner or admin. Returns invites that are neither
+        redeemed, revoked, nor expired — the rows an admin page renders as
+        "outstanding invites with a Revoke button next to them".
+
 ``workspace_invites`` sits outside row-level security (see migration 0036) so
-all three endpoints use a plain pooled connection with no workspace GUC.
+all endpoints use a plain pooled connection with no workspace GUC.
 """
 
 from __future__ import annotations
@@ -360,3 +365,82 @@ async def revoke_invite(
                 invite_id,
                 body.actor_user_id,
             )
+
+
+# ---------------------------------------------------------------------------
+# List pending invites
+# ---------------------------------------------------------------------------
+
+
+class PendingInvite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invite_id: str
+    invited_email: str
+    role: str
+    invited_by_user_id: str
+    invited_by_email: str | None
+    invited_by_display_name: str | None
+    created_at: str  # ISO-8601 UTC
+    expires_at: str  # ISO-8601 UTC
+
+
+class ListInvitesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invites: list[PendingInvite]
+
+
+@router.get(
+    "/api/internal/workspaces/{workspace_id}/invites",
+    response_model=ListInvitesResponse,
+)
+async def list_pending_invites(
+    workspace_id: str,
+    actor_user_id: str,
+    request: Request,
+    pool: PoolDep,
+) -> ListInvitesResponse:
+    """Return invites that are still actionable for the members admin page.
+
+    "Pending" = not redeemed, not revoked, not yet expired. Redeemed invites
+    are excluded because the row is also represented in ``workspace_members``;
+    revoked and expired invites are excluded because they are not actionable
+    (nothing to do but mint a fresh one).
+    """
+    require_service_token(request)
+    async with pool.acquire() as conn:
+        await _require_workspace_admin(
+            conn, workspace_id=workspace_id, user_id=actor_user_id
+        )
+        rows = await conn.fetch(
+            "SELECT i.id, i.invited_email, i.role, i.invited_by, "
+            "       i.created_at, i.expires_at, "
+            "       u.email AS inviter_email, u.display_name AS inviter_name "
+            "FROM workspace_invites i "
+            "LEFT JOIN users u ON u.id = i.invited_by "
+            "WHERE i.workspace_id = $1 "
+            "  AND i.redeemed_at IS NULL "
+            "  AND i.revoked_at IS NULL "
+            "  AND i.expires_at > now() "
+            "ORDER BY i.created_at DESC "
+            # Hard ceiling: the admin page renders every pending invite with a
+            # Revoke button; 200 is well above realistic invite volumes.
+            "LIMIT 200",
+            workspace_id,
+        )
+    return ListInvitesResponse(
+        invites=[
+            PendingInvite(
+                invite_id=str(r["id"]),
+                invited_email=r["invited_email"],
+                role=r["role"],
+                invited_by_user_id=r["invited_by"],
+                invited_by_email=r["inviter_email"],
+                invited_by_display_name=r["inviter_name"],
+                created_at=r["created_at"].isoformat(),
+                expires_at=r["expires_at"].isoformat(),
+            )
+            for r in rows
+        ],
+    )
