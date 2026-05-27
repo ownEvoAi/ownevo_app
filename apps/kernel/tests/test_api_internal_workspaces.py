@@ -98,7 +98,7 @@ async def test_create_workspace_success(api_client: httpx.AsyncClient, monkeypat
         headers={"authorization": f"Bearer {_KEY}"},
         json={"user_id": "dev-user", "name": "Test Corp"},
     )
-    assert r.status_code == 200
+    assert r.status_code == 201
     data = r.json()
     assert data["name"] == "Test Corp"
     ws_id = data["workspace_id"]

@@ -108,3 +108,89 @@ async def create_workspace(
             )
 
     return WorkspaceCreateResponse(workspace_id=workspace_id, name=body.name)
+
+
+# ---------------------------------------------------------------------------
+# List members
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceMember(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    email: str
+    display_name: str | None
+    role: str
+    joined_at: str  # ISO-8601 UTC
+
+
+class ListMembersResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    members: list[WorkspaceMember]
+
+
+@router.get(
+    "/{workspace_id}/members",
+    response_model=ListMembersResponse,
+)
+async def list_workspace_members(
+    workspace_id: str,
+    actor_user_id: str,
+    request: Request,
+    pool: PoolDep,
+) -> ListMembersResponse:
+    """List the active members of a workspace.
+
+    The actor must themselves be a member of the workspace. Roles are not
+    relevant for the read — every member can see the membership roster.
+    """
+    require_service_token(request)
+    async with pool.acquire() as conn:
+        workspace_live = await conn.fetchval(
+            "SELECT 1 FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
+            workspace_id,
+        )
+        if not workspace_live:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="workspace not found",
+            )
+        actor_role = await conn.fetchval(
+            "SELECT role FROM workspace_members "
+            "WHERE workspace_id = $1 AND user_id = $2",
+            workspace_id,
+            actor_user_id,
+        )
+        if actor_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="actor is not a member of this workspace",
+            )
+        rows = await conn.fetch(
+            "SELECT m.user_id, m.role, m.created_at, "
+            "       u.email, u.display_name "
+            "FROM workspace_members m "
+            "JOIN users u ON u.id = m.user_id "
+            "WHERE m.workspace_id = $1 "
+            # owner first, then admin, then member; within a role oldest first
+            # so the workspace creator is the most stable anchor at the top.
+            "ORDER BY "
+            "  CASE m.role "
+            "    WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
+            "  m.created_at ASC",
+            workspace_id,
+        )
+    return ListMembersResponse(
+        members=[
+            WorkspaceMember(
+                user_id=r["user_id"],
+                email=r["email"],
+                display_name=r["display_name"],
+                role=r["role"],
+                joined_at=r["created_at"].isoformat(),
+            )
+            for r in rows
+        ],
+    )

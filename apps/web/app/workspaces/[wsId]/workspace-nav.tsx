@@ -217,6 +217,18 @@ export function WorkspaceNav({ wsId, workflows, workspaces, activeWorkspaceId, t
 
  <div className="nav-section">Settings</div>
  <a
+ href={`${root}/settings/members`}
+ className={cls(`${root}/settings/members`)}
+ >
+ <svg className="nav-icon" viewBox="0 0 16 16">
+ <circle cx="5.5" cy="6" r="2" />
+ <circle cx="11" cy="7" r="1.6" />
+ <path d="M1.5 13 C1.5 10.5 3.5 9.5 5.5 9.5 C7.5 9.5 9.5 10.5 9.5 13" />
+ <path d="M9 12.5 C9 10.8 10.2 10 11 10 C12.5 10 13.8 11 14 12.5" />
+ </svg>
+ <span className="nav-label">Members</span>
+ </a>
+ <a
  href={`${root}/settings/integrations`}
  className={cls(`${root}/settings/integrations`)}
  >

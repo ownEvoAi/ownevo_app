@@ -124,3 +124,68 @@ export async function revokeInvite(inviteId: string, actorUserId: string): Promi
   throw new Error(`revoke invite failed (${res.status}): ${detail}`)
  }
 }
+
+export interface WorkspaceMember {
+ user_id: string
+ email: string
+ display_name: string | null
+ role: string
+ joined_at: string
+}
+
+export interface PendingInvite {
+ invite_id: string
+ invited_email: string
+ role: string
+ invited_by_user_id: string
+ invited_by_email: string | null
+ invited_by_display_name: string | null
+ created_at: string
+ expires_at: string
+}
+
+export async function listWorkspaceMembers(
+ workspaceId: string,
+ actorUserId: string,
+): Promise<WorkspaceMember[]> {
+ const key = requireKey()
+ const url = new URL(
+  `${API_URL}/api/internal/workspaces/${encodeURIComponent(workspaceId)}/members`,
+ )
+ url.searchParams.set('actor_user_id', actorUserId)
+ const res = await fetch(url, {
+  method: 'GET',
+  headers: { authorization: `Bearer ${key}` },
+  signal: AbortSignal.timeout(10_000),
+  cache: 'no-store',
+ })
+ if (!res.ok) {
+  const detail = await res.text().catch(() => res.statusText)
+  throw new Error(`list members failed (${res.status}): ${detail}`)
+ }
+ const body = (await res.json()) as { members: WorkspaceMember[] }
+ return body.members
+}
+
+export async function listPendingInvites(
+ workspaceId: string,
+ actorUserId: string,
+): Promise<PendingInvite[]> {
+ const key = requireKey()
+ const url = new URL(
+  `${API_URL}/api/internal/workspaces/${encodeURIComponent(workspaceId)}/invites`,
+ )
+ url.searchParams.set('actor_user_id', actorUserId)
+ const res = await fetch(url, {
+  method: 'GET',
+  headers: { authorization: `Bearer ${key}` },
+  signal: AbortSignal.timeout(10_000),
+  cache: 'no-store',
+ })
+ if (!res.ok) {
+  const detail = await res.text().catch(() => res.statusText)
+  throw new Error(`list invites failed (${res.status}): ${detail}`)
+ }
+ const body = (await res.json()) as { invites: PendingInvite[] }
+ return body.invites
+}
