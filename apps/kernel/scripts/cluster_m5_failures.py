@@ -69,7 +69,7 @@ from ownevo_kernel.datasets import (  # noqa: E402
     make_held_out_fold,
 )
 from ownevo_kernel.eval_cases import promote_clusters_to_eval_cases  # noqa: E402
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -299,13 +299,10 @@ async def main_async(args: CliArgs) -> int:
         import asyncpg
 
         try:
-            conn = await asyncpg.connect(db_url, timeout=10)
-        except (asyncpg.ConnectionFailureError, OSError) as exc:
-            print(f"error: could not connect to DB: {exc}", file=sys.stderr)
-            return 4
-        try:
-            await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-            async with conn.transaction():
+            async with (
+                connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn,
+                conn.transaction(),
+            ):
                 await _ensure_workflow_row(conn, args.workflow_id)
                 persisted = await persist_clustering_result(
                     conn,
@@ -320,8 +317,9 @@ async def main_async(args: CliArgs) -> int:
                     max_cases_per_cluster=args.max_cases_per_cluster,
                     min_reward_floor=args.min_reward_floor,
                 )
-        finally:
-            await conn.close()
+        except (asyncpg.ConnectionFailureError, OSError) as exc:
+            print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+            return 4
         summary["persisted_clusters"] = len(persisted)
         summary["promoted_eval_cases"] = len(cases)
     elif not db_url and not args.no_db:

@@ -28,9 +28,8 @@ import asyncio
 import os
 import sys
 
-import asyncpg
 from ownevo_kernel.middleware.otel_receiver import mint_token
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -63,9 +62,7 @@ async def _insert(
         print("error: OWNEVO_DATABASE_URL not set.", file=sys.stderr)
         sys.exit(2)
 
-    conn = await asyncpg.connect(db_url)
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+    async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
         if workflow_id is not None:
             exists = await conn.fetchval(
                 "SELECT 1 FROM workflows WHERE id = $1",
@@ -90,8 +87,6 @@ async def _insert(
         if row is None:
             raise RuntimeError("INSERT ... RETURNING returned no row")
         return row["id"]
-    finally:
-        await conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:

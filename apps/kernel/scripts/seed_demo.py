@@ -35,7 +35,11 @@ import os
 import sys
 from dataclasses import dataclass
 
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    connect_workspace_conn,
+    set_workspace,
+)
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 ENV_API_KEY = "ANTHROPIC_API_KEY"
@@ -578,16 +582,11 @@ async def main_async(args: argparse.Namespace) -> int:
             await pool.close()
     else:
         try:
-            conn = await asyncpg.connect(db_url, timeout=10)
+            async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+                seeded = await seed_demo(conn, with_iterations=False)
         except (asyncpg.PostgresError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
-
-        try:
-            await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-            seeded = await seed_demo(conn, with_iterations=False)
-        finally:
-            await conn.close()
 
     inserted = sum(1 for s in seeded if s.inserted)
     refreshed = len(seeded) - inserted

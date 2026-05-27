@@ -11,11 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from ownevo_kernel import tenant_session
 from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
     WORKSPACE_GUC,
     UnknownWorkspaceError,
     WorkspaceDeletedError,
+    connect_workspace_conn,
     current_workspace,
     set_workspace,
 )
@@ -130,3 +132,69 @@ def test_default_workspace_id_is_stable() -> None:
     # The migration backfills every row to this literal; drift would orphan
     # existing rows from their workspace once RLS is enabled.
     assert DEFAULT_WORKSPACE_ID == "default"
+
+
+class _StubConnect:
+    """Drop-in for ``asyncpg.connect`` that returns a _RecorderConn.
+
+    Records the db_url each call received so tests can assert the helper
+    forwarded its argument verbatim. Tracks closure so leak tests can verify
+    the connection is torn down on success and on error.
+    """
+
+    def __init__(self, fetchrow_return: Any = _LIVE_WORKSPACE) -> None:
+        self.urls: list[str] = []
+        self.fetchrow_return = fetchrow_return
+        self.conns: list[_RecorderConn] = []
+
+    async def __call__(self, db_url: str) -> _RecorderConn:
+        self.urls.append(db_url)
+        conn = _RecorderConn(fetchrow_return=self.fetchrow_return)
+        # Track closure on the stub conn so the helper's teardown is visible.
+        original_close = getattr(conn, "close", None)
+        conn.closed = False  # type: ignore[attr-defined]
+
+        async def close() -> None:
+            conn.closed = True  # type: ignore[attr-defined]
+            if original_close is not None:
+                await original_close()  # type: ignore[misc]
+
+        conn.close = close  # type: ignore[attr-defined,method-assign]
+        self.conns.append(conn)
+        return conn
+
+
+async def test_connect_workspace_conn_binds_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubConnect()
+    monkeypatch.setattr(tenant_session.asyncpg, "connect", stub)
+    async with connect_workspace_conn("postgres://stub", "acme") as conn:
+        assert stub.urls == ["postgres://stub"]
+        # The helper must have bound the workspace before yielding.
+        assert _set_config_calls(conn)[0][1] == (WORKSPACE_GUC, "acme")  # type: ignore[arg-type]
+    assert stub.conns[0].closed is True  # type: ignore[attr-defined]
+
+
+async def test_connect_workspace_conn_closes_on_body_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubConnect()
+    monkeypatch.setattr(tenant_session.asyncpg, "connect", stub)
+    with pytest.raises(RuntimeError, match="boom"):
+        async with connect_workspace_conn("postgres://stub", "acme"):
+            raise RuntimeError("boom")
+    assert stub.conns[0].closed is True  # type: ignore[attr-defined]
+
+
+async def test_connect_workspace_conn_closes_on_bind_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Unknown workspace -> set_workspace raises; the helper must still close
+    # the connection so the script doesn't leak a socket on misconfiguration.
+    stub = _StubConnect(fetchrow_return=None)
+    monkeypatch.setattr(tenant_session.asyncpg, "connect", stub)
+    with pytest.raises(UnknownWorkspaceError):
+        async with connect_workspace_conn("postgres://stub", "ghost"):
+            pytest.fail("body should not run when bind fails")  # pragma: no cover
+    assert stub.conns[0].closed is True  # type: ignore[attr-defined]

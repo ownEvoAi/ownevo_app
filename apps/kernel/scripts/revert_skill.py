@@ -36,11 +36,9 @@ import os
 import sys
 from datetime import UTC, datetime
 
-import asyncpg
-
 from ownevo_kernel.audit.writer import append_audit_entry
 from ownevo_kernel.db import ENV_VAR
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -50,9 +48,7 @@ async def _run(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
 
-    conn = await asyncpg.connect(db_url)
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+    async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
         skill = await conn.fetchrow(
             "SELECT id, kind::text AS kind, head_version_id, workflow_id "
             "FROM skills WHERE id = $1",
@@ -150,8 +146,6 @@ async def _run(args: argparse.Namespace) -> int:
             f"(audit seq {entry.seq})",
         )
         return 0
-    finally:
-        await conn.close()
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

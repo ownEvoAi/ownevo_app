@@ -31,8 +31,7 @@ import os
 import sys
 from uuid import UUID
 
-import asyncpg
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn
 
 _ENV_VAR = "OWNEVO_DATABASE_URL"
 _WORKFLOW_ID = "demo-demand-prediction"
@@ -85,9 +84,7 @@ _EXPECTED_IMPACT = {
 
 
 async def _seed(db_url: str) -> int:
-    conn = await asyncpg.connect(db_url)
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
+    async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
         # Workflow.
         await conn.execute(
             """
@@ -197,8 +194,6 @@ async def _seed(db_url: str) -> int:
             f"  Open: http://localhost:3000/proposals/{proposal_id}",
         )
         return 0
-    finally:
-        await conn.close()
 
 
 def __import_json_dumps(value: dict) -> str:
