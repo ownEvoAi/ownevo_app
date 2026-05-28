@@ -47,7 +47,7 @@ from ownevo_kernel.benchmark.tau3 import (
     Tau3FailureAnalyzerError,
     analyze_tau3_failures,
 )
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
@@ -252,7 +252,7 @@ async def main_async(args: CliArgs) -> int:
                         f"workflow={args.workflow_id} "
                         f"iteration_index={idx} val_score={s['val_score']:.4f}",
                     )
-    except (asyncpg.PostgresError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
     return 0

@@ -77,7 +77,7 @@ from ownevo_kernel.nl_gen.fixtures import (  # noqa: E402
     FIXTURES,
 )
 from ownevo_kernel.nl_gen.spec import WorkflowSpec  # noqa: E402
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 DEFAULT_WORKFLOW_ID = "nl-gen-failure-clusters"
@@ -356,7 +356,7 @@ async def main_async(args: CliArgs) -> int:
                     workflow_id=args.workflow_id,
                     result=result,
                 )
-        except (asyncpg.ConnectionFailureError, OSError) as exc:
+        except (WorkspaceBindError, asyncpg.ConnectionFailureError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
         summary["persisted_clusters"] = len(persisted)

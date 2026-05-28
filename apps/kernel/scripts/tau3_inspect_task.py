@@ -194,16 +194,21 @@ async def _main_async(args: argparse.Namespace) -> int:
     # commands would silently return "no results".
     from ownevo_kernel.tenant_session import (  # noqa: PLC0415
         DEFAULT_WORKSPACE_ID,
+        WorkspaceBindError,
         connect_workspace_conn,
     )
-    async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
-        if args.iteration is not None and args.task_id:
-            await _show_task(conn, args.workflow_id, args.task_id, args.iteration)
-        elif args.compare and args.task_id:
-            iters = [int(x) for x in args.compare.split(",")]
-            await _compare(conn, args.workflow_id, args.task_id, iters)
-        else:
-            await _list_tasks(conn, args.workflow_id, args.task_id)
+    try:
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            if args.iteration is not None and args.task_id:
+                await _show_task(conn, args.workflow_id, args.task_id, args.iteration)
+            elif args.compare and args.task_id:
+                iters = [int(x) for x in args.compare.split(",")]
+                await _compare(conn, args.workflow_id, args.task_id, iters)
+            else:
+                await _list_tasks(conn, args.workflow_id, args.task_id)
+    except (WorkspaceBindError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 4
     return 0
 
 

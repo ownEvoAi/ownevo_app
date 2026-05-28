@@ -187,7 +187,7 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     import asyncpg
-    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
 
     try:
         async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
@@ -197,7 +197,7 @@ async def main_async(args: CliArgs) -> int:
                 description=args.description,
                 skill_version=args.skill_version,
             )
-    except (asyncpg.PostgresError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
 

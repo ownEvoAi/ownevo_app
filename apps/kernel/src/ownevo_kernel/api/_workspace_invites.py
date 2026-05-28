@@ -90,7 +90,9 @@ def verify_invite_token(
             raise InviteTokenInvalid(f"missing claim: {claim}")
     if raw["k"] != INVITE_KIND:
         raise InviteTokenInvalid(f"wrong token kind: {raw['k']!r}")
-    if check_expiry and (not isinstance(raw["e"], int) or raw["e"] < int(time.time())):
+    if not isinstance(raw["e"], int):
+        raise InviteTokenInvalid("malformed claim: e must be an integer")
+    if check_expiry and raw["e"] < int(time.time()):
         raise InviteTokenInvalid("expired")
     invite_id = raw["i"]
     if not isinstance(invite_id, str) or not invite_id.strip():

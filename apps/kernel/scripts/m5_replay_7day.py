@@ -44,7 +44,7 @@ from ownevo_kernel.replay import (  # noqa: E402
     ReplayReport,
     run_seven_day_replay,
 )
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 
@@ -231,7 +231,7 @@ async def main_async(args: CliArgs) -> int:
             if args.reset:
                 await _reset_workflow_state(conn, cfg.workflow_id, cfg.skill_id)
             report = await run_seven_day_replay(conn, config=cfg)
-    except (asyncpg.ConnectionFailureError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.ConnectionFailureError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 3
 

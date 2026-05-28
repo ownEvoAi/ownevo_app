@@ -218,7 +218,7 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
         return 4
 
     import asyncpg
-    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
 
     try:
         async with (
@@ -255,7 +255,7 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
                 next_idx,
                 val_score,
             )
-    except (asyncpg.PostgresError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
 

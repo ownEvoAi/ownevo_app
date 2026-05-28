@@ -59,7 +59,7 @@ from ownevo_kernel.datasets import (  # noqa: E402
     make_held_out_fold,
 )
 from ownevo_kernel.sandbox import LocalDockerSandbox  # noqa: E402
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, connect_workspace_conn  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_M5_DIR = "OWNEVO_M5_DIR"
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
@@ -246,7 +246,7 @@ async def main_async(args: CliArgs) -> int:
                 val_score=result.val_score,
                 skill_version=args.skill_version,
             )
-    except (asyncpg.PostgresConnectionFailureError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresConnectionFailureError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
     print(

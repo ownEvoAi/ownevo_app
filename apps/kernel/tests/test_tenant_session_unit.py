@@ -150,14 +150,10 @@ class _StubConnect:
     async def __call__(self, db_url: str) -> _RecorderConn:
         self.urls.append(db_url)
         conn = _RecorderConn(fetchrow_return=self.fetchrow_return)
-        # Track closure on the stub conn so the helper's teardown is visible.
-        original_close = getattr(conn, "close", None)
         conn.closed = False  # type: ignore[attr-defined]
 
         async def close() -> None:
             conn.closed = True  # type: ignore[attr-defined]
-            if original_close is not None:
-                await original_close()  # type: ignore[misc]
 
         conn.close = close  # type: ignore[attr-defined,method-assign]
         self.conns.append(conn)

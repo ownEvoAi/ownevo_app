@@ -148,7 +148,7 @@ async def connect_workspace_conn(
     than one connection or runs long enough that the connect handshake cost
     matters.
     """
-    conn = await asyncpg.connect(db_url)
+    conn = await asyncpg.connect(db_url, timeout=10)
     try:
         await set_workspace(conn, workspace_id)
         yield conn

@@ -37,6 +37,7 @@ from dataclasses import dataclass
 
 from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
     connect_workspace_conn,
     set_workspace,
 )
@@ -584,7 +585,7 @@ async def main_async(args: argparse.Namespace) -> int:
         try:
             async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
                 seeded = await seed_demo(conn, with_iterations=False)
-        except (asyncpg.PostgresError, OSError) as exc:
+        except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
 
