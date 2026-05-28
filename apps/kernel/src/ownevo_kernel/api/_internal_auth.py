@@ -45,6 +45,13 @@ INTERNAL_AUTH_KEY_ENV = "OWNEVO_INTERNAL_AUTH_KEY"
 # principal below. Anything else (unset, "false", "0") disables the fallback.
 DEV_AUTH_ENV = "OWNEVO_DEV_AUTH"
 
+# Deployment-environment marker. Set to ``production`` only by real deploys.
+# Boot-time guards in ``api/app.py`` use this to refuse configurations that
+# are only safe in dev (e.g. ``OWNEVO_DEV_AUTH=true``) and to assert that
+# required production secrets are present.
+DEPLOY_ENV_VAR = "OWNEVO_ENV"
+PRODUCTION_ENV_VALUE = "production"
+
 # The seeded local principal (migration 0035 makes it owner of 'default').
 DEV_USER_ID = "dev-user"
 
@@ -64,6 +71,16 @@ class Principal:
 def dev_auth_enabled() -> bool:
     """True only when ``OWNEVO_DEV_AUTH`` is explicitly the string ``true``."""
     return os.environ.get(DEV_AUTH_ENV, "").lower() == "true"
+
+
+def is_production() -> bool:
+    """True only when ``OWNEVO_ENV`` is explicitly the string ``production``.
+
+    Real deploys must set this marker; dev and CI leave it unset. The
+    boot-time guards key off this single signal so adding more dev-only
+    conveniences in the future doesn't require touching every guard call site.
+    """
+    return os.environ.get(DEPLOY_ENV_VAR, "").lower() == PRODUCTION_ENV_VALUE
 
 
 def bearer_token(request: Request) -> str | None:
