@@ -28,8 +28,13 @@ import asyncio
 import os
 import sys
 
+import asyncpg
 from ownevo_kernel.middleware.otel_receiver import mint_token
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -88,7 +93,7 @@ async def _insert(
             if row is None:
                 raise RuntimeError("INSERT ... RETURNING returned no row")
             return row["id"]
-    except (WorkspaceBindError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         sys.exit(2)
 

@@ -870,3 +870,70 @@ async def test_preview_invite_unknown_actor(
     )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "email_mismatch"
+
+
+def test_verify_rejects_non_integer_expiry_claim():
+    """A token whose `e` claim is not an integer raises InviteTokenInvalid.
+
+    The diff split the old combined `(not isinstance(raw['e'], int) or ...)` into
+    a separate guard that fires unconditionally, even when check_expiry=False.
+    This test pins that the new guard produces the expected error message.
+    """
+    import json as _json
+
+    from ownevo_kernel.api._signing import b64url_encode, sign
+
+    claims = {"e": "not-an-int", "i": "abc-123", "k": "inv"}
+    payload = _json.dumps(claims, sort_keys=True, separators=(",", ":")).encode()
+    payload_s = b64url_encode(payload)
+    token = f"{payload_s}.{sign(payload_s, _KEY)}"
+    with pytest.raises(InviteTokenInvalid, match="malformed claim"):
+        verify_invite_token(token, _KEY)
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_redeem_invite_idempotent_after_expiry(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """A re-visit by the original redeemer after the invite has expired returns 200.
+
+    The idempotency check was moved before the expiry check so that a redeemer
+    who revisits the accept URL after the 24 h window still gets the
+    "already a member" response rather than invite_expired.
+    """
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "post-exp-owner@test.local")
+    invitee_id = await _create_user(api_client, "post-exp-invitee@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PostExpiry")
+    minted = await _mint_invite(
+        api_client,
+        ws_id=ws_id,
+        inviter_id=owner_id,
+        email="post-exp-invitee@test.local",
+    )
+
+    r1 = await api_client.post(
+        "/api/internal/invites/redeem",
+        headers=_AUTH_HEADERS,
+        json={"token": minted["token"], "redeemer_user_id": invitee_id},
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Backdate the row so the invite is now past its expiry window.
+    pool = api_client._transport.app.state.pool  # type: ignore[attr-defined]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE workspace_invites SET expires_at = now() - interval '1 minute' "
+            "WHERE id = $1",
+            minted["invite_id"],
+        )
+
+    # Same redeemer revisits after expiry: must get 200, not 400 invite_expired.
+    r2 = await api_client.post(
+        "/api/internal/invites/redeem",
+        headers=_AUTH_HEADERS,
+        json={"token": minted["token"], "redeemer_user_id": invitee_id},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["workspace_id"] == ws_id

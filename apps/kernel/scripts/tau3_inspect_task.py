@@ -192,6 +192,7 @@ async def _main_async(args: argparse.Namespace) -> int:
     # Bind the workspace before any read: under enforced RLS an unbound
     # connection sees zero rows in `traces` / `iterations`, so the inspect
     # commands would silently return "no results".
+    import asyncpg  # noqa: PLC0415
     from ownevo_kernel.tenant_session import (  # noqa: PLC0415
         DEFAULT_WORKSPACE_ID,
         WorkspaceBindError,
@@ -206,7 +207,7 @@ async def _main_async(args: argparse.Namespace) -> int:
                 await _compare(conn, args.workflow_id, args.task_id, iters)
             else:
                 await _list_tasks(conn, args.workflow_id, args.task_id)
-    except (WorkspaceBindError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
     return 0

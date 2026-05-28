@@ -311,6 +311,17 @@ async def redeem_invite(
                 invite["workspace_id"],
                 body.redeemer_user_id,
             )
+            if actual_role is None and invite["redeemed_at"] is not None:
+                # The invite was already redeemed by this user but their
+                # workspace membership was subsequently removed. Return 409
+                # rather than silently echoing the original invited role.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "membership_removed",
+                        "message": "your membership in this workspace was removed",
+                    },
+                )
             workspace = await conn.fetchrow(
                 "SELECT name FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
                 invite["workspace_id"],

@@ -147,7 +147,7 @@ class _StubConnect:
         self.fetchrow_return = fetchrow_return
         self.conns: list[_RecorderConn] = []
 
-    async def __call__(self, db_url: str) -> _RecorderConn:
+    async def __call__(self, db_url: str, **_kwargs: object) -> _RecorderConn:
         self.urls.append(db_url)
         conn = _RecorderConn(fetchrow_return=self.fetchrow_return)
         conn.closed = False  # type: ignore[attr-defined]

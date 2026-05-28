@@ -356,7 +356,7 @@ async def main_async(args: CliArgs) -> int:
                     workflow_id=args.workflow_id,
                     result=result,
                 )
-        except (WorkspaceBindError, asyncpg.ConnectionFailureError, OSError) as exc:
+        except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 4
         summary["persisted_clusters"] = len(persisted)

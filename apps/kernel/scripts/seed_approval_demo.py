@@ -31,7 +31,12 @@ import os
 import sys
 from uuid import UUID
 
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
+import asyncpg
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 _ENV_VAR = "OWNEVO_DATABASE_URL"
 _WORKFLOW_ID = "demo-demand-prediction"
@@ -195,7 +200,7 @@ async def _seed(db_url: str) -> int:
                 f"  Open: http://localhost:3000/proposals/{proposal_id}",
             )
             return 0
-    except (WorkspaceBindError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 1
 

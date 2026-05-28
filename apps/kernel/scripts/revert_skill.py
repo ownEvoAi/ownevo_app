@@ -36,9 +36,14 @@ import os
 import sys
 from datetime import UTC, datetime
 
+import asyncpg
 from ownevo_kernel.audit.writer import append_audit_entry
 from ownevo_kernel.db import ENV_VAR
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -147,7 +152,7 @@ async def _run(args: argparse.Namespace) -> int:
                 f"(audit seq {entry.seq})",
             )
             return 0
-    except (WorkspaceBindError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 2
 

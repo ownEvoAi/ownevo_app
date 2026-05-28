@@ -231,7 +231,7 @@ async def main_async(args: CliArgs) -> int:
             if args.reset:
                 await _reset_workflow_state(conn, cfg.workflow_id, cfg.skill_id)
             report = await run_seven_day_replay(conn, config=cfg)
-    except (WorkspaceBindError, asyncpg.ConnectionFailureError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 3
 

@@ -246,7 +246,7 @@ async def main_async(args: CliArgs) -> int:
                 val_score=result.val_score,
                 skill_version=args.skill_version,
             )
-    except (WorkspaceBindError, asyncpg.PostgresConnectionFailureError, OSError) as exc:
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
     print(
