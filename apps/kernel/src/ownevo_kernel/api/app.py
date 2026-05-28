@@ -32,6 +32,7 @@ from ..jobs import reap_orphaned_iterations
 from ..llm.router import check_provider_api_keys
 from ..sandbox.local_docker import _read_max_concurrent
 from ..secrets.encrypted_field import MASTER_KEY_ENV
+from ._error_handler import install_exception_handler
 from ._internal_auth import (
     DEPLOY_ENV_VAR,
     DEV_AUTH_ENV,
@@ -40,6 +41,8 @@ from ._internal_auth import (
     dev_auth_enabled,
     is_production,
 )
+from ._logging import configure_logging
+from ._request_id import RequestIdMiddleware
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -250,6 +253,11 @@ def create_app(
             if own_pool:
                 await app.state.pool.close()
 
+    # Opt-in JSON log formatter (OWNEVO_LOG_FORMAT=json). Called before
+    # the app is built so logs emitted from middleware/handler setup land
+    # in the configured format too. No-op when the env var is unset.
+    configure_logging()
+
     api = FastAPI(
         title="ownEvo approval API",
         version="0.1.0",
@@ -259,6 +267,11 @@ def create_app(
         ),
         lifespan=lifespan,
     )
+
+    # Global exception handler -- registers a structured 500 with an
+    # error_id correlation key so an unhandled error in any route surfaces
+    # as a grepable log line instead of a bare Starlette traceback.
+    install_exception_handler(api)
 
     if cors_origins is not None:
         origins = cors_origins
@@ -274,6 +287,14 @@ def create_app(
             allow_methods=["GET", "POST", "PATCH", "DELETE"],
             allow_headers=["*"],
         )
+
+    # Request-id middleware installed AFTER CORS so the id is attached
+    # to OPTIONS pre-flights too. add_middleware wraps in LIFO order, so
+    # the request-id layer sits on the outside. For normal responses the
+    # header is written here; for unhandled exceptions it is written by
+    # the exception handler directly (ServerErrorMiddleware catches before
+    # the request-id layer can write it on the way out).
+    api.add_middleware(RequestIdMiddleware)
 
     api.include_router(proposals.router)
     api.include_router(nl_gen.router)
