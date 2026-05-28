@@ -44,6 +44,9 @@ The short list below covers the deployment path. **For the full inventory** of e
 | Variable | Default | Description |
 |---|---|---|
 | `OWNEVO_CORS_ORIGINS` | `""` (allow all) | Comma-separated list of allowed CORS origins for the kernel API. |
+| `OWNEVO_DB_POOL_MIN_SIZE` | `1` | Lower bound on the kernel's asyncpg pool. Must be ≥ 1. |
+| `OWNEVO_DB_POOL_MAX_SIZE` | `10` | Upper bound on the pool. Raise for higher-concurrency deploys; `min > max` is rejected at boot. |
+| `OWNEVO_DB_STATEMENT_TIMEOUT_MS` | `30000` | Per-connection `statement_timeout` (ms). A runaway query is cancelled and surfaces as `asyncpg.QueryCanceledError` instead of pinning a connection. Set to `0` to disable (long-running maintenance scripts only — not recommended for the API process). |
 | `OWNEVO_M5_DIR` | `./data/m5` | Path to M5 forecasting CSVs (only needed for the M5 improvement loop). |
 | `OWNEVO_LLM_BASE_URL` | Anthropic cloud | Override base URL for local LLM backends (LM Studio, Ollama via LiteLLM). |
 | `OWNEVO_LLM_MODEL` | `claude-sonnet-4-6` | Model name for the improvement loop agent. For a local $0 alternative, use `qwen/qwen3.6-35b-a3b` (LM Studio, lms-anthropic path). |
