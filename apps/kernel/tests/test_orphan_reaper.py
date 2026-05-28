@@ -55,7 +55,9 @@ async def _rls_pool_for_db(db: asyncpg.Connection):
     """
     dbname = await db.fetchval("SELECT current_database()")
     role = f"rls_reaper_{dbname.rsplit('_', 1)[-1]}"
-    await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
+    # IF NOT EXISTS makes setup idempotent: a role left by a crashed prior run
+    # won't cause DuplicateObjectError, and the grants below are idempotent too.
+    await db.execute(f'CREATE ROLE IF NOT EXISTS "{role}" NOSUPERUSER NOBYPASSRLS')
     await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
     await db.execute(
         f"GRANT SELECT, INSERT, UPDATE, DELETE "
@@ -71,11 +73,16 @@ async def _rls_pool_for_db(db: asyncpg.Connection):
     async def _setup(conn: asyncpg.Connection) -> None:
         await conn.execute(f'SET ROLE "{role}"')
 
-    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, setup=_setup)
+    # pool=None guard: if create_pool raises, the finally still runs DROP.
+    pool = None
     try:
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, setup=_setup)
         yield pool
     finally:
-        await pool.close()
+        if pool is not None:
+            # Suppress close errors so DROP OWNED BY / DROP ROLE always run.
+            with contextlib.suppress(Exception):
+                await pool.close()
         await db.execute(f'DROP OWNED BY "{role}"')
         await db.execute(f'DROP ROLE IF EXISTS "{role}"')
 
@@ -297,6 +304,14 @@ async def test_reaper_isolates_workspaces(db: asyncpg.Connection) -> None:
                 default_iter_id,
             )
             assert cross_leak is None, "audit entry from default workspace leaked into ws-other"
+
+        # Reverse direction: ws-other's iteration id must not appear in default scope.
+        async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+            reverse_leak = await conn.fetchrow(
+                "SELECT id FROM audit_entries WHERE related_id = $1",
+                other_iter_id,
+            )
+            assert reverse_leak is None, "audit entry from ws-other leaked into default workspace"
 
 
 async def test_reaper_skips_soft_deleted_workspaces(db: asyncpg.Connection) -> None:
