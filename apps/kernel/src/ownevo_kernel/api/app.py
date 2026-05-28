@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
-from ..db import ENV_VAR
+from ..db import ENV_VAR, open_pool
 from ..jobs import reap_orphaned_iterations
 from ..llm.router import check_provider_api_keys
 from ..sandbox.local_docker import _read_max_concurrent
@@ -212,11 +212,11 @@ def create_app(
                     f"{ENV_VAR} is not set. Either export it or call "
                     "create_app(pool=...) with a pre-built asyncpg pool.",
                 )
-            # min_size=1 keeps a warm connection so the first request doesn't
-            # pay the handshake cost. max_size=10 fits a single Next.js dev server.
-            app.state.pool = await asyncpg.create_pool(
-                db_url, min_size=1, max_size=10,
-            )
+            # Pool sizing + per-connection statement_timeout default from env
+            # (OWNEVO_DB_POOL_MIN_SIZE / _MAX_SIZE / _STATEMENT_TIMEOUT_MS);
+            # see db.py for the validation and defaults. The statement_timeout
+            # caps any single query so one runaway can't pin a connection.
+            app.state.pool = await open_pool(db_url)
         else:
             # Caller-managed pool — don't open or close it here.
             app.state.pool = pool
