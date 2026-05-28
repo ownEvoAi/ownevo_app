@@ -18,6 +18,7 @@ from ownevo_kernel.api._sentry import (
     RELEASE_ENV,
     TRACES_SAMPLE_RATE_ENV,
     _before_send,
+    flush_sentry,
     init_sentry,
     tag_request,
     traces_sample_rate_from_env,
@@ -54,7 +55,7 @@ def test_init_is_noop_without_dsn(fake_init):
 
 
 def test_blank_dsn_treated_as_unset(fake_init, monkeypatch):
-    captured, calls = fake_init
+    _, calls = fake_init
     monkeypatch.setenv(DSN_ENV, "   ")
     assert init_sentry() is False
     assert calls["count"] == 0
@@ -71,6 +72,10 @@ def test_init_with_dsn_passes_expected_kwargs(fake_init, monkeypatch):
     assert captured["traces_sample_rate"] == DEFAULT_TRACES_SAMPLE_RATE
     assert captured["send_default_pii"] is False
     assert captured["before_send"] is _before_send
+    # Transaction events use a separate hook; verify it gets the same scrubbing.
+    assert captured["before_send_transaction"] is _before_send
+    # Stack frame locals must never ship (may contain credential dicts).
+    assert captured["include_local_variables"] is False
     # Both integrations must be present so middleware wiring happens
     # without the caller threading an ASGI middleware in by hand.
     integration_names = {type(i).__name__ for i in captured["integrations"]}
@@ -177,3 +182,60 @@ def test_tag_request_lands_in_scope(monkeypatch):
     monkeypatch.setattr(_sentry.sentry_sdk, "set_tag", _capture)
     tag_request("abc-123")
     assert calls == [("request_id", "abc-123")]
+
+
+@pytest.mark.parametrize("raw,expected", [("0.0", 0.0), ("1.0", 1.0), ("0", 0.0), ("1", 1.0)])
+def test_traces_sample_rate_accepts_boundary_values(monkeypatch, raw, expected):
+    monkeypatch.setenv(TRACES_SAMPLE_RATE_ENV, raw)
+    assert traces_sample_rate_from_env() == pytest.approx(expected)
+
+
+def test_before_send_strips_both_data_and_cookies():
+    event = {
+        "request": {
+            "data": {"workflow_spec": "secret"},
+            "cookies": {"session": "x"},
+            "method": "POST",
+            "headers": {"X-Request-Id": "abc"},
+        }
+    }
+    cleaned = _before_send(event, hint={})
+    assert "data" not in cleaned["request"]
+    assert "cookies" not in cleaned["request"]
+    assert cleaned["request"]["method"] == "POST"
+    assert cleaned["request"]["headers"] == {"X-Request-Id": "abc"}
+
+
+def test_before_send_preserves_headers():
+    event = {
+        "request": {
+            "data": "body",
+            "headers": {"Content-Type": "application/json", "X-Request-Id": "xyz"},
+        }
+    }
+    cleaned = _before_send(event, hint={})
+    assert cleaned["request"]["headers"] == {
+        "Content-Type": "application/json",
+        "X-Request-Id": "xyz",
+    }
+
+
+def test_blank_environment_falls_back_to_default(fake_init, monkeypatch):
+    captured, _ = fake_init
+    monkeypatch.setenv(DSN_ENV, _FAKE_DSN)
+    monkeypatch.setenv(ENVIRONMENT_ENV, "   ")
+    init_sentry()
+    assert captured["environment"] == DEFAULT_ENVIRONMENT
+
+
+def test_flush_sentry_does_not_raise_without_init():
+    """flush_sentry must be safe to call from the lifespan finally block
+    even when no DSN was configured (no-op client)."""
+    flush_sentry()
+
+
+def test_flush_sentry_delegates_to_sdk(monkeypatch):
+    calls: list[float] = []
+    monkeypatch.setattr(_sentry.sentry_sdk, "flush", lambda timeout: calls.append(timeout))
+    flush_sentry(timeout=1.5)
+    assert calls == [1.5]

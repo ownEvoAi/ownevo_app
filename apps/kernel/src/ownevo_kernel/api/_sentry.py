@@ -12,11 +12,29 @@ request, so a Sentry event and a JSON log line for the same incident
 share the correlation key the client already saw in the
 ``X-Request-Id`` response header.
 
-A ``before_send`` hook drops the captured request body before the
-event ships. The kernel's POST surface accepts workflow specs, agent
-payloads, and provider credentials — none of which should leave the
-box. PII is also disabled (``send_default_pii=False``) so cookies and
-client IPs are not captured.
+A ``before_send`` hook (and a matching ``before_send_transaction`` hook)
+drops the captured request body before any event ships. The kernel's
+POST surface accepts workflow specs, agent payloads, and provider
+credentials — none of which should leave the box. PII is also disabled
+(``send_default_pii=False``) so cookies and client IPs are not captured.
+``include_local_variables`` is explicitly disabled so stack frame locals
+(which may include parsed payloads or credential dicts) are not serialised
+into the event.
+
+Exception-handler interaction: the kernel registers a global exception
+handler that returns a ``JSONResponse`` for every uncaught route error.
+Because the handler swallows the exception, Sentry captures those events
+via the ``LoggingIntegration`` (mechanism type ``logging``, ``handled=True``)
+rather than the Starlette integration (``handled=False``). The events still
+reach Sentry and the request body is still scrubbed; the difference is that
+Sentry's own grouping and issue-type heuristics treat them as "handled".
+
+Auto-integration note: when ``traces_sample_rate > 0.0``, the Sentry SDK
+auto-enables ``AsyncPGIntegration`` (query templates, no params) and
+``AnthropicIntegration`` (model names + token counts, no prompt content).
+Both respect ``send_default_pii=False``; query parameters and LLM prompt
+text are not captured. Schema shape and LLM call latencies will appear in
+performance traces.
 
 Sample-rate handling:
 
@@ -119,6 +137,13 @@ def init_sentry() -> bool:
         traces_sample_rate=traces_sample_rate,
         send_default_pii=False,
         before_send=_before_send,
+        # Transaction events use a separate hook; before_send is not called
+        # for them. Apply the same body/cookie scrubbing so performance traces
+        # don't leak request payloads when traces_sample_rate > 0.0.
+        before_send_transaction=_before_send,
+        # Stack frame locals include parsed request bodies, credential dicts,
+        # and other runtime values. Never ship them.
+        include_local_variables=False,
         integrations=[
             StarletteIntegration(),
             FastApiIntegration(),
@@ -127,12 +152,28 @@ def init_sentry() -> bool:
     return True
 
 
+def flush_sentry(timeout: float = 2.0) -> None:
+    """Flush pending Sentry events before shutdown.
+
+    Safe to call unconditionally: when no DSN is configured the SDK uses
+    a no-op client whose flush is a cheap no-op. The 2-second default
+    gives the background transport thread enough time to drain its queue
+    before the process exits, without stalling a graceful shutdown past
+    the typical container SIGTERM grace period.
+    """
+    sentry_sdk.flush(timeout=timeout)
+
+
 def tag_request(request_id: str) -> None:
     """Stamp the active Sentry scope with the request id.
 
     A no-op (in effect) when Sentry isn't initialized: the SDK's
     default client never ships events, so the tag set here is silently
     dropped. Cheap enough to call unconditionally per request.
+
+    Scope isolation is guaranteed by the Starlette integration: it forks
+    a per-request isolation scope via contextvars, so the tag is bound to
+    the current request's scope and does not bleed into concurrent requests.
     """
     sentry_sdk.set_tag(_REQUEST_ID_TAG, request_id)
 
@@ -144,6 +185,7 @@ __all__ = [
     "ENVIRONMENT_ENV",
     "RELEASE_ENV",
     "TRACES_SAMPLE_RATE_ENV",
+    "flush_sentry",
     "init_sentry",
     "tag_request",
     "traces_sample_rate_from_env",

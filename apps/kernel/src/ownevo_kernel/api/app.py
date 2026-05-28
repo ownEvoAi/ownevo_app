@@ -43,7 +43,7 @@ from ._internal_auth import (
 )
 from ._logging import configure_logging
 from ._request_id import RequestIdMiddleware
-from ._sentry import init_sentry
+from ._sentry import flush_sentry, init_sentry
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -259,6 +259,10 @@ def create_app(
                 await app.state.trigger_scheduler.stop()
             if own_pool:
                 await app.state.pool.close()
+            # Drain any queued Sentry events before the process exits.
+            # SIGTERM bypasses atexit hooks in containers, so we flush
+            # explicitly here. No-op when SENTRY_DSN is unset.
+            flush_sentry()
 
     # Opt-in JSON log formatter (OWNEVO_LOG_FORMAT=json). Called before
     # the app is built so logs emitted from middleware/handler setup land
