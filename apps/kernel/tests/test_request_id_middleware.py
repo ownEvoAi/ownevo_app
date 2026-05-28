@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 
 import httpx
-import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
 from ownevo_kernel.api._request_id import (
@@ -31,7 +30,6 @@ def _app_that_echoes_request_id() -> FastAPI:
     return app
 
 
-@pytest.mark.asyncio
 async def test_request_id_is_minted_when_absent() -> None:
     app = _app_that_echoes_request_id()
     async with httpx.AsyncClient(
@@ -46,7 +44,6 @@ async def test_request_id_is_minted_when_absent() -> None:
     assert re.match(r"^[0-9a-f]{32}$", header_id)
 
 
-@pytest.mark.asyncio
 async def test_request_id_inbound_is_passed_through() -> None:
     app = _app_that_echoes_request_id()
     async with httpx.AsyncClient(
@@ -60,7 +57,6 @@ async def test_request_id_inbound_is_passed_through() -> None:
     assert resp.json()["request_id"] == "my-correlation-abc123"
 
 
-@pytest.mark.asyncio
 async def test_request_id_strips_disallowed_chars() -> None:
     """An inbound id with newline or whitespace inside the value is
     rejected and a fresh id is minted, so a hostile caller cannot inject
@@ -80,7 +76,6 @@ async def test_request_id_strips_disallowed_chars() -> None:
     assert re.match(r"^[0-9a-f]{32}$", minted)
 
 
-@pytest.mark.asyncio
 async def test_request_id_rejects_oversize_inbound() -> None:
     """Inbound ids over 128 chars are discarded — protects log fields
     that might index by id from being blown up by a hostile caller."""

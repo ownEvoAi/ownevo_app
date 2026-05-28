@@ -40,7 +40,6 @@ _STANDARD_LOGRECORD_ATTRS: frozenset[str] = frozenset(
         "exc_text",
         "filename",
         "funcName",
-        "getMessage",
         "levelname",
         "levelno",
         "lineno",
@@ -60,6 +59,14 @@ _STANDARD_LOGRECORD_ATTRS: frozenset[str] = frozenset(
     }
 )
 
+# Top-level keys we write explicitly in format(). An extra= kwarg with the
+# same name would silently overwrite the canonical field — skip them so a
+# caller's extra={"level": "INFO"} on an ERROR record cannot corrupt the
+# field that log shippers threshold on.
+_RESERVED_PAYLOAD_KEYS: frozenset[str] = frozenset(
+    {"timestamp", "level", "logger", "exception", "stack"}
+)
+
 
 class JsonFormatter(logging.Formatter):
     """One JSON object per log record, with extras preserved."""
@@ -73,7 +80,7 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         for key, value in record.__dict__.items():
-            if key in _STANDARD_LOGRECORD_ATTRS or key.startswith("_"):
+            if key in _STANDARD_LOGRECORD_ATTRS or key in _RESERVED_PAYLOAD_KEYS or key.startswith("_"):
                 continue
             payload[key] = _json_safe(value)
         if record.exc_info:

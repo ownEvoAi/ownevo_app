@@ -122,8 +122,11 @@ def test_configure_logging_is_noop_when_disabled(
     monkeypatch.delenv(LOG_FORMAT_ENV, raising=False)
     root = logging.getLogger()
     before = list(root.handlers)
-    configure_logging()
-    assert root.handlers == before
+    try:
+        configure_logging()
+        assert root.handlers == before
+    finally:
+        root.handlers = before
 
 
 def test_configure_logging_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:

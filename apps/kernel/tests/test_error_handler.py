@@ -38,7 +38,6 @@ def _app_with_boom_routes() -> FastAPI:
     return app
 
 
-@pytest.mark.asyncio
 async def test_unhandled_exception_returns_structured_500(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -78,7 +77,6 @@ async def test_unhandled_exception_returns_structured_500(
     assert record.exc_class == "RuntimeError"  # type: ignore[attr-defined]
 
 
-@pytest.mark.asyncio
 async def test_http_exception_passes_through_unchanged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -100,7 +98,6 @@ async def test_http_exception_passes_through_unchanged(
     ]
 
 
-@pytest.mark.asyncio
 async def test_error_id_format_when_request_id_unavailable() -> None:
     """If the request-id middleware is not installed, the handler still
     mints a fresh error_id and includes it in the body — the response

@@ -290,9 +290,10 @@ def create_app(
 
     # Request-id middleware installed AFTER CORS so the id is attached
     # to OPTIONS pre-flights too. add_middleware wraps in LIFO order, so
-    # the request-id layer sits on the outside and the X-Request-Id
-    # header lands on every response regardless of which inner layer
-    # produced it.
+    # the request-id layer sits on the outside. For normal responses the
+    # header is written here; for unhandled exceptions it is written by
+    # the exception handler directly (ServerErrorMiddleware catches before
+    # the request-id layer can write it on the way out).
     api.add_middleware(RequestIdMiddleware)
 
     api.include_router(proposals.router)
