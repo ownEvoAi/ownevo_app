@@ -108,7 +108,9 @@ _ALLOWED_NETWORKS = frozenset({"none", "bridge"})
 _MAX_CONCURRENT_ENV = "OWNEVO_SANDBOX_MAX_CONCURRENT"
 """Env var that caps the number of concurrent ``docker run`` invocations
 across all ``LocalDockerSandbox`` instances in the process. Must be a
-positive integer. Unset or unparseable falls back to ``_DEFAULT_MAX_CONCURRENT``."""
+positive integer. Unset or empty string falls back to
+``_DEFAULT_MAX_CONCURRENT``; non-integer or non-positive values raise
+``ValueError`` on the first ``run()`` call."""
 
 _DEFAULT_MAX_CONCURRENT = 4
 """Default concurrent-container cap. Sized for a single API host: each
@@ -138,26 +140,24 @@ def _read_max_concurrent() -> int:
 # Module-level admission state, lazy-initialized so the asyncio.Semaphore
 # binds to whichever event loop runs the first sandbox call. A module-level
 # singleton (rather than a class attribute) keeps the cap process-global even
-# if a subclass of LocalDockerSandbox is in use.
+# if a subclass of LocalDockerSandbox is in use. Safe without a lock:
+# asyncio is single-threaded and there is no await between the None-check
+# and the assignment, so two coroutines cannot race here.
 _admission_semaphore: asyncio.Semaphore | None = None
-_admission_capacity: int | None = None
 
 
 def _get_admission_semaphore() -> asyncio.Semaphore:
-    global _admission_semaphore, _admission_capacity
+    global _admission_semaphore
     if _admission_semaphore is None:
-        cap = _read_max_concurrent()
-        _admission_capacity = cap
-        _admission_semaphore = asyncio.Semaphore(cap)
+        _admission_semaphore = asyncio.Semaphore(_read_max_concurrent())
     return _admission_semaphore
 
 
 def reset_admission_for_tests() -> None:
     """Clear the cached admission semaphore so the next call re-reads the env
     var. For tests only -- production code should never need this."""
-    global _admission_semaphore, _admission_capacity
+    global _admission_semaphore
     _admission_semaphore = None
-    _admission_capacity = None
 
 
 def _validate_extra_volumes(
@@ -268,6 +268,7 @@ class LocalDockerSandbox:
         memory_mb: int,
         extra_volumes: dict[str, str] | None = None,
         extra_env: dict[str, str] | None = None,
+        slot_timeout_seconds: float | None = None,
     ) -> SandboxResult:
         """Execute `code` in a hardened container.
 
@@ -285,6 +286,13 @@ class LocalDockerSandbox:
         in the τ³ image) and `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
         `OLLAMA_API_BASE` for LiteLLM routing. Values are passed
         verbatim to `docker run -e KEY=VALUE`.
+
+        `slot_timeout_seconds`, when set, applies ``asyncio.wait_for``
+        **after** the admission slot is acquired so the timeout budget
+        covers only container execution + docker daemon overhead, not
+        time spent waiting in the admission queue. Callers that need a
+        wall-clock cap should pass this instead of wrapping ``run()``
+        with an outer ``asyncio.wait_for``.
         """
         if memory_mb <= 0:
             raise ValueError(f"memory_mb must be positive, got {memory_mb}")
@@ -293,13 +301,16 @@ class LocalDockerSandbox:
         # Wait for an admission slot before doing any setup so callers that
         # are queued don't accumulate temp dirs or container names on disk.
         async with _get_admission_semaphore():
-            return await self._run_inside_slot(
+            coro = self._run_inside_slot(
                 code,
                 timeout_seconds=timeout_seconds,
                 memory_mb=memory_mb,
                 validated_extras=validated_extras,
                 extra_env=extra_env,
             )
+            if slot_timeout_seconds is not None:
+                return await asyncio.wait_for(coro, timeout=slot_timeout_seconds)
+            return await coro
 
     async def _run_inside_slot(
         self,

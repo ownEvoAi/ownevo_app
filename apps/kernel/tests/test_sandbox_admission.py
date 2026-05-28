@@ -42,14 +42,14 @@ class _CountingSandbox(LocalDockerSandbox):
         self.peak_in_flight = 0
         self.release_event = asyncio.Event()
 
-    async def _run_inside_slot(  # type: ignore[override]
+    async def _run_inside_slot(
         self,
         code: str,
         *,
         timeout_seconds: float,
         memory_mb: int,
-        validated_extras,
-        extra_env,
+        validated_extras: list[tuple[str, str]],
+        extra_env: dict[str, str] | None,
     ) -> SandboxResult:
         self.in_flight += 1
         self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
@@ -67,7 +67,6 @@ def _reset_admission(monkeypatch):
     reset_admission_for_tests()
     yield
     reset_admission_for_tests()
-    monkeypatch.delenv(_MAX_CONCURRENT_ENV, raising=False)
 
 
 def test_read_max_concurrent_default(monkeypatch):
@@ -96,6 +95,11 @@ def test_read_max_concurrent_rejects_garbage(monkeypatch):
     monkeypatch.setenv(_MAX_CONCURRENT_ENV, "not-a-number")
     with pytest.raises(ValueError, match=_MAX_CONCURRENT_ENV):
         _read_max_concurrent()
+
+
+def test_read_max_concurrent_whitespace_only(monkeypatch):
+    monkeypatch.setenv(_MAX_CONCURRENT_ENV, "   ")
+    assert _read_max_concurrent() == _DEFAULT_MAX_CONCURRENT
 
 
 @pytest.mark.asyncio
@@ -134,14 +138,14 @@ async def test_admission_semaphore_releases_on_exception(monkeypatch):
             super().__init__(network="none")
             self.calls = 0
 
-        async def _run_inside_slot(  # type: ignore[override]
+        async def _run_inside_slot(
             self,
             code: str,
             *,
             timeout_seconds: float,
             memory_mb: int,
-            validated_extras,
-            extra_env,
+            validated_extras: list[tuple[str, str]],
+            extra_env: dict[str, str] | None,
         ) -> SandboxResult:
             self.calls += 1
             if self.calls == 1:
