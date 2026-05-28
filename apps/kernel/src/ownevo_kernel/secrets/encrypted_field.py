@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 
-_MASTER_KEY_ENV = "OWNEVO_CREDENTIALS_MASTER_KEY"
+MASTER_KEY_ENV = "OWNEVO_CREDENTIALS_MASTER_KEY"
 _SCHEME_PREFIX = "v1:"
 
 
@@ -49,10 +49,10 @@ def _load_fernet():  # -> cryptography.fernet.Fernet
     Imported lazily so importing this module doesn't hard-require the
     `cryptography` dep on code paths that never touch credentials.
     """
-    raw = os.environ.get(_MASTER_KEY_ENV)
+    raw = os.environ.get(MASTER_KEY_ENV)
     if not raw:
         raise CredentialsKeyMissingError(
-            f"{_MASTER_KEY_ENV} is not set. Generate one with "
+            f"{MASTER_KEY_ENV} is not set. Generate one with "
             "`make gen-credentials-key` and store it in the deployment's "
             "secret manager.",
         )
@@ -66,7 +66,7 @@ def _load_fernet():  # -> cryptography.fernet.Fernet
         return Fernet(raw.encode("ascii"))
     except (ValueError, TypeError) as exc:
         raise CredentialsKeyMissingError(
-            f"{_MASTER_KEY_ENV} is not a valid Fernet key "
+            f"{MASTER_KEY_ENV} is not a valid Fernet key "
             "(expected 32 url-safe base64-encoded bytes).",
         ) from exc
 

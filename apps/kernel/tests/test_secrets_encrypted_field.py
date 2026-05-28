@@ -14,13 +14,13 @@ from ownevo_kernel.secrets import (
     encrypt,
     generate_master_key,
 )
-from ownevo_kernel.secrets.encrypted_field import _MASTER_KEY_ENV, _SCHEME_PREFIX
+from ownevo_kernel.secrets.encrypted_field import MASTER_KEY_ENV, _SCHEME_PREFIX
 
 
 @pytest.fixture
 def master_key(monkeypatch: pytest.MonkeyPatch) -> str:
     key = generate_master_key()
-    monkeypatch.setenv(_MASTER_KEY_ENV, key)
+    monkeypatch.setenv(MASTER_KEY_ENV, key)
     return key
 
 
@@ -58,7 +58,7 @@ def test_tamper_detected(master_key: str) -> None:
 def test_wrong_key_fails(master_key: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sealed = encrypt("secret")
     # Rotate to a different key and try to decrypt the old token.
-    monkeypatch.setenv(_MASTER_KEY_ENV, generate_master_key())
+    monkeypatch.setenv(MASTER_KEY_ENV, generate_master_key())
     with pytest.raises(CredentialsDecryptError):
         decrypt(sealed)
 
@@ -69,7 +69,7 @@ def test_missing_prefix_rejected(master_key: str) -> None:
 
 
 def test_missing_master_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(_MASTER_KEY_ENV, raising=False)
+    monkeypatch.delenv(MASTER_KEY_ENV, raising=False)
     with pytest.raises(CredentialsKeyMissingError):
         encrypt("secret")
     with pytest.raises(CredentialsKeyMissingError):
@@ -77,6 +77,6 @@ def test_missing_master_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_malformed_master_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(_MASTER_KEY_ENV, "not-a-valid-fernet-key")
+    monkeypatch.setenv(MASTER_KEY_ENV, "not-a-valid-fernet-key")
     with pytest.raises(CredentialsKeyMissingError):
         encrypt("secret")

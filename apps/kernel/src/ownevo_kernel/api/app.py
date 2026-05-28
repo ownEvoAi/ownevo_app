@@ -29,7 +29,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR
 from ..llm.router import check_provider_api_keys
-from ._internal_auth import DEV_AUTH_ENV, INTERNAL_AUTH_KEY_ENV, dev_auth_enabled
+from ._internal_auth import (
+    DEPLOY_ENV_VAR,
+    DEV_AUTH_ENV,
+    INTERNAL_AUTH_KEY_ENV,
+    PRODUCTION_ENV_VALUE,
+    dev_auth_enabled,
+    is_production,
+)
+from ..secrets.encrypted_field import MASTER_KEY_ENV
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -147,6 +155,38 @@ def create_app(
                 "bypassing workspace isolation when a real signing key is in use. "
                 f"Unset {DEV_AUTH_ENV} in any deployment that authenticates real users."
             )
+
+        # Production boot guard: when the deployment explicitly identifies as
+        # production, refuse the dev-auth fallback outright (independent of
+        # whether a signing key is present) and assert the required server
+        # secrets are configured. The signing-key check above catches the most
+        # dangerous misconfiguration; this catches the rest -- a prod boot
+        # without a key would otherwise reject every request at runtime, and a
+        # prod boot without the credentials master key would fail at first
+        # integration write rather than at startup.
+        if is_production():
+            if dev_auth_enabled():
+                raise RuntimeError(
+                    f"{DEPLOY_ENV_VAR}={PRODUCTION_ENV_VALUE} is set with "
+                    f"{DEV_AUTH_ENV}=true. The dev-auth fallback resolves every "
+                    "unauthenticated request to the seeded dev user and the "
+                    "default workspace, which would bypass real authentication "
+                    f"in production. Unset {DEV_AUTH_ENV}."
+                )
+            missing = [
+                name
+                for name in (INTERNAL_AUTH_KEY_ENV, MASTER_KEY_ENV)
+                if not os.environ.get(name)
+            ]
+            if missing:
+                raise RuntimeError(
+                    f"{DEPLOY_ENV_VAR}={PRODUCTION_ENV_VALUE} but required "
+                    f"production secrets are not set: {', '.join(missing)}. "
+                    "These must be present in the deployment environment so a "
+                    "misconfigured prod boot fails loudly instead of silently "
+                    "rejecting authenticated requests or crashing at the first "
+                    "credential write."
+                )
 
         for warning in check_provider_api_keys():
             logger.warning("llm-router: %s", warning)

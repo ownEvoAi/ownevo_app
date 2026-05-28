@@ -170,6 +170,36 @@ The dev provider and the kernel dev fallback are **refused when
 deployment fails closed (no anonymous default-workspace access) rather than
 silently granting access.
 
+### Boot-time guards
+
+Three startup checks refuse known-bad combinations rather than letting them
+surface as quiet runtime failures:
+
+- **Dev-auth + signing key** — `OWNEVO_DEV_AUTH=true` alongside
+  `OWNEVO_INTERNAL_AUTH_KEY` would let the dev fallback bypass workspace
+  isolation in any deployment that uses the shared signing key. Both the
+  kernel (`api/app.py` lifespan) and the web app (`instrumentation.ts`)
+  refuse to start in this state.
+- **Dev-auth + Google credentials** — `OWNEVO_DEV_AUTH=true` alongside
+  `AUTH_GOOGLE_ID/SECRET` is also refused at web startup: the dev-auth
+  path only registers the credentials provider, so any Google sign-in
+  attempt would 500 immediately.
+- **Production environment** — when the deployment identifies as
+  production (`OWNEVO_ENV=production` for the kernel; `NODE_ENV=production`
+  for the web app), startup refuses any of: dev-auth still on; the
+  internal signing key missing; the kernel's credentials master key
+  (`OWNEVO_CREDENTIALS_MASTER_KEY`) missing. A misconfigured prod boot
+  crashes loudly with an actionable error instead of rejecting every
+  authenticated request or crashing at the first integration write.
+
+  **Deployment requirement:** `OWNEVO_ENV=production` must be set
+  explicitly in the kernel's deployment environment (e.g. as a secret or
+  env var in your hosting platform). The web app's production guard fires
+  automatically because Next.js sets `NODE_ENV=production` in production
+  builds; the kernel's guard is opt-in by this explicit marker. Without it
+  the kernel's production-only checks do not run. See `.env.example` for
+  the documented variable.
+
 ## How this unblocks the rest of the multi-tenant work
 
 - **Per-request workspace resolution** is no longer blocked — the kernel
