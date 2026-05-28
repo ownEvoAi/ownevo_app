@@ -26,6 +26,9 @@ images, or the dev/benchmarking scripts. Grouped by what they configure.
 |---|---|---|---|---|
 | `DEMO_MODE` | optional | unset (= off) | `api/deps.py` (`require_not_demo_mode`) | When set to `"true"` (case-insensitive), write endpoints return **HTTP 503**. Used on the public demo deploy. Web app reads its own `DEMO_MODE` to surface a banner — kernel + web set it independently. |
 | `OWNEVO_CORS_ORIGINS` | optional | dev origins | `api/app.py` line 87 | Comma-separated allowed origins. Falls back to a dev default when unset. In production set with `flyctl secrets set OWNEVO_CORS_ORIGINS=https://ownevo-web.fly.dev,https://demo.ownevo.ai`. |
+| `SENTRY_DSN` | optional | unset (= off) | `api/_sentry.py::init_sentry`, called from `app.py` lifespan | When set, the kernel reports uncaught exceptions to Sentry (FastAPI + Starlette integrations) and tags every event with the same `request_id` echoed in the `X-Request-Id` response header. `before_send` strips request body + cookies; PII (`send_default_pii=False`) is off. Unset → init is a no-op; dev/CI installs need no opt-out. |
+| `OWNEVO_SENTRY_TRACES_SAMPLE_RATE` | optional | `0.0` | `api/_sentry.py` | Performance-trace sample rate in `[0.0, 1.0]`. Default `0.0` means error events only — a noisy deployment cannot silently burn the Sentry quota. Malformed values fail the boot rather than silently disabling traces. |
+| `OWNEVO_SENTRY_RELEASE` | optional | (Sentry auto-detect) | `api/_sentry.py` | Release tag passed to `sentry_sdk.init(release=...)`. Leave unset to let Sentry auto-detect from VCS; set to a build SHA when wiring deploy-time release identification. |
 
 ## 3. Local LLM backends (dev / dogfooding)
 

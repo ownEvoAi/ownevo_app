@@ -50,6 +50,11 @@ api = [
     # Python; kept in the API extra so the upload route works wherever the
     # API runs. The heavy parsing libs live in the `data-ingest` extra below.
     "python-multipart>=0.0.9,<0.1",
+    # Error reporting. The kernel calls `sentry_sdk.init(...)` only when
+    # `SENTRY_DSN` is set, so dev/CI installs are silent; the FastAPI
+    # integration is pulled in via the `[fastapi]` extra so middleware
+    # wiring happens at init time without us touching the request path.
+    "sentry-sdk[fastapi]>=2.18,<3",
 ]
 # Direct-upload ingestion (Track 17.0.3 / 17.0.4): parse spreadsheets and
 # documents into the parsed form the agent reads. Heavy + optional so the

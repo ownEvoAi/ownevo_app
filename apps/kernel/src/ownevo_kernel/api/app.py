@@ -43,6 +43,7 @@ from ._internal_auth import (
 )
 from ._logging import configure_logging
 from ._request_id import RequestIdMiddleware
+from ._sentry import init_sentry
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -146,6 +147,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Initialize Sentry before any other boot work, so a guard failure
+        # below also reports as a Sentry event (when SENTRY_DSN is set). A
+        # bad OWNEVO_SENTRY_TRACES_SAMPLE_RATE fails the boot here rather
+        # than silently disabling traces or sampling at the wrong rate.
+        init_sentry()
+
         # Boot-time guard: dev-auth and the shared signing key are mutually
         # exclusive. With both set the kernel would silently fall back to the
         # seeded dev principal for any unauthenticated request, effectively
