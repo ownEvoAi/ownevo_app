@@ -105,6 +105,60 @@ on `proc.communicate()`."""
 
 _ALLOWED_NETWORKS = frozenset({"none", "bridge"})
 
+_MAX_CONCURRENT_ENV = "OWNEVO_SANDBOX_MAX_CONCURRENT"
+"""Env var that caps the number of concurrent ``docker run`` invocations
+across all ``LocalDockerSandbox`` instances in the process. Must be a
+positive integer. Unset or unparseable falls back to ``_DEFAULT_MAX_CONCURRENT``."""
+
+_DEFAULT_MAX_CONCURRENT = 4
+"""Default concurrent-container cap. Sized for a single API host: each
+sandbox holds 1 CPU + ``memory_mb`` of RAM + 512 pids by default, so 4 in
+flight fits comfortably on a 4-vCPU / 8GB machine without thrashing.
+Customers running on larger hosts can raise it via the env var."""
+
+
+def _read_max_concurrent() -> int:
+    """Resolve the admission cap from env, or fall back to the default."""
+    raw = os.environ.get(_MAX_CONCURRENT_ENV)
+    if raw is None or raw.strip() == "":
+        return _DEFAULT_MAX_CONCURRENT
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{_MAX_CONCURRENT_ENV} must be a positive integer; got {raw!r}"
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            f"{_MAX_CONCURRENT_ENV} must be > 0; got {value}"
+        )
+    return value
+
+
+# Module-level admission state, lazy-initialized so the asyncio.Semaphore
+# binds to whichever event loop runs the first sandbox call. A module-level
+# singleton (rather than a class attribute) keeps the cap process-global even
+# if a subclass of LocalDockerSandbox is in use.
+_admission_semaphore: asyncio.Semaphore | None = None
+_admission_capacity: int | None = None
+
+
+def _get_admission_semaphore() -> asyncio.Semaphore:
+    global _admission_semaphore, _admission_capacity
+    if _admission_semaphore is None:
+        cap = _read_max_concurrent()
+        _admission_capacity = cap
+        _admission_semaphore = asyncio.Semaphore(cap)
+    return _admission_semaphore
+
+
+def reset_admission_for_tests() -> None:
+    """Clear the cached admission semaphore so the next call re-reads the env
+    var. For tests only -- production code should never need this."""
+    global _admission_semaphore, _admission_capacity
+    _admission_semaphore = None
+    _admission_capacity = None
+
 
 def _validate_extra_volumes(
     volumes: dict[str, str] | None,
@@ -164,6 +218,17 @@ class LocalDockerSandbox:
     The class doesn't hold any per-run state; one instance can serve
     many concurrent calls (each run gets its own container name and
     temp dir).
+
+    Admission control
+    -----------------
+    Concurrent ``run()`` calls share a process-level semaphore so the API
+    host can't be overwhelmed by an unbounded fan-out (e.g. an eval set
+    triggering one container per case). The cap is taken from
+    ``OWNEVO_SANDBOX_MAX_CONCURRENT`` on first use (default 4) and shared
+    across every instance in the process. The semaphore is a module-level
+    singleton (see ``_get_admission_semaphore``) so subclasses can't
+    accidentally shadow it. Tests reset it via
+    ``reset_admission_for_tests()``.
     """
 
     def __init__(
@@ -224,6 +289,34 @@ class LocalDockerSandbox:
         if memory_mb <= 0:
             raise ValueError(f"memory_mb must be positive, got {memory_mb}")
         validated_extras = _validate_extra_volumes(extra_volumes)
+
+        # Wait for an admission slot before doing any setup so callers that
+        # are queued don't accumulate temp dirs or container names on disk.
+        async with _get_admission_semaphore():
+            return await self._run_inside_slot(
+                code,
+                timeout_seconds=timeout_seconds,
+                memory_mb=memory_mb,
+                validated_extras=validated_extras,
+                extra_env=extra_env,
+            )
+
+    async def _run_inside_slot(
+        self,
+        code: str,
+        *,
+        timeout_seconds: float,
+        memory_mb: int,
+        validated_extras: list[tuple[str, str]],
+        extra_env: dict[str, str] | None,
+    ) -> SandboxResult:
+        """Inner body of ``run()`` that executes once an admission slot is held.
+
+        Split from ``run()`` so tests can exercise the semaphore independently
+        from the docker subprocess and so the slot is held for exactly the
+        container's lifetime (acquire-to-cleanup), not just the in-flight
+        subprocess.
+        """
         container_name = f"ownevo-sb-{uuid.uuid4().hex[:12]}"
         host_dir = Path(tempfile.mkdtemp(prefix="ownevo-sandbox-"))
         try:
