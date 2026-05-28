@@ -9,12 +9,15 @@ round-trip the session GUC against a real server.
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import pytest
 from ownevo_kernel.db import ENV_VAR
 from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
+    UnknownWorkspaceError,
+    connect_workspace_conn,
     current_workspace,
     set_workspace,
 )
@@ -95,3 +98,28 @@ async def test_set_and_current_workspace_round_trip(db: asyncpg.Connection) -> N
     )
     await set_workspace(db, "acme")
     assert await current_workspace(db) == "acme"
+
+
+def _dsn_for(dbname: str) -> str:
+    parsed = urlparse(os.environ[ENV_VAR])
+    return urlunparse(parsed._replace(path=f"/{dbname}"))
+
+
+async def test_connect_workspace_conn_yields_bound_connection(
+    db: asyncpg.Connection,
+) -> None:
+    # Open a brand-new connection via the helper against the same test DB and
+    # confirm the GUC was set before the yield -- a real round-trip rather than
+    # a recorder stub.
+    dbname = await db.fetchval("SELECT current_database()")
+    async with connect_workspace_conn(_dsn_for(dbname), DEFAULT_WORKSPACE_ID) as conn:
+        assert await current_workspace(conn) == DEFAULT_WORKSPACE_ID
+
+
+async def test_connect_workspace_conn_refuses_unknown_workspace(
+    db: asyncpg.Connection,
+) -> None:
+    dbname = await db.fetchval("SELECT current_database()")
+    with pytest.raises(UnknownWorkspaceError):
+        async with connect_workspace_conn(_dsn_for(dbname), "ghost"):
+            pytest.fail("body should not run when bind fails")  # pragma: no cover

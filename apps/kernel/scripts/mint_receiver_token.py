@@ -30,7 +30,11 @@ import sys
 
 import asyncpg
 from ownevo_kernel.middleware.otel_receiver import mint_token
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -63,35 +67,35 @@ async def _insert(
         print("error: OWNEVO_DATABASE_URL not set.", file=sys.stderr)
         sys.exit(2)
 
-    conn = await asyncpg.connect(db_url)
     try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        if workflow_id is not None:
-            exists = await conn.fetchval(
-                "SELECT 1 FROM workflows WHERE id = $1",
-                workflow_id,
-            )
-            if not exists:
-                print(
-                    f"error: workflow {workflow_id!r} not found.",
-                    file=sys.stderr,
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            if workflow_id is not None:
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM workflows WHERE id = $1",
+                    workflow_id,
                 )
-                sys.exit(3)
-        row = await conn.fetchrow(
-            """
-            INSERT INTO receiver_tokens (token_hash, workflow_id, label)
-            VALUES ($1, $2, $3)
-            RETURNING id::text AS id
-            """,
-            token_hash,
-            workflow_id,
-            label,
-        )
-        if row is None:
-            raise RuntimeError("INSERT ... RETURNING returned no row")
-        return row["id"]
-    finally:
-        await conn.close()
+                if not exists:
+                    print(
+                        f"error: workflow {workflow_id!r} not found.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(3)
+            row = await conn.fetchrow(
+                """
+                INSERT INTO receiver_tokens (token_hash, workflow_id, label)
+                VALUES ($1, $2, $3)
+                RETURNING id::text AS id
+                """,
+                token_hash,
+                workflow_id,
+                label,
+            )
+            if row is None:
+                raise RuntimeError("INSERT ... RETURNING returned no row")
+            return row["id"]
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def main(argv: list[str] | None = None) -> int:

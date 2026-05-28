@@ -37,10 +37,13 @@ import sys
 from datetime import UTC, datetime
 
 import asyncpg
-
 from ownevo_kernel.audit.writer import append_audit_entry
 from ownevo_kernel.db import ENV_VAR
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -50,108 +53,108 @@ async def _run(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
 
-    conn = await asyncpg.connect(db_url)
     try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        skill = await conn.fetchrow(
-            "SELECT id, kind::text AS kind, head_version_id, workflow_id "
-            "FROM skills WHERE id = $1",
-            args.skill,
-        )
-        if skill is None:
-            print(f"error: skill not found: {args.skill}", file=sys.stderr)
-            return 2
-
-        target = await conn.fetchrow(
-            """
-            SELECT id, version_seq, content
-            FROM skill_versions
-            WHERE skill_id = $1 AND version_seq = $2
-            """,
-            args.skill,
-            args.to_version,
-        )
-        if target is None:
-            print(
-                f"error: skill {args.skill} has no version_seq={args.to_version}",
-                file=sys.stderr,
-            )
-            return 2
-
-        current = await conn.fetchrow(
-            """
-            SELECT id, version_seq
-            FROM skill_versions
-            WHERE id = $1
-            """,
-            skill["head_version_id"],
-        )
-
-        if current is not None and current["version_seq"] == target["version_seq"]:
-            print(
-                f"no-op: skill {args.skill} head is already v{target['version_seq']}; "
-                "nothing to do.",
-            )
-            return 3
-
-        from_seq = current["version_seq"] if current is not None else None
-
-        if args.dry_run:
-            print(
-                f"DRY RUN: would revert {args.skill} from "
-                f"v{from_seq} → v{target['version_seq']}",
-            )
-            print(f"  reason: {args.reason}")
-            print("  no DB writes performed.")
-            return 0
-
-        prior_head_id = skill["head_version_id"]
-        async with conn.transaction():
-            # Optimistic concurrency: only flip the head if it still
-            # matches what we observed before the txn started. If a
-            # gate-pass deploy advanced the head between our read and
-            # this UPDATE, abort instead of silently overwriting it
-            # (which would also write a stale `from_version_seq` to
-            # the audit log).
-            update_result = await conn.execute(
-                "UPDATE skills "
-                "SET head_version_id = $1, latest_proposed_version_id = $1 "
-                "WHERE id = $2 AND head_version_id IS NOT DISTINCT FROM $3",
-                target["id"],
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            skill = await conn.fetchrow(
+                "SELECT id, kind::text AS kind, head_version_id, workflow_id "
+                "FROM skills WHERE id = $1",
                 args.skill,
-                prior_head_id,
             )
-            # asyncpg returns a status string like 'UPDATE 1'; parse the count.
-            updated = int(update_result.rsplit(" ", 1)[-1])
-            if updated != 1:
+            if skill is None:
+                print(f"error: skill not found: {args.skill}", file=sys.stderr)
+                return 2
+
+            target = await conn.fetchrow(
+                """
+                SELECT id, version_seq, content
+                FROM skill_versions
+                WHERE skill_id = $1 AND version_seq = $2
+                """,
+                args.skill,
+                args.to_version,
+            )
+            if target is None:
                 print(
-                    f"abort: skill {args.skill} head changed since read "
-                    f"(was v{from_seq}); rerun revert with the current head.",
+                    f"error: skill {args.skill} has no version_seq={args.to_version}",
                     file=sys.stderr,
                 )
-                return 4
-            entry = await append_audit_entry(
-                conn,
-                kind="proposal-rolled-back",
-                actor=args.actor,
-                related_id=target["id"],
-                payload={
-                    "rollback_kind": "skill-head-revert",
-                    "skill_id": args.skill,
-                    "from_version_seq": from_seq,
-                    "to_version_seq": target["version_seq"],
-                    "reason": args.reason,
-                    "applied_at": datetime.now(tz=UTC).isoformat(),
-                },
+                return 2
+
+            current = await conn.fetchrow(
+                """
+                SELECT id, version_seq
+                FROM skill_versions
+                WHERE id = $1
+                """,
+                skill["head_version_id"],
             )
 
-        print(
-            f"reverted {args.skill}: v{from_seq} → v{target['version_seq']} "
-            f"(audit seq {entry.seq})",
-        )
-        return 0
-    finally:
-        await conn.close()
+            if current is not None and current["version_seq"] == target["version_seq"]:
+                print(
+                    f"no-op: skill {args.skill} head is already v{target['version_seq']}; "
+                    "nothing to do.",
+                )
+                return 3
+
+            from_seq = current["version_seq"] if current is not None else None
+
+            if args.dry_run:
+                print(
+                    f"DRY RUN: would revert {args.skill} from "
+                    f"v{from_seq} → v{target['version_seq']}",
+                )
+                print(f"  reason: {args.reason}")
+                print("  no DB writes performed.")
+                return 0
+
+            prior_head_id = skill["head_version_id"]
+            async with conn.transaction():
+                # Optimistic concurrency: only flip the head if it still
+                # matches what we observed before the txn started. If a
+                # gate-pass deploy advanced the head between our read and
+                # this UPDATE, abort instead of silently overwriting it
+                # (which would also write a stale `from_version_seq` to
+                # the audit log).
+                update_result = await conn.execute(
+                    "UPDATE skills "
+                    "SET head_version_id = $1, latest_proposed_version_id = $1 "
+                    "WHERE id = $2 AND head_version_id IS NOT DISTINCT FROM $3",
+                    target["id"],
+                    args.skill,
+                    prior_head_id,
+                )
+                # asyncpg returns a status string like 'UPDATE 1'; parse the count.
+                updated = int(update_result.rsplit(" ", 1)[-1])
+                if updated != 1:
+                    print(
+                        f"abort: skill {args.skill} head changed since read "
+                        f"(was v{from_seq}); rerun revert with the current head.",
+                        file=sys.stderr,
+                    )
+                    return 4
+                entry = await append_audit_entry(
+                    conn,
+                    kind="proposal-rolled-back",
+                    actor=args.actor,
+                    related_id=target["id"],
+                    payload={
+                        "rollback_kind": "skill-head-revert",
+                        "skill_id": args.skill,
+                        "from_version_seq": from_seq,
+                        "to_version_seq": target["version_seq"],
+                        "reason": args.reason,
+                        "applied_at": datetime.now(tz=UTC).isoformat(),
+                    },
+                )
+
+            print(
+                f"reverted {args.skill}: v{from_seq} → v{target['version_seq']} "
+                f"(audit seq {entry.seq})",
+            )
+            return 0
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 2
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

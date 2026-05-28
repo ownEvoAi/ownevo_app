@@ -265,27 +265,27 @@ async def redeem_invite(
             )
             if invite is None:
                 raise _invite_error("invite_invalid", "invite not found")
-            if redeemer_email.lower() != invite["invited_email"]:
+            if redeemer_email.lower() != invite["invited_email"].lower():
                 raise _invite_error(
                     "invite_email_mismatch",
                     "this invite was addressed to a different email address",
                 )
             if invite["revoked_at"] is not None:
                 raise _invite_error("invite_revoked", "invite has been revoked")
-            # Row-stored expiry is the source of truth; the token expiry
-            # should match but is checked independently in verify_invite_token.
-            if invite["expires_at"] <= datetime.now(timezone.utc):
-                raise _invite_error("invite_expired", "invite has expired")
             if invite["redeemed_at"] is not None:
-                # Idempotent for the same user; rejected for anyone else so an
-                # already-consumed invite cannot be re-used by a different
-                # account that happens to have the URL.
+                # Idempotency check runs before expiry so a redeemer who
+                # revisits the URL after the invite expires still gets the
+                # "already a member" response rather than invite_expired.
                 if invite["redeemed_by"] != body.redeemer_user_id:
                     raise _invite_error(
                         "invite_already_redeemed",
                         "invite has already been redeemed",
                     )
             else:
+                # Row-stored expiry is the source of truth; the token expiry
+                # should match but is checked independently in verify_invite_token.
+                if invite["expires_at"] <= datetime.now(timezone.utc):
+                    raise _invite_error("invite_expired", "invite has expired")
                 # First redemption: insert membership and mark the invite
                 # consumed. ON CONFLICT handles the edge case where the
                 # redeemer was added to the workspace by some other path
@@ -311,6 +311,17 @@ async def redeem_invite(
                 invite["workspace_id"],
                 body.redeemer_user_id,
             )
+            if actual_role is None and invite["redeemed_at"] is not None:
+                # The invite was already redeemed by this user but their
+                # workspace membership was subsequently removed. Return 409
+                # rather than silently echoing the original invited role.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "membership_removed",
+                        "message": "your membership in this workspace was removed",
+                    },
+                )
             workspace = await conn.fetchrow(
                 "SELECT name FROM workspaces WHERE id = $1 AND deleted_at IS NULL",
                 invite["workspace_id"],
@@ -556,7 +567,7 @@ async def preview_invite(
         )
     elif row["expires_at"] <= datetime.now(timezone.utc):
         status_str = _STATUS_EXPIRED
-    elif actor_email is None or actor_email.lower() != row["invited_email"]:
+    elif actor_email is None or actor_email.lower() != row["invited_email"].lower():
         # Unknown actor (no row in users) or a mismatched email both block
         # redemption — surface as the same UX state so the page can ask the
         # viewer to sign in with the right account.

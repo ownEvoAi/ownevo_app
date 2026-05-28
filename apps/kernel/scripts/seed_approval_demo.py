@@ -32,7 +32,11 @@ import sys
 from uuid import UUID
 
 import asyncpg
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ownevo_kernel.tenant_session import (
+    DEFAULT_WORKSPACE_ID,
+    WorkspaceBindError,
+    connect_workspace_conn,
+)
 
 _ENV_VAR = "OWNEVO_DATABASE_URL"
 _WORKFLOW_ID = "demo-demand-prediction"
@@ -85,120 +89,120 @@ _EXPECTED_IMPACT = {
 
 
 async def _seed(db_url: str) -> int:
-    conn = await asyncpg.connect(db_url)
     try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        # Workflow.
-        await conn.execute(
-            """
-            INSERT INTO workflows (id, description, spec, mode)
-            VALUES ($1, $2, '{"benchmark": "demo"}'::jsonb, 'gated')
-            ON CONFLICT (id) DO NOTHING
-            """,
-            _WORKFLOW_ID,
-            "Demand prediction (W2.5 demo)",
-        )
-
-        # Skill + parent version.
-        await conn.execute(
-            """
-            INSERT INTO skills (id, kind)
-            VALUES ($1, 'instruction'::skill_kind)
-            ON CONFLICT (id) DO NOTHING
-            """,
-            _SKILL_ID,
-        )
-        parent_version_id: UUID = await conn.fetchval(
-            """
-            INSERT INTO skill_versions (
-                skill_id, version_seq, content, retention_block, created_by
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            # Workflow.
+            await conn.execute(
+                """
+                INSERT INTO workflows (id, description, spec, mode)
+                VALUES ($1, $2, '{"benchmark": "demo"}'::jsonb, 'gated')
+                ON CONFLICT (id) DO NOTHING
+                """,
+                _WORKFLOW_ID,
+                "Demand prediction (W2.5 demo)",
             )
-            VALUES ($1, 1, $2, '{}'::jsonb, 'demo-seed')
-            ON CONFLICT (skill_id, version_seq) DO UPDATE SET content = EXCLUDED.content
-            RETURNING id
-            """,
-            _SKILL_ID,
-            _PARENT_CONTENT,
-        )
-        await conn.execute(
-            "UPDATE skills "
-            "SET head_version_id = $2, latest_proposed_version_id = $2 "
-            "WHERE id = $1",
-            _SKILL_ID,
-            parent_version_id,
-        )
 
-        # Idempotency: if a gate-passed proposal already exists for this
-        # skill + workflow, return its id and don't create another one.
-        existing = await conn.fetchval(
-            """
-            SELECT p.id
-            FROM proposals p
-            JOIN iterations i ON i.id = p.iteration_id
-            WHERE p.skill_id = $1
-              AND i.workflow_id = $2
-              AND p.state = 'gate-passed'::proposal_state
-            ORDER BY p.created_at DESC
-            LIMIT 1
-            """,
-            _SKILL_ID,
-            _WORKFLOW_ID,
-        )
-        if existing is not None:
+            # Skill + parent version.
+            await conn.execute(
+                """
+                INSERT INTO skills (id, kind)
+                VALUES ($1, 'instruction'::skill_kind)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                _SKILL_ID,
+            )
+            parent_version_id: UUID = await conn.fetchval(
+                """
+                INSERT INTO skill_versions (
+                    skill_id, version_seq, content, retention_block, created_by
+                )
+                VALUES ($1, 1, $2, '{}'::jsonb, 'demo-seed')
+                ON CONFLICT (skill_id, version_seq) DO UPDATE SET content = EXCLUDED.content
+                RETURNING id
+                """,
+                _SKILL_ID,
+                _PARENT_CONTENT,
+            )
+            await conn.execute(
+                "UPDATE skills "
+                "SET head_version_id = $2, latest_proposed_version_id = $2 "
+                "WHERE id = $1",
+                _SKILL_ID,
+                parent_version_id,
+            )
+
+            # Idempotency: if a gate-passed proposal already exists for this
+            # skill + workflow, return its id and don't create another one.
+            existing = await conn.fetchval(
+                """
+                SELECT p.id
+                FROM proposals p
+                JOIN iterations i ON i.id = p.iteration_id
+                WHERE p.skill_id = $1
+                  AND i.workflow_id = $2
+                  AND p.state = 'gate-passed'::proposal_state
+                ORDER BY p.created_at DESC
+                LIMIT 1
+                """,
+                _SKILL_ID,
+                _WORKFLOW_ID,
+            )
+            if existing is not None:
+                print(
+                    f"Demo proposal already exists in gate-passed: {existing}\n"
+                    f"  Open: http://localhost:3000/proposals/{existing}",
+                )
+                return 0
+
+            # Iteration in gate-pass + proposal in gate-passed.
+            next_idx = await conn.fetchval(
+                "SELECT COALESCE(MAX(iteration_index), -1) + 1 "
+                "FROM iterations WHERE workflow_id = $1",
+                _WORKFLOW_ID,
+            )
+            iteration_id: UUID = await conn.fetchval(
+                """
+                INSERT INTO iterations (
+                    workflow_id, iteration_index, state,
+                    parent_skill_version_id, val_score,
+                    best_ever_score_before, best_ever_score_after, ended_at
+                )
+                VALUES ($1, $2, 'gate-pass'::iteration_state, $3, 0.942, 0.910, 0.942, now())
+                RETURNING id
+                """,
+                _WORKFLOW_ID,
+                next_idx,
+                parent_version_id,
+            )
+            proposal_id: UUID = await conn.fetchval(
+                """
+                INSERT INTO proposals (
+                    iteration_id, skill_id, parent_version_id,
+                    proposed_content, plain_language_summary,
+                    expected_impact, state, eval_score, eval_rationale
+                )
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb,
+                        'gate-passed'::proposal_state, 0.942, $7)
+                RETURNING id
+                """,
+                iteration_id,
+                _SKILL_ID,
+                parent_version_id,
+                _PROPOSED_CONTENT,
+                _PLAIN_LANGUAGE,
+                __import_json_dumps(_EXPECTED_IMPACT),
+                _RATIONALE,
+            )
+
             print(
-                f"Demo proposal already exists in gate-passed: {existing}\n"
-                f"  Open: http://localhost:3000/proposals/{existing}",
+                f"Seeded demo proposal {proposal_id} (workflow={_WORKFLOW_ID}, "
+                f"iter={next_idx}, state=gate-passed)\n"
+                f"  Open: http://localhost:3000/proposals/{proposal_id}",
             )
             return 0
-
-        # Iteration in gate-pass + proposal in gate-passed.
-        next_idx = await conn.fetchval(
-            "SELECT COALESCE(MAX(iteration_index), -1) + 1 "
-            "FROM iterations WHERE workflow_id = $1",
-            _WORKFLOW_ID,
-        )
-        iteration_id: UUID = await conn.fetchval(
-            """
-            INSERT INTO iterations (
-                workflow_id, iteration_index, state,
-                parent_skill_version_id, val_score,
-                best_ever_score_before, best_ever_score_after, ended_at
-            )
-            VALUES ($1, $2, 'gate-pass'::iteration_state, $3, 0.942, 0.910, 0.942, now())
-            RETURNING id
-            """,
-            _WORKFLOW_ID,
-            next_idx,
-            parent_version_id,
-        )
-        proposal_id: UUID = await conn.fetchval(
-            """
-            INSERT INTO proposals (
-                iteration_id, skill_id, parent_version_id,
-                proposed_content, plain_language_summary,
-                expected_impact, state, eval_score, eval_rationale
-            )
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb,
-                    'gate-passed'::proposal_state, 0.942, $7)
-            RETURNING id
-            """,
-            iteration_id,
-            _SKILL_ID,
-            parent_version_id,
-            _PROPOSED_CONTENT,
-            _PLAIN_LANGUAGE,
-            __import_json_dumps(_EXPECTED_IMPACT),
-            _RATIONALE,
-        )
-
-        print(
-            f"Seeded demo proposal {proposal_id} (workflow={_WORKFLOW_ID}, "
-            f"iter={next_idx}, state=gate-passed)\n"
-            f"  Open: http://localhost:3000/proposals/{proposal_id}",
-        )
-        return 0
-    finally:
-        await conn.close()
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 1
 
 
 def __import_json_dumps(value: dict) -> str:

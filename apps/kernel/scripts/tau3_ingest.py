@@ -47,7 +47,7 @@ from ownevo_kernel.benchmark.tau3 import (
     Tau3FailureAnalyzerError,
     analyze_tau3_failures,
 )
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 DEFAULT_WORKFLOW_ID = "tau3-retail-v1"
@@ -233,33 +233,28 @@ async def main_async(args: CliArgs) -> int:
         return 4
     import asyncpg  # noqa: PLC0415
     try:
-        conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresError, OSError) as exc:
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            # Ensure workflow + baseline skill exist before inserting iterations.
+            from scripts.tau3_register import seed_tau3_retail  # noqa: PLC0415
+            async with conn.transaction():
+                await seed_tau3_retail(
+                    conn, workflow_id=args.workflow_id,
+                    domain=args.domain, seed_eval_cases=False,
+                )
+                for p, s in summaries:
+                    idx = await _insert_iteration(
+                        conn, workflow_id=args.workflow_id,
+                        val_score=s["val_score"],
+                        summary=s, results_path=p,
+                    )
+                    print(
+                        f"  → ingested {p.name}: "
+                        f"workflow={args.workflow_id} "
+                        f"iteration_index={idx} val_score={s['val_score']:.4f}",
+                    )
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
-
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        # Ensure workflow + baseline skill exist before inserting iterations.
-        from scripts.tau3_register import seed_tau3_retail  # noqa: PLC0415
-        async with conn.transaction():
-            await seed_tau3_retail(
-                conn, workflow_id=args.workflow_id,
-                domain=args.domain, seed_eval_cases=False,
-            )
-            for p, s in summaries:
-                idx = await _insert_iteration(
-                    conn, workflow_id=args.workflow_id,
-                    val_score=s["val_score"],
-                    summary=s, results_path=p,
-                )
-                print(
-                    f"  → ingested {p.name}: "
-                    f"workflow={args.workflow_id} "
-                    f"iteration_index={idx} val_score={s['val_score']:.4f}",
-                )
-    finally:
-        await conn.close()
     return 0
 
 

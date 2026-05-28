@@ -26,6 +26,7 @@ import uuid
 import asyncpg
 from ownevo_kernel.db import ENV_VAR, migrate
 from ownevo_kernel.eval_runner.runner import run_with_replay_agent
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
 from ownevo_kernel.nl_gen.eval_case_set import EvalCaseSet, GeneratedEvalCase
 from ownevo_kernel.nl_gen.fixtures import (
     DEMAND_PREDICTION_METRIC,
@@ -167,6 +168,11 @@ async def _main() -> int:
 
     try:
         await migrate(conn)
+        # Bind the default workspace after migrations (the workspaces table
+        # doesn't exist until 0033 runs). Under enforced RLS the seed below
+        # writes to workflows / iterations / eval_cases / iteration_case_outputs,
+        # all of which fail closed without an active workspace GUC.
+        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
 
         case_ids = [f"smoke-case-{i:02d}" for i in range(5)]
         case_id_to_expected = {cid: (i % 2 == 0) for i, cid in enumerate(case_ids)}

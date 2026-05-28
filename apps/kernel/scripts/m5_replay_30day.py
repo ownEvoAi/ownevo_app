@@ -56,7 +56,7 @@ from ownevo_kernel.replay import (  # noqa: E402
     run_all_conditions_parallel,
     workflow_id_for_condition,
 )
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 
@@ -347,20 +347,16 @@ async def main_async(args: CliArgs) -> int:
         import asyncpg
 
         try:
-            conn = await asyncpg.connect(db_url, timeout=10)
-        except (asyncpg.PostgresError, OSError) as exc:
+            async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+                for spec in specs:
+                    await _reset_condition_workflow(conn, spec.workflow_id)
+                    print(
+                        f"reset: dropped prior rows for workflow={spec.workflow_id}",
+                        file=sys.stderr,
+                    )
+        except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
             print(f"error: could not connect to DB: {exc}", file=sys.stderr)
             return 3
-        try:
-            await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-            for spec in specs:
-                await _reset_condition_workflow(conn, spec.workflow_id)
-                print(
-                    f"reset: dropped prior rows for workflow={spec.workflow_id}",
-                    file=sys.stderr,
-                )
-        finally:
-            await conn.close()
 
     print(
         f"replay: conditions={','.join(s.condition for s in specs)} "

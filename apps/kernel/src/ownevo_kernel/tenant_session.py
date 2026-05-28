@@ -8,10 +8,11 @@ session GUC ``app.workspace_id``.
 
 This module is the single place that binds that GUC to a connection. Binding
 goes through ``set_workspace`` (used by the request-scoped ``get_conn``
-dependency) or ``acquire_workspace_conn`` (used by background workers and
-scripts that acquire connections directly from the pool). Both refuse to bind
-to a workspace that does not exist or has been soft-deleted, so a stale or
-forged workspace id can never widen scope.
+dependency), ``acquire_workspace_conn`` (used by background workers that hold
+a pool), or ``connect_workspace_conn`` (used by one-shot scripts that open a
+single connection). All three refuse to bind to a workspace that does not
+exist or has been soft-deleted, so a stale or forged workspace id can never
+widen scope.
 
 The value is set at session scope via ``set_config(name, value, is_local =>
 false)``. asyncpg runs ``RESET ALL`` when a pooled connection is released,
@@ -124,6 +125,35 @@ async def acquire_workspace_conn(
                 )
         await set_workspace(conn, workspace_id)
         yield conn
+
+
+@asynccontextmanager
+async def connect_workspace_conn(
+    db_url: str,
+    workspace_id: str,
+) -> AsyncIterator[asyncpg.Connection]:
+    """Open a single asyncpg connection already bound to ``workspace_id``.
+
+    The single-connection analogue of ``acquire_workspace_conn`` for scripts
+    and one-shot tools that don't justify a pool. Pairs ``asyncpg.connect``
+    with ``set_workspace`` and closes the connection on exit, so the bind
+    can't be skipped by accident: under enforced RLS an unbound connection
+    sees zero rows on read and fails NOT-NULL on insert against every scoped
+    table.
+
+    Raises the same errors as ``set_workspace`` for a missing or deleted
+    workspace; the connection is closed before the error propagates.
+
+    Use a pool + ``acquire_workspace_conn`` instead when the caller needs more
+    than one connection or runs long enough that the connect handshake cost
+    matters.
+    """
+    conn = await asyncpg.connect(db_url, timeout=10)
+    try:
+        await set_workspace(conn, workspace_id)
+        yield conn
+    finally:
+        await conn.close()
 
 
 async def soft_delete_workspace(conn: asyncpg.Connection, workspace_id: str) -> bool:

@@ -44,7 +44,7 @@ from ownevo_kernel.replay import (  # noqa: E402
     ReplayReport,
     run_seven_day_replay,
 )
-from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace  # noqa: E402
+from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn  # noqa: E402
 
 ENV_DB_URL = "OWNEVO_DATABASE_URL"
 
@@ -219,26 +219,21 @@ async def main_async(args: CliArgs) -> int:
     import asyncpg
 
     try:
-        conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.ConnectionFailureError, OSError) as exc:
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            cfg = ReplayConfig(
+                n_cycles=args.cycles,
+                workflow_id=args.workflow_id,
+                n_initial_priors=args.n_initial_priors,
+                n_total_tasks=args.n_total_tasks,
+                lift_per_cycle=args.lift_per_cycle,
+                cluster_cases_per_cycle=args.cluster_cases_per_cycle,
+            )
+            if args.reset:
+                await _reset_workflow_state(conn, cfg.workflow_id, cfg.skill_id)
+            report = await run_seven_day_replay(conn, config=cfg)
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 3
-
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        cfg = ReplayConfig(
-            n_cycles=args.cycles,
-            workflow_id=args.workflow_id,
-            n_initial_priors=args.n_initial_priors,
-            n_total_tasks=args.n_total_tasks,
-            lift_per_cycle=args.lift_per_cycle,
-            cluster_cases_per_cycle=args.cluster_cases_per_cycle,
-        )
-        if args.reset:
-            await _reset_workflow_state(conn, cfg.workflow_id, cfg.skill_id)
-        report = await run_seven_day_replay(conn, config=cfg)
-    finally:
-        await conn.close()
 
     print(json.dumps(report.to_dict(), indent=2 if args.pretty else None))
 

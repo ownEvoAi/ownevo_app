@@ -218,17 +218,13 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
         return 4
 
     import asyncpg
-    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
 
     try:
-        conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresError, OSError) as exc:
-        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
-        return 4
-
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        async with conn.transaction():
+        async with (
+            connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn,
+            conn.transaction(),
+        ):
             # Reuse the M5 register-style seed (workflow + skill +
             # eval cases). Idempotent.
             await seed_tau3_retail(
@@ -259,8 +255,9 @@ async def _record_baseline(args: CliArgs, val_score: float) -> int:
                 next_idx,
                 val_score,
             )
-    finally:
-        await conn.close()
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 4
 
     print(
         f"\nrecorded baseline iteration for workflow={args.workflow_id} "

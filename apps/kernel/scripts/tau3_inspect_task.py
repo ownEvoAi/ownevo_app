@@ -189,18 +189,27 @@ async def _main_async(args: argparse.Namespace) -> int:
     if not db_url:
         print(f"error: {ENV_DB_URL} is not set", file=sys.stderr)
         return 4
+    # Bind the workspace before any read: under enforced RLS an unbound
+    # connection sees zero rows in `traces` / `iterations`, so the inspect
+    # commands would silently return "no results".
     import asyncpg  # noqa: PLC0415
-    conn = await asyncpg.connect(db_url, timeout=10)
+    from ownevo_kernel.tenant_session import (  # noqa: PLC0415
+        DEFAULT_WORKSPACE_ID,
+        WorkspaceBindError,
+        connect_workspace_conn,
+    )
     try:
-        if args.iteration is not None and args.task_id:
-            await _show_task(conn, args.workflow_id, args.task_id, args.iteration)
-        elif args.compare and args.task_id:
-            iters = [int(x) for x in args.compare.split(",")]
-            await _compare(conn, args.workflow_id, args.task_id, iters)
-        else:
-            await _list_tasks(conn, args.workflow_id, args.task_id)
-    finally:
-        await conn.close()
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            if args.iteration is not None and args.task_id:
+                await _show_task(conn, args.workflow_id, args.task_id, args.iteration)
+            elif args.compare and args.task_id:
+                iters = [int(x) for x in args.compare.split(",")]
+                await _compare(conn, args.workflow_id, args.task_id, iters)
+            else:
+                await _list_tasks(conn, args.workflow_id, args.task_id)
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
+        print(f"error: could not connect to DB: {exc}", file=sys.stderr)
+        return 4
     return 0
 
 

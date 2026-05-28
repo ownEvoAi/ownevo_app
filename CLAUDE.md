@@ -22,11 +22,11 @@ Two migrations, both landed:
 
 `FORCE` is required because the kernel connects as the table owner, and a plain `ENABLE` leaves the owner exempt. Superusers and `BYPASSRLS` roles bypass RLS regardless — the production app role must be neither (the isolation tests run under a dedicated non-superuser role via the `rls_db` fixture to exercise the policies for real).
 
-`tenant_session.py` is the single chokepoint that binds the GUC: `set_workspace` (used by the request-scoped `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`) and `acquire_workspace_conn(pool, workspace_id)` (used by background workers and scripts that acquire connections directly). Both refuse to bind a missing or soft-deleted workspace.
+`tenant_session.py` is the single chokepoint that binds the GUC: `set_workspace` (used by the request-scoped `get_conn` in `apps/kernel/src/ownevo_kernel/api/deps.py`), `acquire_workspace_conn(pool, workspace_id)` (used by background workers that hold a pool), or `connect_workspace_conn(db_url, workspace_id)` (used by one-shot scripts that open a single connection). All three refuse to bind a missing or soft-deleted workspace.
 
 **Workspace deletion is soft delete**, not a cascade: `soft_delete_workspace` sets `workspaces.deleted_at`, after which `set_workspace` refuses to bind it, so its rows become unreachable while staying physically present (the append-only `audit_entries` cannot be row-deleted, and retention keeps the operation reversible).
 
-The three step-2 pre-conditions called out in migration 0033 were resolved here: the `pool.acquire()` background-worker call sites now route through `acquire_workspace_conn`; the `integration_credentials` PK was widened to `(workspace_id, provider)`; and `failure_clusters_fingerprint_unique` is now scoped by `workspace_id`. Per-request workspace resolution is still a stub (`get_workspace_id` returns `'default'`) pending the auth layer; dev/benchmark scripts that open their own connections must call `set_workspace(conn, DEFAULT_WORKSPACE_ID)` before touching scoped tables under RLS.
+The three step-2 pre-conditions called out in migration 0033 were resolved here: the `pool.acquire()` background-worker call sites now route through `acquire_workspace_conn`; the `integration_credentials` PK was widened to `(workspace_id, provider)`; and `failure_clusters_fingerprint_unique` is now scoped by `workspace_id`. Per-request workspace resolution is still a stub (`get_workspace_id` returns `'default'`) pending the auth layer; dev/benchmark scripts that open their own connections should use `connect_workspace_conn(db_url, workspace_id)` rather than calling `asyncpg.connect` + `set_workspace` directly.
 
 ## Append-only audit log
 

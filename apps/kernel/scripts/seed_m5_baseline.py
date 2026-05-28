@@ -187,24 +187,19 @@ async def main_async(args: CliArgs) -> int:
         return 4
 
     import asyncpg
-    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+    from ownevo_kernel.tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, connect_workspace_conn
 
     try:
-        conn = await asyncpg.connect(db_url, timeout=10)
-    except (asyncpg.PostgresError, OSError) as exc:
+        async with connect_workspace_conn(db_url, DEFAULT_WORKSPACE_ID) as conn:
+            result = await seed_baseline(
+                conn,
+                workflow_id=args.workflow_id,
+                description=args.description,
+                skill_version=args.skill_version,
+            )
+    except (WorkspaceBindError, asyncpg.PostgresError, OSError) as exc:
         print(f"error: could not connect to DB: {exc}", file=sys.stderr)
         return 4
-
-    try:
-        await set_workspace(conn, DEFAULT_WORKSPACE_ID)
-        result = await seed_baseline(
-            conn,
-            workflow_id=args.workflow_id,
-            description=args.description,
-            skill_version=args.skill_version,
-        )
-    finally:
-        await conn.close()
 
     n_total = len(result.registered) + len(result.skipped)
     print(
