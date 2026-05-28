@@ -121,6 +121,7 @@ async def test_migrate_creates_full_schema(fresh_db: str):
             "user_identities",
             "users",
             "workflows",
+            "workspace_invites",
             "workspace_members",
             "workspaces",
         }
