@@ -15,6 +15,7 @@ phase 1.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from urllib.parse import urlparse, urlunparse
@@ -40,6 +41,43 @@ async def _pool_for_db(db: asyncpg.Connection) -> asyncpg.Pool:
     parsed = urlparse(os.environ[ENV_VAR])
     dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
     return await asyncpg.create_pool(dsn, min_size=1, max_size=2)
+
+
+@contextlib.asynccontextmanager
+async def _rls_pool_for_db(db: asyncpg.Connection):
+    """Pool whose acquired connections run as an unprivileged role.
+
+    Mirrors the `rls_db` fixture in `conftest.py`: connects with the local
+    superuser DSN but SET ROLEs each pooled connection to a non-superuser,
+    NOBYPASSRLS role before yielding it. Required for tests that verify
+    cross-workspace isolation under FORCE ROW LEVEL SECURITY — a plain
+    superuser pool bypasses RLS and would silently pass.
+    """
+    dbname = await db.fetchval("SELECT current_database()")
+    role = f"rls_reaper_{dbname.rsplit('_', 1)[-1]}"
+    await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
+    await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
+    await db.execute(
+        f"GRANT SELECT, INSERT, UPDATE, DELETE "
+        f'ON ALL TABLES IN SCHEMA public TO "{role}"'
+    )
+    await db.execute(
+        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}"'
+    )
+
+    parsed = urlparse(os.environ[ENV_VAR])
+    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
+
+    async def _setup(conn: asyncpg.Connection) -> None:
+        await conn.execute(f'SET ROLE "{role}"')
+
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, setup=_setup)
+    try:
+        yield pool
+    finally:
+        await pool.close()
+        await db.execute(f'DROP OWNED BY "{role}"')
+        await db.execute(f'DROP ROLE IF EXISTS "{role}"')
 
 
 async def _seed_workflow(conn: asyncpg.Connection, workflow_id: str) -> None:
@@ -178,14 +216,12 @@ async def test_reaper_isolates_workspaces(db: asyncpg.Connection) -> None:
     and each workspace's audit entry is visible only within that workspace's
     GUC scope (verified below via scoped connections).
 
-    Note: the pool here connects as the local superuser, which bypasses
-    FORCE ROW LEVEL SECURITY. The test therefore validates logical isolation
-    (correct workspace_id stamping via the GUC default) rather than the RLS
-    enforcement layer itself. RLS enforcement is covered by the rls_db
-    fixture tests in test_rls_*.py.
+    Uses an RLS-enforcing pool (non-superuser role) so the cross-workspace
+    visibility check exercises the production guarantee: the reaper's
+    bare-WHERE UPDATE relies on RLS to scope by the bound workspace, and a
+    superuser pool would silently turn that into a global UPDATE.
     """
-    pool = await _pool_for_db(db)
-    try:
+    async with _rls_pool_for_db(db) as pool:
         # Workspace B in addition to the default.
         async with pool.acquire() as conn:
             await conn.execute(
@@ -261,8 +297,6 @@ async def test_reaper_isolates_workspaces(db: asyncpg.Connection) -> None:
                 default_iter_id,
             )
             assert cross_leak is None, "audit entry from default workspace leaked into ws-other"
-    finally:
-        await pool.close()
 
 
 async def test_reaper_skips_soft_deleted_workspaces(db: asyncpg.Connection) -> None:
@@ -275,9 +309,13 @@ async def test_reaper_skips_soft_deleted_workspaces(db: asyncpg.Connection) -> N
     connection, which bypasses the GUC constraint) and then verify that
     the reaper returns 0 AND leaves the row untouched — distinguishing
     "skipped because soft-deleted" from "nothing to reap".
+
+    Uses an RLS-enforcing pool so the reaper's per-workspace UPDATE is
+    actually scoped by RLS — under a superuser pool the UPDATE would
+    bypass RLS and reap the soft-deleted workspace's row even though it
+    is not in `_list_active_workspaces`.
     """
-    pool = await _pool_for_db(db)
-    try:
+    async with _rls_pool_for_db(db) as pool:
         # Create the workspace as active first so we can insert a workflow
         # and iteration row under it, then soft-delete it.
         async with pool.acquire() as conn:
@@ -326,8 +364,6 @@ async def test_reaper_skips_soft_deleted_workspaces(db: asyncpg.Connection) -> N
         )
         assert row["state"] == "running", "soft-deleted workspace iteration was incorrectly reaped"
         assert row["ended_at"] is None
-    finally:
-        await pool.close()
 
 
 async def test_reaper_is_idempotent(db: asyncpg.Connection) -> None:
