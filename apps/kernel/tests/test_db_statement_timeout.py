@@ -1,7 +1,7 @@
 """Per-connection statement_timeout on pool-acquired connections.
 
 The pool's ``setup`` callback re-applies the GUC on every acquire,
-because asyncpg's pool runs ``DISCARD ALL`` on release (which clears
+because asyncpg's pool runs ``RESET ALL`` on release (which clears
 ``SET`` state). These tests pin both halves: the GUC is present on the
 first acquire, survives a round-trip, and a query that exceeds it
 raises ``QueryCanceledError`` rather than hanging forever.
@@ -101,7 +101,7 @@ async def test_timeout_cancels_long_query(fresh_db: str) -> None:
 
 
 async def test_timeout_reapplies_after_release(fresh_db: str) -> None:
-    """asyncpg's pool issues DISCARD ALL when a connection is released,
+    """asyncpg's pool runs RESET ALL when a connection is released,
     which clears every SET. The setup callback re-applies the GUC on
     the next acquire so the cap holds for every checkout, not just the
     first one. Two sequential acquires of the same underlying connection

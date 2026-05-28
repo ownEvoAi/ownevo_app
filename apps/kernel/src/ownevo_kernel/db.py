@@ -17,7 +17,7 @@ and tear down without round-tripping through compose).
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -96,14 +96,15 @@ def statement_timeout_ms_from_env() -> int:
     )
 
 
-def _make_setup(statement_timeout_ms: int):
+def _make_setup(
+    statement_timeout_ms: int,
+) -> Callable[[asyncpg.Connection], Awaitable[None]] | None:
     """Build an asyncpg pool ``setup`` callback that applies session GUCs.
 
-    asyncpg's pool runs ``DISCARD ALL`` (which includes ``RESET ALL``) when
-    a connection is released, so any ``SET`` issued on an earlier acquire
-    is wiped. The ``setup`` callback runs after the reset and before the
-    next caller sees the connection, which is exactly when this needs to
-    re-apply.
+    asyncpg's pool runs ``RESET ALL`` when a connection is released, so
+    any ``SET`` issued on an earlier acquire is wiped. The ``setup``
+    callback runs after the reset and before the next caller sees the
+    connection, which is exactly when this needs to re-apply.
     """
     if statement_timeout_ms <= 0:
         return None
@@ -138,6 +139,11 @@ async def open_pool(
         max_size = pool_max_size_from_env()
     if statement_timeout_ms is None:
         statement_timeout_ms = statement_timeout_ms_from_env()
+    if statement_timeout_ms < 0:
+        raise ValueError(
+            f"statement_timeout_ms={statement_timeout_ms} must be >= 0; "
+            "pass 0 to disable the timeout."
+        )
     if min_size > max_size:
         raise ValueError(
             f"pool min_size ({min_size}) > max_size ({max_size}); set "
@@ -154,7 +160,7 @@ async def open_pool(
 @asynccontextmanager
 async def pool_scope(
     url: str | None = None,
-    **kwargs: int,
+    **kwargs: int | None,
 ) -> AsyncIterator[asyncpg.Pool]:
     """`async with pool_scope() as pool:` — opens and closes for you."""
     pool = await open_pool(url, **kwargs)

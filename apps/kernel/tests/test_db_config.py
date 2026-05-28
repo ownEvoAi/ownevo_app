@@ -107,3 +107,14 @@ async def test_open_pool_rejects_min_greater_than_max() -> None:
     config — so a bad combination fails before a real connect attempt."""
     with pytest.raises(ValueError, match="min_size .* > max_size"):
         await open_pool("postgresql://unused", min_size=5, max_size=2)
+
+
+async def test_open_pool_rejects_min_greater_than_max_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same guard fires when the inconsistent pair comes from env vars,
+    not explicit arguments — the env-read path feeds the same check."""
+    monkeypatch.setenv(POOL_MIN_SIZE_ENV, "5")
+    monkeypatch.setenv(POOL_MAX_SIZE_ENV, "2")
+    with pytest.raises(ValueError, match="min_size .* > max_size"):
+        await open_pool("postgresql://unused")
