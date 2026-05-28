@@ -25,7 +25,6 @@ advance `best_ever_score` when it's non-null (D3).
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -68,9 +67,11 @@ async def run_pipeline(
     """Execute `skill_content` in the sandbox with `input_data` injected
     as a Python global. Returns parsed stdout as `outputs`.
 
-    `task_timeout_seconds`, when set, bounds the whole call. Defaults to
-    `timeout_seconds + 30.0` so caller-side stalls (e.g., docker exec
-    daemon delays) don't keep the iteration alive indefinitely.
+    `task_timeout_seconds`, when set, bounds the container execution call
+    (not including admission queue wait). Defaults to `timeout_seconds +
+    30.0` so docker daemon stalls don't keep the iteration alive
+    indefinitely. Queue wait time is excluded so a task that waits in the
+    admission queue doesn't burn into this budget.
 
     `extra_volumes` is **privileged kernel surface** — passes through to
     `LocalDockerSandbox.run` for read-only bind-mounts. Agents calling
@@ -103,15 +104,13 @@ async def run_pipeline(
     task_timeout = task_timeout_seconds or (timeout_seconds + 30.0)
 
     try:
-        result = await asyncio.wait_for(
-            sandbox.run(
-                code,
-                timeout_seconds=timeout_seconds,
-                memory_mb=memory_mb,
-                extra_volumes=extra_volumes,
-                extra_env=extra_env,
-            ),
-            timeout=task_timeout,
+        result = await sandbox.run(
+            code,
+            timeout_seconds=timeout_seconds,
+            memory_mb=memory_mb,
+            extra_volumes=extra_volumes,
+            extra_env=extra_env,
+            slot_timeout_seconds=task_timeout,
         )
     except TimeoutError:
         return PipelineResult(

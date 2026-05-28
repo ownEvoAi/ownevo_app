@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR
 from ..llm.router import check_provider_api_keys
+from ..sandbox.local_docker import _read_max_concurrent
+from ..secrets.encrypted_field import MASTER_KEY_ENV
 from ._internal_auth import (
     DEPLOY_ENV_VAR,
     DEV_AUTH_ENV,
@@ -37,7 +39,6 @@ from ._internal_auth import (
     dev_auth_enabled,
     is_production,
 )
-from ..secrets.encrypted_field import MASTER_KEY_ENV
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -187,6 +188,14 @@ def create_app(
                     "rejecting authenticated requests or crashing at the first "
                     "credential write."
                 )
+
+        # Validate the sandbox admission cap at startup so a misconfigured
+        # OWNEVO_SANDBOX_MAX_CONCURRENT fails fast here rather than on the
+        # first sandbox call (which may be mid-iteration after LLM budget is spent).
+        try:
+            _read_max_concurrent()
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
 
         for warning in check_provider_api_keys():
             logger.warning("llm-router: %s", warning)
