@@ -52,7 +52,7 @@ async def list_audit(
         max_length=64,
         description=(
             "Filter to a single audit_kind (proposal-approved, gate-run-completed, "
-            "etc.). See SCHEMA.md § audit_kind for the enum."
+            "iteration-reaped, etc.). See SCHEMA.md § audit_kind for the enum."
         ),
     ),
     workflow_id: str | None = Query(

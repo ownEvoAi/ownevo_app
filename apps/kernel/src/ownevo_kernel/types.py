@@ -122,6 +122,11 @@ class AuditKind(StrEnum):
     # platform with an external eval-push API). Captures the created
     # test-set id + case count.
     EVAL_CASES_PUSHED_COPILOT_STUDIO = "eval-cases-pushed-copilot-studio"
+    # Written by the startup reaper when an iteration row stuck in
+    # 'running' state is closed as sandbox-error. The payload records the
+    # iteration index, workflow id, and the original started_at so the
+    # operator can correlate the orphan with a prior crash/restart.
+    ITERATION_REAPED = "iteration-reaped"
 
 
 # ---------------------------------------------------------------------------

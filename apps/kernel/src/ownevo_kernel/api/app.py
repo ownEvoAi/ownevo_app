@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR
+from ..jobs import reap_orphaned_iterations
 from ..llm.router import check_provider_api_keys
 from ..sandbox.local_docker import _read_max_concurrent
 from ..secrets.encrypted_field import MASTER_KEY_ENV
@@ -216,6 +217,17 @@ def create_app(
         else:
             # Caller-managed pool — don't open or close it here.
             app.state.pool = pool
+
+        # Close any iteration row stuck in 'running' from a previous boot.
+        # Each workflow's run-iteration endpoint refuses to start a new
+        # iteration while another is in flight; an orphaned row would block
+        # that workflow indefinitely until the row was manually closed.
+        try:
+            await reap_orphaned_iterations(app.state.pool)
+        except Exception:  # noqa: BLE001 — reaper must not block startup
+            logger.exception(
+                "orphan reaper: failed at startup; continuing without sweep"
+            )
 
         app.state.cluster_auto_trigger = await _maybe_start_auto_trigger(app.state.pool)
 

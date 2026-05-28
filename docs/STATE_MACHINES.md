@@ -148,6 +148,14 @@ in which case `best_ever_score_after = max(best_ever_score_before, val_score)`.
 
 A `sandbox-error` state does **not** advance `best_ever_score`.
 
+A kernel restart can leave an iteration in `running` (the in-process
+driver task is gone, so phase 3's terminal-state write never lands). The
+FastAPI lifespan runs a startup sweep that closes any such row as
+`sandbox-error` with `ended_at = now()` and writes an `iteration-reaped`
+audit entry. The workflow's one-iteration-at-a-time guard then frees up.
+Resuming the partial run is not feasible — the LLM completions and
+mid-cycle outcomes were never persisted.
+
 ## Workflow (NL-gen lifecycle)
 
 ```
