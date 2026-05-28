@@ -17,13 +17,27 @@ and tear down without round-tripping through compose).
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import asyncpg
 
 ENV_VAR = "OWNEVO_DATABASE_URL"
+
+# Pool sizing and per-connection statement timeout. Defaults are tuned for a
+# single Next.js dev server in front of the kernel; production deployments
+# override via env to match their actual concurrency footprint.
+POOL_MIN_SIZE_ENV = "OWNEVO_DB_POOL_MIN_SIZE"
+POOL_MAX_SIZE_ENV = "OWNEVO_DB_POOL_MAX_SIZE"
+STATEMENT_TIMEOUT_MS_ENV = "OWNEVO_DB_STATEMENT_TIMEOUT_MS"
+
+DEFAULT_POOL_MIN_SIZE = 1
+DEFAULT_POOL_MAX_SIZE = 10
+# 30s caps any single query so one runaway statement can't pin a connection
+# indefinitely. The orphan reaper (jobs/orphan_reaper.py) handles the
+# coarser case of an entire iteration row stuck across a restart.
+DEFAULT_STATEMENT_TIMEOUT_MS = 30_000
 
 # `apps/kernel/migrations/` relative to this file (src/ownevo_kernel/db.py)
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
@@ -39,24 +53,114 @@ def database_url() -> str:
     return url
 
 
+def _parse_non_negative_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{name}={raw!r} is not a valid integer"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            f"{name}={raw!r} must be >= 0"
+        )
+    return value
+
+
+def pool_min_size_from_env() -> int:
+    value = _parse_non_negative_int_env(POOL_MIN_SIZE_ENV, DEFAULT_POOL_MIN_SIZE)
+    if value < 1:
+        raise ValueError(
+            f"{POOL_MIN_SIZE_ENV}={value} must be >= 1; a zero floor "
+            "means every request pays the connect handshake."
+        )
+    return value
+
+
+def pool_max_size_from_env() -> int:
+    value = _parse_non_negative_int_env(POOL_MAX_SIZE_ENV, DEFAULT_POOL_MAX_SIZE)
+    if value < 1:
+        raise ValueError(
+            f"{POOL_MAX_SIZE_ENV}={value} must be >= 1"
+        )
+    return value
+
+
+def statement_timeout_ms_from_env() -> int:
+    """Per-connection statement_timeout in milliseconds. ``0`` disables it."""
+    return _parse_non_negative_int_env(
+        STATEMENT_TIMEOUT_MS_ENV, DEFAULT_STATEMENT_TIMEOUT_MS
+    )
+
+
+def _make_setup(
+    statement_timeout_ms: int,
+) -> Callable[[asyncpg.Connection], Awaitable[None]] | None:
+    """Build an asyncpg pool ``setup`` callback that applies session GUCs.
+
+    asyncpg's pool runs ``RESET ALL`` when a connection is released, so
+    any ``SET`` issued on an earlier acquire is wiped. The ``setup``
+    callback runs after the reset and before the next caller sees the
+    connection, which is exactly when this needs to re-apply.
+    """
+    if statement_timeout_ms <= 0:
+        return None
+
+    timeout_value = f"{statement_timeout_ms}ms"
+
+    async def _setup(conn: asyncpg.Connection) -> None:
+        await conn.execute(
+            "SELECT set_config('statement_timeout', $1, false)", timeout_value
+        )
+
+    return _setup
+
+
 async def open_pool(
     url: str | None = None,
     *,
-    min_size: int = 1,
-    max_size: int = 10,
+    min_size: int | None = None,
+    max_size: int | None = None,
+    statement_timeout_ms: int | None = None,
 ) -> asyncpg.Pool:
-    """Open a connection pool. Caller is responsible for closing it."""
+    """Open a connection pool. Caller is responsible for closing it.
+
+    ``min_size`` / ``max_size`` / ``statement_timeout_ms`` default to the
+    values parsed from ``OWNEVO_DB_POOL_MIN_SIZE`` / ``..._MAX_SIZE`` /
+    ``OWNEVO_DB_STATEMENT_TIMEOUT_MS``. Pass an explicit value to override
+    (used by tests that need a tighter or looser cap than production).
+    """
+    if min_size is None:
+        min_size = pool_min_size_from_env()
+    if max_size is None:
+        max_size = pool_max_size_from_env()
+    if statement_timeout_ms is None:
+        statement_timeout_ms = statement_timeout_ms_from_env()
+    if statement_timeout_ms < 0:
+        raise ValueError(
+            f"statement_timeout_ms={statement_timeout_ms} must be >= 0; "
+            "pass 0 to disable the timeout."
+        )
+    if min_size > max_size:
+        raise ValueError(
+            f"pool min_size ({min_size}) > max_size ({max_size}); set "
+            f"{POOL_MIN_SIZE_ENV}/{POOL_MAX_SIZE_ENV} consistently."
+        )
     return await asyncpg.create_pool(
         dsn=url or database_url(),
         min_size=min_size,
         max_size=max_size,
+        setup=_make_setup(statement_timeout_ms),
     )
 
 
 @asynccontextmanager
 async def pool_scope(
     url: str | None = None,
-    **kwargs: int,
+    **kwargs: int | None,
 ) -> AsyncIterator[asyncpg.Pool]:
     """`async with pool_scope() as pool:` — opens and closes for you."""
     pool = await open_pool(url, **kwargs)
