@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { auth, unstable_update } from '@/auth'
+import { auth, signOut, unstable_update } from '@/auth'
 import { InviteRedeemError, redeemInvite } from '@/lib/kernel-invites'
 import type { SyncedWorkspace } from '@/lib/kernel-sync'
 
@@ -23,6 +23,10 @@ const ERROR_COPY: Record<string, string> = {
   'This invite has already been used by another account.',
  invite_email_mismatch:
   'This invite was sent to a different email address. Sign in with the correct account to accept it.',
+}
+
+export async function signOutToReclaimInvite(callbackUrl: string): Promise<void> {
+ await signOut({ redirectTo: callbackUrl })
 }
 
 export async function acceptInviteAction(

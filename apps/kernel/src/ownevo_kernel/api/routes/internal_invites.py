@@ -31,6 +31,15 @@ surface.
         redeemed, revoked, nor expired — the rows an admin page renders as
         "outstanding invites with a Revoke button next to them".
 
+  * ``GET /api/internal/invites/preview`` — describe a token without consuming it
+        Verifies the token signature and returns the addressed workspace +
+        inviter + invite metadata + a viewer-relative status. Lets the accept
+        page render workspace name / inviter / expiry up front and branch
+        before the user clicks (expired, revoked, wrong-account, etc.) instead
+        of surfacing the failure only on click. The token itself is the
+        authorization — anyone holding it can preview, the same way they
+        could redeem if their email matched.
+
 ``workspace_invites`` sits outside row-level security (see migration 0036) so
 all endpoints use a plain pooled connection with no workspace GUC.
 """
@@ -39,6 +48,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -443,4 +453,124 @@ async def list_pending_invites(
             )
             for r in rows
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Preview
+# ---------------------------------------------------------------------------
+
+
+# Viewer-relative status returned by the preview endpoint. The accept page
+# branches on this; new values must be reflected in the web client.
+_STATUS_PENDING = "pending"
+_STATUS_EXPIRED = "expired"
+_STATUS_REVOKED = "revoked"
+_STATUS_REDEEMED_BY_ME = "redeemed_by_me"
+_STATUS_REDEEMED_BY_OTHER = "redeemed_by_other"
+_STATUS_EMAIL_MISMATCH = "email_mismatch"
+_STATUS_WORKSPACE_GONE = "workspace_gone"
+
+
+class PreviewInviteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "pending",
+        "expired",
+        "revoked",
+        "redeemed_by_me",
+        "redeemed_by_other",
+        "email_mismatch",
+        "workspace_gone",
+    ]
+    workspace_id: str
+    workspace_name: str | None
+    invited_email: str
+    role: str
+    invited_by_email: str | None
+    invited_by_display_name: str | None
+    expires_at: str  # ISO-8601 UTC
+
+
+@router.get("/api/internal/invites/preview", response_model=PreviewInviteResponse)
+async def preview_invite(
+    token: str,
+    actor_user_id: str,
+    request: Request,
+    pool: PoolDep,
+) -> PreviewInviteResponse:
+    """Describe an invite token without consuming it.
+
+    The accept page calls this on every render so it can show the workspace
+    name, role, and inviter — and so it can surface terminal states (expired,
+    revoked, wrong account) before the user clicks Accept. The token is the
+    authorization here: anyone holding the URL can already redeem it (subject
+    to the email check), so the preview discloses nothing extra.
+
+    ``actor_user_id`` is required because every meaningful status (especially
+    ``redeemed_by_me`` vs ``redeemed_by_other`` and ``email_mismatch``) is
+    relative to the signed-in viewer. A page rendered for a logged-out user
+    has nothing to act on.
+    """
+    require_service_token(request)
+    signing_key = _require_signing_key()
+    try:
+        # Skip the token-side expiry check: the DB row's expires_at is the
+        # authoritative expiry for the preview so the page can surface a
+        # structured "expired" status with workspace/inviter metadata rather
+        # than a generic "link not valid" error. Signature and format are
+        # still validated unconditionally.
+        invite_id = verify_invite_token(token, signing_key, check_expiry=False)
+    except InviteTokenInvalid as exc:
+        raise _invite_error("invite_invalid", str(exc)) from exc
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT i.workspace_id, i.invited_email, i.role, i.invited_by, "
+            "       i.expires_at, i.redeemed_at, i.redeemed_by, i.revoked_at, "
+            "       w.name AS workspace_name, w.deleted_at AS workspace_deleted_at, "
+            "       u.email AS inviter_email, u.display_name AS inviter_name "
+            "FROM workspace_invites i "
+            "LEFT JOIN workspaces w ON w.id = i.workspace_id "
+            "LEFT JOIN users u ON u.id = i.invited_by "
+            "WHERE i.id = $1",
+            invite_id,
+        )
+        if row is None:
+            raise _invite_error("invite_invalid", "invite not found")
+
+        actor_email = await conn.fetchval(
+            "SELECT email FROM users WHERE id = $1", actor_user_id
+        )
+
+    if row["workspace_deleted_at"] is not None:
+        status_str = _STATUS_WORKSPACE_GONE
+    elif row["revoked_at"] is not None:
+        status_str = _STATUS_REVOKED
+    elif row["redeemed_at"] is not None:
+        status_str = (
+            _STATUS_REDEEMED_BY_ME
+            if row["redeemed_by"] == actor_user_id
+            else _STATUS_REDEEMED_BY_OTHER
+        )
+    elif row["expires_at"] <= datetime.now(timezone.utc):
+        status_str = _STATUS_EXPIRED
+    elif actor_email is None or actor_email.lower() != row["invited_email"]:
+        # Unknown actor (no row in users) or a mismatched email both block
+        # redemption — surface as the same UX state so the page can ask the
+        # viewer to sign in with the right account.
+        status_str = _STATUS_EMAIL_MISMATCH
+    else:
+        status_str = _STATUS_PENDING
+
+    return PreviewInviteResponse(
+        status=status_str,
+        workspace_id=row["workspace_id"],
+        workspace_name=row["workspace_name"],
+        invited_email=row["invited_email"],
+        role=row["role"],
+        invited_by_email=row["inviter_email"],
+        invited_by_display_name=row["inviter_name"],
+        expires_at=row["expires_at"].isoformat(),
     )

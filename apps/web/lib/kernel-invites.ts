@@ -167,6 +167,66 @@ export async function listWorkspaceMembers(
  return body.members
 }
 
+// Status values the preview endpoint returns. Keep this in lockstep with the
+// kernel constants in routes/internal_invites.py; the accept page branches on
+// the exact strings.
+export type InvitePreviewStatus =
+ | 'pending'
+ | 'expired'
+ | 'revoked'
+ | 'redeemed_by_me'
+ | 'redeemed_by_other'
+ | 'email_mismatch'
+ | 'workspace_gone'
+
+export interface InvitePreview {
+ status: InvitePreviewStatus
+ workspace_id: string
+ workspace_name: string | null
+ invited_email: string
+ role: string
+ invited_by_email: string | null
+ invited_by_display_name: string | null
+ expires_at: string
+}
+
+export async function previewInvite(
+ token: string,
+ actorUserId: string,
+): Promise<InvitePreview> {
+ const key = requireKey()
+ const url = new URL(`${API_URL}/api/internal/invites/preview`)
+ url.searchParams.set('token', token)
+ url.searchParams.set('actor_user_id', actorUserId)
+ const res = await fetch(url, {
+  method: 'GET',
+  headers: { authorization: `Bearer ${key}` },
+  signal: AbortSignal.timeout(10_000),
+  cache: 'no-store',
+ })
+ if (!res.ok) {
+  // The kernel emits {detail: {code, message}} for invite-shape errors
+  // (signature / not-found), matching the redeem endpoint. Reuse the same
+  // typed error so callers can branch on `code` without re-parsing.
+  let code = 'invite_error'
+  let message = res.statusText
+  try {
+   const body = (await res.json()) as { detail?: unknown }
+   if (typeof body.detail === 'object' && body.detail !== null) {
+    const d = body.detail as { code?: unknown; message?: unknown }
+    if (typeof d.code === 'string') code = d.code
+    if (typeof d.message === 'string') message = d.message
+   } else if (typeof body.detail === 'string') {
+    message = body.detail
+   }
+  } catch {
+   // Body wasn't JSON; fall through with defaults.
+  }
+  throw new InviteRedeemError(code, message, res.status)
+ }
+ return (await res.json()) as InvitePreview
+}
+
 export async function listPendingInvites(
  workspaceId: string,
  actorUserId: string,

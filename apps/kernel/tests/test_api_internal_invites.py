@@ -140,6 +140,16 @@ async def test_list_members_missing_token(monkeypatch):
     assert r.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_preview_invite_missing_token(monkeypatch):
+    async with _no_db_client(monkeypatch) as client:
+        r = await client.get(
+            "/api/internal/invites/preview",
+            params={"token": "x.y", "actor_user_id": "u1"},
+        )
+    assert r.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # DB-backed lifecycle tests
 # ---------------------------------------------------------------------------
@@ -593,3 +603,270 @@ async def test_list_members_requires_membership(
         params={"actor_user_id": outsider_id},
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Preview endpoint
+# ---------------------------------------------------------------------------
+
+
+async def _mint_invite(
+    api_client: httpx.AsyncClient,
+    *,
+    ws_id: str,
+    inviter_id: str,
+    email: str,
+    role: str = "member",
+) -> dict:
+    r = await api_client.post(
+        f"/api/internal/workspaces/{ws_id}/invites",
+        headers=_AUTH_HEADERS,
+        json={"inviter_user_id": inviter_id, "invited_email": email, "role": role},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_pending(api_client: httpx.AsyncClient, monkeypatch):
+    """Fresh invite + matching viewer email → status=pending with full metadata."""
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "preview-owner@test.local")
+    invitee_id = await _create_user(api_client, "preview-invitee@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewPending")
+
+    minted = await _mint_invite(
+        api_client,
+        ws_id=ws_id,
+        inviter_id=owner_id,
+        email="preview-invitee@test.local",
+        role="admin",
+    )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": invitee_id},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "pending"
+    assert body["workspace_id"] == ws_id
+    assert body["workspace_name"] == "PreviewPending"
+    assert body["invited_email"] == "preview-invitee@test.local"
+    assert body["role"] == "admin"
+    assert body["invited_by_email"] == "preview-owner@test.local"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_email_mismatch(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """Viewer signed in as the wrong account → status=email_mismatch.
+
+    Metadata is still returned so the page can show "this invite is for X"
+    while pointing the viewer at the right account to sign in with.
+    """
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "pm-owner@test.local")
+    wrong_id = await _create_user(api_client, "pm-wrong@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewMismatch")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="pm-right@test.local"
+    )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": wrong_id},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "email_mismatch"
+    assert body["invited_email"] == "pm-right@test.local"
+    assert body["workspace_name"] == "PreviewMismatch"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_revoked(api_client: httpx.AsyncClient, monkeypatch):
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "pr-owner@test.local")
+    invitee_id = await _create_user(api_client, "pr-invitee@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewRevoked")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="pr-invitee@test.local"
+    )
+    await api_client.post(
+        f"/api/internal/invites/{minted['invite_id']}/revoke",
+        headers=_AUTH_HEADERS,
+        json={"actor_user_id": owner_id},
+    )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": invitee_id},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "revoked"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_redeemed_by_me_vs_other(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """Redeemed status distinguishes the original redeemer from a passerby."""
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "prd-owner@test.local")
+    invitee_id = await _create_user(api_client, "prd-invitee@test.local")
+    other_id = await _create_user(api_client, "prd-other@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewRedeemed")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="prd-invitee@test.local"
+    )
+    await api_client.post(
+        "/api/internal/invites/redeem",
+        headers=_AUTH_HEADERS,
+        json={"token": minted["token"], "redeemer_user_id": invitee_id},
+    )
+
+    # Original redeemer revisits the URL — should be told they're already in.
+    r1 = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": invitee_id},
+    )
+    assert r1.status_code == 200
+    assert r1.json()["status"] == "redeemed_by_me"
+
+    # Another user with a different (non-matching) email gets redeemed_by_other,
+    # not email_mismatch — the redemption gate dominates so the UI surfaces the
+    # most useful state: the invite is gone, not "wrong account".
+    r2 = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": other_id},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "redeemed_by_other"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_expired(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "pe-owner@test.local")
+    invitee_id = await _create_user(api_client, "pe-invitee@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewExpired")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="pe-invitee@test.local"
+    )
+
+    # Drag the row's expiry into the past so the row-side check fires. The
+    # token signature is still valid; the preview should still return 200 (not
+    # invite_invalid) because we want the page to render the expired state
+    # with metadata rather than a generic "bad link" error.
+    pool = api_client._transport.app.state.pool  # type: ignore[attr-defined]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE workspace_invites SET expires_at = now() - interval '1 minute' "
+            "WHERE id = $1",
+            minted["invite_id"],
+        )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": invitee_id},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "expired"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_invalid_token(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """A token signed by a different key is rejected with invite_invalid."""
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    invitee_id = await _create_user(api_client, "pi-invitee@test.local")
+    bogus = mint_invite_token(invite_id="not-real", ttl_seconds=60, signing_key="WRONG")
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": bogus, "actor_user_id": invitee_id},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "invite_invalid"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_workspace_gone(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """Soft-deleting the workspace after mint → status=workspace_gone.
+
+    The token is still cryptographically valid and the invite row still exists;
+    the preview surfaces the deletion state rather than a generic error so the
+    accept page can render a meaningful message.
+    """
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "pwg-owner@test.local")
+    invitee_id = await _create_user(api_client, "pwg-invitee@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewWorkspaceGone")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="pwg-invitee@test.local"
+    )
+
+    pool = api_client._transport.app.state.pool  # type: ignore[attr-defined]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE workspaces SET deleted_at = now() WHERE id = $1", ws_id
+        )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": invitee_id},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "workspace_gone"
+    assert body["workspace_id"] == ws_id
+    assert body["workspace_name"] == "PreviewWorkspaceGone"
+
+
+@_db_skip
+@pytest.mark.asyncio
+async def test_preview_invite_unknown_actor(
+    api_client: httpx.AsyncClient, monkeypatch
+):
+    """An actor_user_id with no matching users row → status=email_mismatch.
+
+    This covers stale sessions (user deleted after JWT was minted): the
+    preview treats a missing actor the same as a wrong-email actor so the
+    page prompts the viewer to sign in with the invited address.
+    """
+    monkeypatch.setenv(INTERNAL_AUTH_KEY_ENV, _KEY)
+    owner_id = await _create_user(api_client, "pua-owner@test.local")
+    ws_id = await _create_workspace(api_client, owner_id, "PreviewUnknownActor")
+    minted = await _mint_invite(
+        api_client, ws_id=ws_id, inviter_id=owner_id, email="pua-invitee@test.local"
+    )
+
+    r = await api_client.get(
+        "/api/internal/invites/preview",
+        headers=_AUTH_HEADERS,
+        params={"token": minted["token"], "actor_user_id": "does-not-exist"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "email_mismatch"

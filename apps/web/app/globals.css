@@ -5437,3 +5437,13 @@ a.anatomy-row-name:hover {
 }
 .setup-submit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setup-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+.setup-secondary {
+ display: block;
+ font-size: 13px;
+ color: var(--text-muted);
+ text-align: center;
+ text-decoration: none;
+ cursor: pointer;
+ transition: color 0.12s;
+}
+.setup-secondary:hover { color: var(--text); }
