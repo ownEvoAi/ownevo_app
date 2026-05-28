@@ -24,6 +24,7 @@ import { auth } from '@/auth'
 import { InviteRedeemError, previewInvite, type InvitePreview } from '@/lib/kernel-invites'
 import { AuthShell } from '../../auth/_components/AuthShell'
 import { AcceptInviteForm } from './accept-form'
+import { signOutToReclaimInvite } from './actions'
 
 function formatRoleLabel(role: string): string {
  if (role === 'admin') return 'an admin'
@@ -48,7 +49,7 @@ function workspaceLabel(preview: InvitePreview): string {
 }
 
 function inviterLabel(preview: InvitePreview): string {
- return preview.invited_by_display_name ?? preview.invited_by_email ?? 'A workspace admin'
+ return preview.invited_by_display_name ?? preview.invited_by_email ?? 'a workspace admin'
 }
 
 export default async function AcceptInvitePage({
@@ -105,9 +106,16 @@ export default async function AcceptInvitePage({
     <AuthShell>
      <h1 className="setup-title">Workspace no longer available</h1>
      <p className="setup-body">
-      The workspace this invite was for has been deleted. Ask the person
-      who invited you whether to expect a new link.
+      <strong>{wsLabel}</strong> has been deleted. Ask the person who
+      invited you whether to expect a new link.
      </p>
+     <Link
+      href="/"
+      className="setup-secondary"
+      style={{ marginTop: 12, textAlign: 'center', display: 'block' }}
+     >
+      Back to ownEvo
+     </Link>
     </AuthShell>
    )
   case 'revoked':
@@ -118,6 +126,13 @@ export default async function AcceptInvitePage({
       Your invite to <strong>{wsLabel}</strong> has been revoked by an
       admin. Ask {inviter} for a fresh link if you still need access.
      </p>
+     <Link
+      href="/"
+      className="setup-secondary"
+      style={{ marginTop: 12, textAlign: 'center', display: 'block' }}
+     >
+      Back to ownEvo
+     </Link>
     </AuthShell>
    )
   case 'expired':
@@ -128,6 +143,13 @@ export default async function AcceptInvitePage({
       Your invite to <strong>{wsLabel}</strong> has expired. Ask {inviter}{' '}
       for a fresh link.
      </p>
+     <Link
+      href="/"
+      className="setup-secondary"
+      style={{ marginTop: 12, textAlign: 'center', display: 'block' }}
+     >
+      Back to ownEvo
+     </Link>
     </AuthShell>
    )
   case 'redeemed_by_other':
@@ -138,6 +160,13 @@ export default async function AcceptInvitePage({
       This invite has already been used by another account. If you should
       be in <strong>{wsLabel}</strong>, ask {inviter} for a new link.
      </p>
+     <Link
+      href="/"
+      className="setup-secondary"
+      style={{ marginTop: 12, textAlign: 'center', display: 'block' }}
+     >
+      Back to ownEvo
+     </Link>
     </AuthShell>
    )
   case 'redeemed_by_me':
@@ -159,6 +188,7 @@ export default async function AcceptInvitePage({
   case 'email_mismatch': {
    const signedInAs = session.user.email ?? '(unknown)'
    const callbackAfterSignout = `/invites/${encodeURIComponent(token)}`
+   const signOutAction = signOutToReclaimInvite.bind(null, callbackAfterSignout)
    return (
     <AuthShell>
      <h1 className="setup-title">Sign in with the right account</h1>
@@ -168,11 +198,7 @@ export default async function AcceptInvitePage({
       as <strong>{signedInAs}</strong>. Sign out and sign back in with the
       invited address to accept it.
      </p>
-     <form
-      action={`/api/auth/signout?callbackUrl=${encodeURIComponent(callbackAfterSignout)}`}
-      method="POST"
-      style={{ marginTop: 12 }}
-     >
+     <form action={signOutAction} style={{ marginTop: 12 }}>
       <button type="submit" className="setup-submit">
        Sign out
       </button>
@@ -181,7 +207,6 @@ export default async function AcceptInvitePage({
    )
   }
   case 'pending':
-  default:
    return (
     <AuthShell>
      <h1 className="setup-title">Join {wsLabel}</h1>
@@ -190,6 +215,23 @@ export default async function AcceptInvitePage({
       {roleLabel}. This invite expires {formatExpiresIn(preview.expires_at)}.
      </p>
      <AcceptInviteForm token={token} />
+    </AuthShell>
+   )
+  default:
+   return (
+    <AuthShell>
+     <h1 className="setup-title">Something went wrong</h1>
+     <p className="setup-body">
+      This invite link could not be opened. Ask the person who sent it for
+      a fresh link.
+     </p>
+     <Link
+      href="/"
+      className="setup-secondary"
+      style={{ marginTop: 12, textAlign: 'center', display: 'block' }}
+     >
+      Back to ownEvo
+     </Link>
     </AuthShell>
    )
  }

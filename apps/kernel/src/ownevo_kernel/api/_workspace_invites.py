@@ -59,12 +59,19 @@ def mint_invite_token(
     return f"{payload_s}.{sign(payload_s, signing_key)}"
 
 
-def verify_invite_token(token: str, signing_key: str) -> str:
-    """Return the invite id if the token is well-formed, signed, and unexpired.
+def verify_invite_token(
+    token: str, signing_key: str, *, check_expiry: bool = True
+) -> str:
+    """Return the invite id if the token is well-formed, signed, and (optionally) unexpired.
 
     Raises ``InviteTokenInvalid`` otherwise. Callers must still look the id up
     in ``workspace_invites`` to apply state checks (revoked, redeemed, row
     expiry).
+
+    Pass ``check_expiry=False`` when the caller will determine expiry from the
+    database row rather than the token claim — this lets the preview endpoint
+    return a structured ``expired`` status with workspace/inviter metadata
+    instead of a generic invalid-token error.
     """
     parts = token.split(".")
     if len(parts) != 2:
@@ -83,7 +90,7 @@ def verify_invite_token(token: str, signing_key: str) -> str:
             raise InviteTokenInvalid(f"missing claim: {claim}")
     if raw["k"] != INVITE_KIND:
         raise InviteTokenInvalid(f"wrong token kind: {raw['k']!r}")
-    if not isinstance(raw["e"], int) or raw["e"] < int(time.time()):
+    if check_expiry and (not isinstance(raw["e"], int) or raw["e"] < int(time.time())):
         raise InviteTokenInvalid("expired")
     invite_id = raw["i"]
     if not isinstance(invite_id, str) or not invite_id.strip():

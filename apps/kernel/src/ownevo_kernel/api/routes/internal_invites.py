@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -474,9 +475,17 @@ _STATUS_WORKSPACE_GONE = "workspace_gone"
 class PreviewInviteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: str
+    status: Literal[
+        "pending",
+        "expired",
+        "revoked",
+        "redeemed_by_me",
+        "redeemed_by_other",
+        "email_mismatch",
+        "workspace_gone",
+    ]
     workspace_id: str
-    workspace_name: str | None  # null when the workspace was soft-deleted
+    workspace_name: str | None
     invited_email: str
     role: str
     invited_by_email: str | None
@@ -507,7 +516,12 @@ async def preview_invite(
     require_service_token(request)
     signing_key = _require_signing_key()
     try:
-        invite_id = verify_invite_token(token, signing_key)
+        # Skip the token-side expiry check: the DB row's expires_at is the
+        # authoritative expiry for the preview so the page can surface a
+        # structured "expired" status with workspace/inviter metadata rather
+        # than a generic "link not valid" error. Signature and format are
+        # still validated unconditionally.
+        invite_id = verify_invite_token(token, signing_key, check_expiry=False)
     except InviteTokenInvalid as exc:
         raise _invite_error("invite_invalid", str(exc)) from exc
 
