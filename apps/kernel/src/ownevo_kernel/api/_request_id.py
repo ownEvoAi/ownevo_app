@@ -23,6 +23,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from ._sentry import tag_request
+
 REQUEST_ID_HEADER = "X-Request-Id"
 _MAX_ID_LENGTH = 128
 _ALLOWED_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
@@ -58,6 +60,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         inbound = _sanitize_inbound(request.headers.get(REQUEST_ID_HEADER))
         request_id = inbound or _new_request_id()
         request.state.request_id = request_id
+        # Sentry sees the same correlation key the response carries.
+        # No-op when SENTRY_DSN is unset.
+        tag_request(request_id)
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response

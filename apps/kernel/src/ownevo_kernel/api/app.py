@@ -43,6 +43,7 @@ from ._internal_auth import (
 )
 from ._logging import configure_logging
 from ._request_id import RequestIdMiddleware
+from ._sentry import flush_sentry, init_sentry
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -146,6 +147,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Initialize Sentry before any other boot work, so a guard failure
+        # below also reports as a Sentry event (when SENTRY_DSN is set). A
+        # bad OWNEVO_SENTRY_TRACES_SAMPLE_RATE fails the boot here rather
+        # than silently disabling traces or sampling at the wrong rate.
+        init_sentry()
+
         # Boot-time guard: dev-auth and the shared signing key are mutually
         # exclusive. With both set the kernel would silently fall back to the
         # seeded dev principal for any unauthenticated request, effectively
@@ -252,6 +259,10 @@ def create_app(
                 await app.state.trigger_scheduler.stop()
             if own_pool:
                 await app.state.pool.close()
+            # Drain any queued Sentry events before the process exits.
+            # SIGTERM bypasses atexit hooks in containers, so we flush
+            # explicitly here. No-op when SENTRY_DSN is unset.
+            flush_sentry()
 
     # Opt-in JSON log formatter (OWNEVO_LOG_FORMAT=json). Called before
     # the app is built so logs emitted from middleware/handler setup land
