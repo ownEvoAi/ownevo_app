@@ -2,6 +2,6 @@
 maintenance that runs once at kernel boot.
 """
 
-from .orphan_reaper import reap_orphaned_iterations
+from .orphan_reaper import REAPER_ACTOR, REAPER_REASON, reap_orphaned_iterations
 
-__all__ = ["reap_orphaned_iterations"]
+__all__ = ["reap_orphaned_iterations", "REAPER_ACTOR", "REAPER_REASON"]

@@ -15,13 +15,14 @@ phase 1.
 
 from __future__ import annotations
 
+import json
 import os
 from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import pytest
 from ownevo_kernel.db import ENV_VAR
-from ownevo_kernel.jobs import reap_orphaned_iterations
+from ownevo_kernel.jobs import REAPER_ACTOR, REAPER_REASON, reap_orphaned_iterations
 from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
     acquire_workspace_conn,
@@ -160,14 +161,13 @@ async def test_reaper_writes_audit_entry_per_orphan(db: asyncpg.Connection) -> N
         iteration_id,
     )
     assert audit_row is not None
-    assert audit_row["actor"] == "kernel-orphan-reaper"
-    import json
+    assert audit_row["actor"] == REAPER_ACTOR
     payload = audit_row["payload"]
     if isinstance(payload, str):
         payload = json.loads(payload)
     assert payload["workflow_id"] == "wf-reap-audit"
     assert payload["iteration_index"] == 3
-    assert payload["reason"] == "orphaned-by-restart"
+    assert payload["reason"] == REAPER_REASON
     assert payload["previous_state"] == IterationState.RUNNING.value
     assert payload["new_state"] == IterationState.SANDBOX_ERROR.value
 
@@ -175,7 +175,14 @@ async def test_reaper_writes_audit_entry_per_orphan(db: asyncpg.Connection) -> N
 async def test_reaper_isolates_workspaces(db: asyncpg.Connection) -> None:
     """A running row in workspace A is reaped without affecting workspace B's
     running row. Both rows are closed because both workspaces have an orphan,
-    but the audit entries land in their respective workspaces' scopes.
+    and each workspace's audit entry is visible only within that workspace's
+    GUC scope (verified below via scoped connections).
+
+    Note: the pool here connects as the local superuser, which bypasses
+    FORCE ROW LEVEL SECURITY. The test therefore validates logical isolation
+    (correct workspace_id stamping via the GUC default) rather than the RLS
+    enforcement layer itself. RLS enforcement is covered by the rls_db
+    fixture tests in test_rls_*.py.
     """
     pool = await _pool_for_db(db)
     try:
@@ -217,12 +224,43 @@ async def test_reaper_isolates_workspaces(db: asyncpg.Connection) -> None:
                 "wf-ws-default",
             )
             assert row["state"] == IterationState.SANDBOX_ERROR.value
+
+            # The audit entry for this workspace's iteration must be visible
+            # within the default workspace scope and must not bleed into the
+            # other workspace's scope.
+            default_iter_id = await conn.fetchval(
+                "SELECT id FROM iterations WHERE workflow_id = $1",
+                "wf-ws-default",
+            )
+            default_audit = await conn.fetchrow(
+                "SELECT kind FROM audit_entries WHERE related_id = $1",
+                default_iter_id,
+            )
+            assert default_audit is not None, "iteration-reaped entry missing in default workspace"
+
         async with acquire_workspace_conn(pool, "ws-other") as conn:
             row = await conn.fetchrow(
                 "SELECT state FROM iterations WHERE workflow_id = $1",
                 "wf-ws-other",
             )
             assert row["state"] == IterationState.SANDBOX_ERROR.value
+
+            other_iter_id = await conn.fetchval(
+                "SELECT id FROM iterations WHERE workflow_id = $1",
+                "wf-ws-other",
+            )
+            other_audit = await conn.fetchrow(
+                "SELECT kind FROM audit_entries WHERE related_id = $1",
+                other_iter_id,
+            )
+            assert other_audit is not None, "iteration-reaped entry missing in ws-other"
+
+            # The default workspace's iteration id must not appear in ws-other's scope.
+            cross_leak = await conn.fetchrow(
+                "SELECT id FROM audit_entries WHERE related_id = $1",
+                default_iter_id,
+            )
+            assert cross_leak is None, "audit entry from default workspace leaked into ws-other"
     finally:
         await pool.close()
 
@@ -232,30 +270,62 @@ async def test_reaper_skips_soft_deleted_workspaces(db: asyncpg.Connection) -> N
 
     `_list_active_workspaces` filters on `deleted_at IS NULL`, so
     `acquire_workspace_conn` (which refuses to bind a deleted workspace)
-    is never called against a soft-deleted id. The reaper completes
-    cleanly when only soft-deleted tenants would otherwise have orphans
-    — the rows remain physically present (audit entries can never be
-    deleted under WORM) and become reachable again if the workspace is
-    restored.
+    is never called against a soft-deleted id. We seed a real 'running'
+    iteration in the soft-deleted workspace (via the unscoped `db`
+    connection, which bypasses the GUC constraint) and then verify that
+    the reaper returns 0 AND leaves the row untouched — distinguishing
+    "skipped because soft-deleted" from "nothing to reap".
     """
     pool = await _pool_for_db(db)
     try:
+        # Create the workspace as active first so we can insert a workflow
+        # and iteration row under it, then soft-delete it.
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO workspaces (id, name, deleted_at) "
-                "VALUES ($1, $2, now())",
+                "INSERT INTO workspaces (id, name) VALUES ($1, $2) "
+                "ON CONFLICT (id) DO NOTHING",
                 "ws-soft-deleted",
                 "Soft-deleted workspace",
+            )
+
+        # Seed a workflow and running iteration directly via the unscoped db
+        # connection (bypasses workspace GUC, uses the literal workspace_id).
+        await db.execute(
+            "INSERT INTO workflows (id, description, spec, workspace_id) "
+            "VALUES ($1, $2, '{}'::jsonb, $3) ON CONFLICT (id) DO NOTHING",
+            "wf-soft-deleted",
+            "test workflow wf-soft-deleted",
+            "ws-soft-deleted",
+        )
+        await db.execute(
+            "INSERT INTO iterations (workflow_id, iteration_index, state, ended_at, workspace_id) "
+            "VALUES ($1, 0, 'running'::iteration_state, NULL, $2)",
+            "wf-soft-deleted",
+            "ws-soft-deleted",
+        )
+
+        # Now soft-delete the workspace.
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE workspaces SET deleted_at = now() WHERE id = $1",
+                "ws-soft-deleted",
             )
 
         # The reaper must complete without attempting to bind the
         # soft-deleted workspace (which would raise WorkspaceDeletedError
         # inside acquire_workspace_conn).
         reaped = await reap_orphaned_iterations(pool)
-        # Returns 0 because the only workspace with potential orphans —
-        # the default workspace, seeded by migration 0033 — has no
-        # iteration rows.
         assert reaped == 0
+
+        # The orphaned iteration in the soft-deleted workspace must remain
+        # in 'running' state — proving the filter excluded it rather than
+        # silently swallowing an error.
+        row = await db.fetchrow(
+            "SELECT state, ended_at FROM iterations WHERE workflow_id = $1",
+            "wf-soft-deleted",
+        )
+        assert row["state"] == "running", "soft-deleted workspace iteration was incorrectly reaped"
+        assert row["ended_at"] is None
     finally:
         await pool.close()
 
@@ -297,5 +367,54 @@ async def test_reaper_handles_no_active_workspaces(db: asyncpg.Connection) -> No
 
         reaped = await reap_orphaned_iterations(pool)
         assert reaped == 0
+    finally:
+        await pool.close()
+
+
+async def test_reaper_continues_on_workspace_error(db: asyncpg.Connection) -> None:
+    """A failing workspace must not block reaping of the remaining workspaces.
+
+    The per-workspace except-Exception-continue guard in
+    `reap_orphaned_iterations` is exercised by patching `_reap_in_workspace`
+    to raise for one workspace. The reaper must log and continue, returning
+    the count from the successful workspace without propagating the error.
+    """
+    from unittest.mock import patch
+
+    import ownevo_kernel.jobs.orphan_reaper as _mod
+
+    pool = await _pool_for_db(db)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO workspaces (id, name) VALUES ($1, $2) "
+                "ON CONFLICT (id) DO NOTHING",
+                "ws-failing",
+                "Failing workspace",
+            )
+
+        # Seed an orphan in the default workspace so the successful path
+        # reaps one row even as the other workspace errors.
+        async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+            await _seed_workflow(conn, "wf-error-test")
+            await _seed_iteration(
+                conn,
+                workflow_id="wf-error-test",
+                iteration_index=0,
+                state="running",
+            )
+
+        original = _mod._reap_in_workspace
+
+        async def _fail_for_ws_failing(p: asyncpg.Pool, workspace_id: str) -> int:
+            if workspace_id == "ws-failing":
+                raise RuntimeError("simulated workspace reap failure")
+            return await original(p, workspace_id)
+
+        with patch.object(_mod, "_reap_in_workspace", side_effect=_fail_for_ws_failing):
+            reaped = await reap_orphaned_iterations(pool)
+
+        # The successful workspace contributes its 1 row; the failing one is skipped.
+        assert reaped == 1
     finally:
         await pool.close()

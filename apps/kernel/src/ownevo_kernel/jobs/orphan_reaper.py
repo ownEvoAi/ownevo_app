@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
-_REAPER_ACTOR = "kernel-orphan-reaper"
-_REAPER_REASON = "orphaned-by-restart"
+REAPER_ACTOR = "kernel-orphan-reaper"
+REAPER_REASON = "orphaned-by-restart"
 
 
 async def reap_orphaned_iterations(pool: asyncpg.Pool) -> int:
@@ -111,7 +111,7 @@ async def _reap_in_workspace(pool: asyncpg.Pool, workspace_id: str) -> int:
             await append_audit_entry(
                 conn,
                 kind=AuditKind.ITERATION_REAPED,
-                actor=_REAPER_ACTOR,
+                actor=REAPER_ACTOR,
                 related_id=row["id"],
                 payload={
                     "workflow_id": row["workflow_id"],
@@ -119,10 +119,10 @@ async def _reap_in_workspace(pool: asyncpg.Pool, workspace_id: str) -> int:
                     "started_at": row["started_at"].isoformat(),
                     "previous_state": IterationState.RUNNING.value,
                     "new_state": IterationState.SANDBOX_ERROR.value,
-                    "reason": _REAPER_REASON,
+                    "reason": REAPER_REASON,
                 },
             )
         return len(stuck)
 
 
-__all__ = ["reap_orphaned_iterations"]
+__all__ = ["reap_orphaned_iterations", "REAPER_ACTOR", "REAPER_REASON"]
