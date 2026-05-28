@@ -23,6 +23,7 @@ from ownevo_kernel.api._internal_auth import (
 )
 from ownevo_kernel.api.app import create_app
 from ownevo_kernel.api.deps import get_principal
+from ownevo_kernel.secrets import generate_master_key
 from ownevo_kernel.secrets.encrypted_field import MASTER_KEY_ENV
 
 
@@ -125,7 +126,7 @@ async def test_production_without_signing_key_refuses_to_start(monkeypatch):
     monkeypatch.setenv(DEPLOY_ENV_VAR, PRODUCTION_ENV_VALUE)
     monkeypatch.delenv(DEV_AUTH_ENV, raising=False)
     monkeypatch.delenv(INTERNAL_AUTH_KEY_ENV, raising=False)
-    monkeypatch.setenv(MASTER_KEY_ENV, "stub-fernet-key")
+    monkeypatch.setenv(MASTER_KEY_ENV, generate_master_key())
 
     app = create_app()
 

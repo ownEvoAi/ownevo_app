@@ -18,10 +18,12 @@
 //    missing. The first two guards catch the most dangerous combinations
 //    on their own; this one closes the remaining holes by refusing any
 //    prod boot that depends on a dev-only fallback or omits a required
-//    secret.
+//    secret. Note: the kernel has its own independent production guard
+//    keyed on OWNEVO_ENV=production (not NODE_ENV); it additionally
+//    requires OWNEVO_CREDENTIALS_MASTER_KEY which is kernel-only.
 export async function register() {
   const devAuth = process.env.OWNEVO_DEV_AUTH?.toLowerCase() === 'true'
-  const hasKey = Boolean(process.env.OWNEVO_INTERNAL_AUTH_KEY)
+  const hasKey = Boolean(process.env.OWNEVO_INTERNAL_AUTH_KEY?.trim())
   const hasGoogle = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET)
   const isProduction = process.env.NODE_ENV === 'production'
 

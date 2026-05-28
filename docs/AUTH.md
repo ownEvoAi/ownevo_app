@@ -192,6 +192,14 @@ surface as quiet runtime failures:
   crashes loudly with an actionable error instead of rejecting every
   authenticated request or crashing at the first integration write.
 
+  **Deployment requirement:** `OWNEVO_ENV=production` must be set
+  explicitly in the kernel's deployment environment (e.g. as a secret or
+  env var in your hosting platform). The web app's production guard fires
+  automatically because Next.js sets `NODE_ENV=production` in production
+  builds; the kernel's guard is opt-in by this explicit marker. Without it
+  the kernel's production-only checks do not run. See `.env.example` for
+  the documented variable.
+
 ## How this unblocks the rest of the multi-tenant work
 
 - **Per-request workspace resolution** is no longer blocked — the kernel

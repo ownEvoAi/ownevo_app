@@ -80,7 +80,7 @@ def is_production() -> bool:
     boot-time guards key off this single signal so adding more dev-only
     conveniences in the future doesn't require touching every guard call site.
     """
-    return os.environ.get(DEPLOY_ENV_VAR, "").lower() == PRODUCTION_ENV_VALUE
+    return os.environ.get(DEPLOY_ENV_VAR, "").strip().lower() == PRODUCTION_ENV_VALUE
 
 
 def bearer_token(request: Request) -> str | None:

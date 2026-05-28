@@ -37,6 +37,7 @@ from ._internal_auth import (
     dev_auth_enabled,
     is_production,
 )
+from ..secrets.encrypted_field import MASTER_KEY_ENV
 from .deps import is_demo_mode
 from .models import HealthResponse
 from .routes import (
@@ -174,7 +175,7 @@ def create_app(
                 )
             missing = [
                 name
-                for name in (INTERNAL_AUTH_KEY_ENV, "OWNEVO_CREDENTIALS_MASTER_KEY")
+                for name in (INTERNAL_AUTH_KEY_ENV, MASTER_KEY_ENV)
                 if not os.environ.get(name)
             ]
             if missing:
