@@ -79,6 +79,44 @@ def test_render_metrics_omits_pool_gauges_when_absent() -> None:
     assert "ownevo_db_up 0" in text
 
 
+def test_render_metrics_pool_in_use_clamps_at_zero() -> None:
+    """asyncpg can momentarily report idle > size during churn; clamp to 0."""
+    text = render_metrics(
+        uptime_seconds=1.0,
+        db_up=True,
+        pool_size=3,
+        pool_idle=5,
+        sandbox_max_concurrent=4,
+    )
+    assert "ownevo_db_pool_in_use 0" in text
+
+
+def test_render_metrics_asymmetric_none_pool_size_absent() -> None:
+    """pool_size=None with pool_idle present: only idle gauge is emitted."""
+    text = render_metrics(
+        uptime_seconds=1.0,
+        db_up=True,
+        pool_size=None,
+        pool_idle=5,
+        sandbox_max_concurrent=4,
+    )
+    assert "ownevo_db_pool_idle 5" in text
+    assert "ownevo_db_pool_size" not in text
+    assert "ownevo_db_pool_in_use" not in text
+
+
+def test_render_metrics_fractional_uptime() -> None:
+    """Sub-second uptime renders with 3-decimal precision, not as an integer."""
+    text = render_metrics(
+        uptime_seconds=12.345,
+        db_up=True,
+        pool_size=None,
+        pool_idle=None,
+        sandbox_max_concurrent=4,
+    )
+    assert "ownevo_uptime_seconds 12.345" in text
+
+
 # ---------------------------------------------------------------------------
 # Endpoints — no DB (lifespan not entered, so no pool)
 # ---------------------------------------------------------------------------
@@ -105,7 +143,7 @@ async def test_readyz_503_when_pool_absent(no_db_client: httpx.AsyncClient) -> N
     """Readiness fails closed when the DB is unreachable so an LB drains us."""
     resp = await no_db_client.get("/api/readyz")
     assert resp.status_code == 503
-    assert resp.json()["status"] == "not_ready"
+    assert resp.json() == {"status": "not_ready", "db": "unavailable"}
 
 
 async def test_metrics_text_format_without_pool(no_db_client: httpx.AsyncClient) -> None:
@@ -124,6 +162,13 @@ async def test_metrics_text_format_without_pool(no_db_client: httpx.AsyncClient)
 # ---------------------------------------------------------------------------
 
 
+async def test_livez_is_200_with_live_pool(api_client: httpx.AsyncClient) -> None:
+    """Liveness stays dependency-free even when the pool is live."""
+    resp = await api_client.get("/api/livez")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
 async def test_readyz_ready_with_live_pool(api_client: httpx.AsyncClient) -> None:
     resp = await api_client.get("/api/readyz")
     assert resp.status_code == 200
@@ -133,6 +178,7 @@ async def test_readyz_ready_with_live_pool(api_client: httpx.AsyncClient) -> Non
 async def test_metrics_reports_live_pool(api_client: httpx.AsyncClient) -> None:
     resp = await api_client.get("/metrics")
     assert resp.status_code == 200
+    assert resp.headers["content-type"] == CONTENT_TYPE
     body = resp.text
     assert "ownevo_db_up 1" in body
     # Pool is live, so the pool gauges are present.

@@ -80,6 +80,11 @@ logger = logging.getLogger(__name__)
 # immune to wall-clock adjustments.
 _PROCESS_START = time.monotonic()
 
+# Snapshotted at import alongside _PROCESS_START so every /metrics scrape
+# reports the same value the running semaphore was sized with at startup,
+# rather than re-reading (and re-validating) the env var on every request.
+_SANDBOX_MAX_CONCURRENT = _read_max_concurrent()
+
 # Opt-in: auto-clustering loads sentence-transformers and calls the Anthropic
 # labeler (cost + ANTHROPIC_API_KEY), so it stays off unless explicitly enabled
 # rather than changing `make api` behaviour for everyone. The on-demand
@@ -341,10 +346,12 @@ def create_app(
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:
-        """Liveness + DB-roundtrip check.
+        """Combined health check — kept for back-compat with existing callers.
 
-        `db='ok'` confirms the pool answered a `SELECT 1`. A non-ok value
-        carries the asyncpg error class so monitoring can distinguish
+        Use ``/api/livez`` for liveness (dependency-free) and ``/api/readyz``
+        for readiness (503 on DB down) in new integrations. This endpoint
+        combines both: it always returns ``status='ok'`` and reports ``db``
+        as ``'ok'`` or the asyncpg error class, so monitoring can distinguish
         pool exhaustion from network failure.
         """
         try:
@@ -357,12 +364,17 @@ def create_app(
 
     async def _db_ok() -> bool:
         """True when the pool answers a SELECT 1. Never raises — a probe or
-        a metrics scrape must report the failure as a value, not a 500."""
+        a metrics scrape must report the failure as a value, not a 500.
+
+        The 2-second acquire timeout bounds worst-case probe latency when the
+        pool is saturated; asyncio.TimeoutError is caught by the broad except
+        and surfaces as db_up=0 / 503, consistent with any other failure mode.
+        """
         pool = getattr(api.state, "pool", None)
         if pool is None:
             return False
         try:
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=2.0) as conn:
                 await conn.fetchval("SELECT 1")
             return True
         except Exception:  # noqa: BLE001 — surfaced as db_up=0 / not_ready
@@ -379,7 +391,11 @@ def create_app(
         """
         return {"status": "ok"}
 
-    @api.get("/api/readyz", tags=["health"])
+    @api.get(
+        "/api/readyz",
+        tags=["health"],
+        responses={503: {"description": "DB unreachable — instance not ready"}},
+    )
     async def readyz(response: Response) -> dict[str, str]:
         """Readiness: can this instance serve traffic right now.
 
@@ -400,6 +416,11 @@ def create_app(
         Pool saturation, sandbox admission cap, DB reachability, uptime —
         enough for a scraper to alert on the kernel's own health. Not the
         product's AgentEvent observability, which is the trace-format seam.
+
+        Unauthenticated by design (standard Prometheus practice). This
+        endpoint must not be exposed on a public-facing port — restrict access
+        at the network/ALB layer so only the internal Prometheus scraper can
+        reach it.
         """
         pool = getattr(api.state, "pool", None)
         text = render_metrics(
@@ -407,7 +428,7 @@ def create_app(
             db_up=await _db_ok(),
             pool_size=pool.get_size() if pool is not None else None,
             pool_idle=pool.get_idle_size() if pool is not None else None,
-            sandbox_max_concurrent=_read_max_concurrent(),
+            sandbox_max_concurrent=_SANDBOX_MAX_CONCURRENT,
         )
         return Response(content=text, media_type=METRICS_CONTENT_TYPE)
 

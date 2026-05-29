@@ -15,6 +15,8 @@ them here.
 
 from __future__ import annotations
 
+import math
+
 # Prometheus exposition format version. Scrapers key on this content-type.
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -24,7 +26,15 @@ def _fmt(value: float) -> str:
     output reads cleanly; floats keep up to millisecond resolution."""
     if isinstance(value, bool):  # bool is an int subclass — guard first
         return "1" if value else "0"
-    if isinstance(value, int) or float(value).is_integer():
+    if isinstance(value, int):
+        return str(value)
+    # Non-finite values: map to Prometheus-canonical spelling so scrapers
+    # don't reject the entire exposition block with a parse error.
+    if not math.isfinite(value):
+        if math.isnan(value):
+            return "NaN"
+        return "+Inf" if value > 0 else "-Inf"
+    if float(value).is_integer():
         return str(int(value))
     return f"{value:.3f}"
 
