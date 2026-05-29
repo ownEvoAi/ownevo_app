@@ -14,8 +14,8 @@ interface PageProps {
 // Workspace-scoped traces list — mock parity: s26-rk7p3/15-traces.html.
 // Same row shape as the per-workflow Traces tab; the difference is
 // the workflow_id column on each row (since the list spans every
-// workflow). Capped at 500 rows server-side; keyset pagination is the
-// follow-up if real customer trace volume pushes past that limit.
+// workflow). Capped at 500 rows per page; pass next_cursor back as the
+// cursor query param to walk to older pages.
 export default async function WorkspaceTracesPage({ params }: PageProps) {
  const { wsId } = await params
 

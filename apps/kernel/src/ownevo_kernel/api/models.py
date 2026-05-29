@@ -1037,6 +1037,9 @@ class TraceSummary(_Strict):
 class TraceList(_Strict):
     workflow_id: str
     items: list[TraceSummary]
+    # Opaque keyset cursor for the next (older) page, or null when this is
+    # the last page. Pass it back as the `cursor` query param to continue.
+    next_cursor: str | None = None
 
 
 class TraceDetail(_Strict):

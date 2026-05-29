@@ -1271,6 +1271,10 @@ export interface TraceSummary {
 export interface TraceList {
  workflow_id: string
  items: TraceSummary[]
+ // Opaque keyset cursor for the next (older) page; null on the last page.
+ // Pass back as the `cursor` query param to continue. Optional for
+ // back-compat with callers that don't paginate.
+ next_cursor?: string | null
 }
 
 // AgentEvent variants — discriminated by `type`. Matches
