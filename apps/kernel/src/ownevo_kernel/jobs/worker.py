@@ -208,15 +208,33 @@ class JobWorker:
             retried = await fail_job(
                 conn, job["id"], error=error, backoff_seconds=backoff
             )
+        # Structured fields so the JSON log formatter / Sentry ship them as
+        # queryable attributes — a log-based alert keys on `job_failed_terminal`
+        # rather than regex-matching the message. (The Prometheus signal is the
+        # ownevo_jobs{status="failed"} gauge.)
+        payload = job["payload"]
+        if isinstance(payload, str):  # jsonb arrives as str (no codec registered)
+            payload = json.loads(payload)
+        workflow_id = payload.get("workflow_id") if isinstance(payload, dict) else None
+        fields = {
+            "job_id": str(job["id"]),
+            "kind": job["kind"],
+            "workflow_id": workflow_id,
+            "attempts": job["attempts"],
+            "max_attempts": job["max_attempts"],
+            "last_error": error,
+        }
         if retried:
             _log.warning(
                 "job worker: job %s re-queued (attempt %d/%d, backoff %.0fs)",
                 job["id"], job["attempts"], job["max_attempts"], backoff,
+                extra={**fields, "backoff_seconds": backoff},
             )
         else:
             _log.error(
                 "job worker: job %s failed terminally after %d attempt(s)",
                 job["id"], job["attempts"],
+                extra={**fields, "job_failed_terminal": True},
             )
 
     async def _heartbeat_loop(self, workspace_id: str, job_id: uuid.UUID) -> None:

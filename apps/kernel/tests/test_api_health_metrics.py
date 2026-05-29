@@ -73,6 +73,38 @@ def test_render_metrics_db_down_is_zero() -> None:
     assert "ownevo_db_pool_in_use 1" in text
 
 
+def test_render_metrics_emits_labeled_job_gauges() -> None:
+    """Job counts render as a labeled gauge family, one line per status, with
+    a single HELP/TYPE pair. The failed series is always present (even at 0) so
+    an alert rule can key on it."""
+    text = render_metrics(
+        uptime_seconds=1.0,
+        db_up=True,
+        pool_size=1,
+        pool_idle=1,
+        sandbox_max_concurrent=4,
+        jobs_by_status={"queued": 3, "running": 1, "failed": 0},
+    )
+    assert text.count("# TYPE ownevo_jobs gauge") == 1
+    assert 'ownevo_jobs{status="queued"} 3' in text
+    assert 'ownevo_jobs{status="running"} 1' in text
+    assert 'ownevo_jobs{status="failed"} 0' in text
+
+
+def test_render_metrics_omits_job_gauges_when_absent() -> None:
+    """No counts collected (no pool / aggregation failed) → the jobs block is
+    omitted, not zeroed — same 'absent vs zero' treatment as the pool gauges."""
+    text = render_metrics(
+        uptime_seconds=1.0,
+        db_up=True,
+        pool_size=1,
+        pool_idle=1,
+        sandbox_max_concurrent=4,
+        jobs_by_status=None,
+    )
+    assert "ownevo_jobs" not in text
+
+
 def test_render_metrics_omits_pool_gauges_when_absent() -> None:
     """No pool attached → pool gauges are omitted, not reported as zero, so a
     scraper can distinguish 'pool absent' from 'pool empty'."""

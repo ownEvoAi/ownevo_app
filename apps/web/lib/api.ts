@@ -1277,6 +1277,28 @@ export interface TraceList {
  next_cursor?: string | null
 }
 
+// Durable job queue — read-only observability surface.
+
+export interface JobSummary {
+ id: string
+ kind: string
+ status: string
+ attempts: number
+ max_attempts: number
+ workflow_id: string | null
+ last_error: string | null
+ claimed_by: string | null
+ available_at: string
+ created_at: string
+ updated_at: string
+}
+
+export interface JobList {
+ items: JobSummary[]
+ // status -> count across the whole workspace (not just the returned page).
+ counts: Record<string, number>
+}
+
 // AgentEvent variants — discriminated by `type`. Matches
 // packages/trace-format/SPEC.md v1.0. Fields shared via AgentEventBase.
 export interface AgentEventBase {
@@ -1418,6 +1440,10 @@ export async function getWorkflowTraces(
  return jsonFetch<TraceList>(
  `/api/workflows/${encodeURIComponent(workflowId)}/traces`,
  )
+}
+
+export async function listJobs(): Promise<JobList> {
+ return jsonFetch<JobList>(`/api/jobs`)
 }
 
 export async function getTrace(traceId: string): Promise<TraceDetail> {

@@ -9,6 +9,7 @@ worker's `_dispatch` table, the same seam a future job kind would extend.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from urllib.parse import urlparse, urlunparse
 
@@ -149,6 +150,39 @@ async def test_worker_tick_is_noop_when_queue_empty(db: asyncpg.Connection) -> N
         worker._dispatch["run_iteration"] = _stub_handler(calls)
         await worker._tick()  # no jobs — must not raise
         assert calls == []
+    finally:
+        await pool.close()
+
+
+async def test_terminal_failure_emits_structured_log(
+    db: asyncpg.Connection, caplog
+) -> None:
+    """When a job exhausts its retries the worker logs an ERROR carrying
+    structured fields (the log-based alert signal), not just a message."""
+    pool = await _pool_for_db(db)
+    try:
+        async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+            await enqueue_job(
+                conn,
+                kind="run_iteration",
+                payload={"workflow_id": "wf-doomed"},
+                max_attempts=1,  # first failure is terminal
+            )
+        worker = JobWorker(pool, heartbeat_interval=3600.0)
+        worker._dispatch["run_iteration"] = _raising_handler()
+
+        with caplog.at_level(logging.ERROR, logger="ownevo_kernel.jobs.worker"):
+            await worker._tick()
+
+        terminal = [
+            r for r in caplog.records if getattr(r, "job_failed_terminal", False)
+        ]
+        assert len(terminal) == 1
+        rec = terminal[0]
+        assert rec.workflow_id == "wf-doomed"
+        assert rec.kind == "run_iteration"
+        assert rec.attempts == 1
+        assert rec.last_error is not None and "blew up" in rec.last_error
     finally:
         await pool.close()
 

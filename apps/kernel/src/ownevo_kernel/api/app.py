@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
 from ..db import ENV_VAR, open_pool
-from ..jobs import reap_orphaned_iterations
+from ..jobs import aggregate_job_counts, reap_orphaned_iterations
 from ..llm.router import check_provider_api_keys
 from ..sandbox.local_docker import _read_max_concurrent
 from ..secrets.encrypted_field import MASTER_KEY_ENV
@@ -72,6 +72,9 @@ from .routes import (
     triggers,
     uploads,
     workflows,
+)
+from .routes import (
+    jobs as jobs_routes,
 )
 
 logger = logging.getLogger(__name__)
@@ -365,6 +368,7 @@ def create_app(
     api.include_router(audit.router)
     api.include_router(traces.workflow_traces_router)
     api.include_router(traces.trace_router)
+    api.include_router(jobs_routes.router)
     api.include_router(skills.skill_router)
     api.include_router(skills.workflow_skills_router)
     api.include_router(demo.router)
@@ -466,12 +470,23 @@ def create_app(
         reach it.
         """
         pool = getattr(api.state, "pool", None)
+        # Cross-workspace job counts. Guarded so a scrape never 500s — on any
+        # failure the gauges are omitted (None), consistent with _db_ok.
+        jobs_by_status = None
+        if pool is not None:
+            try:
+                jobs_by_status = await aggregate_job_counts(pool)
+            except Exception:  # noqa: BLE001 — a metrics scrape must not 500
+                logger.exception(
+                    "metrics: job-count aggregation failed; omitting job gauges"
+                )
         text = render_metrics(
             uptime_seconds=time.monotonic() - _PROCESS_START,
             db_up=await _db_ok(),
             pool_size=pool.get_size() if pool is not None else None,
             pool_idle=pool.get_idle_size() if pool is not None else None,
             sandbox_max_concurrent=_SANDBOX_MAX_CONCURRENT,
+            jobs_by_status=jobs_by_status,
         )
         return Response(content=text, media_type=METRICS_CONTENT_TYPE)
 

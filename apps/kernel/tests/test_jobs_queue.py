@@ -72,6 +72,9 @@ async def test_enqueue_allows_new_job_after_terminal(db: asyncpg.Connection) -> 
     """Once a workflow's job is terminal, a fresh one can be enqueued — the
     unique index only covers queued/running rows."""
     first = await _enqueue(db, "wf-again")
+    # Drive it to a terminal state through the real lifecycle: complete_job
+    # only acts on a 'running' row, so claim it first.
+    await claim_next_job(db, claimed_by="worker-1")
     await complete_job(db, first, result={"ok": True})
     second = await _enqueue(db, "wf-again")
     assert second is not None and second != first

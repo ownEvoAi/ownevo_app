@@ -45,6 +45,22 @@ def _metric(lines: list[str], name: str, help_text: str, mtype: str, value: floa
     lines.append(f"{name} {_fmt(value)}")
 
 
+def _labeled_metric(
+    lines: list[str],
+    name: str,
+    help_text: str,
+    mtype: str,
+    samples: list[tuple[dict[str, str], float]],
+) -> None:
+    """Emit one metric family with labelled samples: a single HELP/TYPE pair
+    followed by one ``name{label="v",...} value`` line per sample."""
+    lines.append(f"# HELP {name} {help_text}")
+    lines.append(f"# TYPE {name} {mtype}")
+    for labels, value in samples:
+        label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
+        lines.append(f"{name}{{{label_str}}} {_fmt(value)}")
+
+
 def render_metrics(
     *,
     uptime_seconds: float,
@@ -52,6 +68,7 @@ def render_metrics(
     pool_size: int | None,
     pool_idle: int | None,
     sandbox_max_concurrent: int,
+    jobs_by_status: dict[str, int] | None = None,
 ) -> str:
     """Render the kernel's operational metrics as Prometheus text.
 
@@ -59,6 +76,12 @@ def render_metrics(
     lifespan has not run); the pool gauges are then omitted rather than
     reported as zero, so a scraper can tell "pool absent" from "pool empty".
     ``pool_in_use`` is derived as ``size - idle`` when both are known.
+
+    ``jobs_by_status`` maps a job status to its deployment-wide row count; when
+    provided, an ``ownevo_jobs{status="..."}`` gauge is emitted per status (so
+    the alert series ``ownevo_jobs{status="failed"}`` always exists, even at 0).
+    None (no pool, or the cross-workspace count failed) omits the block — same
+    "absent vs zero" treatment as the pool gauges.
     """
     lines: list[str] = []
 
@@ -110,6 +133,19 @@ def render_metrics(
         "gauge",
         sandbox_max_concurrent,
     )
+
+    if jobs_by_status is not None:
+        _labeled_metric(
+            lines,
+            "ownevo_jobs",
+            "Durable job-queue rows by status "
+            "(queued/running are backlog/in-flight; failed is cumulative).",
+            "gauge",
+            [
+                ({"status": s}, jobs_by_status.get(s, 0))
+                for s in ("queued", "running", "failed")
+            ],
+        )
 
     # Trailing newline: Prometheus tolerates its absence, but most exporters
     # emit one and some line-based tooling expects it.
