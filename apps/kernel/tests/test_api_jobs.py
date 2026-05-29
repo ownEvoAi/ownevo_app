@@ -8,69 +8,18 @@ split the trace API tests use.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import httpx
 import pytest
-from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
     reason=f"{ENV_VAR} not set; skipping integration tests",
 )
-
-
-@contextlib.asynccontextmanager
-async def _rls_api_client(db: asyncpg.Connection):
-    """In-process API client whose pool runs as a non-superuser, NOBYPASSRLS
-    role, so the route's reliance on row-level security for workspace isolation
-    is actually exercised. The shared `api_client` fixture connects as a
-    superuser, which bypasses RLS even under FORCE — fine for the other tests
-    (they only read their own workspace) but it cannot prove isolation. Mirrors
-    the `rls_db` fixture's role setup combined with `api_client`'s app wiring.
-    """
-    dbname = await db.fetchval("SELECT current_database()")
-    role = f"rls_apijobs_{dbname.rsplit('_', 1)[-1]}"
-    role_exists = await db.fetchval(
-        "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", role
-    )
-    if not role_exists:
-        await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
-    await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
-    await db.execute(
-        f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{role}"'
-    )
-    await db.execute(
-        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}"'
-    )
-
-    parsed = urlparse(os.environ[ENV_VAR])
-    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
-
-    async def _setup(conn: asyncpg.Connection) -> None:
-        await conn.execute(f'SET ROLE "{role}"')
-
-    pool = None
-    try:
-        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, setup=_setup)
-        app = create_app(pool=pool, cors_origins=[])
-        transport = httpx.ASGITransport(app=app)
-        async with (
-            app.router.lifespan_context(app),
-            httpx.AsyncClient(transport=transport, base_url="http://api.test") as client,
-        ):
-            yield client
-    finally:
-        if pool is not None:
-            with contextlib.suppress(Exception):
-                await pool.close()
-        await db.execute(f'DROP OWNED BY "{role}"')
-        await db.execute(f'DROP ROLE IF EXISTS "{role}"')
 
 
 async def _seed_job(
@@ -177,14 +126,22 @@ async def test_jobs_no_credentials_is_401(
     assert res.status_code == 401
 
 
-async def test_jobs_workspace_isolation(db: asyncpg.Connection) -> None:
+async def test_jobs_workspace_isolation(
+    rls_api_client: httpx.AsyncClient,
+    db: asyncpg.Connection,
+) -> None:
     """Jobs in a second workspace are invisible to the default workspace's client.
 
     Exercises the full HTTP path through ConnDep / RLS — distinct from the
-    DB-layer isolation in test_jobs_metrics.py. Uses a non-superuser API client
-    (`_rls_api_client`) because the shared `api_client` connects as a superuser,
-    which bypasses RLS and so could never observe a leak.
+    DB-layer isolation in test_jobs_metrics.py. Uses the `rls_api_client`
+    fixture (non-superuser, NOBYPASSRLS) because the shared `api_client`
+    connects as a superuser, which bypasses RLS and so could never observe a
+    leak.
     """
+    # Seed a control job in the default workspace. The RLS client must see it —
+    # this proves set_workspace is working and the test cannot pass vacuously.
+    await _seed_job(db, workflow_id="wf-default", status="queued")
+
     # Create a second workspace and seed a job into it. The job's workspace_id
     # column default is current_setting('app.workspace_id'), so SET LOCAL stamps
     # the inserted row with 'ws-isolated'.
@@ -203,11 +160,11 @@ async def test_jobs_workspace_isolation(db: asyncpg.Connection) -> None:
         )
 
     # The client authenticates to the default workspace (dev-auth). Under RLS
-    # the ws-isolated job must be invisible.
-    async with _rls_api_client(db) as client:
-        res = await client.get("/api/jobs")
-        assert res.status_code == 200
-        body = res.json()
-        wf_ids = [item["workflow_id"] for item in body["items"]]
-        assert "wf-secret" not in wf_ids
-        assert body["counts"].get("queued", 0) == 0
+    # the ws-isolated job must be invisible; the default-workspace job visible.
+    res = await rls_api_client.get("/api/jobs")
+    assert res.status_code == 200
+    body = res.json()
+    wf_ids = [item["workflow_id"] for item in body["items"]]
+    assert "wf-default" in wf_ids        # RLS binding is working
+    assert "wf-secret" not in wf_ids     # isolation is enforced
+    assert body["counts"] == {"queued": 1}
