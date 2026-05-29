@@ -35,11 +35,23 @@ def test_cursor_preserves_non_utc_offset() -> None:
 
 
 def test_cursor_is_opaque_base64url() -> None:
-    """The token is URL-safe base64 (no '+' or '/'), so it needs no extra
-    escaping when passed back as a query param."""
+    """The token is URL-safe base64 (no '+', '/', or '='), safe as a query param value."""
     token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
     assert "+" not in token
     assert "/" not in token
+    assert "=" not in token
+
+
+def test_cursor_round_trips_zero_microseconds() -> None:
+    """A started_at with zero microseconds produces a shorter isoformat
+    string; the padding-stripped codec must still round-trip it exactly."""
+    started_at = datetime(2026, 5, 28, 14, 30, 15, 0, tzinfo=UTC)
+    trace_id = uuid.uuid4()
+    token = _encode_cursor(started_at, trace_id)
+    assert "=" not in token
+    decoded_at, decoded_id = _decode_cursor(token)
+    assert decoded_at == started_at
+    assert decoded_id == trace_id
 
 
 def _b64(raw: str) -> str:

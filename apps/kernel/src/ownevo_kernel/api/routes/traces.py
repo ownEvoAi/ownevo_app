@@ -41,8 +41,8 @@ trace_router = APIRouter(prefix="/api/traces", tags=["traces"])
 
 # Default == max: a page returns up to 500 rows (the prior hard cap), and a
 # caller wanting smaller pages passes a smaller `limit` and walks `cursor`.
-_DEFAULT_TRACE_LIMIT = 500
 _MAX_TRACE_LIMIT = 500
+_DEFAULT_TRACE_LIMIT = _MAX_TRACE_LIMIT
 
 # Shared SELECT body for the two list endpoints — only the WHERE clause
 # (workflow filter + keyset predicate) and the LIMIT differ between them.
@@ -77,17 +77,18 @@ _TRACE_LIST_SELECT = """
 def _encode_cursor(started_at: datetime, trace_id: UUID) -> str:
     """Opaque keyset cursor: the last row's sort key, base64url-encoded."""
     raw = f"{started_at.isoformat()}|{trace_id}".encode()
-    return base64.urlsafe_b64encode(raw).decode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
 def _decode_cursor(token: str) -> tuple[datetime, UUID]:
     """Inverse of `_encode_cursor`. Raises 400 on a malformed token rather
     than leaking the decode error or silently returning the first page."""
     try:
-        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        padding = "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode((token + padding).encode()).decode()
         ts_str, id_str = raw.rsplit("|", 1)
         return datetime.fromisoformat(ts_str), UUID(id_str)
-    except ValueError as exc:  # bad base64, bad split, bad datetime, bad UUID
+    except ValueError as exc:  # bad base64 / UnicodeDecodeError / bad split / bad datetime / bad UUID
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid pagination cursor",
@@ -139,7 +140,7 @@ async def _fetch_trace_page(
     items = [_row_to_summary(r) for r in rows]
     next_cursor = (
         _encode_cursor(rows[-1]["started_at"], rows[-1]["id"])
-        if has_more and rows
+        if has_more
         else None
     )
     return items, next_cursor
@@ -149,7 +150,7 @@ async def _fetch_trace_page(
 async def list_all_traces(
     conn: ConnDep,
     limit: int = Query(default=_DEFAULT_TRACE_LIMIT, ge=1, le=_MAX_TRACE_LIMIT),
-    cursor: str | None = Query(default=None),
+    cursor: str | None = Query(default=None, max_length=256),
 ) -> TraceList:
     """Workspace-scoped trace list, newest first.
 
@@ -176,7 +177,7 @@ async def list_workflow_traces(
     workflow_id: str,
     conn: ConnDep,
     limit: int = Query(default=_DEFAULT_TRACE_LIMIT, ge=1, le=_MAX_TRACE_LIMIT),
-    cursor: str | None = Query(default=None),
+    cursor: str | None = Query(default=None, max_length=256),
 ) -> TraceList:
     """Return a workflow's traces, newest first.
 

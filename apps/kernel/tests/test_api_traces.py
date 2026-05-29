@@ -10,36 +10,16 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import httpx
 import pytest
-from httpx import ASGITransport
-from ownevo_kernel.api.app import create_app
 from ownevo_kernel.db import ENV_VAR
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
     reason=f"{ENV_VAR} not set; skipping integration tests",
 )
-
-
-@pytest.fixture
-async def api_client(db: asyncpg.Connection):
-    dbname = await db.fetchval("SELECT current_database()")
-    parsed = urlparse(os.environ[ENV_VAR])
-    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
-    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
-    try:
-        app = create_app(pool=pool, cors_origins=[])
-        transport = ASGITransport(app=app)
-        async with app.router.lifespan_context(app), httpx.AsyncClient(
-            transport=transport, base_url="http://api.test",
-        ) as client:
-            yield client
-    finally:
-        await pool.close()
 
 
 # ---------------------------------------------------------------------------
@@ -292,14 +272,15 @@ async def test_traces_invalid_cursor_400(
 async def test_traces_limit_out_of_range_422(
     api_client: httpx.AsyncClient, db: asyncpg.Connection,
 ):
-    """`limit` is bounded [1, 500]; out-of-range is a validation error."""
+    """`limit` is bounded [1, 500] on both list endpoints; out-of-range is a validation error."""
     await _seed_workflow(db, workflow_id="wf-limit")
-    assert (
-        await api_client.get("/api/workflows/wf-limit/traces?limit=0")
-    ).status_code == 422
-    assert (
-        await api_client.get("/api/workflows/wf-limit/traces?limit=501")
-    ).status_code == 422
+    for path in [
+        "/api/workflows/wf-limit/traces?limit=0",
+        "/api/workflows/wf-limit/traces?limit=501",
+        "/api/traces?limit=0",
+        "/api/traces?limit=501",
+    ]:
+        assert (await api_client.get(path)).status_code == 422
 
 
 # ---------------------------------------------------------------------------

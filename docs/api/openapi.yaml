@@ -627,15 +627,19 @@ paths:
                 items:
                   $ref: '#/components/schemas/FailureCluster'
 
-  # ---------- traces (W7 slice 8 / 7.1.9) ----------
-  /api/workflows/{workflow_id}/traces:
+  # ---------- traces ----------
+  /api/traces:
     get:
       tags: [traces]
+      summary: Workspace-scoped trace list, newest first
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 500, minimum: 1, maximum: 500 }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 256 }
+          description: Opaque keyset cursor from a prior response's next_cursor field
       responses:
         '200':
           description: ok
@@ -643,6 +647,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TraceListResponse'
+        '400':
+          description: Malformed cursor
+        '422':
+          description: limit out of range [1, 500]
+
+  /api/workflows/{workflow_id}/traces:
+    get:
+      tags: [traces]
+      summary: Per-workflow trace list, newest first
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 500, minimum: 1, maximum: 500 }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 256 }
+          description: Opaque keyset cursor from a prior response's next_cursor field
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceListResponse'
+        '400':
+          description: Malformed cursor
+        '404':
+          description: Workflow not found
+        '422':
+          description: limit out of range [1, 500]
 
   # ---------- otel-ingest ----------
   /api/otel/v1/traces:
@@ -1232,6 +1270,10 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/TraceSummary' }
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque keyset cursor for the next (older) page; null on the last page
 
     # W7 slice 11 (7.1.12) — workflow anatomy DTO
     WorkflowAnatomyResponse:
