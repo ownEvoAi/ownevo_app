@@ -13,9 +13,11 @@ current workspace count. If that grows, the optimization path is a
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
-from ..tenant_session import acquire_workspace_conn
+from ..tenant_session import WorkspaceBindError, acquire_workspace_conn
+from .queue import count_jobs_by_status
 
 if TYPE_CHECKING:
     import asyncpg
@@ -42,14 +44,14 @@ async def aggregate_job_counts(pool: asyncpg.Pool) -> dict[str, int]:
     workspace_ids = [row["id"] for row in rows]
 
     for workspace_id in workspace_ids:
-        async with acquire_workspace_conn(pool, workspace_id) as conn:
-            grouped = await conn.fetch(
-                "SELECT status, count(*) AS n FROM jobs GROUP BY status"
-            )
-        for row in grouped:
-            status = row["status"]
-            if status in counts:
-                counts[status] += row["n"]
+        # A workspace may be soft-deleted between the enumeration query above
+        # and this bind.  Skip it so one deletion doesn't silence all gauges.
+        with contextlib.suppress(WorkspaceBindError):
+            async with acquire_workspace_conn(pool, workspace_id) as conn:
+                per_ws = await count_jobs_by_status(conn)
+            for status, n in per_ws.items():
+                if status in counts:
+                    counts[status] += n
     return counts
 
 

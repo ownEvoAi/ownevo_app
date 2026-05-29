@@ -1068,6 +1068,7 @@ class JobList(_Strict):
     items: list[JobSummary]
     # status -> count across the whole workspace (not just the returned page),
     # so the UI can show queue depth without a second request.
+    # Only statuses with at least one row appear; missing keys mean 0.
     counts: dict[str, int]
 
 

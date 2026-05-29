@@ -47,6 +47,21 @@ from .queue import (
 
 _log = logging.getLogger(__name__)
 
+
+def _decode_payload(raw: str | dict[str, Any] | Any) -> dict[str, Any]:
+    """Decode the asyncpg ``payload`` column to a Python dict.
+
+    asyncpg returns ``jsonb`` as a plain string unless a custom codec is
+    registered.  This guard handles both the raw-string and the already-decoded
+    dict cases so callers don't have to repeat the isinstance check.
+    """
+    if isinstance(raw, str):
+        return json.loads(raw)
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
 # How often the worker wakes to re-queue stale jobs and claim ready work.
 _POLL_INTERVAL_SECONDS = 3.0
 # How often a running job's heartbeat is advanced.
@@ -212,10 +227,8 @@ class JobWorker:
         # queryable attributes — a log-based alert keys on `job_failed_terminal`
         # rather than regex-matching the message. (The Prometheus signal is the
         # ownevo_jobs{status="failed"} gauge.)
-        payload = job["payload"]
-        if isinstance(payload, str):  # jsonb arrives as str (no codec registered)
-            payload = json.loads(payload)
-        workflow_id = payload.get("workflow_id") if isinstance(payload, dict) else None
+        payload = _decode_payload(job["payload"])
+        workflow_id = payload.get("workflow_id")
         fields = {
             "job_id": str(job["id"]),
             "kind": job["kind"],
@@ -278,9 +291,7 @@ class JobWorker:
         from ..api._anthropic_client import build_async_anthropic
         from ..iteration_runner import run_one_iteration_for_workflow
 
-        payload = job["payload"]
-        if isinstance(payload, str):  # jsonb arrives as str (no codec registered)
-            payload = json.loads(payload)
+        payload = _decode_payload(job["payload"])
         workflow_id = payload["workflow_id"]
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()

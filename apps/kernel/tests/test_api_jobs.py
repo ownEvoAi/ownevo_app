@@ -115,3 +115,46 @@ async def test_jobs_limit_caps_page_not_counts(
     body = res.json()
     assert len(body["items"]) == 2  # page bounded
     assert body["counts"] == {"queued": 3}  # full depth still reported
+
+
+async def test_jobs_no_credentials_is_401(
+    api_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With dev-auth disabled and no assertion, GET /api/jobs returns 401."""
+    monkeypatch.delenv("OWNEVO_DEV_AUTH", raising=False)
+    res = await api_client.get("/api/jobs")
+    assert res.status_code == 401
+
+
+async def test_jobs_workspace_isolation(
+    api_client: httpx.AsyncClient,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jobs seeded in a second workspace are invisible to the default workspace's client.
+
+    Exercises the full HTTP path through ConnDep / RLS — distinct from the
+    DB-layer isolation tested by test_jobs_metrics.py under an RLS role.
+    """
+    # Create a second workspace and seed a job into it using SET LOCAL so the
+    # RLS policy stamps workspace_id = 'ws-isolated' on the inserted row.
+    await db.execute(
+        "INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "ws-isolated",
+        "Isolated WS",
+    )
+    async with db.transaction():
+        await db.execute("SET LOCAL app.workspace_id = 'ws-isolated'")
+        await db.execute(
+            """
+            INSERT INTO jobs (kind, payload, status)
+            VALUES ('run_iteration', '{"workflow_id":"wf-secret"}'::jsonb, 'queued')
+            """
+        )
+
+    # The api_client is authenticated to the default workspace.
+    res = await api_client.get("/api/jobs")
+    assert res.status_code == 200
+    body = res.json()
+    wf_ids = [item["workflow_id"] for item in body["items"]]
+    assert "wf-secret" not in wf_ids

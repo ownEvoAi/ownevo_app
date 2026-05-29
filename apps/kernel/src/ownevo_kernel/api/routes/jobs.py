@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ...jobs.queue import count_jobs_by_status
 from ..deps import ConnDep
 from ..models import JobList, JobSummary
 
@@ -38,38 +39,39 @@ async def list_jobs(
         # 422 to match FastAPI's own query-validation failures (e.g. a bad limit).
         raise HTTPException(status_code=422, detail="Invalid status filter")
 
-    count_rows = await conn.fetch(
-        "SELECT status, count(*) AS n FROM jobs GROUP BY status"
-    )
-    counts = {row["status"]: int(row["n"]) for row in count_rows}
-
     params: list[object] = []
     where = ""
     if status is not None:
         params.append(status)
         where = f"WHERE status = ${len(params)}::job_status"
     params.append(limit)
-    rows = await conn.fetch(
-        f"""
-        SELECT
-            id,
-            kind,
-            status,
-            attempts,
-            max_attempts,
-            payload->>'workflow_id' AS workflow_id,
-            last_error,
-            claimed_by,
-            available_at,
-            created_at,
-            updated_at
-        FROM jobs
-        {where}
-        ORDER BY created_at DESC
-        LIMIT ${len(params)}
-        """,
-        *params,
-    )
+
+    # Both queries share one READ ONLY transaction so `counts` and `items`
+    # reflect the same snapshot — without this, a job claimed between the two
+    # statements can make the failed count contradict the returned rows.
+    async with conn.transaction(readonly=True):
+        counts = await count_jobs_by_status(conn)
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                id,
+                kind,
+                status,
+                attempts,
+                max_attempts,
+                payload->>'workflow_id' AS workflow_id,
+                last_error,
+                claimed_by,
+                available_at,
+                created_at,
+                updated_at
+            FROM jobs
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ${len(params)}
+            """,
+            *params,
+        )
 
     items = [
         JobSummary(

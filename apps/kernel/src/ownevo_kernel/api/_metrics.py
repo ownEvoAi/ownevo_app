@@ -17,8 +17,15 @@ from __future__ import annotations
 
 import math
 
+from ..jobs.metrics import REPORTED_STATUSES
+
 # Prometheus exposition format version. Scrapers key on this content-type.
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+
+
+def _escape_label(v: str) -> str:
+    """Escape a Prometheus label value per the text exposition format spec."""
+    return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def _fmt(value: float) -> str:
@@ -57,7 +64,9 @@ def _labeled_metric(
     lines.append(f"# HELP {name} {help_text}")
     lines.append(f"# TYPE {name} {mtype}")
     for labels, value in samples:
-        label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
+        label_str = ",".join(
+            f'{k}="{_escape_label(v)}"' for k, v in labels.items()
+        )
         lines.append(f"{name}{{{label_str}}} {_fmt(value)}")
 
 
@@ -143,7 +152,7 @@ def render_metrics(
             "gauge",
             [
                 ({"status": s}, jobs_by_status.get(s, 0))
-                for s in ("queued", "running", "failed")
+                for s in REPORTED_STATUSES
             ],
         )
 
