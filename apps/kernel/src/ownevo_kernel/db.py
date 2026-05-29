@@ -160,6 +160,8 @@ def _slow_query_callback(threshold_ms: int) -> Callable[[LoggedQuery], None]:
     threshold_seconds = threshold_ms / 1000.0
 
     def _on_query(record: LoggedQuery) -> None:
+        if record.exception is not None:
+            return
         elapsed = record.elapsed  # server round-trip, in seconds
         if elapsed is None or elapsed < threshold_seconds:
             return

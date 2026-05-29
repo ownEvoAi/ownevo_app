@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import os
 import signal
 import threading
@@ -65,9 +66,9 @@ def drain_seconds_from_env() -> float:
             raw,
         )
         return DEFAULT_DRAIN_SECONDS
-    if value < 0:
+    if value < 0 or not math.isfinite(value):
         logger.warning(
-            "%s=%r is negative; graceful-shutdown drain disabled",
+            "%s=%r is not a valid drain window; graceful-shutdown drain disabled",
             DRAIN_SECONDS_ENV,
             raw,
         )
@@ -103,10 +104,12 @@ def install_drain(app: FastAPI, drain_seconds: float | None = None) -> bool:
     previous = {sig: signal.getsignal(sig) for sig in _DRAIN_SIGNALS}
 
     def _delegate(sig: int) -> None:
-        # Drain elapsed: hand control back to uvicorn's handler and re-deliver
-        # the signal so it performs its normal graceful shutdown now.
-        with contextlib.suppress(ValueError, RuntimeError):
-            loop.remove_signal_handler(sig)
+        # Drain elapsed: clear ALL drain signal handlers first so no residual
+        # loop handler can swallow a Ctrl-C that arrives during uvicorn's own
+        # shutdown phase. Then restore and re-deliver only the triggering one.
+        for s in _DRAIN_SIGNALS:
+            with contextlib.suppress(ValueError, RuntimeError):
+                loop.remove_signal_handler(s)
         prev = previous.get(sig)
         if callable(prev):
             signal.signal(sig, prev)

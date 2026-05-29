@@ -418,7 +418,7 @@ def create_app(
         """
         if getattr(api.state, "shutting_down", False):
             response.status_code = 503
-            return {"status": "not_ready", "reason": "shutting_down"}
+            return {"status": "not_ready", "reason": "shutting_down", "db": "ok"}
         if await _db_ok():
             return {"status": "ready", "db": "ok"}
         response.status_code = 503

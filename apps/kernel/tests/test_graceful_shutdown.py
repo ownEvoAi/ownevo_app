@@ -81,7 +81,7 @@ async def test_readyz_503_when_shutting_down(
     app.state.shutting_down = True
     resp = await client.get("/api/readyz")
     assert resp.status_code == 503
-    assert resp.json() == {"status": "not_ready", "reason": "shutting_down"}
+    assert resp.json() == {"status": "not_ready", "reason": "shutting_down", "db": "ok"}
 
 
 async def test_livez_stays_200_when_shutting_down(

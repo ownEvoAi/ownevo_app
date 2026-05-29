@@ -15,6 +15,7 @@ import os
 import pytest
 from asyncpg.connection import LoggedQuery
 from ownevo_kernel.db import (
+    _MAX_LOGGED_QUERY_CHARS,
     DEFAULT_SLOW_QUERY_MS,
     ENV_VAR,
     SLOW_QUERY_MS_ENV,
@@ -125,6 +126,25 @@ def test_none_elapsed_does_not_log(caplog: pytest.LogCaptureFixture) -> None:
     assert caplog.records == []
 
 
+def test_failed_query_does_not_log(caplog: pytest.LogCaptureFixture) -> None:
+    """A query that raised an exception is not logged as slow even if it
+    took a long time — the elapsed reflects e.g. a lock timeout, not a
+    genuine slow-running statement, so logging it as slow would mislead."""
+    callback = _slow_query_callback(10)
+    record = LoggedQuery(
+        query="SELECT 1",
+        args=(),
+        timeout=None,
+        elapsed=5.0,
+        exception=RuntimeError("connection reset"),
+        conn_addr=None,
+        conn_params=None,
+    )
+    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        callback(record)
+    assert caplog.records == []
+
+
 def test_query_whitespace_collapsed(caplog: pytest.LogCaptureFixture) -> None:
     callback = _slow_query_callback(10)
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
@@ -140,7 +160,7 @@ def test_long_query_truncated(caplog: pytest.LogCaptureFixture) -> None:
         callback(_record(query=long_query, elapsed=0.5))
     logged = caplog.records[0].query
     assert logged.endswith("...")
-    assert len(logged) == 503  # 500 chars + the "..." marker
+    assert len(logged) == _MAX_LOGGED_QUERY_CHARS + len("...")
 
 
 def test_args_are_not_logged(caplog: pytest.LogCaptureFixture) -> None:
