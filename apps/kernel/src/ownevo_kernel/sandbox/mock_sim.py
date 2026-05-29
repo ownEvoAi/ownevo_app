@@ -160,15 +160,16 @@ class MockSimSandbox:
         *,
         timeout_seconds: float,
         memory_mb: int,
+        slot_timeout_seconds: float | None = None,
     ) -> SandboxResult:
         """SandboxRuntime Protocol entry point.
 
-        `code`, `timeout_seconds`, and `memory_mb` are accepted to
-        match the Protocol but ignored — the response is fully
+        `code`, `timeout_seconds`, `memory_mb`, and `slot_timeout_seconds`
+        are accepted to match the Protocol but ignored — the response is fully
         determined by the script. The signature parity is what lets
         MockSimSandbox drop in wherever LocalDockerSandbox does.
         """
-        del code, timeout_seconds, memory_mb  # accepted for Protocol parity, unused
+        del code, timeout_seconds, memory_mb, slot_timeout_seconds  # Protocol parity, unused
 
         if self.fixed_response is not None:
             return self.fixed_response
