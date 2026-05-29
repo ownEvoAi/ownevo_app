@@ -115,7 +115,12 @@ async def complete_job(
     *,
     result: dict[str, Any] | None = None,
 ) -> None:
-    """Mark a job succeeded and store its result payload."""
+    """Mark a job succeeded and store its result payload.
+
+    No-ops silently if the row is no longer 'running' (e.g. it was re-queued by
+    the stale detector while this worker was finishing) — consistent with the
+    guard on ``heartbeat_job``.
+    """
     await conn.execute(
         """
         UPDATE jobs
@@ -123,7 +128,7 @@ async def complete_job(
             result = $2::jsonb,
             last_error = NULL,
             updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND status = 'running'
         """,
         job_id,
         json.dumps(result) if result is not None else None,
@@ -157,9 +162,11 @@ async def fail_job(
                 ELSE available_at
             END,
             claimed_by = NULL,
+            claimed_at = NULL,
+            heartbeat_at = NULL,
             last_error = $3,
             updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND status = 'running'
         RETURNING status
         """,
         job_id,
@@ -188,6 +195,8 @@ async def requeue_stale_jobs(
             UPDATE jobs
             SET status = 'queued',
                 claimed_by = NULL,
+                claimed_at = NULL,
+                heartbeat_at = NULL,
                 available_at = now(),
                 updated_at = now()
             WHERE status = 'running'

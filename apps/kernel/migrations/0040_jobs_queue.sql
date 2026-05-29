@@ -40,8 +40,9 @@ CREATE TABLE jobs (
     status          job_status NOT NULL DEFAULT 'queued',
     attempts        int NOT NULL DEFAULT 0,
     max_attempts    int NOT NULL DEFAULT 3,
-    -- Owner of the in-flight claim + its liveness signal. Cleared when the
-    -- job returns to 'queued'.
+    -- Owner of the in-flight claim + its liveness signal. All three are
+    -- cleared (set to NULL) when the job returns to 'queued' (via fail_job
+    -- on a retryable error or requeue_stale_jobs on a dead worker).
     claimed_by      text,
     claimed_at      timestamptz,
     heartbeat_at    timestamptz,

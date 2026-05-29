@@ -28,6 +28,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -256,8 +257,6 @@ class JobWorker:
         Imported lazily so the worker module stays importable without the
         heavy ``agent`` extra (the no-DB unit test job must not require it).
         """
-        import os
-
         from ..api._anthropic_client import build_async_anthropic
         from ..iteration_runner import run_one_iteration_for_workflow
 
@@ -266,7 +265,7 @@ class JobWorker:
             payload = json.loads(payload)
         workflow_id = payload["workflow_id"]
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if not api_key:
             raise RuntimeError(
                 "ANTHROPIC_API_KEY is not set; cannot run iteration"
