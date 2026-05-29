@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import asyncpg
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..clustering.auto_trigger import DEFAULT_DEBOUNCE_SECONDS, ClusterAutoTrigger
@@ -42,6 +43,8 @@ from ._internal_auth import (
     is_production,
 )
 from ._logging import configure_logging
+from ._metrics import CONTENT_TYPE as METRICS_CONTENT_TYPE
+from ._metrics import render_metrics
 from ._request_id import RequestIdMiddleware
 from ._sentry import flush_sentry, init_sentry
 from .deps import is_demo_mode
@@ -71,6 +74,11 @@ from .routes import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Stamped once at import so /metrics can report process uptime without
+# depending on the lifespan having run (tests bypass it). monotonic() is
+# immune to wall-clock adjustments.
+_PROCESS_START = time.monotonic()
 
 # Opt-in: auto-clustering loads sentence-transformers and calls the Anthropic
 # labeler (cost + ANTHROPIC_API_KEY), so it stays off unless explicitly enabled
@@ -346,6 +354,62 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — health check shouldn't propagate
             db_status = type(exc).__name__
         return HealthResponse(status="ok", db=db_status)
+
+    async def _db_ok() -> bool:
+        """True when the pool answers a SELECT 1. Never raises — a probe or
+        a metrics scrape must report the failure as a value, not a 500."""
+        pool = getattr(api.state, "pool", None)
+        if pool is None:
+            return False
+        try:
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            return True
+        except Exception:  # noqa: BLE001 — surfaced as db_up=0 / not_ready
+            return False
+
+    @api.get("/api/livez", tags=["health"])
+    async def livez() -> dict[str, str]:
+        """Liveness: the process is up and the event loop is responsive.
+
+        Deliberately dependency-free — it does NOT touch the DB. An
+        orchestrator uses liveness to decide whether to *restart* the
+        container, so a transient DB outage must not flip it (that would
+        cause a restart loop). DB reachability is the readiness probe's job.
+        """
+        return {"status": "ok"}
+
+    @api.get("/api/readyz", tags=["health"])
+    async def readyz(response: Response) -> dict[str, str]:
+        """Readiness: can this instance serve traffic right now.
+
+        Returns 503 when the pool can't answer, so a load balancer pulls
+        the instance out of rotation rather than routing requests that
+        will fail. Unlike liveness, readiness is allowed to flip during a
+        DB blip without implying the process should be restarted.
+        """
+        if await _db_ok():
+            return {"status": "ready", "db": "ok"}
+        response.status_code = 503
+        return {"status": "not_ready", "db": "unavailable"}
+
+    @api.get("/metrics", tags=["health"])
+    async def metrics() -> Response:
+        """Operational gauges in Prometheus text exposition format.
+
+        Pool saturation, sandbox admission cap, DB reachability, uptime —
+        enough for a scraper to alert on the kernel's own health. Not the
+        product's AgentEvent observability, which is the trace-format seam.
+        """
+        pool = getattr(api.state, "pool", None)
+        text = render_metrics(
+            uptime_seconds=time.monotonic() - _PROCESS_START,
+            db_up=await _db_ok(),
+            pool_size=pool.get_size() if pool is not None else None,
+            pool_idle=pool.get_idle_size() if pool is not None else None,
+            sandbox_max_concurrent=_read_max_concurrent(),
+        )
+        return Response(content=text, media_type=METRICS_CONTENT_TYPE)
 
     return api
 
