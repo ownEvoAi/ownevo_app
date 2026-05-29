@@ -33,7 +33,7 @@ import asyncio
 import copy
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
@@ -56,7 +56,11 @@ from ...middleware.otel_receiver import (
 from ...middleware.watsonx_adk.translator import (
     _walk_and_rewrite_inplace as _watsonx_rewrite_inplace,
 )
-from ..deps import ConnDep, WorkspaceIdDep
+from ...tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, set_workspace
+from ..deps import PoolDep
+
+if TYPE_CHECKING:
+    import asyncpg
 
 _log = logging.getLogger(__name__)
 
@@ -178,7 +182,7 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
 
 
 async def _resolve_workflow_id(
-    conn: ConnDep,
+    conn: asyncpg.Connection,
     auth: ReceiverTokenAuth | None,
     query_workflow_id: str | None,
 ) -> str | None:
@@ -221,7 +225,7 @@ async def _resolve_workflow_id(
 
 
 async def _apply_provenance_hints(
-    conn: ConnDep,
+    conn: asyncpg.Connection,
     workflow_id: str,
     batch: DecodedBatch,
 ) -> None:
@@ -286,8 +290,7 @@ async def _apply_provenance_hints(
 )
 async def ingest_otlp_traces(
     request: Request,
-    conn: ConnDep,
-    workspace_id: WorkspaceIdDep,
+    pool: PoolDep,
     authorization: str | None = Header(default=None),
     workflow_id: str | None = Query(default=None),
 ) -> IngestResponse:
@@ -307,105 +310,129 @@ async def ingest_otlp_traces(
 
     Authentication happens before body read so a bad token rejects cheaply
     without consuming a multi-MiB upload.
+
+    The route does not use the workspace-principal dependency (`get_conn`):
+    OTLP callers are service agents that present a `receiver_tokens` bearer,
+    not a web-app identity assertion. The token's `workspace_id` is what
+    binds the connection. `receiver_tokens` is outside workspace-scoped RLS
+    (migration 0038) so the lookup runs on an unbound connection.
     """
-    try:
-        auth = await verify_request_token(conn, authorization)
-    except ReceiverTokenAuthError:
-        # Uniform 401 across every failure mode — revealing "revoked"
-        # vs "unknown" vs "malformed" gives an attacker free information.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid receiver token",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from None
+    async with pool.acquire() as conn:
+        try:
+            auth = await verify_request_token(conn, authorization)
+        except ReceiverTokenAuthError:
+            # Uniform 401 across every failure mode — revealing "revoked"
+            # vs "unknown" vs "malformed" gives an attacker free information.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid receiver token",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from None
 
-    bound_workflow_id = await _resolve_workflow_id(conn, auth, workflow_id)
+        # In auth-optional mode (test / local-dev) `auth` may be None when no
+        # Authorization header is presented. Fall back to the default workspace
+        # so the rest of the route can run; in production the boot guards
+        # ensure auth-optional cannot be set, so this branch is never reached.
+        workspace_id = auth.workspace_id if auth is not None else DEFAULT_WORKSPACE_ID
+        try:
+            await set_workspace(conn, workspace_id)
+        except WorkspaceBindError:
+            # Uniform 401: a soft-deleted or unknown workspace (e.g. token minted
+            # before the workspace was deleted) must not return 500, which would
+            # leak to an observer that the token itself was valid.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid receiver token",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from None
 
-    if auth is not None:
-        _log.debug(
-            "otel-ingest: authenticated token_id=%s workflow_id=%s",
-            auth.token_id,
-            bound_workflow_id,
+        bound_workflow_id = await _resolve_workflow_id(conn, auth, workflow_id)
+
+        if auth is not None:
+            _log.debug(
+                "otel-ingest: authenticated token_id=%s workflow_id=%s",
+                auth.token_id,
+                bound_workflow_id,
+            )
+
+        try:
+            raw = await _read_body_with_limit(request, DEFAULT_MAX_BODY_BYTES)
+        except OversizedPayloadError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=str(exc),
+            ) from exc
+
+        # OpenLLMetry / traceloop and most OTel SDKs emit OTLP-HTTP protobuf by
+        # default; langsmith-collector-proxy emits OTLP-JSON. Branch on the
+        # declared Content-Type — anything that isn't protobuf is treated as JSON.
+        # Protobuf payloads already use standard OTel semconv; vendor-key
+        # translation via ADK/watsonx rewriters is skipped for that path.
+        content_type = request.headers.get("content-type", "").lower()
+        is_protobuf = "application/x-protobuf" in content_type or (
+            "application/protobuf" in content_type
+        )
+        decode_fn = decode_otlp_protobuf if is_protobuf else _parse_translate_decode
+
+        try:
+            batch = await asyncio.to_thread(
+                decode_fn, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+            )
+        except OversizedPayloadError as exc:
+            # Second-line cap guard — catches the rare case where the
+            # streaming limit was bypassed (e.g. direct function calls in tests).
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=str(exc),
+            ) from exc
+        except OtelDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+        persisted = await persist_decoded_batch(
+            conn, batch, workflow_id=bound_workflow_id
         )
 
-    try:
-        raw = await _read_body_with_limit(request, DEFAULT_MAX_BODY_BYTES)
-    except OversizedPayloadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=str(exc),
-        ) from exc
+        if bound_workflow_id is not None:
+            # Provenance hints first: this writes `workflows.origin` from span
+            # attributes if it is currently NULL. The agent registration below
+            # reads `workflows.origin` to derive the agent's origin, so the
+            # provenance write must come first — otherwise an OTLP-first agent
+            # (one that streams traces before going through the import flow)
+            # would be permanently stamped 'greenfield' regardless of what the
+            # spans say. Idempotent: `_apply_provenance_hints` uses
+            # `WHERE origin IS NULL`, so an already-set origin is never overwritten.
+            await _apply_provenance_hints(conn, bound_workflow_id, batch)
 
-    # OpenLLMetry / traceloop and most OTel SDKs emit OTLP-HTTP protobuf by
-    # default; langsmith-collector-proxy emits OTLP-JSON. Branch on the
-    # declared Content-Type — anything that isn't protobuf is treated as JSON.
-    # Protobuf payloads already use standard OTel semconv; vendor-key
-    # translation via ADK/watsonx rewriters is skipped for that path.
-    content_type = request.headers.get("content-type", "").lower()
-    is_protobuf = "application/x-protobuf" in content_type or (
-        "application/protobuf" in content_type
-    )
-    decode_fn = decode_otlp_protobuf if is_protobuf else _parse_translate_decode
+            # Register the agent on first ingestion — an imported agent that
+            # streams traces without ever going through the kernel's creation
+            # flow still earns a registry row. Idempotent.
+            await register_agent_for_workflow(conn, bound_workflow_id)
 
-    try:
-        batch = await asyncio.to_thread(
-            decode_fn, raw, max_body_bytes=DEFAULT_MAX_BODY_BYTES
+            # Nudge the debounced auto-clustering trigger when this batch landed a
+            # tool failure. No-op when the trigger is disabled (the default) or the
+            # app didn't start one. The actual clustering runs later, off-request,
+            # once the workflow has been quiet for the debounce window.
+            trigger = getattr(request.app.state, "cluster_auto_trigger", None)
+            if trigger is not None and _batch_has_tool_failure(batch):
+                trigger.signal(workspace_id, bound_workflow_id)
+
+        _log.info(
+            "otel-ingest: accepted %d events, %d warnings, "
+            "%d trace(s) created, %d trace(s) appended, %d trace(s) saturated",
+            len(batch.events),
+            len(batch.warnings),
+            len(persisted.created),
+            len(persisted.appended),
+            len(persisted.saturated),
         )
-    except OversizedPayloadError as exc:
-        # Second-line cap guard — catches the rare case where the
-        # streaming limit was bypassed (e.g. direct function calls in tests).
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=str(exc),
-        ) from exc
-    except OtelDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
 
-    persisted = await persist_decoded_batch(
-        conn, batch, workflow_id=bound_workflow_id
-    )
-
-    if bound_workflow_id is not None:
-        # Provenance hints first: this writes `workflows.origin` from span
-        # attributes if it is currently NULL. The agent registration below
-        # reads `workflows.origin` to derive the agent's origin, so the
-        # provenance write must come first — otherwise an OTLP-first agent
-        # (one that streams traces before going through the import flow)
-        # would be permanently stamped 'greenfield' regardless of what the
-        # spans say. Idempotent: `_apply_provenance_hints` uses
-        # `WHERE origin IS NULL`, so an already-set origin is never overwritten.
-        await _apply_provenance_hints(conn, bound_workflow_id, batch)
-
-        # Register the agent on first ingestion — an imported agent that
-        # streams traces without ever going through the kernel's creation
-        # flow still earns a registry row. Idempotent.
-        await register_agent_for_workflow(conn, bound_workflow_id)
-
-        # Nudge the debounced auto-clustering trigger when this batch landed a
-        # tool failure. No-op when the trigger is disabled (the default) or the
-        # app didn't start one. The actual clustering runs later, off-request,
-        # once the workflow has been quiet for the debounce window.
-        trigger = getattr(request.app.state, "cluster_auto_trigger", None)
-        if trigger is not None and _batch_has_tool_failure(batch):
-            trigger.signal(workspace_id, bound_workflow_id)
-
-    _log.info(
-        "otel-ingest: accepted %d events, %d warnings, "
-        "%d trace(s) created, %d trace(s) appended, %d trace(s) saturated",
-        len(batch.events),
-        len(batch.warnings),
-        len(persisted.created),
-        len(persisted.appended),
-        len(persisted.saturated),
-    )
-
-    return IngestResponse(
-        accepted_events=len(batch.events),
-        warnings=[IngestWarning(span_id=w.span_id, reason=w.reason) for w in batch.warnings],
-        created_trace_ids=persisted.created,
-        appended_trace_ids=persisted.appended,
-        saturated_trace_ids=persisted.saturated,
-    )
+        return IngestResponse(
+            accepted_events=len(batch.events),
+            warnings=[IngestWarning(span_id=w.span_id, reason=w.reason) for w in batch.warnings],
+            created_trace_ids=persisted.created,
+            appended_trace_ids=persisted.appended,
+            saturated_trace_ids=persisted.saturated,
+        )

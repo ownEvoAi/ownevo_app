@@ -131,6 +131,7 @@ async def test_verify_token_accepts_a_minted_token(db: asyncpg.Connection) -> No
     auth = await verify_token(db, plaintext)
     assert auth.token_id == row["id"]
     assert auth.workflow_id is None
+    assert auth.workspace_id == "default"
 
 
 @pytestmark_db
@@ -230,3 +231,19 @@ async def test_workflow_id_binding_round_trips(db: asyncpg.Connection) -> None:
 
     auth = await verify_token(db, plaintext)
     assert auth.workflow_id == "wf-auth-test"
+    assert auth.workspace_id == "default"
+
+
+@pytestmark_db
+async def test_workspace_id_round_trips(db: asyncpg.Connection) -> None:
+    plaintext, token_hash = mint_token()
+    await db.execute(
+        """
+        INSERT INTO receiver_tokens (token_hash, label, workspace_id)
+        VALUES ($1, 'unit-test', 'default')
+        """,
+        token_hash,
+    )
+
+    auth = await verify_token(db, plaintext)
+    assert auth.workspace_id == "default"

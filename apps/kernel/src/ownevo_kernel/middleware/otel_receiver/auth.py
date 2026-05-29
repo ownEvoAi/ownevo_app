@@ -82,10 +82,13 @@ class ReceiverTokenAuth:
     update `last_used_at` and to attach the token row to audit-ish
     logs. `workflow_id` is the bound workflow (None on workflow-agnostic
     tokens — those callers must pass `?workflow_id=` on the request).
+    `workspace_id` is the workspace the token operates in; the route
+    binds the request connection to it before persisting traces.
     """
 
     token_id: str
     workflow_id: str | None
+    workspace_id: str
 
 
 class ReceiverTokenAuthError(Exception):
@@ -184,6 +187,7 @@ async def verify_token(
         """
         SELECT id::text AS id,
                workflow_id,
+               workspace_id,
                revoked_at
         FROM receiver_tokens
         WHERE token_hash = $1
@@ -206,6 +210,7 @@ async def verify_token(
     return ReceiverTokenAuth(
         token_id=row["id"],
         workflow_id=row["workflow_id"],
+        workspace_id=row["workspace_id"],
     )
 
 

@@ -55,9 +55,15 @@ async def _rls_pool_for_db(db: asyncpg.Connection):
     """
     dbname = await db.fetchval("SELECT current_database()")
     role = f"rls_reaper_{dbname.rsplit('_', 1)[-1]}"
-    # IF NOT EXISTS makes setup idempotent: a role left by a crashed prior run
-    # won't cause DuplicateObjectError, and the grants below are idempotent too.
-    await db.execute(f'CREATE ROLE IF NOT EXISTS "{role}" NOSUPERUSER NOBYPASSRLS')
+    # Idempotent CREATE: a role left by a crashed prior run won't cause
+    # DuplicateObjectError. Postgres has no `CREATE ROLE IF NOT EXISTS`
+    # before PG 17; the portable form is a parameterized existence check
+    # followed by a conditional CREATE (DDL cannot use $1 bind parameters).
+    role_exists = await db.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", role
+    )
+    if not role_exists:
+        await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
     await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
     await db.execute(
         f"GRANT SELECT, INSERT, UPDATE, DELETE "
