@@ -26,6 +26,17 @@
 -- workspace, so the default keeps the fail-closed behaviour on writes without
 -- requiring a code change.
 --
+-- DEPLOY ORDER
+-- ------------
+-- This migration must run BEFORE the updated otel_ingest.py goes live.
+-- The new route acquires an unbound pool connection and issues the
+-- receiver_tokens SELECT before binding a workspace. If the old schema
+-- (RLS enabled, no policy dropped) is still in place when the new code
+-- starts, every receiver-token lookup returns zero rows and all OTLP
+-- ingest requests fail with 401 until the migration is applied.
+-- Old code + new schema is safe: the old route used a pre-bound connection
+-- (ConnDep), so disabling RLS on receiver_tokens is a no-op for it.
+--
 -- ONLINE-DDL NOTES
 -- ----------------
 -- DROP POLICY + DISABLE/NO FORCE are metadata-only operations against the

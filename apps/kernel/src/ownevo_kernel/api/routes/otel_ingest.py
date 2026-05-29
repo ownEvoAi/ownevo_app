@@ -56,7 +56,7 @@ from ...middleware.otel_receiver import (
 from ...middleware.watsonx_adk.translator import (
     _walk_and_rewrite_inplace as _watsonx_rewrite_inplace,
 )
-from ...tenant_session import DEFAULT_WORKSPACE_ID, set_workspace
+from ...tenant_session import DEFAULT_WORKSPACE_ID, WorkspaceBindError, set_workspace
 from ..deps import PoolDep
 
 if TYPE_CHECKING:
@@ -334,7 +334,17 @@ async def ingest_otlp_traces(
         # so the rest of the route can run; in production the boot guards
         # ensure auth-optional cannot be set, so this branch is never reached.
         workspace_id = auth.workspace_id if auth is not None else DEFAULT_WORKSPACE_ID
-        await set_workspace(conn, workspace_id)
+        try:
+            await set_workspace(conn, workspace_id)
+        except WorkspaceBindError:
+            # Uniform 401: a soft-deleted or unknown workspace (e.g. token minted
+            # before the workspace was deleted) must not return 500, which would
+            # leak to an observer that the token itself was valid.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid receiver token",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from None
 
         bound_workflow_id = await _resolve_workflow_id(conn, auth, workflow_id)
 
@@ -409,20 +419,20 @@ async def ingest_otlp_traces(
             if trigger is not None and _batch_has_tool_failure(batch):
                 trigger.signal(workspace_id, bound_workflow_id)
 
-    _log.info(
-        "otel-ingest: accepted %d events, %d warnings, "
-        "%d trace(s) created, %d trace(s) appended, %d trace(s) saturated",
-        len(batch.events),
-        len(batch.warnings),
-        len(persisted.created),
-        len(persisted.appended),
-        len(persisted.saturated),
-    )
+        _log.info(
+            "otel-ingest: accepted %d events, %d warnings, "
+            "%d trace(s) created, %d trace(s) appended, %d trace(s) saturated",
+            len(batch.events),
+            len(batch.warnings),
+            len(persisted.created),
+            len(persisted.appended),
+            len(persisted.saturated),
+        )
 
-    return IngestResponse(
-        accepted_events=len(batch.events),
-        warnings=[IngestWarning(span_id=w.span_id, reason=w.reason) for w in batch.warnings],
-        created_trace_ids=persisted.created,
-        appended_trace_ids=persisted.appended,
-        saturated_trace_ids=persisted.saturated,
-    )
+        return IngestResponse(
+            accepted_events=len(batch.events),
+            warnings=[IngestWarning(span_id=w.span_id, reason=w.reason) for w in batch.warnings],
+            created_trace_ids=persisted.created,
+            appended_trace_ids=persisted.appended,
+            saturated_trace_ids=persisted.saturated,
+        )
