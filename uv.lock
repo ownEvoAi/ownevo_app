@@ -3203,7 +3203,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
-    { name = "ownevo-kernel", extra = ["api", "baselines-m5", "otel-emit", "test", "triggers"] },
+    { name = "ownevo-kernel", extra = ["agent", "api", "baselines-m5", "otel-emit", "test", "triggers"] },
     { name = "ownevo-trace-format" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -3213,7 +3213,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ownevo-kernel", extras = ["baselines-m5", "api", "test", "triggers", "otel-emit"], editable = "apps/kernel" },
+    { name = "ownevo-kernel", extras = ["agent", "baselines-m5", "api", "test", "triggers", "otel-emit"], editable = "apps/kernel" },
     { name = "ownevo-trace-format", editable = "packages/trace-format" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
