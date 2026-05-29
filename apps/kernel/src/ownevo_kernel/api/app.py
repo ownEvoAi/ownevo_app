@@ -34,6 +34,7 @@ from ..llm.router import check_provider_api_keys
 from ..sandbox.local_docker import _read_max_concurrent
 from ..secrets.encrypted_field import MASTER_KEY_ENV
 from ._error_handler import install_exception_handler
+from ._graceful_shutdown import install_drain
 from ._internal_auth import (
     DEPLOY_ENV_VAR,
     DEV_AUTH_ENV,
@@ -252,6 +253,12 @@ def create_app(
                 "orphan reaper: failed at startup; continuing without sweep"
             )
 
+        # Readiness gate for graceful shutdown. Flipped True by the drain
+        # signal handler (when enabled) so /readyz reports 503 and a load
+        # balancer drains the instance before uvicorn closes the socket.
+        app.state.shutting_down = False
+        install_drain(app)
+
         app.state.cluster_auto_trigger = await _maybe_start_auto_trigger(app.state.pool)
 
         # Opt-in trigger scheduler (cron / threshold / Slack / email / calendar).
@@ -403,7 +410,15 @@ def create_app(
         the instance out of rotation rather than routing requests that
         will fail. Unlike liveness, readiness is allowed to flip during a
         DB blip without implying the process should be restarted.
+
+        Also returns 503 once the process has begun a graceful-shutdown
+        drain (see _graceful_shutdown.py): the DB is still fine, but the
+        instance is declining new traffic so the balancer stops routing to
+        it before the socket closes.
         """
+        if getattr(api.state, "shutting_down", False):
+            response.status_code = 503
+            return {"status": "not_ready", "reason": "shutting_down"}
         if await _db_ok():
             return {"status": "ready", "db": "ok"}
         response.status_code = 503
