@@ -25,6 +25,19 @@ _CLINICAL = "clinical-trial-site-selection"
 _DESC = "Forecast weekly demand at SKU-store level over the next four weeks."
 
 
+@pytest.fixture(autouse=True)
+def _no_anthropic_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the route's hardcoded fallback path.
+
+    When `ANTHROPIC_API_KEY` is set the route delegates to an LLM-based
+    interviewer that does not respect the legacy template positions or
+    out-of-range guards these tests assert on. The conftest autoloads
+    `.env`, which often sets the key, so the tests must explicitly drop
+    it to stay key-free as their module docstring claims.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
 @pytest.fixture
 async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
     app = FastAPI()
