@@ -69,8 +69,13 @@ async def test_generate_400_on_unrecognised_template_id(
 
 async def test_generate_none_template_id_is_accepted(
     nl_gen_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    # A missing ANTHROPIC_API_KEY returns 503, not 400 — confirming validation passed.
+    # Validation tests assert on the deterministic 503 path. With the key set
+    # the route would call the LLM and either succeed (and then reach the pool
+    # acquire, which this stateless fixture does not bind) or hit a real
+    # network failure — both make the assertion non-deterministic.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     resp = await nl_gen_client.post(
         "/api/nl-gen/generate",
         json={"description": "x" * 60},
@@ -80,7 +85,9 @@ async def test_generate_none_template_id_is_accepted(
 
 async def test_generate_valid_template_id_passes_validation(
     nl_gen_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     resp = await nl_gen_client.post(
         "/api/nl-gen/generate",
         json={

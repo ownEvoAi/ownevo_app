@@ -101,7 +101,11 @@ async def run_pipeline(
         f"input_data = _ownevo_json.loads({payload!r})\n"
     )
     code = prologue + skill_content
-    task_timeout = task_timeout_seconds or (timeout_seconds + 30.0)
+    task_timeout = (
+        task_timeout_seconds
+        if task_timeout_seconds is not None
+        else (timeout_seconds + 30.0)
+    )
 
     try:
         result = await sandbox.run(

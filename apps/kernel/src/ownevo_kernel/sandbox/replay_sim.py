@@ -122,20 +122,21 @@ class ReplaySimSandbox:
         *,
         timeout_seconds: float,
         memory_mb: int,
+        slot_timeout_seconds: float | None = None,
     ) -> SandboxResult:
         """SandboxRuntime Protocol entry point.
 
-        Returns the next captured SandboxResult. `code` /
-        `timeout_seconds` / `memory_mb` are accepted to match the
-        Protocol but ignored — replay's contract is "do exactly what
-        the prior iteration did," not "execute this code." The cursor
-        advances per call.
+        Returns the next captured SandboxResult. `code`,
+        `timeout_seconds`, `memory_mb`, and `slot_timeout_seconds` are
+        accepted to match the Protocol but ignored — replay's contract is
+        "do exactly what the prior iteration did," not "execute this code."
+        The cursor advances per call.
 
         Raises:
             ReplayRunMissingError: cursor outran the captured set.
                 Caller dispatches per the configured fallback policy.
         """
-        del code, timeout_seconds, memory_mb  # Protocol parity, unused
+        del code, timeout_seconds, memory_mb, slot_timeout_seconds  # Protocol parity, unused
 
         if self._cursor >= len(self.captured):
             raise ReplayRunMissingError(

@@ -69,4 +69,5 @@ class SandboxRuntime(Protocol):
         *,
         timeout_seconds: float,
         memory_mb: int,
+        slot_timeout_seconds: float | None = None,
     ) -> SandboxResult: ...

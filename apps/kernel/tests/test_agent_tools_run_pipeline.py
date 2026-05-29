@@ -148,10 +148,21 @@ async def test_per_task_timeout_fires_independently():
         async def run(
             self, code, *, timeout_seconds, memory_mb,
             extra_volumes=None, extra_env=None,
+            slot_timeout_seconds=None,
         ):
             del extra_volumes, extra_env
-            await asyncio.sleep(timeout_seconds + 5)
-            raise AssertionError("should have been cancelled by per-task timeout")
+
+            async def _too_slow() -> None:
+                await asyncio.sleep(timeout_seconds + 5)
+                raise AssertionError("should have been cancelled by per-task timeout")
+
+            # Mirror LocalDockerSandbox.run: when slot_timeout_seconds is set,
+            # bound the call with asyncio.wait_for so the per-task timeout the
+            # outer run_pipeline relies on actually fires.
+            if slot_timeout_seconds is not None:
+                await asyncio.wait_for(_too_slow(), timeout=slot_timeout_seconds)
+            else:
+                await _too_slow()
 
     r = await run_pipeline(
         _SlowSandbox(),

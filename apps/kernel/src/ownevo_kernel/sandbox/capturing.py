@@ -83,6 +83,7 @@ class CapturingSandbox:
         *,
         timeout_seconds: float,
         memory_mb: int,
+        slot_timeout_seconds: float | None = None,
     ) -> SandboxResult:
         """Execute via the inner sandbox, then persist the result.
 
@@ -94,6 +95,7 @@ class CapturingSandbox:
             code,
             timeout_seconds=timeout_seconds,
             memory_mb=memory_mb,
+            slot_timeout_seconds=slot_timeout_seconds,
         )
         call_idx = self._call_idx
         self._call_idx += 1
