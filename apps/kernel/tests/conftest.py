@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import uuid
@@ -158,6 +159,29 @@ async def db():
             await admin.close()
 
 
+async def _setup_rls_role(
+    db: asyncpg.Connection, *, prefix: str
+) -> tuple[str, str]:
+    """Create a NOSUPERUSER NOBYPASSRLS role and return (role_name, dsn).
+
+    Grants full table/sequence access in the current DB. Caller is responsible
+    for cleanup: DROP OWNED BY "{role}" then DROP ROLE IF EXISTS "{role}".
+    """
+    dbname = await db.fetchval("SELECT current_database()")
+    role = f"{prefix}_{dbname.rsplit('_', 1)[-1]}"
+    await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
+    await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
+    await db.execute(
+        f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{role}"'
+    )
+    await db.execute(
+        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}"'
+    )
+    parsed = urlparse(os.environ[ENV_VAR])
+    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
+    return role, dsn
+
+
 @pytest.fixture
 async def rls_db(db: asyncpg.Connection):
     """A connection that genuinely exercises row-level security.
@@ -169,20 +193,7 @@ async def rls_db(db: asyncpg.Connection):
     fresh connection to it. That mirrors production, where the kernel connects
     as a non-superuser application role.
     """
-    dbname = await db.fetchval("SELECT current_database()")
-    role = f"rls_test_{dbname.rsplit('_', 1)[-1]}"
-    await db.execute(f'CREATE ROLE "{role}" NOSUPERUSER NOBYPASSRLS')
-    await db.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
-    await db.execute(
-        f"GRANT SELECT, INSERT, UPDATE, DELETE "
-        f'ON ALL TABLES IN SCHEMA public TO "{role}"'
-    )
-    await db.execute(
-        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}"'
-    )
-
-    parsed = urlparse(os.environ[ENV_VAR])
-    dsn = urlunparse(parsed._replace(path=f"/{dbname}"))
+    role, dsn = await _setup_rls_role(db, prefix="rls_test")
     conn = await asyncpg.connect(dsn)
     try:
         await conn.execute(f'SET ROLE "{role}"')
@@ -194,6 +205,37 @@ async def rls_db(db: asyncpg.Connection):
         await conn.close()
         # A role can't be dropped while it still holds GRANTs; DROP OWNED BY
         # revokes them (and drops anything it owns) in this database first.
+        await db.execute(f'DROP OWNED BY "{role}"')
+        await db.execute(f'DROP ROLE IF EXISTS "{role}"')
+
+
+@pytest.fixture
+async def rls_api_client(db: asyncpg.Connection):
+    """In-process FastAPI client whose pool runs as a non-superuser, NOBYPASSRLS
+    role, so routes relying on row-level security for workspace isolation are
+    actually exercised. The shared `api_client` connects as a superuser, which
+    bypasses RLS even under FORCE — fine for tests that only read their own
+    workspace, but it cannot prove isolation.
+    """
+    role, dsn = await _setup_rls_role(db, prefix="rls_apijobs")
+
+    async def _setup(conn: asyncpg.Connection) -> None:
+        await conn.execute(f'SET ROLE "{role}"')
+
+    pool = None
+    try:
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, setup=_setup)
+        app = create_app(pool=pool, cors_origins=[])
+        transport = ASGITransport(app=app)
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=transport, base_url="http://api.test") as client,
+        ):
+            yield client
+    finally:
+        if pool is not None:
+            with contextlib.suppress(asyncpg.InterfaceError):
+                await pool.close()
         await db.execute(f'DROP OWNED BY "{role}"')
         await db.execute(f'DROP ROLE IF EXISTS "{role}"')
 
