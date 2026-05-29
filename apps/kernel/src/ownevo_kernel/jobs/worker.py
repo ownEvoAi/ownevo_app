@@ -47,6 +47,21 @@ from .queue import (
 
 _log = logging.getLogger(__name__)
 
+
+def _decode_payload(raw: str | dict[str, Any] | Any) -> dict[str, Any]:
+    """Decode the asyncpg ``payload`` column to a Python dict.
+
+    asyncpg returns ``jsonb`` as a plain string unless a custom codec is
+    registered.  This guard handles both the raw-string and the already-decoded
+    dict cases so callers don't have to repeat the isinstance check.
+    """
+    if isinstance(raw, str):
+        return json.loads(raw)
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
 # How often the worker wakes to re-queue stale jobs and claim ready work.
 _POLL_INTERVAL_SECONDS = 3.0
 # How often a running job's heartbeat is advanced.
@@ -208,15 +223,31 @@ class JobWorker:
             retried = await fail_job(
                 conn, job["id"], error=error, backoff_seconds=backoff
             )
+        # Structured fields so the JSON log formatter / Sentry ship them as
+        # queryable attributes — a log-based alert keys on `job_failed_terminal`
+        # rather than regex-matching the message. (The Prometheus signal is the
+        # ownevo_jobs{status="failed"} gauge.)
+        payload = _decode_payload(job["payload"])
+        workflow_id = payload.get("workflow_id")
+        fields = {
+            "job_id": str(job["id"]),
+            "kind": job["kind"],
+            "workflow_id": workflow_id,
+            "attempts": job["attempts"],
+            "max_attempts": job["max_attempts"],
+            "last_error": error,
+        }
         if retried:
             _log.warning(
                 "job worker: job %s re-queued (attempt %d/%d, backoff %.0fs)",
                 job["id"], job["attempts"], job["max_attempts"], backoff,
+                extra={**fields, "backoff_seconds": backoff},
             )
         else:
             _log.error(
                 "job worker: job %s failed terminally after %d attempt(s)",
                 job["id"], job["attempts"],
+                extra={**fields, "job_failed_terminal": True},
             )
 
     async def _heartbeat_loop(self, workspace_id: str, job_id: uuid.UUID) -> None:
@@ -260,9 +291,7 @@ class JobWorker:
         from ..api._anthropic_client import build_async_anthropic
         from ..iteration_runner import run_one_iteration_for_workflow
 
-        payload = job["payload"]
-        if isinstance(payload, str):  # jsonb arrives as str (no codec registered)
-            payload = json.loads(payload)
+        payload = _decode_payload(job["payload"])
         workflow_id = payload["workflow_id"]
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()

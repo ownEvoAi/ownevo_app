@@ -208,6 +208,14 @@ export function WorkspaceNav({ wsId, workflows, workspaces, activeWorkspaceId, t
  </svg>
  <span className="nav-label">Traces</span>
  </a>
+ <a href={`${root}/jobs`} className={cls(`${root}/jobs`)}>
+ <svg className="nav-icon" viewBox="0 0 16 16">
+ <rect x="3" y="3" width="10" height="3" />
+ <rect x="3" y="7" width="10" height="3" />
+ <rect x="3" y="11" width="10" height="3" />
+ </svg>
+ <span className="nav-label">Jobs</span>
+ </a>
  <a href={`${root}/audit`} className={cls(`${root}/audit`)}>
  <svg className="nav-icon" viewBox="0 0 16 16">
  <path d="M3 4 L13 4 M3 8 L13 8 M3 12 L9 12" />

@@ -1042,6 +1042,36 @@ class TraceList(_Strict):
     next_cursor: str | None = None
 
 
+class JobSummary(_Strict):
+    """Row in the durable job-queue list view.
+
+    `workflow_id` is lifted out of the job's `payload` so the raw payload is
+    never exposed on the wire. `last_error` holds the most recent failure
+    reason (null until a failed attempt). `attempts` / `max_attempts` show
+    retry progress; `available_at` is when a backed-off retry becomes eligible.
+    """
+
+    id: UUID
+    kind: str
+    status: str
+    attempts: int
+    max_attempts: int
+    workflow_id: str | None
+    last_error: str | None
+    claimed_by: str | None
+    available_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class JobList(_Strict):
+    items: list[JobSummary]
+    # status -> count across the whole workspace (not just the returned page),
+    # so the UI can show queue depth without a second request.
+    # Only statuses with at least one row appear; missing keys mean 0.
+    counts: dict[str, int]
+
+
 class TraceDetail(_Strict):
     """Full trace with the AgentEvent stream.
 

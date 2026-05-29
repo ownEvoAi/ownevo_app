@@ -210,6 +210,18 @@ async def requeue_stale_jobs(
     return int(requeued or 0)
 
 
+async def count_jobs_by_status(conn: asyncpg.Connection) -> dict[str, int]:
+    """Return a `{status: count}` mapping for the workspace's jobs table.
+
+    The connection must already be workspace-scoped (GUC bound via
+    `tenant_session`); the result reflects only that workspace's rows.
+    """
+    rows = await conn.fetch(
+        "SELECT status, count(*) AS n FROM jobs GROUP BY status"
+    )
+    return {row["status"]: int(row["n"]) for row in rows}
+
+
 __all__ = [
     "DEFAULT_MAX_ATTEMPTS",
     "enqueue_job",
@@ -218,4 +230,5 @@ __all__ = [
     "complete_job",
     "fail_job",
     "requeue_stale_jobs",
+    "count_jobs_by_status",
 ]
