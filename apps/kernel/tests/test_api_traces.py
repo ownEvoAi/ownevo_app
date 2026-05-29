@@ -123,7 +123,11 @@ async def test_workflow_traces_empty(
     res = await api_client.get("/api/workflows/wf-empty-traces/traces")
     assert res.status_code == 200
     body = res.json()
-    assert body == {"workflow_id": "wf-empty-traces", "items": []}
+    assert body == {
+        "workflow_id": "wf-empty-traces",
+        "items": [],
+        "next_cursor": None,
+    }
 
 
 async def test_workflow_traces_lists_with_kind_counts(
@@ -170,6 +174,8 @@ async def test_workflow_traces_lists_with_kind_counts(
     body = res.json()
     assert body["workflow_id"] == "wf-list"
     assert len(body["items"]) == 2
+    # Two traces well under the default page size — no further page.
+    assert body["next_cursor"] is None
 
     # newest first
     assert body["items"][0]["id"] == str(t2)
@@ -182,6 +188,118 @@ async def test_workflow_traces_lists_with_kind_counts(
         "skill_loaded": 1,
         "content_delta": 2,
     }
+
+
+# ---------------------------------------------------------------------------
+# Keyset pagination (limit + cursor)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_n_traces(
+    conn: asyncpg.Connection, *, workflow_id: str, n: int, base: datetime
+) -> list[uuid.UUID]:
+    """Seed n traces with strictly-increasing started_at. Returns the ids
+    newest-first (so index 0 is the most recent), matching list order."""
+    ids: list[uuid.UUID] = []
+    for i in range(n):
+        tid = await _seed_trace(
+            conn,
+            workflow_id=workflow_id,
+            events=[],
+            started_at=base + timedelta(seconds=i),
+        )
+        ids.append(tid)
+    return list(reversed(ids))
+
+
+async def test_workflow_traces_pagination_walks_every_row_once(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A small `limit` pages the full set: each page carries a cursor until
+    the last, and walking the cursors yields every row exactly once, newest
+    first, with no overlap or gap."""
+    await _seed_workflow(db, workflow_id="wf-page")
+    base = datetime.now(tz=UTC) - timedelta(hours=1)
+    newest_first = await _seed_n_traces(db, workflow_id="wf-page", n=5, base=base)
+
+    seen: list[str] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        url = "/api/workflows/wf-page/traces?limit=2"
+        if cursor is not None:
+            url += f"&cursor={cursor}"
+        res = await api_client.get(url)
+        assert res.status_code == 200
+        body = res.json()
+        seen.extend(item["id"] for item in body["items"])
+        pages += 1
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+        assert pages <= 5, "cursor never terminated"
+
+    assert pages == 3  # 2 + 2 + 1
+    assert seen == [str(t) for t in newest_first]  # every row once, newest first
+    assert len(set(seen)) == 5  # no duplicates across pages
+
+
+async def test_workflow_traces_limit_caps_page(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    await _seed_workflow(db, workflow_id="wf-cap")
+    base = datetime.now(tz=UTC) - timedelta(hours=1)
+    await _seed_n_traces(db, workflow_id="wf-cap", n=3, base=base)
+
+    res = await api_client.get("/api/workflows/wf-cap/traces?limit=1")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["items"]) == 1
+    assert body["next_cursor"] is not None
+
+
+async def test_all_traces_pagination(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """The workspace-wide list paginates the same way (fresh DB per test, so
+    these are the only traces present)."""
+    await _seed_workflow(db, workflow_id="wf-all")
+    base = datetime.now(tz=UTC) - timedelta(hours=1)
+    newest_first = await _seed_n_traces(db, workflow_id="wf-all", n=3, base=base)
+
+    res = await api_client.get("/api/traces?limit=2")
+    body = res.json()
+    assert [i["id"] for i in body["items"]] == [str(t) for t in newest_first[:2]]
+    assert body["next_cursor"] is not None
+
+    res2 = await api_client.get(f"/api/traces?limit=2&cursor={body['next_cursor']}")
+    body2 = res2.json()
+    assert [i["id"] for i in body2["items"]] == [str(newest_first[2])]
+    assert body2["next_cursor"] is None
+
+
+async def test_traces_invalid_cursor_400(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """A malformed cursor is a 400, not a silent reset to the first page."""
+    await _seed_workflow(db, workflow_id="wf-badcursor")
+    res = await api_client.get("/api/workflows/wf-badcursor/traces?cursor=not-valid!!")
+    assert res.status_code == 400
+    res_all = await api_client.get("/api/traces?cursor=not-valid!!")
+    assert res_all.status_code == 400
+
+
+async def test_traces_limit_out_of_range_422(
+    api_client: httpx.AsyncClient, db: asyncpg.Connection,
+):
+    """`limit` is bounded [1, 500]; out-of-range is a validation error."""
+    await _seed_workflow(db, workflow_id="wf-limit")
+    assert (
+        await api_client.get("/api/workflows/wf-limit/traces?limit=0")
+    ).status_code == 422
+    assert (
+        await api_client.get("/api/workflows/wf-limit/traces?limit=501")
+    ).status_code == 422
 
 
 # ---------------------------------------------------------------------------
