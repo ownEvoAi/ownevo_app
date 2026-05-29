@@ -1,5 +1,11 @@
 -- Composite indexes supporting keyset pagination on the two trace-list endpoints.
 --
+-- ownevo:no-txn
+--
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction block, so the
+-- migration runner must execute this file outside one (the no-txn annotation
+-- above is the marker both runners detect).
+--
 -- Both list endpoints order by (started_at DESC, id DESC) and, on cursor
 -- walks, filter with the row-value predicate:
 --
