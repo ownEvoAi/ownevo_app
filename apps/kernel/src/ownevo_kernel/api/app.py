@@ -97,9 +97,24 @@ _AUTOTRIGGER_DEBOUNCE_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER_DEBOUNCE_SECONDS"
 # Disabled by default; enable with OWNEVO_TRIGGER_SCHEDULER=true.
 _TRIGGER_SCHEDULER_ENV = "OWNEVO_TRIGGER_SCHEDULER"
 
+# Background worker that drains the durable job queue (run_iteration jobs).
+# The trigger scheduler is its only producer, so it follows the scheduler by
+# default; OWNEVO_JOB_WORKER overrides either way ("true"/"false").
+_JOB_WORKER_ENV = "OWNEVO_JOB_WORKER"
+
 
 def _trigger_scheduler_enabled() -> bool:
     return os.environ.get(_TRIGGER_SCHEDULER_ENV, "").strip().lower() in ("1", "true", "yes")
+
+
+def _job_worker_enabled() -> bool:
+    raw = os.environ.get(_JOB_WORKER_ENV, "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    # Unset: follow the trigger scheduler, the queue's only producer.
+    return _trigger_scheduler_enabled()
 
 
 def _autotrigger_enabled() -> bool:
@@ -270,6 +285,17 @@ def create_app(
             app.state.trigger_scheduler = scheduler
             logger.info("trigger scheduler: enabled")
 
+        # Durable job-queue worker. Drains run_iteration jobs the scheduler
+        # enqueues; follows the scheduler by default so a restart resumes
+        # trigger-fired iteration work instead of dropping it.
+        app.state.job_worker = None
+        if _job_worker_enabled() and not is_demo_mode():
+            from ..jobs import JobWorker
+            worker = JobWorker(app.state.pool)
+            await worker.start()
+            app.state.job_worker = worker
+            logger.info("job worker: enabled")
+
         try:
             yield
         finally:
@@ -277,6 +303,8 @@ def create_app(
                 await app.state.cluster_auto_trigger.stop()
             if app.state.trigger_scheduler is not None:
                 await app.state.trigger_scheduler.stop()
+            if app.state.job_worker is not None:
+                await app.state.job_worker.stop()
             if own_pool:
                 await app.state.pool.close()
             # Drain any queued Sentry events before the process exits.

@@ -8,9 +8,11 @@ When a trigger fires it dispatches one of three actions:
     threshold triggers).
 
 ``run_iteration``
-    Enqueues one improvement-loop iteration for the workflow (not yet
-    wired to a full async job queue — delegates to the same path as the
-    manual "Run iteration" button in the UI).
+    Enqueues one improvement-loop iteration for the workflow on the durable
+    job queue (the ``jobs`` table). A background ``JobWorker`` claims and runs
+    it, so the work survives a kernel restart instead of dying with an
+    in-process task. Enqueue is idempotent per workflow: a burst of triggers
+    while an iteration is already queued or running adds no duplicate.
 
 ``ingest_failures``
     Converts a list of failure-description strings to
@@ -30,7 +32,6 @@ path for background workers.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -83,60 +84,43 @@ async def action_run_iteration(
     workflow_id: str,
     workspace_id: str,
 ) -> None:
-    """Start one improvement-loop iteration for `workflow_id`.
+    """Enqueue one improvement-loop iteration for `workflow_id`.
 
-    Spawns `run_one_iteration_for_workflow` as a fire-and-forget background
-    task so the trigger dispatcher returns promptly.  The iteration runner
-    creates the ``iterations`` row (in ``running`` state), drives the full
-    LLM + regression-gate cycle, and persists the outcome — all using
-    ``workspace_id``-scoped connections under RLS.
+    Inserts a ``run_iteration`` job on the durable queue rather than spawning
+    an in-process task: a background ``JobWorker`` claims it, drives the full
+    LLM + regression-gate cycle (creating the ``iterations`` row, persisting
+    the outcome), and retries it if the worker dies mid-run. The actual
+    Anthropic client is built by the worker when it runs the job, not here.
 
-    The iteration runner is imported lazily to keep the trigger module
-    free of the heavy ``agent`` extra.
+    Enqueue is idempotent per workflow — the queue's active-job unique index
+    means a second trigger for a workflow that already has a queued or running
+    iteration is a no-op, mirroring the one-iteration-at-a-time guard the
+    manual "Run iteration" button enforces.
 
-    ``workspace_id`` must match the workspace the workflow belongs to so
-    every workspace-scoped write the runner makes is correctly scoped.
+    ``workspace_id`` must match the workspace the workflow belongs to so the
+    job row is correctly scoped under RLS before the worker picks it up.
     """
-    import os
+    from ..jobs import enqueue_job
 
-    from ..api._anthropic_client import build_async_anthropic
-    from ..iteration_runner import run_one_iteration_for_workflow
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
+        job_id = await enqueue_job(
+            conn,
+            kind="run_iteration",
+            payload={"workflow_id": workflow_id},
+        )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        _log.error(
-            "trigger: ANTHROPIC_API_KEY is not set; "
-            "cannot start iteration for workflow %s",
+    if job_id is None:
+        _log.info(
+            "trigger: iteration already queued/running for workflow %s; "
+            "skipped duplicate enqueue",
             workflow_id,
         )
-        return
-
-    client = build_async_anthropic(api_key)
-
-    async def _run_bg() -> None:
-        try:
-            await run_one_iteration_for_workflow(
-                pool,
-                workflow_id=workflow_id,
-                workspace_id=workspace_id,
-                client=client,
-            )
-        except Exception:  # noqa: BLE001
-            _log.exception(
-                "trigger: iteration runner failed for workflow %s",
-                workflow_id,
-            )
-        finally:
-            await client.close()
-
-    asyncio.create_task(
-        _run_bg(),
-        name=f"trigger-iteration-{workflow_id[:8]}",
-    )
-    _log.info(
-        "trigger: spawned iteration background task for workflow %s",
-        workflow_id,
-    )
+    else:
+        _log.info(
+            "trigger: enqueued iteration job %s for workflow %s",
+            job_id,
+            workflow_id,
+        )
 
 
 async def action_ingest_failures(
