@@ -14,6 +14,7 @@ Two layers:
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -21,6 +22,17 @@ import pytest
 from httpx import ASGITransport
 from ownevo_kernel.api._metrics import CONTENT_TYPE, render_metrics
 from ownevo_kernel.api.app import create_app
+from ownevo_kernel.db import ENV_VAR
+
+# The `api_client` fixture builds a real asyncpg pool, so the DB-backed cases
+# below can only run when a database is configured. The CI lint/unit job runs
+# without one; mark just those tests so they skip there instead of erroring.
+# The pure-renderer and no-DB endpoint tests above carry no such guard and
+# always run.
+requires_db = pytest.mark.skipif(
+    ENV_VAR not in os.environ,
+    reason=f"{ENV_VAR} not set; skipping DB-backed integration tests",
+)
 
 # ---------------------------------------------------------------------------
 # Pure renderer
@@ -162,6 +174,7 @@ async def test_metrics_text_format_without_pool(no_db_client: httpx.AsyncClient)
 # ---------------------------------------------------------------------------
 
 
+@requires_db
 async def test_livez_is_200_with_live_pool(api_client: httpx.AsyncClient) -> None:
     """Liveness stays dependency-free even when the pool is live."""
     resp = await api_client.get("/api/livez")
@@ -169,12 +182,14 @@ async def test_livez_is_200_with_live_pool(api_client: httpx.AsyncClient) -> Non
     assert resp.json() == {"status": "ok"}
 
 
+@requires_db
 async def test_readyz_ready_with_live_pool(api_client: httpx.AsyncClient) -> None:
     resp = await api_client.get("/api/readyz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ready", "db": "ok"}
 
 
+@requires_db
 async def test_metrics_reports_live_pool(api_client: httpx.AsyncClient) -> None:
     resp = await api_client.get("/metrics")
     assert resp.status_code == 200
