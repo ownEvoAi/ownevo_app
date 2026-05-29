@@ -80,8 +80,13 @@ createdb ownevo
 export OWNEVO_DATABASE_URL=postgresql://ownevo:ownevo@localhost:5432/ownevo
 export ANTHROPIC_API_KEY=sk-ant-...
 
-make api          # uvicorn on :8000, auto-migrates on first start
+make db-migrate   # apply all pending migrations (idempotent)
+make api          # uvicorn on :8000 (does NOT migrate — run db-migrate first)
 ```
+
+`make api` starts the server only; it does not apply migrations. Run `make
+db-migrate` after pulling new schema, or `make db-reset` to drop and rebuild
+the dev database from scratch.
 
 ### Start the web app
 
@@ -95,7 +100,7 @@ Verify: `curl localhost:8000/api/health` → `{"status":"ok","db":"ok"}`, then o
 
 ## Local Docker (compose)
 
-One command brings up Postgres, kernel API, and web. All three containers share a private Docker network; the kernel's `release_command` runs migrations before the API process starts.
+One command brings up Postgres, kernel API, and web. All three containers share a private Docker network. A one-shot `migrate` service runs `scripts/migrate.py` once Postgres is healthy; the kernel waits on its successful completion (`service_completed_successfully`) so the API never starts against an unmigrated schema. Because the runner tracks applied files in `schema_migrations`, `make dev-up` re-applies only new migrations on every start — not just the first boot.
 
 ### First run
 
@@ -128,11 +133,14 @@ make dev-down     # stop and remove containers
 ### Re-seeding after schema changes
 
 ```bash
-make dev-down
-docker volume rm ownevo_app_postgres_data   # wipe DB
-make dev-up                                 # re-migrates on start
+make db-reset                               # drop + recreate + re-migrate the DB
 make seed-demo-with-iter
 ```
+
+`make db-reset` is destructive — it drops and recreates the dev database, then
+runs every migration from scratch. (For the full-stack compose flow you can
+instead `make dev-down && docker compose down -v && make dev-up`, which wipes
+the Postgres volume and lets the `migrate` service rebuild the schema.)
 
 ---
 
@@ -228,7 +236,7 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0034_workspace_rls_enforcement.sql` | FORCE RLS + isolation policies + GUC default; PK/index/soft-delete fixes |
 | `0035_auth_users.sql` | `users` + `user_identities` + `workspace_members` (global, non-RLS) + seeded dev user |
 
-**Local:** `make api` and `make dev-up` both run migrations automatically on start.
+**Local:** `make dev-up` runs migrations automatically (the one-shot `migrate` service runs before the kernel starts). `make api` does **not** migrate — run `make db-migrate` first (or `make db-reset` to rebuild the dev DB from scratch).
 
 **Fly.io:** `make fly-deploy-kernel` triggers migrations via the `release_command` before the new process accepts traffic.
 

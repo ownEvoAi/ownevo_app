@@ -7,15 +7,21 @@ Local development infrastructure — Postgres + pgvector for MVP. Langfuse / Cli
 ```bash
 cd infra
 docker compose up -d
+make -C .. db-migrate     # apply all migrations (idempotent)
 ```
 
-Postgres listens on `localhost:5432` (override with `OWNEVO_PG_PORT`). The substrate migration `apps/kernel/migrations/0001_substrate.sql` is mounted into `docker-entrypoint-initdb.d` and runs on first boot (when the data volume is empty).
+Postgres listens on `localhost:5432` (override with `OWNEVO_PG_PORT`). This
+compose brings up Postgres only — it does **not** apply migrations. Run `make
+db-migrate` from the repo root: the `scripts/migrate.py` runner tracks applied
+files in `schema_migrations`, is idempotent, and handles the `CREATE INDEX
+CONCURRENTLY` migrations the old `docker-entrypoint-initdb.d` mount could not.
 
 To re-bootstrap with a clean DB:
 
 ```bash
-docker compose down -v
+docker compose down -v    # drop the data volume
 docker compose up -d
+make -C .. db-migrate      # rebuild the schema from scratch
 ```
 
 ## Connection string

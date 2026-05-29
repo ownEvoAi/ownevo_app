@@ -10,9 +10,12 @@ services:
       - "${OWNEVO_PG_PORT:-5432}:5432"
     volumes:
       - ownevo-pg-data:/var/lib/postgresql/data
-      # Migrations run on first init only (when the data volume is empty).
-      # `docker compose down -v` to drop the volume and re-bootstrap.
-      - ../apps/kernel/migrations:/docker-entrypoint-initdb.d:ro
+      # No migration mount: the old `migrations:/docker-entrypoint-initdb.d`
+      # approach ran only on a first-boot empty volume, bypassed the
+      # `schema_migrations` ledger, and broke on the `CREATE INDEX
+      # CONCURRENTLY` migrations (psql wraps initdb files in a transaction).
+      # This compose brings up Postgres only; apply migrations from the host
+      # with `make db-migrate` (the real `scripts/migrate.py` runner).
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "ownevo", "-d", "ownevo"]
       interval: 2s
