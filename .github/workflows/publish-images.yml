@@ -1,0 +1,135 @@
+# Publish kernel + web container images to GHCR on a version tag.
+#
+# Self-hosters shouldn't have to build from source. On every `v*` tag push
+# this builds the two runtime images and pushes them to the GitHub Container
+# Registry (ghcr.io), tagged with the full version, the major.minor and major
+# series, and `latest`:
+#
+#   ghcr.io/ownevoai/ownevo-kernel:{1.2.3, 1.2, 1, latest}
+#   ghcr.io/ownevoai/ownevo-web:{1.2.3, 1.2, 1, latest}
+#
+# No registry credentials to configure: the job authenticates with the
+# built-in GITHUB_TOKEN (scoped by `permissions: packages: write` below), so
+# there is no secret to add. The packages are owned by the repo's org; flip
+# each to public once in the package settings so anonymous `docker pull` works
+# (a one-time UI toggle, not a per-run step).
+#
+# Pull-and-run instructions live in docs/DEPLOYMENT.md § "Run from published
+# images (GHCR)"; the BSL self-host grant is stated in README § License.
+#
+# Images are linux/amd64. On Apple Silicon / arm64 hosts they run under
+# Docker's built-in emulation; a native arm64 build is intentionally deferred
+# because an emulated build of the kernel's ML stack (torch, sentence-
+# transformers, UMAP/HDBSCAN) under QEMU is prohibitively slow in CI.
+
+name: publish-images
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    # Manual run (e.g. to re-push after a registry hiccup). A dispatch off a
+    # branch publishes branch/sha-tagged images, not `latest` — only a semver
+    # tag moves `latest`.
+
+concurrency:
+  # Never cancel an in-flight publish; serialize per ref instead.
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Lightweight gate: lint + web build. Catches the most common broken-image
+  # scenarios (ruff errors, Next.js build failures) before any image is pushed.
+  # Full DB-gated tests run on PRs and main pushes via ci.yml; this job covers
+  # the tag-push path where ci.yml doesn't trigger.
+  pre-flight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
+
+      - name: Lint (ruff)
+        run: uv run ruff check apps/kernel/ packages/trace-format/
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: apps/web
+
+      - name: Build web (production)
+        run: npm run build
+        working-directory: apps/web
+
+  publish:
+    needs: [pre-flight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # The kernel Dockerfile copies uv.lock + packages/trace-format +
+          # apps/kernel from the repo root, so its build context is `.`.
+          - name: kernel
+            image: ghcr.io/ownevoai/ownevo-kernel
+            context: .
+            dockerfile: apps/kernel/Dockerfile
+          # The web Dockerfile is self-contained under apps/web (COPY . .),
+          # so its context is that directory.
+          - name: web
+            image: ghcr.io/ownevoai/ownevo-web
+            context: apps/web
+            dockerfile: apps/web/Dockerfile
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          # `latest=auto` (the default) moves the `latest` tag to the highest
+          # semver on a tag push, and leaves it alone on branch dispatch.
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
