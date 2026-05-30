@@ -101,7 +101,7 @@ authoritative places to update once design settles:
   pre-registration check on whether the four NL-gen artifacts are
   mutually consistent — fires before any iteration runs. Documented in
   `ARCHITECTURE.md` §3.
-- The **0.85 LLM-judge approver gate** mentioned in older specs (`W5.2`)
+- The **0.85 LLM-judge approver gate**
   is a separate proposal-approval surface, not a regression gate. It
   would compose with — not replace — the multi-metric gate.
 - The **append-only audit chain** doesn't need re-design; only the

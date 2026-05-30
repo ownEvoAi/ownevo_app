@@ -15,8 +15,8 @@ accidental re-runs under normal operation.
 
 Some files must run **outside** a transaction (the runner detects a marker and
 switches to autocommit): `ALTER TYPE ... ADD VALUE` files (0007, 0015, 0023,
-0026, 0028-audit) and the online-DDL files carrying `ownevo:no-txn`
-(0018b, 0024, 0027 — `VALIDATE CONSTRAINT` / `CREATE INDEX CONCURRENTLY`).
+0026, 0028-audit, 0037, 0043) and the online-DDL files carrying `ownevo:no-txn`
+(0018b, 0024, 0027, 0039 — `VALIDATE CONSTRAINT` / `CREATE INDEX CONCURRENTLY`).
 
 See [`SCHEMA.md`](SCHEMA.md) for the resulting table layout. This doc
 explains **why** each migration exists, in dependency order.
@@ -65,6 +65,15 @@ explains **why** each migration exists, in dependency order.
 | 0033 | `0033_workspace_substrate.sql` | `workspaces` table + `workspace_id` on all 17 scoped tables (non-enforcing) | 0001 |
 | 0034 | `0034_workspace_rls_enforcement.sql` | FORCE RLS + isolation policies + GUC default; PK/index/soft-delete fixes | 0033 |
 | 0035 | `0035_auth_users.sql` | `users` + `user_identities` + `workspace_members` (global, non-RLS) + seeded dev user | 0033 |
+| 0036 | `0036_workspace_invites.sql` | `workspace_invites` (HMAC-signed link invites, outside RLS) | 0035 |
+| 0037 | `0037_audit_iteration_reaped.sql` | `audit_kind` value `iteration-reaped` for the startup reaper (ADD VALUE) | 0001 |
+| 0038 | `0038_receiver_tokens_global.sql` | Moves `receiver_tokens` out of the workspace-RLS set (auth-gateway table) | 0034 |
+| 0039 | `0039_trace_keyset_indexes.sql` | Composite `(started_at DESC, id DESC)` indexes for trace-list keyset pagination (CONCURRENTLY) | 0001 |
+| 0040 | `0040_jobs_queue.sql` | `jobs` durable background-job queue (`job_kind` enum, `FOR UPDATE SKIP LOCKED` claim) | 0033 |
+| 0041 | `0041_jobs_workspace_indexes.sql` | Add `workspace_id` lead column to the jobs claim + heartbeat partial indexes | 0040 |
+| 0042 | `0042_jobs_list_indexes.sql` | Indexes for `GET /api/jobs` (status-count + `created_at` list) | 0040 |
+| 0043 | `0043_jobs_run_clustering_kind.sql` | `job_kind` value `run_clustering` (ADD VALUE) | 0040 |
+| 0044 | `0044_rename_primitives_to_views.sql` | Rename render concept: `proposal_kind` `ui-primitive`→`ui-view`, rewrite `workflows.spec` / `proposals` JSONB `primitives`→`views`, bump `schema_version` to 1.5 | 0017, 0033 |
 
 ---
 
@@ -143,7 +152,7 @@ Backfill: pre-existing benchmark workflows (`m5-*`, `tau-*`, `tau2-*`, `tau3-*`,
 
 Adds the `iteration_case_outputs` table. One row per `(iteration, eval_case)` carrying the agent's full structured output (`output_json jsonb`) plus the `passed: bool` the gate already used.
 
-**Why:** the gate scores on a single pass/fail bool stored in trace events; that's enough for the lift chart but not enough for the operator-shell mocks (TableView / AlertList primitives). Those primitives need richer per-case fields — recommended action, confidence, rationale, alerts.
+**Why:** the gate scores on a single pass/fail bool stored in trace events; that's enough for the lift chart but not enough for the operator-shell mocks (TableView / AlertList views). Those views need richer per-case fields — recommended action, confidence, rationale, alerts.
 
 `ON DELETE CASCADE` for both parents so deleting a workflow / iteration / eval case cleans up automatically. `UNIQUE (iteration_id, eval_case_id)` enforces one-row-per-pair.
 
@@ -196,7 +205,7 @@ Persists the design-agent discovery interview (metric / ambiguity / trigger / su
 
 ## 0013 — domain-shaped case output payload
 
-Adds `iteration_case_outputs.output_payload` (jsonb, nullable). Where `output_json` carries the gate's pass/fail frame, `output_payload` carries the agent's domain-native artifact (forecast curve, redline pair, recommended-action table) that the Operate-tab resolver dispatches to the workflow-declared render primitives. Freeform JSONB by design — no DB-side schema, so primitive renderers can iterate.
+Adds `iteration_case_outputs.output_payload` (jsonb, nullable). Where `output_json` carries the gate's pass/fail frame, `output_payload` carries the agent's domain-native artifact (forecast curve, redline pair, recommended-action table) that the Operate-tab resolver dispatches to the workflow-declared render views. Freeform JSONB by design — no DB-side schema, so view renderers can iterate.
 
 ## 0014 — per-workflow agent model
 
@@ -212,7 +221,7 @@ Token-quota accounting and budget gating for the public design-agent + NL-gen de
 
 ## 0017 — non-skill proposal kinds
 
-Adds a `proposal_kind` enum (`skill` / `description` / `metric` / `sim` / `ui-primitive`) and `proposals.proposed_payload jsonb` so workflow description, success metric, simulation plan, and operate-view primitives become first-class edit targets flowing through the same proposal → review → gate → approve loop. A CHECK pins the shape; existing rows default to `skill`.
+Adds a `proposal_kind` enum (`skill` / `description` / `metric` / `sim` / `ui-primitive` — the last renamed to `ui-view` in 0044) and `proposals.proposed_payload jsonb` so workflow description, success metric, simulation plan, and operate-view edits become first-class edit targets flowing through the same proposal → review → gate → approve loop. A CHECK pins the shape; existing rows default to `skill`.
 
 ## 0018 / 0018b — trace ingest source
 
@@ -288,6 +297,42 @@ Multi-tenant substrate, **step 2 of 2 (enforcement)**. For each of the 17 scoped
 ## 0035 — authentication substrate
 
 Adds the auth layer that resolves a request to a workspace (full design in [`AUTH.md`](AUTH.md)). Three **global, non-RLS** tables: `users` (one row per human, internal id, never the provider's subject), `user_identities` (`(provider, provider_sub)` PK — a user may link multiple sign-in providers), and `workspace_members` (`(workspace_id, user_id)` PK + `role` of `owner`/`admin`/`member`). These are deliberately outside row-level security: a person spans workspaces, and `workspace_members` is read by the per-request resolver *before* any workspace is bound, so scoping it by the GUC it helps establish would be circular — authorization is enforced in the resolver, not by RLS. The migration also seeds a `dev-user` who owns the `'default'` workspace so `make api` and the test suite work under the dev-auth fallback (`OWNEVO_DEV_AUTH=true`); the seed is inert in production, where the fallback is refused. Schema only — the kernel resolver and web sign-in flow land separately.
+
+## 0036 — workspace invite tokens
+
+Link-based workspace invites signed by `OWNEVO_INTERNAL_AUTH_KEY`. An owner/admin mints an invite for an `(email, role)`; the invitee redeems the token after signing in, which inserts their `workspace_members` row. Email delivery is out of scope — the invite URL is returned to the admin, who sends it via their own channel. The token carries only `{kind: "inv", invite_id, exp}` (HMAC-signed), so lookup-by-id keeps revocation and "pending invite" listings cheap while the token stays short. Like the other auth-gateway tables (`workspaces`, `users`, `user_identities`, `workspace_members`), `workspace_invites` sits **outside** row-level security — it is read before any workspace is bound.
+
+## 0037 — audit kind: iteration reaped (ADD VALUE)
+
+A kernel restart mid-iteration leaves the iteration row stuck in `running` forever — the in-flight task that would have written the final UPDATE is gone — and the workflow's one-iteration-at-a-time guard then refuses every later run on that workflow. The startup reaper (`jobs/orphan_reaper.py`) scans the iterations table once per boot, closes any row still `running` as `sandbox-error`, and writes an `audit_entries` row of this new kind so the action is visible in the audit log and carried in the hash chain.
+
+## 0038 — receiver_tokens leaves the workspace-RLS set
+
+`receiver_tokens` is an auth-gateway table: the OTLP ingest route receives a bearer token and looks it up to decide which workspace the request operates in — by definition *before* any workspace is bound, so there is no `app.workspace_id` GUC yet (the token is what tells the route which workspace to bind). While the table sat in the workspace-RLS set (migration 0034), an unbound lookup returned zero rows, so no receiver token could authenticate in a non-dev environment. This migration takes `receiver_tokens` out of the RLS set, alongside the other auth-gateway tables that already sit outside RLS.
+
+## 0039 — trace-list keyset indexes (CONCURRENTLY)
+
+Composite `(started_at DESC, id DESC)` indexes backing keyset pagination on the two trace-list endpoints. Both order by `(started_at DESC, id DESC)` and, on cursor walks, filter with the row-value predicate `(started_at, id) < ($ts, $id)` — a comparison Postgres cannot resolve from single-column indexes. Carries the `ownevo:no-txn` marker because `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block.
+
+## 0040 — durable background-job queue
+
+Some background work is requested by a trigger rather than a connected HTTP client: when a cron/threshold/Slack/email trigger fires the `run_iteration` action, the kernel must run one improvement-loop iteration with no request to block on, and spawning that as an in-process task loses the work on any kernel restart. The `jobs` table is the durable record (`job_kind` enum): a row is inserted before the work is dispatched (persist-before-dispatch), a worker claims it with `FOR UPDATE SKIP LOCKED`, heartbeats while running, and either completes it or retries with backoff. A worker that dies mid-job leaves the row `running` with a stale heartbeat, which the next worker poll re-queues.
+
+## 0041 — workspace_id on the jobs claim/heartbeat indexes
+
+The claim (`jobs_claim_idx`) and stale-heartbeat (`jobs_heartbeat_idx`) partial indexes added in 0040 omitted `workspace_id`, so under RLS every scan visited all queued/running rows across all workspaces before narrowing to the active one. Making `workspace_id` the leading column lets the planner seek straight to the active workspace, keeping claim and stale-scan `O(queued_per_workspace)` rather than `O(queued_total)` as tenant count grows. `jobs_active_per_workflow_idx` already carried `workspace_id` and is unchanged. The jobs table is new and has no production traffic, so a transactional DROP + CREATE is safe — no `CONCURRENTLY` needed.
+
+## 0042 — jobs list-endpoint indexes
+
+`GET /api/jobs` runs a status `GROUP BY count` query and an `ORDER BY created_at DESC LIMIT` list query against the workspace-scoped jobs table, both under RLS but with no covering index — and with no pruning policy, succeeded/failed rows accumulate monotonically, so both degrade as the table grows. `jobs_status_idx` covers the count (and status-filtered lists); `jobs_list_idx` covers the `created_at` list.
+
+## 0043 — job kind: run_clustering (ADD VALUE)
+
+Adds a `run_clustering` value to the `job_kind` enum so production-failure clustering runs as a durable queue job, the same way `run_iteration` already does. Before this, clustering ran inline — in the trigger dispatcher and the in-process debounced auto-trigger — so a kernel restart mid-run dropped the work with no retry and no visibility in the `jobs` table or the `ownevo_jobs` metric. Routing it through the queue gives clustering the same durability, retry/backoff, and observability.
+
+## 0044 — rename render "primitive" → "view"
+
+The workflow render-layer concept was named inconsistently — the operator-facing UI said "view" while the code, routes, and spec said "primitive". The codebase has been unified on "view"; this migration brings the **stored** data in line so nothing breaks on read. It is mandatory, not cosmetic: the kernel re-parses stored `workflows.spec` JSONB through `WorkflowSpec.model_validate` (iteration runner, eval-runner try-runner, the workflow-detail route), and the spec models are `extra="forbid"`, so once `UITab.primitives` became `UITab.views` any spec still keyed `primitives` would fail validation. The migration renames the `proposal_kind` enum value `ui-primitive` → `ui-view` (`ALTER TYPE ... RENAME VALUE`, transaction-safe), rewrites each `ui.tabs[]` object key `primitives` → `views` in `workflows.spec` and bumps its `schema_version` to `"1.5"`, and rewrites the top-level `primitives` → `views` key in `proposals.proposed_payload` for `ui-view` rows. `audit_entries` rows that recorded the old terminology are intentionally left untouched (append-only, immutable by design).
 
 ---
 

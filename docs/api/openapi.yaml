@@ -65,7 +65,7 @@ paths:
                 $ref: '#/components/schemas/Workflow'
     get:
       tags: [workflows]
-      summary: List workflows with summary metrics (W7 slice 2 — Health page)
+      summary: List workflows with summary metrics (Health page)
       responses:
         '200':
           description: ok
@@ -77,7 +77,7 @@ paths:
   /api/workflows/{id}:
     get:
       tags: [workflows]
-      summary: Workflow detail with full NL-gen spec (W7 slice 11 / 7.1.12)
+      summary: Workflow detail with full NL-gen spec
       description: |
         Drives the Agent-anatomy pane on the workflow Overview page.
         Returns the raw NL-gen `spec` JSONB (frozen schema at
@@ -102,7 +102,7 @@ paths:
   /api/workflows/{id}/iterations:
     get:
       tags: [workflows]
-      summary: Chronological iterations for the LiftChart (W7 slice 2)
+      summary: Chronological iterations for the LiftChart
       description: |
         Returns one point per non-running iteration, sorted by iteration_index
         ASC. The web UI plots `iteration_index × val_score` and overlays
@@ -125,7 +125,7 @@ paths:
   /api/workflows/{id}/failure_clusters:
     get:
       tags: [workflows]
-      summary: Failure clusters for a workflow (W7 slice 3 — Failures view)
+      summary: Failure clusters for a workflow (Failures view)
       description: |
         Sorted by severity (high → low) then `cluster_size DESC`. The
         `centroid` column is intentionally excluded from the response —
@@ -148,7 +148,7 @@ paths:
   /api/workflows/{id}/iterations/{iteration_index}:
     get:
       tags: [workflows]
-      summary: Iteration detail with per-case outcome roster (W8 drill-down)
+      summary: Iteration detail with per-case outcome roster (iteration drill-down)
       parameters:
         - name: id
           in: path
@@ -514,7 +514,7 @@ paths:
   /api/audit:
     get:
       tags: [audit]
-      summary: Audit trail (W7 slice 4 — workspace-scoped, newest first)
+      summary: Audit trail (workspace-scoped, newest first)
       description: |
         Returns up to `limit` audit entries ordered by `seq DESC`. The
         `total` field reports the unfiltered DB count so the UI can
@@ -575,7 +575,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SkillListResponse'
 
-  # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail + per-workflow list
+  # Skill detail + per-workflow list DTOs
   /api/workflows/{workflow_id}/skills:
     get:
       tags: [skills]
@@ -916,7 +916,7 @@ components:
         description: { type: string }
         spec:
           type: object
-          description: Frozen-schema NL-gen output (W3 freeze). See packages/trace-format/ for shape.
+          description: Frozen-schema NL-gen output. See packages/trace-format/ for shape.
         metric_id: { type: string }
         sim_skill_id: { type: string }
         meta_eval_score:
@@ -933,7 +933,7 @@ components:
       properties:
         description: { type: string, minLength: 10 }
 
-    # W7 slice 2 — Health page row + LiftChart point
+    # Health page row + LiftChart point
     WorkflowSummary:
       type: object
       required:
@@ -986,7 +986,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/IterationPoint' }
 
-    # W7 slice 3 — Failure cluster card (centroid omitted)
+    # Failure cluster card (centroid omitted)
     FailureClusterSummary:
       type: object
       required:
@@ -1011,7 +1011,7 @@ components:
           type: array
           items: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
-        # W7 slice 7 (7.1.4) — most recent proposal_id whose iteration
+        # Most recent proposal_id whose iteration
         # was triggered by this cluster. Drives the Failures-card
         # click-through; null when no proposal has spawned yet.
         latest_proposal_id:
@@ -1028,7 +1028,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/FailureClusterSummary' }
 
-    # W7 slice 4 — Audit trail row + verify response
+    # Audit trail row + verify response
     AuditEntryRow:
       type: object
       required: [id, seq, kind, actor, payload, created_at]
@@ -1103,8 +1103,8 @@ components:
         parent_version_id: { type: string, format: uuid }
         plain_language_summary: { type: string }
         state: { $ref: '#/components/schemas/ProposalState' }
-        eval_score: { type: number, format: float, minimum: 0, maximum: 1, nullable: true, description: "LLM-judge score (W2)" }
-        eval_rationale: { type: string, nullable: true, description: "LLM-judge plain-language reason (W2)" }
+        eval_score: { type: number, format: float, minimum: 0, maximum: 1, nullable: true, description: "LLM-judge score" }
+        eval_rationale: { type: string, nullable: true, description: "LLM-judge plain-language reason" }
         created_at: { type: string, format: date-time }
 
     ProposalDetail:
@@ -1241,7 +1241,7 @@ components:
         ended_at: { type: string, format: date-time }
         token_usage: { type: object }
 
-    # W7 slice 8 (7.1.9) — trace inspection DTOs
+    # Trace inspection DTOs
     TraceSummary:
       type: object
       required:
@@ -1275,7 +1275,7 @@ components:
           nullable: true
           description: Opaque keyset cursor for the next (older) page; null on the last page
 
-    # W7 slice 11 (7.1.12) — workflow anatomy DTO
+    # Workflow anatomy DTO
     WorkflowAnatomyResponse:
       type: object
       required: [id, description, mode, spec]
@@ -1288,10 +1288,10 @@ components:
           type: object
           description: |
             Raw NL-gen spec JSONB. Conforms to
-            packages/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec
-            v1.1 — keys: domain, environment, tools, reviewer,
-            success_criterion, ui (ui.tabs[].primitives now includes
-            ScheduleGrid in addition to the original 8 types).
+            apps/kernel/src/ownevo_kernel/nl_gen/spec.py:WorkflowSpec
+            v1.5 — keys: domain, environment, tools, reviewer,
+            success_criterion, ui (ui.tabs[].views names the render views
+            from the 9-member UIView set).
         simulation_plan:
           type: object
           nullable: true
@@ -1301,7 +1301,7 @@ components:
           nullable: true
           description: Persisted MetricDefinition JSONB (0005 migration). Null when NL-gen hasn't run.
 
-    # W7 slices 9 + 10 (7.1.10 + 7.1.11) — skill detail DTOs
+    # Skill detail DTOs
     SkillSummaryResponse:
       type: object
       required: [id, kind, capability_tags]
@@ -1406,7 +1406,7 @@ components:
           items:
             type: object
 
-    # ---------- W8 iteration detail + eval-case + case-output DTOs ----------
+    # ---------- Iteration detail + eval-case + case-output DTOs ----------
     IterationCaseRow:
       type: object
       required: [case_id, trace_id, started_at]

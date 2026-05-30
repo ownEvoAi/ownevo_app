@@ -159,7 +159,7 @@ Gate does NOT advance `best_ever` on a sandbox error. It DOES log to `learnings.
 
 **Don't add a fourth verification step.** Published ablations show a separate LLM verifier module costs roughly −0.8% resolved rate at the benchmark level. The 3-step gate is the right size. Adding "did the agent explain its reasoning correctly?" or "is the diff semantically coherent?" passes overhead to every iteration without measurable improvement.
 
-### Gate self-test (W2.2a)
+### Gate self-test
 
 The gate runs a self-test on a synthetic skill before every gate cycle on a fresh workflow. The synthetic skill has a known-good diff and a known-bad diff; the gate must accept the good and reject the bad. If the self-test fails, the cycle aborts with a `sandbox-error` audit entry and no eval-case run is launched.
 

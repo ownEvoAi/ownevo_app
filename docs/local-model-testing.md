@@ -67,7 +67,7 @@ caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
 
 **Three buckets of surfaces** — pick differently depending on which you're configuring:
 
-1. **Calibration anchors** (`cluster_judge`, `approver`, `meta_eval`). These fire 1-2× per iteration so cost is bounded. **Keep on the default Opus 4.7** unless you have a specific cost ceiling. Downgrading risks moving the calibration baseline — the W3 ≥0.7 agreement gate and the W5.2 ≥0.85 approval gate were measured against Opus.
+1. **Calibration anchors** (`cluster_judge`, `approver`, `meta_eval`). These fire 1-2× per iteration so cost is bounded. **Keep on the default Opus 4.7** unless you have a specific cost ceiling. Downgrading risks moving the calibration baseline — the ≥0.7 agreement gate and the ≥0.85 approval gate were measured against Opus.
 2. **High-volume per-case calls** (`agent_solver` — fires 25-50× per iteration on a typical suite). Haiku is the cheap default and works for single-tool classifiers; **upgrade to Sonnet 4.6 for multi-tool workflows** (3+ tools, multi-step reasoning) — the empirical lift is real (50% → 100% on the live test) and the cost delta is ~$0.15-0.25/iteration.
 3. **Quality-driven generators** (`nl_gen` 4 calls, `instruction_proposer`, `loop_driver`). Default Opus for safety. Drop to Sonnet on `nl_gen` if cost matters and the workflows are typical (cost saving ~$0.25/workflow). Loop driver stays on Opus per the claude-api skill ("the spine should stay on Opus 4.7").
 
@@ -84,7 +84,7 @@ caller model=  →  OWNEVO_<SURFACE>_MODEL  →  hardcoded DEFAULT_MODEL
 - **Haiku on `nl_gen`.** Generates structurally valid output but trips downstream guards. Live-test 2026-05-18 hit the sim-render AST safety pass with `import math` inside `step_code` body — the system prompt explicitly forbids it, Haiku ignored, the renderer correctly rejected. The retry-on-`ValidationError` loop doesn't catch this because pydantic validation passes first; renderer errors fire after. Use Sonnet or Opus.
 - **`qwen3.5/3.6-*` family without the froggeric v13 chat template (local).** LMS's bundled template returns `"No user query found in messages"` on the retail evaluator's first message. The v13 template is API-agnostic; same fix applies to `/v1/messages` and `/v1/chat/completions`.
 - **Local models on strict-schema NL-gen.** `qwen/qwen3.6-35b-a3b` produces *structurally* valid tool inputs but consistently violates finer schema constraints (extra `entities[].provenance`, wrong type literals). The retry+normalize loop closes most of the gap (15 → 2 errors across 5 attempts in the 2026-05-18 live test), but two real schema violations remain — model-quality wall, not infrastructure. Use cloud Anthropic for the `nl_gen` surfaces when correctness matters; route local to the loop driver / agent solver where the improvement loop tolerates noisier baselines.
-- **Calibration anchors on cheaper models** without re-running the gate. The W3 Track B ≥0.7 agreement gate and W5.2 ≥0.85 approver gate were measured against Opus. If you drop `cluster_judge` or `approver` to Sonnet, re-run the gate eval (`make cluster-label-eval` / `make approver-eval`) to confirm the new model still clears.
+- **Calibration anchors on cheaper models** without re-running the gate. The ≥0.7 agreement gate and ≥0.85 approver gate were measured against Opus. If you drop `cluster_judge` or `approver` to Sonnet, re-run the gate eval (`make cluster-label-eval` / `make approver-eval`) to confirm the new model still clears.
 
 **Cost reference per iteration on a 25-case eval suite (rough):**
 
@@ -111,7 +111,7 @@ Verified empirically on a 6-tool retail-demand workflow (2026-05-18 live test):
 
 ### Local-model picks (current best)
 
-Authoritative source: [`../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md`](../../ownevo_docs/mvp-execution/TAU3_LOCAL_TESTPLAN.md) (private docs repo). Summary:
+Summarized from the local-model dogfooding runs (τ³ retail + NL-gen sweeps):
 
 - **Improvement-loop proposer (all-local headline):** `qwen/qwen3.6-35b-a3b` on LMS, Anthropic `/v1/messages`, froggeric v13 chat template, ctx=65536, LMS JIT off. τ³ retail val_score = **0.825**.
 - **NL-gen + meta-eval + clustering judge (Anthropic-only surfaces):** untested locally as of 2026-05; default Opus 4.7 is the safe pick. If you must run local, try the loop pick first — same protocol, same template requirements.

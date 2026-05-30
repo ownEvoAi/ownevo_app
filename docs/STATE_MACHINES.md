@@ -123,7 +123,7 @@ The workflow's `mode` column (see [`MIGRATIONS.md`](MIGRATIONS.md) #0007) gates 
 | `gated` | `human` (default UI path) or `llm-judge` (when wired up) |
 | `autonomous` | `autonomous` only — no human approval row written |
 
-A `gated` workflow can be configured to delegate first-pass approval to the LLM-judge (W5.2 work), with humans only reviewing rejections or specific kinds. That delegation is per-workflow configuration, not a separate state.
+A `gated` workflow can be configured to delegate first-pass approval to the LLM-judge, with humans only reviewing rejections or specific kinds. That delegation is per-workflow configuration, not a separate state.
 
 The audit log always records the `approver_type` in the `proposal-approved` payload, so post-hoc you can answer "which proposals were auto-approved vs human-approved" with a single query on `audit_entries`.
 

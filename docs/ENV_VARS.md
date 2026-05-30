@@ -30,7 +30,22 @@ images, or the dev/benchmarking scripts. Grouped by what they configure.
 | `OWNEVO_SENTRY_TRACES_SAMPLE_RATE` | optional | `0.0` | `api/_sentry.py` | Performance-trace sample rate in `[0.0, 1.0]`. Default `0.0` means error events only — a noisy deployment cannot silently burn the Sentry quota. Malformed values fail the boot rather than silently disabling traces. |
 | `OWNEVO_SENTRY_RELEASE` | optional | (Sentry auto-detect) | `api/_sentry.py` | Release tag passed to `sentry_sdk.init(release=...)`. Leave unset to let Sentry auto-detect from VCS; set to a build SHA when wiring deploy-time release identification. |
 
-## 3. Local LLM backends (dev / dogfooding)
+## 3. Authentication, multi-tenant & background workers
+
+The per-request auth + tenancy substrate (migration 0035, full design in
+[`AUTH.md`](AUTH.md)) and the in-process background workers.
+
+| Name | Required? | Default | Read by | Notes |
+|---|---|---|---|---|
+| `OWNEVO_INTERNAL_AUTH_KEY` | **yes** in production | (none) | `api/_internal_auth.py`, `api/_workspace_invites.py` | HMAC secret shared only between the web app and the kernel. Required to verify any `Authorization: Bearer` identity assertion and to sign/verify workspace-invite tokens. Absent in pure dev-auth local runs; a production boot without it is refused. |
+| `OWNEVO_DEV_AUTH` | optional | unset (= off) | `api/_internal_auth.py`, `api/deps.py` | When **exactly** `"true"`, an assertion-less request resolves to the seeded `dev-user` + `default` workspace (migration 0035). Anything else (unset, `"false"`, `"0"`) disables the fallback. Refused at boot when `OWNEVO_ENV=production`. |
+| `OWNEVO_ENV` | optional | unset | `api/_internal_auth.py`, `api/app.py` | Deployment-environment marker. Set to `production` only by real deploys; boot-time guards then refuse dev-only settings (`OWNEVO_DEV_AUTH=true`) and assert the required production secret (`OWNEVO_INTERNAL_AUTH_KEY`) is present. |
+| `OWNEVO_OTLP_AUTH_OPTIONAL` | optional | unset (= auth required) | `middleware/otel_receiver/auth.py`, `api/routes/otel_ingest.py` | When `"true"`, a **missing** `Authorization` header on the OTLP ingest route is allowed through as workflow-agnostic ingest (caller must pass `?workflow_id=`). A present-but-invalid token still fails. For tests / local dev — production keeps auth required. |
+| `OWNEVO_JOB_WORKER` | optional | follows `OWNEVO_TRIGGER_SCHEDULER` | `api/app.py` | Background worker that drains the durable job queue (`run_iteration` + `run_clustering` jobs). `"true"`/`"false"` overrides the default, which tracks the trigger scheduler. |
+| `OWNEVO_TRIGGER_SCHEDULER` | optional | unset (= off) | `api/app.py` | Enables the in-process trigger scheduler (cron / threshold trigger evaluation). `1`/`true`/`yes` to enable. |
+| `OWNEVO_SANDBOX_MAX_CONCURRENT` | optional | `4` | `sandbox/local_docker.py` | Caps concurrent `docker run` invocations across all `LocalDockerSandbox` instances in the process. Positive integer; unset/empty → `4`. Non-integer or non-positive fails fast at boot (validated in `app.py`). Sized for a single 4-vCPU / 8 GB host. |
+
+## 4. Local LLM backends (dev / dogfooding)
 
 All read by the dev scripts in `apps/kernel/scripts/`, none by the kernel
 HTTP API itself. See [`local-model-testing.md`](local-model-testing.md)
@@ -50,7 +65,7 @@ for which backend takes which combination.
 | `ANTHROPIC_API_BASE` / `ANTHROPIC_BASE` | (unset) | tau3 scripts | Anthropic-compat base URL when proxying. |
 | `ANTHROPIC_AUTH_TOKEN` | (unset) | tau3 scripts | Auth header when proxying Anthropic. |
 
-## 4. Improvement loop / agent solver
+## 5. Improvement loop / agent solver
 
 | Name | Default | Used by | What it does |
 |---|---|---|---|
@@ -60,7 +75,7 @@ for which backend takes which combination.
 | `OWNEVO_NL_GEN_LIVE_MODEL` | `claude-haiku-4-5-20251001` | NL-gen live tests (`test_nl_gen_*.py`) | Model id used by the live-API snapshot tests. |
 | `OWNEVO_ANTHROPIC_LIVE` | unset (= off) | NL-gen live tests | Set to `1` to opt the live-API snapshot tests into actually hitting Anthropic. |
 
-## 5. Per-surface model overrides
+## 6. Per-surface model overrides
 
 Each LLM-calling kernel surface has a hardcoded `DEFAULT_MODEL` (matched to its quality/cost profile) and an `OWNEVO_*_MODEL` env var that overrides it. Caller-passed `model=` arguments still win over both. Pair these with `ANTHROPIC_BASE_URL` (§1) to send the calls to a local backend.
 
@@ -72,14 +87,14 @@ The four NL-gen generators (`workflow_spec`, `sim`, `metric`, `eval`) also accep
 |---|---|---|---|
 | `OWNEVO_NL_GEN_MODEL` | `claude-opus-4-7` | `nl_gen/{workflow_spec,sim,metric,eval}_generator.py` | Covers all four forced-tool generators in the NL-gen pipeline. Read at module import; also read fresh at request time by `api/routes/nl_gen.py` for backward compat. |
 | `OWNEVO_INSTRUCTION_PROPOSER_MODEL` | `claude-sonnet-4-6` | `nl_gen/instruction_proposer.py` | The evolution loop's instruction-edit proposer. Prompt-cache hit rate matters more than peak quality here. |
-| `OWNEVO_META_EVAL_MODEL` | `claude-opus-4-7` | `nl_gen/meta_eval/judge.py` | NL-gen quality judge — calibration anchor for the W5 ≥0.7 agreement gate. Use the strongest model available. |
+| `OWNEVO_META_EVAL_MODEL` | `claude-opus-4-7` | `nl_gen/meta_eval/judge.py` | NL-gen quality judge — calibration anchor for the ≥0.7 meta-eval agreement gate. Use the strongest model available. |
 | `OWNEVO_AGENT_SOLVER_MODEL` | `claude-haiku-4-5-20251001` | `eval_runner/agent_solver.py` | Per-case classifier. Haiku is the cheap default — fine for single-tool classifiers. **For multi-tool workflows (3+ tools, multi-step reasoning) override to `claude-sonnet-4-6`** — Haiku produces scattered, low-signal failures that don't cluster (proposer returns `gate-blocked-no-improvement`); Sonnet gives structured failures the loop can grip on. Empirically: 50% → 100% val_score on a 6-tool retail workflow with only ~$0.15-0.25/iteration delta. Caller can also pass an `openai_client` to switch protocol. |
 | `OWNEVO_CLUSTER_LABEL_MODEL` | `claude-sonnet-4-6` | `clustering/default_impl.py` | The cluster-labeller. Cluster labels are short factual strings. |
 | `OWNEVO_CLUSTER_JUDGE_MODEL` | `claude-opus-4-7` | `clustering/label_eval/judge.py` | The label-judge for the labeller. Must be a different model than the labeller (D4). |
-| `OWNEVO_APPROVER_MODEL` | `claude-opus-4-7` | `approvers/llm_judge/judge.py` | LLM-as-judge approver — the W5.2 ≥0.85 calibration anchor. |
+| `OWNEVO_APPROVER_MODEL` | `claude-opus-4-7` | `approvers/llm_judge/judge.py` | LLM-as-judge approver — the ≥0.85 approval calibration anchor. |
 | `OWNEVO_LOOP_MODEL` | `claude-opus-4-7` | `middleware/claude_sdk/runner.py` | Default model for the kernel improvement loop's manual agentic loop. The τ³-tested local pick is `qwen/qwen3.6-35b-a3b` via LMS Anthropic-compat. |
 
-## 6. τ³-bench / sandbox image
+## 7. τ³-bench / sandbox image
 
 | Name | Default | Used by | What it does |
 |---|---|---|---|
@@ -87,7 +102,7 @@ The four NL-gen generators (`workflow_spec`, `sim`, `metric`, `eval`) also accep
 | `USER_MODEL` | `=AGENT_MODEL` | `benchmark/tau3/runner.py` line 141 | Model id the simulated user uses; defaults to whatever `AGENT_MODEL` is. |
 | `TAU2_DATA_DIR` | `/tau2_data` (in image) | `benchmark/tau3/runner.py`, `sandbox/Dockerfile.tau3` | tau2 reads this at module import; the Docker image bakes it as `ENV TAU2_DATA_DIR=/tau2_data`. |
 
-## 7. Web app (Next.js)
+## 8. Web app (Next.js)
 
 | Name | Default | Notes |
 |---|---|---|

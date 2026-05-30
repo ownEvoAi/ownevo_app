@@ -251,7 +251,7 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0005_workflow_sim_metric.sql` | `sim_plan` + `metric` columns on `workflows` |
 | `0006_workflow_kind.sql` | `kind` enum on `workflows` |
 | `0007_workflow_mode_eval_modes.sql` | `mode` enum + `eval_modes` on `workflows` |
-| `0008_iteration_case_outputs.sql` | `iteration_case_outputs` table for operator shell primitives |
+| `0008_iteration_case_outputs.sql` | `iteration_case_outputs` table for operator-shell views |
 | `0009_audit_hash_chain.sql` | `parent_hash` + `entry_hash` on `audit_entries` (SHA-256 chain) |
 | `0010_grants_and_constraints.sql` | `workflows.id <> '_unscoped'` constraint; REVOKE template for role-level WORM (edit before running) |
 | `0011_workflow_template_id.sql` | `workflows.created_from_template` (vertical-template provenance) |
@@ -282,6 +282,15 @@ Migrations live in `apps/kernel/migrations/` and are applied in filename order (
 | `0033_workspace_substrate.sql` | `workspaces` table + `workspace_id` on all 17 scoped tables (non-enforcing) |
 | `0034_workspace_rls_enforcement.sql` | FORCE RLS + isolation policies + GUC default; PK/index/soft-delete fixes |
 | `0035_auth_users.sql` | `users` + `user_identities` + `workspace_members` (global, non-RLS) + seeded dev user |
+| `0036_workspace_invites.sql` | `workspace_invites` (HMAC-signed link invites, outside RLS) |
+| `0037_audit_iteration_reaped.sql` | `audit_kind` `iteration-reaped` for the startup reaper (ADD VALUE) |
+| `0038_receiver_tokens_global.sql` | Moves `receiver_tokens` out of the workspace-RLS set (auth-gateway table) |
+| `0039_trace_keyset_indexes.sql` | Trace-list keyset pagination indexes (CONCURRENTLY, no-txn) |
+| `0040_jobs_queue.sql` | `jobs` durable background-job queue + `job_kind` enum |
+| `0041_jobs_workspace_indexes.sql` | `workspace_id` lead column on jobs claim + heartbeat indexes |
+| `0042_jobs_list_indexes.sql` | Indexes for the `GET /api/jobs` list + status-count queries |
+| `0043_jobs_run_clustering_kind.sql` | `job_kind` `run_clustering` (ADD VALUE) |
+| `0044_rename_primitives_to_views.sql` | Rename render `primitive`→`view`: `ui-view` enum, `workflows.spec`/`proposals` JSONB rewrite, schema_version 1.5 |
 
 **Local:** `make dev-up` runs migrations automatically (the one-shot `migrate` service runs before the kernel starts). `make api` does **not** migrate — run `make db-migrate` first (or `make db-reset` to rebuild the dev DB from scratch).
 
