@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import asyncpg
 
-from ..tenant_session import acquire_workspace_conn
+from ..tenant_session import WorkspaceBindError, acquire_workspace_conn
 from .queue import (
     claim_next_job,
     complete_job,
@@ -303,12 +303,21 @@ class JobWorker:
 
         client = build_async_anthropic(api_key)
         try:
-            outcome = await run_one_iteration_for_workflow(
-                self._pool,
-                workflow_id=workflow_id,
-                workspace_id=workspace_id,
-                client=client,
-            )
+            try:
+                outcome = await run_one_iteration_for_workflow(
+                    self._pool,
+                    workflow_id=workflow_id,
+                    workspace_id=workspace_id,
+                    client=client,
+                )
+            except WorkspaceBindError:
+                _log.warning(
+                    "job worker: workspace %s is unavailable (deleted or unresolvable); "
+                    "completing run_iteration job %s as a no-op",
+                    workspace_id,
+                    job["id"],
+                )
+                return {"skipped": "workspace_unavailable", "state": "skipped"}
         finally:
             await client.close()
 
@@ -345,6 +354,14 @@ class JobWorker:
                 job["id"],
             )
             return {"skipped": "clustering_extras_absent", "clusters": 0}
+        except WorkspaceBindError:
+            _log.warning(
+                "job worker: workspace %s is unavailable (deleted or unresolvable); "
+                "completing run_clustering job %s as a no-op",
+                workspace_id,
+                job["id"],
+            )
+            return {"skipped": "workspace_unavailable", "clusters": 0}
 
         return {"clusters": n}
 

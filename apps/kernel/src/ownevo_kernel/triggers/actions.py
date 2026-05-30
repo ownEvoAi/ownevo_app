@@ -67,13 +67,23 @@ async def action_run_clustering(
     the connection is properly scoped under RLS before any workspace-scoped
     table (``traces``, ``failure_clusters``) is read or written.
     """
-    from ..clustering.default_impl import (
-        AnthropicLabeler,
-        HDBSCANClusterer,
-        SentenceTransformerEmbedder,
-        UMAPReducer,
-    )
-    from ..clustering.from_traces import cluster_production_failures
+    # These imports are the only source of ImportError in this function.
+    # Guarded here so the caller's `except ImportError` stays narrowly scoped
+    # to missing-extras detection rather than catching unrelated import errors
+    # from inside the pipeline.
+    try:
+        from ..clustering.default_impl import (
+            AnthropicLabeler,
+            HDBSCANClusterer,
+            SentenceTransformerEmbedder,
+            UMAPReducer,
+        )
+        from ..clustering.from_traces import cluster_production_failures
+    except ImportError as exc:
+        raise ImportError(
+            "clustering or agent extras not installed; "
+            "run `pip install ownevo-kernel[clustering,agent]` to enable"
+        ) from exc
 
     async with acquire_workspace_conn(pool, workspace_id) as conn:
         results = await cluster_production_failures(

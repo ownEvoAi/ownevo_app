@@ -7,7 +7,7 @@
     workspace-scoped DB write is properly bound under RLS.
 3.  Validates any kind-specific prerequisites (HMAC already checked by the
     webhook route; cron/threshold triggers have no incoming payload to validate).
-4.  Dispatches to `action_run_clustering`, `action_run_iteration`, or
+4.  Dispatches to `action_enqueue_clustering`, `action_run_iteration`, or
     `action_ingest_failures`.
 5.  Records a `TriggerFire` row via `TriggerRegistry.record_fire`.
 6.  Returns a `DispatchResult` for the caller to surface in the API response.

@@ -16,7 +16,7 @@ from ownevo_kernel.tenant_session import (
     DEFAULT_WORKSPACE_ID,
     acquire_workspace_conn,
 )
-from ownevo_kernel.triggers.actions import action_run_iteration
+from ownevo_kernel.triggers.actions import action_enqueue_clustering, action_run_iteration
 
 pytestmark = pytest.mark.skipif(
     ENV_VAR not in os.environ,
@@ -60,6 +60,35 @@ async def test_run_iteration_dedupes_concurrent_triggers(
         await action_run_iteration(pool, "wf-trigger-dup", DEFAULT_WORKSPACE_ID)
         await action_run_iteration(pool, "wf-trigger-dup", DEFAULT_WORKSPACE_ID)
         rows = await _jobs_for(pool, "wf-trigger-dup")
+        assert len(rows) == 1
+    finally:
+        await pool.close()
+
+
+async def test_enqueue_clustering_inserts_a_job(db: asyncpg.Connection) -> None:
+    pool = await _pool_for_db(db)
+    try:
+        job_id = await action_enqueue_clustering(pool, "wf-cluster", DEFAULT_WORKSPACE_ID)
+        assert job_id is not None
+        rows = await _jobs_for(pool, "wf-cluster")
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "run_clustering"
+        assert rows[0]["status"] == "queued"
+    finally:
+        await pool.close()
+
+
+async def test_enqueue_clustering_dedupes_concurrent_triggers(
+    db: asyncpg.Connection,
+) -> None:
+    """A second enqueue for a workflow with an active clustering job is a no-op."""
+    pool = await _pool_for_db(db)
+    try:
+        first_id = await action_enqueue_clustering(pool, "wf-cluster-dup", DEFAULT_WORKSPACE_ID)
+        second_id = await action_enqueue_clustering(pool, "wf-cluster-dup", DEFAULT_WORKSPACE_ID)
+        assert first_id is not None
+        assert second_id is None
+        rows = await _jobs_for(pool, "wf-cluster-dup")
         assert len(rows) == 1
     finally:
         await pool.close()
