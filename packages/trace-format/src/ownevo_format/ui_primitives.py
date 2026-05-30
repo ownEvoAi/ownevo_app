@@ -1,6 +1,6 @@
 """UI primitives — typed discriminated union for the workflow render layer.
 
-Implements the 8-variant primitive set defined in `packages/trace-format/SPEC.md`
+Implements the 9-variant primitive set defined in `packages/trace-format/SPEC.md`
 § "Workflow render primitives".
 
 The NL-gen pipeline (W3 Track A) emits a `WorkflowSpec.ui` block declaring

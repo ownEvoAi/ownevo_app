@@ -925,7 +925,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
     spec = {
         "ui": {
             "tabs": [
-                {"primitives": [{"type": "HeadlineMetrics"}]},
+                {"primitives": [{"type": "MetricCards"}]},
             ]
         }
     }
@@ -944,7 +944,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
         json={
             "plain_language_summary": "Add AlertList.",
             "proposed_primitives": [
-                {"type": "HeadlineMetrics"},
+                {"type": "MetricCards"},
                 {"type": "AlertList"},
             ],
         },
@@ -961,7 +961,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
     )
     pre_parsed = _json.loads(pre) if isinstance(pre, str) else pre
     assert [p["type"] for p in pre_parsed["ui"]["tabs"][0]["primitives"]] == [
-        "HeadlineMetrics",
+        "MetricCards",
     ]
     # Deploy applies.
     deploy = await api_client.post(
@@ -975,7 +975,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
     )
     parsed = _json.loads(raw_spec) if isinstance(raw_spec, str) else raw_spec
     types = [p["type"] for p in parsed["ui"]["tabs"][0]["primitives"]]
-    assert types == ["HeadlineMetrics", "AlertList"]
+    assert types == ["MetricCards", "AlertList"]
 
 
 async def test_approve_sim_merges_sections_into_spec(

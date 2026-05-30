@@ -248,7 +248,7 @@ which primitives to render. Same discriminated-union shape as AgentEvent. Lands
 in `src/ownevo_format/ui_primitives.py` at end of alongside the NL-gen
 schema freeze.
 
-The 8 primitives from MVP doc § Two-layer primitive architecture:
+The 9 primitives from the two-layer primitive architecture:
 
 ```python
 class MetricCards(BaseModel):
@@ -278,6 +278,12 @@ class KanbanBoard(BaseModel):
  column_field: str # field that determines kanban column (e.g., "status")
  card_title_field: str
 
+class ScheduleGrid(BaseModel):
+ type: Literal["ScheduleGrid"]
+ rows_source: str # e.g., "staff" — one row per resource
+ cols_source: str # e.g., "days" — one column per time bucket
+ cells_source: str # resource x time cells, each with a status badge
+
 class ConversationView(BaseModel):
  type: Literal["ConversationView"]
  trace_source: str # field referencing trace_id
@@ -295,7 +301,8 @@ class DocumentReader(BaseModel):
 
 UIPrimitive = Annotated[
  Union[MetricCards, TimeSeriesChart, TableView, AlertList,
- KanbanBoard, ConversationView, SideBySideView, DocumentReader],
+ KanbanBoard, ScheduleGrid, ConversationView, SideBySideView,
+ DocumentReader],
  Field(discriminator="type"),
 ]
 ```

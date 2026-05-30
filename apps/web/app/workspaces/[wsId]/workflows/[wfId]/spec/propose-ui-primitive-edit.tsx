@@ -10,19 +10,24 @@ interface Props {
  current: Array<{ type: string; [k: string]: unknown }>
 }
 
-// Mirrors `agent_solver.PRIMITIVE_PAYLOAD_KEYS`. Kept in lockstep
-// with the kernel-side list — the agent only emits payloads for
-// these types, and the operate resolver only knows how to render
-// these types. Adding a new primitive here without the kernel-side
-// counterpart would render an empty operate tab.
+// Mirrors `_PRIMITIVE_PAYLOAD_GUIDE` in eval_runner/agent_solver.py
+// (and the `UIPrimitive` union in trace-format's ui_primitives.py).
+// Kept in lockstep with the kernel-side list — the agent only emits
+// payloads for these types, and the operate resolver only knows how to
+// render these types. The discriminator value MUST match the kernel's
+// `type` literal exactly (PascalCase); a mismatch dispatches to no
+// resolver case and renders an empty operate tab. Adding a new primitive
+// here without the kernel-side counterpart has the same effect.
 const KNOWN_PRIMITIVE_TYPES: ReadonlyArray<string> = [
- 'HeadlineMetrics',
+ 'MetricCards',
  'TimeSeriesChart',
  'TableView',
  'AlertList',
  'KanbanBoard',
  'ScheduleGrid',
  'ConversationView',
+ 'SideBySideView',
+ 'DocumentReader',
 ]
 
 // 9.2.3 — Propose-edit affordance for the Operate-view UI primitive
