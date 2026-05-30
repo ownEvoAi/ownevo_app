@@ -1,13 +1,13 @@
-// Data shapes consumed by each primitive renderer.
+// Data shapes consumed by each view renderer.
 //
 // These mirror the input-shape contracts documented in
 // § Input shape, and are the
 // runtime payload Track 0 layer C's mock resolver (or a future
 // agent-output resolver) produces for each
-// WorkflowSpec.ui.tabs[].primitives[] entry.
+// WorkflowSpec.ui.tabs[].views[] entry.
 //
-// The Pydantic primitive (MetricCards, TimeSeriesChart, etc.) describes
-// WHICH primitive renders and HOW it's parameterised (column names,
+// The Pydantic view (MetricCards, TimeSeriesChart, etc.) describes
+// WHICH view renders and HOW it's parameterised (column names,
 // source keys, etc.). The runtime data here is the rendered content.
 
 export interface MetricCardDatum {
@@ -37,10 +37,10 @@ export interface TimeSeriesAnnotation {
 }
 
 // Click-through footer the Operate-context resolver attaches so a
-// domain expert can jump from any single-source primitive into the
-// underlying agent trace. Optional everywhere — Overview primitives
+// domain expert can jump from any single-source view into the
+// underlying agent trace. Optional everywhere — Overview views
 // don't set it.
-export interface PrimitiveCaseCaption {
+export interface ViewCaseCaption {
  text: string
  href: string
 }
@@ -53,7 +53,7 @@ export interface TimeSeriesData {
  baseline_label?: string
  annotations?: TimeSeriesAnnotation[]
  y_format?: 'percent' | 'number' | 'currency'
- caption?: PrimitiveCaseCaption
+ caption?: ViewCaseCaption
 }
 
 export interface TableColumn {
@@ -140,7 +140,7 @@ export interface ScheduleData {
  rows: ScheduleRowDef[]
  cols: ScheduleColDef[]
  cells: ScheduleCellDef[]
- caption?: PrimitiveCaseCaption
+ caption?: ViewCaseCaption
 }
 
 export interface ConvoCitation {
@@ -160,7 +160,7 @@ export interface ConvoMessage {
 
 export interface ConversationData {
  messages: ConvoMessage[]
- caption?: PrimitiveCaseCaption
+ caption?: ViewCaseCaption
 }
 
 export type SidePanelHighlight = 'added' | 'removed' | 'unchanged'
@@ -177,7 +177,7 @@ export interface SidePanel {
 export interface SideBySideData {
  left: SidePanel
  right: SidePanel
- caption?: PrimitiveCaseCaption
+ caption?: ViewCaseCaption
 }
 
 export interface DocSpan {
@@ -205,5 +205,5 @@ export interface DocumentData {
  section_label?: string
  blocks: DocBlock[]
  annotations: DocAnnotation[]
- caption?: PrimitiveCaseCaption
+ caption?: ViewCaseCaption
 }

@@ -4,12 +4,13 @@ Source-of-truth for what the natural-language workflow generator produces from
 a plain-English description. Stored as JSONB in `workflows.spec` (see
 `apps/kernel/migrations/0001_substrate.sql:94`).
 
-**Current schema version: "1.4"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
+**Current schema version: "1.5"** (v1.0 frozen at A3.4 / end of W3 2026-05-04;
 v1.1 added ScheduleGrid; v1.2 added `kind` + `mcp_server_id` to `DataSource`;
 v1.3 added `kind="upload"` + `upload_id` to `DataSource`;
-v1.4 added `triggers` list to `WorkflowSpec`). Structural changes
+v1.4 added `triggers` list to `WorkflowSpec`;
+v1.5 renamed the `UITab` field `primitives` → `views`). Structural changes
 are caught by `tests/test_nl_gen_schema_freeze.py` against the snapshot at
-`nl_gen/schemas/workflow_spec.v1.4.json`. Any diff requires an explicit
+`nl_gen/schemas/workflow_spec.v1.5.json`. Any diff requires an explicit
 version bump (1.x → 2.0 if breaking, 1.x → 1.y if additive) and a W7 UI
 re-test before the snapshot is regenerated.
 
@@ -23,24 +24,24 @@ Downstream consumers:
   * A4.1 eval_generator      — reads known_past_misses, entities, tools
   * A4.2 metric_generator    — reads success_criterion, tools
   * Web UI (W7)              — reads everything; renders ui block per
-                                ui_primitives.UIPrimitive
+                                ui_views.UIView
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-from ownevo_format import UIPrimitive
+from ownevo_format import UIView
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..triggers.models import TriggerSpec
 
-SCHEMA_VERSION = "1.4"
+SCHEMA_VERSION = "1.5"
 """Schema version history.
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
-`UIPrimitive` discriminated union (9 primitives, was 8) to close the
-parity gap with `www/preview/s26-rk7p3/27-primitives.html`. Additive
+`UIView` discriminated union (9 views, was 8) to close the
+parity gap with `www/preview/s26-rk7p3/27-views.html`. Additive
 change — every v1.0 spec validates under v1.1; no `Literal` union was
 narrowed.
 
@@ -59,8 +60,16 @@ v1.3 → v1.4 (Track 17.1): added `triggers: list[TriggerSpec]` to
 triggers.  Additive — every v1.3 spec validates under v1.4 (triggers
 defaults to an empty list).
 
+v1.4 → v1.5: renamed the `UITab` field `primitives` → `views` so the
+render-layer vocabulary is one word everywhere (the operator-facing UI
+already said "view"). This is a *structural* rename, NOT additive: a spec
+still keyed `primitives` fails validation because the models are
+`extra="forbid"`. Stored specs are rewritten key-for-key by migration
+`0044_rename_primitives_to_views.sql`, which also bumps their
+`schema_version` to "1.5"; no dual-read path is kept.
+
 Structural drift is detected by `tests/test_nl_gen_schema_freeze.py`
-against the snapshot at `nl_gen/schemas/workflow_spec.v1.4.json`. To
+against the snapshot at `nl_gen/schemas/workflow_spec.v1.5.json`. To
 intentionally change the schema, bump this constant + regenerate the
 snapshot via `scripts/regen_nl_gen_schemas.py` and re-test the W7 UI."""
 
@@ -72,7 +81,7 @@ Domain = Literal[
     "labour",
     "other",
 ]
-"""Top-level domain. Drives prompt steering + UI primitive defaults."""
+"""Top-level domain. Drives prompt steering + UI view defaults."""
 
 FieldType = Literal["string", "int", "float", "bool", "date", "datetime", "category"]
 
@@ -266,7 +275,7 @@ class UITab(_Base):
     """One tab in the workflow's operate-view."""
 
     name: str = Field(min_length=1)
-    primitives: list[UIPrimitive] = Field(min_length=1)
+    views: list[UIView] = Field(min_length=1)
 
 
 class UILayout(_Base):
@@ -291,7 +300,7 @@ class WorkflowSpec(_Base):
     description read it off the workflow row.
     """
 
-    schema_version: Literal["1.1", "1.2", "1.3", "1.4"] = SCHEMA_VERSION
+    schema_version: Literal["1.1", "1.2", "1.3", "1.4", "1.5"] = SCHEMA_VERSION
     id: str = Field(min_length=1, pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
     domain: Domain
     environment: WorkflowEnvironment

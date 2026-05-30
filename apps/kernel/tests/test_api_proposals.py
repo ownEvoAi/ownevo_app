@@ -918,14 +918,14 @@ async def test_approve_metric_writes_inflated_definition(
     assert md["upper_bound"] == 1.0
 
 
-async def test_approve_ui_primitive_merges_into_spec_ui(
+async def test_approve_ui_view_merges_into_spec_ui(
     db: asyncpg.Connection, api_client: httpx.AsyncClient,
 ):
     import json as _json
     spec = {
         "ui": {
             "tabs": [
-                {"primitives": [{"type": "MetricCards"}]},
+                {"views": [{"type": "MetricCards"}]},
             ]
         }
     }
@@ -940,17 +940,17 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
         "('wf-app-uip', 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())"
     )
     res = await api_client.post(
-        "/api/workflows/wf-app-uip/proposals/ui-primitive",
+        "/api/workflows/wf-app-uip/proposals/ui-view",
         json={
             "plain_language_summary": "Add AlertList.",
-            "proposed_primitives": [
+            "proposed_views": [
                 {"type": "MetricCards"},
                 {"type": "AlertList"},
             ],
         },
     )
     proposal_id = res.json()["id"]
-    # Approve stages — primitives list stays at the seed.
+    # Approve stages — views list stays at the seed.
     decide = await api_client.post(
         f"/api/proposals/{proposal_id}/approve",
         json={"decided_by": "human:reviewer"},
@@ -960,7 +960,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
         "SELECT spec FROM workflows WHERE id = 'wf-app-uip'"
     )
     pre_parsed = _json.loads(pre) if isinstance(pre, str) else pre
-    assert [p["type"] for p in pre_parsed["ui"]["tabs"][0]["primitives"]] == [
+    assert [p["type"] for p in pre_parsed["ui"]["tabs"][0]["views"]] == [
         "MetricCards",
     ]
     # Deploy applies.
@@ -974,7 +974,7 @@ async def test_approve_ui_primitive_merges_into_spec_ui(
         "SELECT spec FROM workflows WHERE id = 'wf-app-uip'"
     )
     parsed = _json.loads(raw_spec) if isinstance(raw_spec, str) else raw_spec
-    types = [p["type"] for p in parsed["ui"]["tabs"][0]["primitives"]]
+    types = [p["type"] for p in parsed["ui"]["tabs"][0]["views"]]
     assert types == ["MetricCards", "AlertList"]
 
 

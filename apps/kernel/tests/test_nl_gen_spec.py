@@ -3,7 +3,7 @@
 No DB, no LLM, no network. Covers:
   * Schema-only round-trip identity (Pydantic → JSON → JSON-mode dict → Pydantic)
   * `extra="forbid"` on every model — schema-freeze depends on it
-  * Discriminator coverage — every UIPrimitive variant must round-trip
+  * Discriminator coverage — every UIView variant must round-trip
   * The 3 hand-authored fixtures validate against the frozen schema
   * Structural-shape assertions on each fixture (mock-parity ground truth)
 """
@@ -23,7 +23,7 @@ from ownevo_format import (
     SideBySideView,
     TableView,
     TimeSeriesChart,
-    UIPrimitiveAdapter,
+    UIViewAdapter,
 )
 from ownevo_kernel.nl_gen import (
     SCHEMA_VERSION,
@@ -50,11 +50,12 @@ from pydantic import ValidationError
 
 
 def test_schema_version_is_pinned():
-    assert SCHEMA_VERSION == "1.4", (
+    assert SCHEMA_VERSION == "1.5", (
         "Frozen at A3.4 (2026-W3); bumped to v1.1 in W8 Track 0 "
-        "(additive: added ScheduleGrid primitive), to v1.2 in Track 17.0 "
+        "(additive: added ScheduleGrid view), to v1.2 in Track 17.0 "
         "(additive: MCP DataSource fields), to v1.3 (additive: upload "
-        "DataSource fields), to v1.4 in Track 17.1 (additive: triggers list). "
+        "DataSource fields), to v1.4 in Track 17.1 (additive: triggers list), "
+        "to v1.5 (structural: UITab field `primitives` renamed to `views`). "
         "Structural drift is caught by test_nl_gen_schema_freeze.py against "
         f"the snapshot at src/ownevo_kernel/nl_gen/schemas/workflow_spec.v{SCHEMA_VERSION}.json."
     )
@@ -126,9 +127,9 @@ def test_ui_layout_must_have_at_least_one_tab():
         UILayout.model_validate({"layout": "tabs", "tabs": []})
 
 
-def test_ui_tab_must_have_at_least_one_primitive():
+def test_ui_tab_must_have_at_least_one_view():
     with pytest.raises(ValidationError):
-        UITab.model_validate({"name": "x", "primitives": []})
+        UITab.model_validate({"name": "x", "views": []})
 
 
 def test_metric_cards_must_have_fields():
@@ -163,7 +164,7 @@ def test_fixture_round_trips_through_json(fixture_id):
 
 
 # ---------------------------------------------------------------------------
-# Discriminator coverage — every UIPrimitive variant must round-trip
+# Discriminator coverage — every UIView variant must round-trip
 # ---------------------------------------------------------------------------
 
 
@@ -186,16 +187,16 @@ _ALL_VARIANTS = [
 
 
 @pytest.mark.parametrize("variant", _ALL_VARIANTS)
-def test_ui_primitive_variant_round_trips(variant):
+def test_ui_view_variant_round_trips(variant):
     payload = json.loads(variant.model_dump_json())
-    parsed = UIPrimitiveAdapter.validate_python(payload)
+    parsed = UIViewAdapter.validate_python(payload)
     assert type(parsed) is type(variant)
     assert parsed == variant
 
 
-def test_ui_primitive_rejects_unknown_type():
+def test_ui_view_rejects_unknown_type():
     with pytest.raises(ValidationError):
-        UIPrimitiveAdapter.validate_python(
+        UIViewAdapter.validate_python(
             {"type": "ChartOfTheDay", "source": "x"}
         )
 
@@ -205,7 +206,7 @@ def test_ui_primitive_rejects_unknown_type():
 #
 # Mock parity: every fixture must satisfy what 04-new-workflow-step2.html
 # renders — ≥1 tool, ≥1 persona, ≥1 env_generator, the success_criterion stub
-# names a metric, `ui` exercises domain-appropriate primitives.
+# names a metric, `ui` exercises domain-appropriate views.
 # ---------------------------------------------------------------------------
 
 
@@ -217,24 +218,24 @@ def test_fixture_satisfies_minimum_shape(fixture_id):
     assert len(spec.environment.env_generators) >= 1
     assert spec.success_criterion.target_metric_name
     assert spec.ui.tabs
-    assert spec.ui.tabs[0].primitives
+    assert spec.ui.tabs[0].views
 
 
-def test_demand_prediction_uses_supply_chain_primitives():
-    types = {p.type for p in DEMAND_PREDICTION_SPEC.ui.tabs[0].primitives}
+def test_demand_prediction_uses_supply_chain_views():
+    types = {p.type for p in DEMAND_PREDICTION_SPEC.ui.tabs[0].views}
     assert "TimeSeriesChart" in types
     assert "TableView" in types
     assert "AlertList" in types
 
 
-def test_credit_risk_uses_portfolio_primitives():
-    types = {p.type for p in CREDIT_RISK_SPEC.ui.tabs[0].primitives}
+def test_credit_risk_uses_portfolio_views():
+    types = {p.type for p in CREDIT_RISK_SPEC.ui.tabs[0].views}
     assert "MetricCards" in types
     assert "TableView" in types
 
 
-def test_contract_review_uses_legal_primitives():
-    types = {p.type for p in CONTRACT_REVIEW_SPEC.ui.tabs[0].primitives}
+def test_contract_review_uses_legal_views():
+    types = {p.type for p in CONTRACT_REVIEW_SPEC.ui.tabs[0].views}
     assert "DocumentReader" in types
     assert "SideBySideView" in types
 

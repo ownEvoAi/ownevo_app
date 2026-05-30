@@ -9,7 +9,7 @@ eval_cases drive `prior_eval_task_ids` is W3+ work and not in scope here.
 What this test exercises
 ------------------------
 A workflow distinct from M5 (`labour-shift-validation`) is driven through
-every primitive the iteration-1 gate run touches:
+every view the iteration-1 gate run touches:
 
     register_skill          →  skills + skill_versions rows written
     LabourBenchmarkRunner →
@@ -23,7 +23,7 @@ iterations):
     add_eval_case           →  eval_cases rows written (provenance=hand-authored)
 
 A green test means the substrate is workflow-agnostic at the wiring
-level — the same primitives that drive M5 also drive an unrelated
+level — the same views that drive M5 also drive an unrelated
 domain on iteration 1. This is the Phase 1 exit gate; Phase 2 cannot
 start without it.
 
@@ -164,7 +164,7 @@ async def test_substrate_proves_itself_on_non_m5_workflow(db: asyncpg.Connection
 
     Asserts the gate decides PASS with val_score=1.0 (the hand-written
     skill solves all three hand-written cases), and verifies the rows
-    every primitive is supposed to write actually land in the DB.
+    every view is supposed to write actually land in the DB.
     """
     await _seed_workflow(db)
 

@@ -15,7 +15,7 @@ import {
  EvalCasesSection,
  METRIC_DIMS,
  MetricSection,
- PrimitivesSection,
+ ViewsSection,
  SIM_DIMENSIONS,
  simulatorMeta,
  SimulatorSection,
@@ -92,7 +92,7 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
  const personas = spec.environment?.personas ?? []
  const envGenerators = spec.environment?.env_generators ?? []
  const dataSources = spec.environment?.data_sources ?? []
- const primitives = spec.ui?.tabs?.[0]?.primitives ?? []
+ const views = spec.ui?.tabs?.[0]?.views ?? []
  const metricDef = anatomy.metric_definition ?? null
  const simPlan = anatomy.simulation_plan ?? null
  const designLog: DesignAgentLog | null = anatomy.design_agent_log ?? null
@@ -177,8 +177,8 @@ export default async function ReviewWorkflowPage({ params }: PageProps) {
  }
  />
 
- <PrimitivesSection
- primitives={primitives}
+ <ViewsSection
+ views={views}
  operateHref={operateHref}
  skillCount={skillCount}
  attributionSlot={

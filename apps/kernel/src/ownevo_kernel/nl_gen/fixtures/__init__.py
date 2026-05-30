@@ -5,7 +5,7 @@ Used by:
   * Snapshot tests for `workflow_spec_generator` (live API): the generated
     output is compared against these structurally — we don't expect Claude
     to match field-for-field, but we expect the same shape (≥3 tools, ≥1
-    persona, ui block exercises domain-appropriate primitives).
+    persona, ui block exercises domain-appropriate views).
 
 Demand-prediction `description` is verbatim from
 `www/preview/s26-rk7p3/03-new-workflow-step1.html` — the textarea content the

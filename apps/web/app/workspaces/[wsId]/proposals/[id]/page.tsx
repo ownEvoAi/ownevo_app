@@ -57,18 +57,18 @@ export default async function ProposalDetailPage({ params }: PageProps) {
  proposal.state === 'deployed' && proposal.kind === 'skill'
  const wfRoot = `/workspaces/${wsId}/workflows/${proposal.workflow.id}`
 
- // Resolve isBenchmark + (for ui-primitive proposals) the current
- // primitive list so the diff can show added/removed types. Soft-
+ // Resolve isBenchmark + (for ui-view proposals) the current
+ // view list so the diff can show added/removed types. Soft-
  // fail to defaults on 404 — the page still renders, just without
- // the side-by-side primitive comparison.
+ // the side-by-side view comparison.
  let isBenchmark = false
- let currentPrimitives: Array<{ type: string }> = []
+ let currentViews: Array<{ type: string }> = []
  let currentSpec: Record<string, unknown> | null = null
  try {
  const anatomy = await getWorkflowAnatomy(proposal.workflow.id)
  isBenchmark = anatomy.kind === 'benchmark'
- const prims = anatomy.spec?.ui?.tabs?.[0]?.primitives ?? []
- currentPrimitives = prims.filter(
+ const prims = anatomy.spec?.ui?.tabs?.[0]?.views ?? []
+ currentViews = prims.filter(
  (p): p is { type: string } =>
  typeof p === 'object' &&
  p !== null &&
@@ -133,7 +133,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
  <>
  <ArtifactDiff
  proposal={proposal}
- currentPrimitives={currentPrimitives}
+ currentViews={currentViews}
  currentSpec={currentSpec}
  />
  {proposal.kind === 'metric' && (
@@ -240,7 +240,7 @@ function artifactLabel(kind: ProposalDetail['kind']): string {
  return 'Success metric'
  case 'sim':
  return 'Agent environment'
- case 'ui-primitive':
+ case 'ui-view':
  return 'Operate-view UI'
  default:
  return kind
@@ -249,23 +249,23 @@ function artifactLabel(kind: ProposalDetail['kind']): string {
 
 // 9.2.3 — per-kind diff renderer for non-skill artifact proposals.
 // Renders a kind-specific summary of the proposed change. Metric and
-// ui-primitive have dedicated branches; description / sim fall back
+// ui-view have dedicated branches; description / sim fall back
 // to a pretty-printed payload until their flows ship.
 function ArtifactDiff({
  proposal,
- currentPrimitives,
+ currentViews,
  currentSpec,
 }: {
  proposal: ProposalDetail
- currentPrimitives: Array<{ type: string }>
+ currentViews: Array<{ type: string }>
  currentSpec: Record<string, unknown> | null
 }) {
  const payload = proposal.proposed_payload ?? {}
- if (proposal.kind === 'ui-primitive') {
+ if (proposal.kind === 'ui-view') {
  return (
- <UIPrimitiveDiff
+ <UIViewDiff
  payload={payload}
- currentPrimitives={currentPrimitives}
+ currentViews={currentViews}
  />
  )
  }
@@ -843,7 +843,7 @@ function SimDiff({
  return (
  <div key={s.key} className="sim-diff-section">
  <div className="sim-diff-section-head">{s.label}</div>
- <div className="ui-primitive-diff-note">
+ <div className="ui-view-diff-note">
  No additions or removals by identifier — the proposal
  may update props on existing entries.
  </div>
@@ -854,15 +854,15 @@ function SimDiff({
  <div key={s.key} className="sim-diff-section">
  <div className="sim-diff-section-head">{s.label}</div>
  {added.length > 0 ? (
- <div className="ui-primitive-diff-row">
- <span className="ui-primitive-diff-label added">
+ <div className="ui-view-diff-row">
+ <span className="ui-view-diff-label added">
  Added · {added.length}
  </span>
- <div className="ui-primitive-diff-pills">
+ <div className="ui-view-diff-pills">
  {added.map((id) => (
  <span
  key={id}
- className="pill source-prod ui-primitive-pill"
+ className="pill source-prod ui-view-pill"
  >
  + {id}
  </span>
@@ -871,15 +871,15 @@ function SimDiff({
  </div>
  ) : null}
  {removed.length > 0 ? (
- <div className="ui-primitive-diff-row">
- <span className="ui-primitive-diff-label removed">
+ <div className="ui-view-diff-row">
+ <span className="ui-view-diff-label removed">
  Removed · {removed.length}
  </span>
- <div className="ui-primitive-diff-pills">
+ <div className="ui-view-diff-pills">
  {removed.map((id) => (
  <span
  key={id}
- className="pill red ui-primitive-pill"
+ className="pill red ui-view-pill"
  >
  − {id}
  </span>
@@ -895,17 +895,17 @@ function SimDiff({
  )
 }
 
-// 9.2.3 — diff renderer for kind='ui-primitive' proposals. Compares
-// the current primitive list against `payload.primitives`, shows
+// 9.2.3 — diff renderer for kind='ui-view' proposals. Compares
+// the current view list against `payload.views`, shows
 // the unchanged / added / removed types with shape-pills.
-function UIPrimitiveDiff({
+function UIViewDiff({
  payload,
- currentPrimitives,
+ currentViews,
 }: {
  payload: Record<string, unknown>
- currentPrimitives: Array<{ type: string }>
+ currentViews: Array<{ type: string }>
 }) {
- const proposedRaw = payload.primitives
+ const proposedRaw = payload.views
  const proposed: Array<{ type: string }> = Array.isArray(proposedRaw)
  ? proposedRaw.filter(
  (p): p is { type: string } =>
@@ -915,33 +915,33 @@ function UIPrimitiveDiff({
  )
  : []
 
- const currentSet = new Set(currentPrimitives.map((p) => p.type))
+ const currentSet = new Set(currentViews.map((p) => p.type))
  const proposedSet = new Set(proposed.map((p) => p.type))
  const added = proposed.filter((p) => !currentSet.has(p.type))
- const removed = currentPrimitives.filter((p) => !proposedSet.has(p.type))
- const unchanged = currentPrimitives.filter((p) => proposedSet.has(p.type))
+ const removed = currentViews.filter((p) => !proposedSet.has(p.type))
+ const unchanged = currentViews.filter((p) => proposedSet.has(p.type))
 
  return (
  <>
  <h2 className="section-title">Operate-view UI · proposed change</h2>
- <div className="artifact-diff ui-primitive-diff">
+ <div className="artifact-diff ui-view-diff">
  {added.length === 0 && removed.length === 0 ? (
- <div className="ui-primitive-diff-note">
- No primitive types added or removed. The proposal may
- update per-primitive props on existing types.
+ <div className="ui-view-diff-note">
+ No view types added or removed. The proposal may
+ update per-view props on existing types.
  </div>
  ) : (
  <>
  {added.length > 0 ? (
- <div className="ui-primitive-diff-row">
- <span className="ui-primitive-diff-label added">
+ <div className="ui-view-diff-row">
+ <span className="ui-view-diff-label added">
  Added · {added.length}
  </span>
- <div className="ui-primitive-diff-pills">
+ <div className="ui-view-diff-pills">
  {added.map((p) => (
  <span
  key={p.type}
- className="pill source-prod ui-primitive-pill"
+ className="pill source-prod ui-view-pill"
  >
  + {p.type}
  </span>
@@ -950,15 +950,15 @@ function UIPrimitiveDiff({
  </div>
  ) : null}
  {removed.length > 0 ? (
- <div className="ui-primitive-diff-row">
- <span className="ui-primitive-diff-label removed">
+ <div className="ui-view-diff-row">
+ <span className="ui-view-diff-label removed">
  Removed · {removed.length}
  </span>
- <div className="ui-primitive-diff-pills">
+ <div className="ui-view-diff-pills">
  {removed.map((p) => (
  <span
  key={p.type}
- className="pill red ui-primitive-pill"
+ className="pill red ui-view-pill"
  >
  − {p.type}
  </span>
@@ -969,15 +969,15 @@ function UIPrimitiveDiff({
  </>
  )}
  {unchanged.length > 0 ? (
- <div className="ui-primitive-diff-row">
- <span className="ui-primitive-diff-label unchanged">
+ <div className="ui-view-diff-row">
+ <span className="ui-view-diff-label unchanged">
  Unchanged · {unchanged.length}
  </span>
- <div className="ui-primitive-diff-pills">
+ <div className="ui-view-diff-pills">
  {unchanged.map((p) => (
  <span
  key={p.type}
- className="pill outline ui-primitive-pill"
+ className="pill outline ui-view-pill"
  >
  {p.type}
  </span>

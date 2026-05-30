@@ -1,7 +1,7 @@
-// Demo payloads for the primitive showcase page. Lifted from
+// Demo payloads for the view showcase page. Lifted from
 // so the live renderer
 // matches the marketing reference. These are NOT used by any live
-// workflow page — live data comes from apps/web/lib/primitive-data-resolver.ts.
+// workflow page — live data comes from apps/web/lib/view-data-resolver.ts.
 
 import type {
  AlertItem,
@@ -13,7 +13,7 @@ import type {
  SideBySideData,
  TableData,
  TimeSeriesData,
-} from '@/app/components/primitives'
+} from '@/app/components/views'
 
 export const METRIC_CARDS_DEMO: MetricCardDatum[] = [
  {

@@ -40,7 +40,7 @@ class ProposalSummary(_Strict):
     page renders without N+1 fetches.
 
     `kind` discriminates skill edits from non-skill artifact edits
-    (description / metric / sim / ui-primitive). For non-skill kinds
+    (description / metric / sim / ui-view). For non-skill kinds
     `skill_id` is null and the per-artifact payload lives on the
     detail endpoint.
     """
@@ -140,7 +140,7 @@ class ProposalDetail(_Strict):
     state: str
     proposed_content: str
     # Non-skill artifact payload (description / metric / sim /
-    # ui-primitive). Null for kind='skill' where `proposed_content`
+    # ui-view). Null for kind='skill' where `proposed_content`
     # carries the new skill body.
     proposed_payload: dict[str, Any] | None = None
     parent_version_content: str | None  # null on the bootstrap iteration
@@ -240,7 +240,7 @@ class DeployResponse(_Strict):
     proposal_id: UUID
     state: Literal["deployed", "rolled-back"]
     # Null for non-skill artifact proposals (description / metric / sim /
-    # ui-primitive) added in Track 9.2.3 — those write directly to the
+    # ui-view) added in Track 9.2.3 — those write directly to the
     # workflow row and have no skill_id.
     skill_id: str | None
     skill_deployed_version_id: UUID | None
@@ -594,7 +594,7 @@ class IterationCaseRow(_Strict):
 class CaseOutputRow(_Strict):
     """One iteration_case_outputs row joined with its eval_case input.
 
-    Drives the operator-shell TableView primitive (PLAN 8.4.10). Today
+    Drives the operator-shell TableView view (PLAN 8.4.10). Today
     `output_json` carries `{case_id, predicted, expected, rationale,
     is_test_fold}` — a thin shape mirroring what trace metric_outputs
     already holds. Once the agent solver gains a workflow-specific
@@ -620,7 +620,7 @@ class CaseOutputRow(_Strict):
     # Domain-shaped output the agent emitted for this case (forecast
     # curve, redline pair, recommendation table, etc.). Operate-tab
     # renderer reads this and dispatches to the workflow-declared
-    # primitives. NULL when the agent didn't emit one — Operate falls
+    # views. NULL when the agent didn't emit one — Operate falls
     # back to its "no production output captured yet" empty state.
     output_payload: dict[str, Any] | None = None
 
@@ -788,7 +788,7 @@ class SimProposalCreate(BaseModel):
     """Body for `POST /api/workflows/{wfId}/proposals/sim`.
 
     `proposed_spec` is a partial WorkflowSpec carrying the proposed
-    tools / personas / data_sources / env_generators / ui-primitives.
+    tools / personas / data_sources / env_generators / ui-views.
     For 9.2.3 first-cut, the shape is just `dict[str, Any]` — the
     sim plan schema is large and the approval handler does its own
     validation before persisting. The diff renderer reads added /
@@ -802,10 +802,10 @@ class SimProposalCreate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
-class UIPrimitiveProposalCreate(BaseModel):
-    """Body for `POST /api/workflows/{wfId}/proposals/ui-primitive`.
+class UIViewProposalCreate(BaseModel):
+    """Body for `POST /api/workflows/{wfId}/proposals/ui-view`.
 
-    `proposed_primitives` is the new operate-tab primitive list. Each
+    `proposed_views` is the new operate-tab view list. Each
     entry must carry at minimum a `type` string; additional props
     survive untouched (today the agent-solver layer cares about
     `type`, the operate resolver looks up `output_payload[key]` per
@@ -815,7 +815,7 @@ class UIPrimitiveProposalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     plain_language_summary: str = Field(..., min_length=1, max_length=500)
-    proposed_primitives: list[dict[str, Any]]
+    proposed_views: list[dict[str, Any]]
     rationale: str | None = Field(default=None, max_length=2000)
 
 
@@ -1110,7 +1110,7 @@ __all__ = [
     "DescriptionProposalCreate",
     "MetricProposalCreate",
     "SimProposalCreate",
-    "UIPrimitiveProposalCreate",
+    "UIViewProposalCreate",
     "GateResultCases",
     "HealthResponse",
     "IterationDetail",

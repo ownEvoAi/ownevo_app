@@ -2,7 +2,7 @@
 
 Writes:
   packages/trace-format/schemas/agent_event.v1.0.json
-  packages/trace-format/schemas/ui_primitives.v1.0.json
+  packages/trace-format/schemas/ui_views.v1.0.json
 
 CI guard (`tests/test_schema_freeze.py`) compares Pydantic's live
 `json_schema()` output against these snapshots and fails on any drift.
@@ -23,7 +23,7 @@ from pathlib import Path
 
 from ownevo_format import AgentEventAdapter
 from ownevo_format.agent_event import SCHEMA_VERSION
-from ownevo_format.ui_primitives import UIPrimitive
+from ownevo_format.ui_views import UIView
 from pydantic import TypeAdapter
 
 _SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
@@ -40,8 +40,8 @@ def main() -> int:
     print(f"Writing snapshots to {_SCHEMAS_DIR.relative_to(_SCHEMAS_DIR.parent)}/ …")
     _write(_SCHEMAS_DIR / f"agent_event.v{SCHEMA_VERSION}.json", AgentEventAdapter.json_schema())
     _write(
-        _SCHEMAS_DIR / f"ui_primitives.v{SCHEMA_VERSION}.json",
-        TypeAdapter(UIPrimitive).json_schema(),
+        _SCHEMAS_DIR / f"ui_views.v{SCHEMA_VERSION}.json",
+        TypeAdapter(UIView).json_schema(),
     )
     print("Done.")
     return 0

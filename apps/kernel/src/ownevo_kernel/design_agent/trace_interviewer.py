@@ -29,7 +29,7 @@ from pydantic import ValidationError
 
 from .dimensions import DimensionSpec, dimensions_remaining, spec_for
 from .interviewer import (
-    _PRIMITIVE_VOCABULARY,
+    _VIEW_VOCABULARY,
     ASK_QUESTION_TOOL,
     DEFAULT_INTERVIEWER_MODEL,
     DEFAULT_MAX_TOKENS,
@@ -130,10 +130,10 @@ def _build_user_message(
     open_lines = [f"- `{d.key}` ({d.label}): {d.intent}" for d in open_dimensions]
     parts.append("\n".join(open_lines))
 
-    primitives = "\n".join(f"  - {name}: {hint}" for name, hint in _PRIMITIVE_VOCABULARY)
+    views = "\n".join(f"  - {name}: {hint}" for name, hint in _VIEW_VOCABULARY)
     parts.append(
-        "## Operate-UI primitive vocabulary (only relevant for the "
-        "`operate_ui_primitives` dimension)\n" + primitives
+        "## Operate-UI view vocabulary (only relevant for the "
+        "`operate_ui_primitives` dimension)\n" + views
     )
 
     parts.append(

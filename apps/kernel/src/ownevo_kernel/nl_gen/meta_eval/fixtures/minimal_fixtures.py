@@ -180,7 +180,7 @@ def _build_bundle(s: _FixtureSpec) -> MinimalBundle:
             tabs=[
                 UITab(
                     name="Operate",
-                    primitives=[
+                    views=[
                         MetricCards(
                             type="MetricCards",
                             fields=["pending_count", "flagged_today", "throughput"],

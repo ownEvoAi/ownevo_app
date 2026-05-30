@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createUIPrimitiveProposalAction } from '../actions'
+import { createUIViewProposalAction } from '../actions'
 
 interface Props {
  wsId: string
@@ -10,15 +10,15 @@ interface Props {
  current: Array<{ type: string; [k: string]: unknown }>
 }
 
-// Mirrors `_PRIMITIVE_PAYLOAD_GUIDE` in eval_runner/agent_solver.py
-// (and the `UIPrimitive` union in trace-format's ui_primitives.py).
-// Kept in lockstep with the kernel-side list — the agent only emits
-// payloads for these types, and the operate resolver only knows how to
-// render these types. The discriminator value MUST match the kernel's
-// `type` literal exactly (PascalCase); a mismatch dispatches to no
-// resolver case and renders an empty operate tab. Adding a new primitive
-// here without the kernel-side counterpart has the same effect.
-const KNOWN_PRIMITIVE_TYPES: ReadonlyArray<string> = [
+// Mirrors `_VIEW_PAYLOAD_GUIDE` in eval_runner/agent_solver.py
+// (and the `UIView` union in trace-format's ui_views.py). Kept in
+// lockstep with the kernel-side list — the agent only emits payloads
+// for these types, and the operate resolver only knows how to render
+// these types. The discriminator value MUST match the kernel's `type`
+// literal exactly (PascalCase); a mismatch dispatches to no resolver
+// case and renders an empty operate tab. Adding a new view here
+// without the kernel-side counterpart has the same effect.
+const KNOWN_VIEW_TYPES: ReadonlyArray<string> = [
  'MetricCards',
  'TimeSeriesChart',
  'TableView',
@@ -30,18 +30,18 @@ const KNOWN_PRIMITIVE_TYPES: ReadonlyArray<string> = [
  'DocumentReader',
 ]
 
-// 9.2.3 — Propose-edit affordance for the Operate-view UI primitive
+// 9.2.3 — Propose-edit affordance for the Operate-view UI view
 // list on the workflow Spec tab. Read mode shows a small button;
 // edit mode swaps in a compact form: one row of checkboxes (the
-// known primitive types) + a required plain-language summary +
-// an optional rationale. Submit POSTs to the create-ui-primitive
+// known view types) + a required plain-language summary +
+// an optional rationale. Submit POSTs to the create-ui-view
 // endpoint and redirects to the resulting proposal detail page.
 //
-// Per-primitive props (titles, column lists, etc.) survive untouched
+// Per-view props (titles, column lists, etc.) survive untouched
 // when a type stays checked; types being added arrive with only the
 // `type` field set — the agent-solver layer populates payload shape
 // at run-time, not here.
-export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
+export function ProposeUIViewEdit({ wsId, wfId, current }: Props) {
  const router = useRouter()
  const currentTypes = current.map((p) => p.type)
  const [editing, setEditing] = useState(false)
@@ -85,20 +85,20 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  return
  }
  if (selected.size === 0) {
- setError('At least one primitive must be selected.')
+ setError('At least one view must be selected.')
  return
  }
  // Preserve existing props for retained types; new types arrive
  // with just `type`. The kernel post-approval write will merge
- // these into spec.ui.tabs[0].primitives.
+ // these into spec.ui.tabs[0].views.
  const byType = new Map(current.map((p) => [p.type, p]))
  const proposed = Array.from(selected).map(
  (t) => byType.get(t) ?? { type: t },
  )
  startTransition(async () => {
- const result = await createUIPrimitiveProposalAction(wfId, {
+ const result = await createUIViewProposalAction(wfId, {
  plain_language_summary: summary.trim(),
- proposed_primitives: proposed,
+ proposed_views: proposed,
  rationale: rationale.trim() || null,
  })
  if (result.error || !result.proposal) {
@@ -127,7 +127,7 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  return (
  <div className="propose-edit-panel">
  <div className="propose-edit-head">
- <strong>Propose primitive-list edit</strong>
+ <strong>Propose view-list edit</strong>
  <span className="propose-edit-help">
  Goes through proposal review · regression gate ·
  domain-expert approval.
@@ -135,7 +135,7 @@ export function ProposeUIPrimitiveEdit({ wsId, wfId, current }: Props) {
  </div>
 
  <div className="propose-ui-checkbox-grid">
- {KNOWN_PRIMITIVE_TYPES.map((t) => (
+ {KNOWN_VIEW_TYPES.map((t) => (
  <label
  key={t}
  className={`propose-ui-checkbox${

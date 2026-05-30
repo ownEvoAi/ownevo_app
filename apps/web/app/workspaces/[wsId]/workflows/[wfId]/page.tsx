@@ -27,7 +27,7 @@ export default async function WorkflowOverviewPage({ params }: PageProps) {
  // Overview is meta-only: it describes the workflow + tracks the
  // improvement loop's state. Live execution data (inputs flowing in,
  // outputs the agent produces) belongs on the Operate tab — that's
- // where the spec's `ui.tabs[].primitives` render. Overview shows:
+ // where the spec's `ui.tabs[].views` render. Overview shows:
  // * a "next step" card driving the user toward the loop's next gate
  // * the lift curve (val_score across iterations) — improvement-meta
  // * the iteration list — improvement history

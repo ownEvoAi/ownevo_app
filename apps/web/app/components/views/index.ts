@@ -1,6 +1,6 @@
-// Workflow render primitives — leaf components keyed by the Pydantic
-// primitive type discriminator. See packages/trace-format/.../ui_primitives.py
-// for the typed contracts that decide which primitive renders, and
+// Workflow render views — leaf components keyed by the Pydantic
+// view type discriminator. See packages/trace-format/.../ui_views.py
+// for the typed contracts that decide which view renders, and
 // § Input shape for the
 // runtime data shapes each one consumes.
 

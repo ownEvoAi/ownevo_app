@@ -19,11 +19,11 @@ schema, do NOT regenerate — inspect what drifted (often a docstring edit
 that bled into a description field, or a default-value tweak) and roll
 back the model change instead.
 
-NOTE — cross-package dependency: `WorkflowSpec` inlines all `UIPrimitive`
+NOTE — cross-package dependency: `WorkflowSpec` inlines all `UIView`
 variants (from `packages/trace-format/`) into its JSON schema. A change to
-`ui_primitives.py` breaks BOTH `test_workflow_spec_schema_matches_frozen_snapshot`
-(here) AND `test_ui_primitive_schema_matches_frozen_snapshot` (trace-format).
-Run BOTH regen scripts when changing UIPrimitive:
+`ui_views.py` breaks BOTH `test_workflow_spec_schema_matches_frozen_snapshot`
+(here) AND `test_ui_view_schema_matches_frozen_snapshot` (trace-format).
+Run BOTH regen scripts when changing UIView:
 
     cd packages/trace-format && uv run python scripts/regen_schemas.py
     cd apps/kernel && uv run --extra agent python scripts/regen_nl_gen_schemas.py

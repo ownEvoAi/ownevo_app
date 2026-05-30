@@ -9,7 +9,7 @@ import {
  SideBySideView,
  TableView,
  TimeSeriesChart,
-} from '@/app/components/primitives'
+} from '@/app/components/views'
 import {
  ALERT_DEMO,
  CONVERSATION_DEMO,
@@ -26,10 +26,10 @@ export const metadata: Metadata = {
  title: 'Views · ownEvo',
 }
 
-// 8.0.1 + 8.0.2 — primitive showcase page. Renders every primitive
+// 8.0.1 + 8.0.2 — view showcase page. Renders every view
 // with hand-curated demo data lifted from
 // so reviewers and the
-// NL-gen generator have a live reference of how each primitive
+// NL-gen generator have a live reference of how each view
 // renders. The runtime data shapes here are the contracts the
 // a future agent-output resolver will produce from agent output.
 
@@ -165,7 +165,7 @@ const SECTIONS: Section[] = [
  },
 ]
 
-export default async function PrimitivesPage() {
+export default async function ViewsPage() {
  return (
  <>
  <header className="page-header" style={{ marginBottom: 12 }}>

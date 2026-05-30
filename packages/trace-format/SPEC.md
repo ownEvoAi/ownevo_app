@@ -241,14 +241,14 @@ The gate runner sees `error_class="Timeout"` and does NOT advance `best_ever_sco
 }
 ```
 
-## Workflow render primitives (, NL-gen output schema)
+## Workflow render views (, NL-gen output schema)
 
 The NL-gen pipeline emits a workflow spec containing a `ui:` block declaring
-which primitives to render. Same discriminated-union shape as AgentEvent. Lands
-in `src/ownevo_format/ui_primitives.py` at end of alongside the NL-gen
+which views to render. Same discriminated-union shape as AgentEvent. Lands
+in `src/ownevo_format/ui_views.py` at end of alongside the NL-gen
 schema freeze.
 
-The 9 primitives from the two-layer primitive architecture:
+The 9 views from the two-layer view architecture:
 
 ```python
 class MetricCards(BaseModel):
@@ -299,7 +299,7 @@ class DocumentReader(BaseModel):
  source: str # document source ID
  annotations_source: str | None # optional margin annotations
 
-UIPrimitive = Annotated[
+UIView = Annotated[
  Union[MetricCards, TimeSeriesChart, TableView, AlertList,
  KanbanBoard, ScheduleGrid, ConversationView, SideBySideView,
  DocumentReader],
@@ -307,9 +307,9 @@ UIPrimitive = Annotated[
 ]
 ```
 
-Each primitive's `source` / `fields` reference data structures defined elsewhere in the workflow spec (sim-emitted data + agent-emitted outputs). The web app's render layer reads the workflow spec, picks the right component per primitive, and feeds it the resolved data.
+Each view's `source` / `fields` reference data structures defined elsewhere in the workflow spec (sim-emitted data + agent-emitted outputs). The web app's render layer reads the workflow spec, picks the right component per view, and feeds it the resolved data.
 
-Long-tail escape hatch (per MVP doc): when no primitive fits, the coding agent emits a custom React component that lives in the workflow spec's `ui.custom_components` map. Same approval/diff/gate flow as a skill change. Custom components are NOT in `ui_primitives.py` — they're per-workflow JSX.
+Long-tail escape hatch (per MVP doc): when no view fits, the coding agent emits a custom React component that lives in the workflow spec's `ui.custom_components` map. Same approval/diff/gate flow as a skill change. Custom components are NOT in `ui_views.py` — they're per-workflow JSX.
 
 ## Field truncation rules
 
@@ -362,7 +362,7 @@ must round-trip against it.
 | Source of truth | `packages/trace-format/src/ownevo_format/agent_event.py` (Pydantic v2, `frozen=True`, `extra="forbid"`) | `apps/web/lib/api.ts` lines 684-746 (hand-written `interface` types, no Zod yet) |
 | Schema snapshot | `packages/trace-format/schemas/agent_event.v1.0.json` | (same — TS reads from the JSON snapshot for type-narrowing helpers) |
 | Conformance test | `packages/trace-format/tests/test_schema_freeze.py` — re-derives the schema from Pydantic and diff-asserts against the snapshot | (none today — TS types are reviewed by hand against the snapshot at PR time; **gap**) |
-| UI primitives counterpart | `packages/trace-format/src/ownevo_format/ui_primitives.py` | (interface defs scattered in `apps/web/app/components/primitives/*.tsx`; **also a gap** — not consolidated to one types file) |
+| UI views counterpart | `packages/trace-format/src/ownevo_format/ui_views.py` | (interface defs scattered in `apps/web/app/components/views/*.tsx`; **also a gap** — not consolidated to one types file) |
 
 ### How the TS side stays in sync today
 

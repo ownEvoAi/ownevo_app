@@ -191,7 +191,7 @@ export function WorkspaceNav({ wsId, workflows, workspaces, activeWorkspaceId, t
  </svg>
  <span className="nav-label">Skills</span>
  </a>
- <a href={`${root}/primitives`} className={cls(`${root}/primitives`)}>
+ <a href={`${root}/views`} className={cls(`${root}/views`)}>
  <svg className="nav-icon" viewBox="0 0 16 16">
  <rect x="2" y="2" width="5" height="5" />
  <rect x="9" y="2" width="5" height="5" />

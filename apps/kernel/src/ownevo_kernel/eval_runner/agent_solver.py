@@ -73,7 +73,7 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static type-check
 DEFAULT_MODEL = os.environ.get("OWNEVO_AGENT_SOLVER_MODEL") or "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 4_000
 """Bool + one-line rationale fits in <500 tokens; the Operate-tab
-`output_payload_json` (multi-primitive shape: metrics + time_series +
+`output_payload_json` (multi-view shape: metrics + time_series +
 table + alerts + kanban + ...) eats 1.5-3k tokens — a 1k cap forces
 the model to silently drop the payload to fit, so we budget for it."""
 DEFAULT_MAX_TOKENS_OPENAI = 8_000
@@ -237,7 +237,7 @@ class AgentPrediction:
     explanation; `model` records which model produced this for
     cross-run comparability. `output_payload` is the optional
     domain-shaped artifact the agent emits when the workflow's Operate
-    UI declares primitives that need richer-than-bool content (forecast
+    UI declares views that need richer-than-bool content (forecast
     curves, redline pairs, recommendation tables). None when the agent
     didn't emit one — Operate falls back to its empty state.
     """
@@ -365,12 +365,12 @@ def _format_tools_for_context(spec: WorkflowSpec) -> str:
     return "\n".join(lines)
 
 
-# Per-primitive payload key + canonical shape. The web Operate resolver
-# looks up `output_payload[key]` for each primitive declared on the
+# Per-view payload key + canonical shape. The web Operate resolver
+# looks up `output_payload[key]` for each view declared on the
 # spec's Operate tab; agreement here is what makes the round-trip work.
 # Shapes are intentionally thin — enough for the renderer to populate
-# the primitive, not enough to bloat the agent's tool call budget.
-_PRIMITIVE_PAYLOAD_GUIDE: dict[str, tuple[str, str]] = {
+# the view, not enough to bloat the agent's tool call budget.
+_VIEW_PAYLOAD_GUIDE: dict[str, tuple[str, str]] = {
     "MetricCards": (
         "metrics",
         '[{ "label": str, "value": str | number, "delta_pct"?: number }, ...] '
@@ -431,12 +431,12 @@ _PRIMITIVE_PAYLOAD_GUIDE: dict[str, tuple[str, str]] = {
 }
 
 
-def _operate_primitives(spec: WorkflowSpec) -> list[str]:
-    """Pick the operate-tab primitive types declared on the spec.
+def _operate_views(spec: WorkflowSpec) -> list[str]:
+    """Pick the operate-tab view types declared on the spec.
 
     Mirrors the web resolver's tab-fallback: look for a tab literally
     named "operate" (case-insensitive), else the second tab, else the
-    first. Returns the distinct primitive type names; empty if the
+    first. Returns the distinct view type names; empty if the
     spec has no UI plan.
     """
     ui = getattr(spec, "ui", None)
@@ -451,11 +451,11 @@ def _operate_primitives(spec: WorkflowSpec) -> list[str]:
     )
     if operate_tab is None:
         operate_tab = tabs[1] if len(tabs) >= 2 else tabs[0]
-    primitives = list(getattr(operate_tab, "primitives", None) or [])
+    views = list(getattr(operate_tab, "views", None) or [])
     seen: list[str] = []
-    for p in primitives:
+    for p in views:
         ptype = getattr(p, "type", None)
-        if isinstance(ptype, str) and ptype in _PRIMITIVE_PAYLOAD_GUIDE and ptype not in seen:
+        if isinstance(ptype, str) and ptype in _VIEW_PAYLOAD_GUIDE and ptype not in seen:
             seen.append(ptype)
     return seen
 
@@ -463,21 +463,21 @@ def _operate_primitives(spec: WorkflowSpec) -> list[str]:
 def _format_output_payload_guidance(spec: WorkflowSpec) -> str | None:
     """Per-workflow `output_payload` shape, derived from the spec's UI.
 
-    Returns None when the spec declares no renderable primitives on its
+    Returns None when the spec declares no renderable views on its
     Operate tab — the agent then omits `output_payload` and the Operate
     UI stays in its honest empty state.
 
     The block tells the agent which keys it should fill on
     `output_payload` and what shape each key expects. The agent emits
     workflow-correct content; the resolver renders it through the
-    matching web primitive.
+    matching web view.
     """
-    types = _operate_primitives(spec)
+    types = _operate_views(spec)
     if not types:
         return None
     lines: list[str] = []
     for ptype in types:
-        key, shape = _PRIMITIVE_PAYLOAD_GUIDE[ptype]
+        key, shape = _VIEW_PAYLOAD_GUIDE[ptype]
         lines.append(f"- `{key}` ({ptype}): {shape}")
     bullets = "\n".join(lines)
     return (
@@ -564,7 +564,7 @@ def _format_user_message(
         )
     else:
         decision_lines.append(
-            "- `output_payload_json`: `\"{}\"` (no Operate primitives "
+            "- `output_payload_json`: `\"{}\"` (no Operate views "
             "declared for this workflow)."
         )
     parts.append("\n".join(decision_lines))

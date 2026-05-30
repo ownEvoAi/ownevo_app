@@ -48,10 +48,10 @@ DEFAULT_INTERVIEWER_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 2_000
 
 
-# Vocabulary the model needs to see to recommend Operate-UI primitives.
-# Mirrors `_PRIMITIVE_PAYLOAD_GUIDE` in eval_runner/agent_solver.py — if
-# the primitive set changes there, update here too.
-_PRIMITIVE_VOCABULARY: tuple[tuple[str, str], ...] = (
+# Vocabulary the model needs to see to recommend Operate-UI views.
+# Mirrors `_VIEW_PAYLOAD_GUIDE` in eval_runner/agent_solver.py — if
+# the view set changes there, update here too.
+_VIEW_VOCABULARY: tuple[tuple[str, str], ...] = (
     ("MetricCards", "2-4 headline numbers — credit utilisation %, default count, etc."),
     ("TimeSeriesChart", "Trend lines over time — forecast curves, usage rates."),
     ("TableView", "One row per recommendation / account / SKU / ticket."),
@@ -290,10 +290,10 @@ def _build_user_message(
         open_lines.append(f"- `{d.key}` ({d.label}): {d.intent}")
     parts.append("\n".join(open_lines))
 
-    primitives = "\n".join(f"  - {name}: {hint}" for name, hint in _PRIMITIVE_VOCABULARY)
+    views = "\n".join(f"  - {name}: {hint}" for name, hint in _VIEW_VOCABULARY)
     parts.append(
-        "## Operate-UI primitive vocabulary (only relevant for the "
-        "`operate_ui_primitives` dimension)\n" + primitives
+        "## Operate-UI view vocabulary (only relevant for the "
+        "`operate_ui_primitives` dimension)\n" + views
     )
 
     parts.append(

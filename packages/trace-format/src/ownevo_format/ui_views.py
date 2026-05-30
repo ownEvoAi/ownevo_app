@@ -1,14 +1,14 @@
-"""UI primitives — typed discriminated union for the workflow render layer.
+"""UI views — typed discriminated union for the workflow render layer.
 
-Implements the 9-variant primitive set defined in `packages/trace-format/SPEC.md`
-§ "Workflow render primitives".
+Implements the 9-variant view set defined in `packages/trace-format/SPEC.md`
+§ "Workflow render views".
 
 The NL-gen pipeline (W3 Track A) emits a `WorkflowSpec.ui` block declaring
-which primitives to render and how they're configured; the web app's render
-layer reads the spec and picks the right component per primitive.
+which views to render and how they're configured; the web app's render
+layer reads the spec and picks the right component per view.
 
 Same conventions as `agent_event.py`: discriminated union on `type`, frozen,
-`extra="forbid"`, `UIPrimitiveAdapter` is the canonical dict→typed parser.
+`extra="forbid"`, `UIViewAdapter` is the canonical dict→typed parser.
 """
 
 from __future__ import annotations
@@ -18,18 +18,18 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
-class _UIPrimitiveBase(BaseModel):
+class _UIViewBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class MetricCards(_UIPrimitiveBase):
+class MetricCards(_UIViewBase):
     """KPI tiles. Used for forecast accuracy, CSAT, $ at risk, etc."""
 
     type: Literal["MetricCards"]
     fields: list[str] = Field(min_length=1)
 
 
-class TimeSeriesChart(_UIPrimitiveBase):
+class TimeSeriesChart(_UIViewBase):
     """Time-series. Demand forecast, ticket volume, lift charts."""
 
     type: Literal["TimeSeriesChart"]
@@ -38,7 +38,7 @@ class TimeSeriesChart(_UIPrimitiveBase):
     group_by: str | None = None
 
 
-class TableView(_UIPrimitiveBase):
+class TableView(_UIViewBase):
     """Tabular list. SKU list, ticket queue, line items."""
 
     type: Literal["TableView"]
@@ -46,7 +46,7 @@ class TableView(_UIPrimitiveBase):
     columns: list[str] = Field(min_length=1)
 
 
-class AlertList(_UIPrimitiveBase):
+class AlertList(_UIViewBase):
     """Markdown alerts, escalations, clause flags."""
 
     type: Literal["AlertList"]
@@ -55,7 +55,7 @@ class AlertList(_UIPrimitiveBase):
     title_field: str = "title"
 
 
-class KanbanBoard(_UIPrimitiveBase):
+class KanbanBoard(_UIViewBase):
     """Tickets by status, deals by stage."""
 
     type: Literal["KanbanBoard"]
@@ -64,7 +64,7 @@ class KanbanBoard(_UIPrimitiveBase):
     card_title_field: str
 
 
-class ScheduleGrid(_UIPrimitiveBase):
+class ScheduleGrid(_UIViewBase):
     """2-D resource × time grid with cell-level status.
 
     Shift schedules, content calendars, capacity boards, room booking,
@@ -78,14 +78,14 @@ class ScheduleGrid(_UIPrimitiveBase):
     cells_source: str
 
 
-class ConversationView(_UIPrimitiveBase):
+class ConversationView(_UIViewBase):
     """Multi-turn agent transcript with citations."""
 
     type: Literal["ConversationView"]
     trace_source: str
 
 
-class SideBySideView(_UIPrimitiveBase):
+class SideBySideView(_UIViewBase):
     """Contract clause + redline, document diff."""
 
     type: Literal["SideBySideView"]
@@ -94,7 +94,7 @@ class SideBySideView(_UIPrimitiveBase):
     diff_mode: Literal["text", "json"] = "text"
 
 
-class DocumentReader(_UIPrimitiveBase):
+class DocumentReader(_UIViewBase):
     """Contracts, policies, runbooks with margin annotations."""
 
     type: Literal["DocumentReader"]
@@ -102,7 +102,7 @@ class DocumentReader(_UIPrimitiveBase):
     annotations_source: str | None = None
 
 
-UIPrimitive = Annotated[
+UIView = Annotated[
     (
         MetricCards
         | TimeSeriesChart
@@ -116,11 +116,11 @@ UIPrimitive = Annotated[
     ),
     Field(discriminator="type"),
 ]
-"""Discriminated union over the 9 workflow render primitives."""
+"""Discriminated union over the 9 workflow render views."""
 
 
-UIPrimitiveAdapter: TypeAdapter[UIPrimitive] = TypeAdapter(UIPrimitive)
-"""Canonical entry point for parsing dict → typed primitive."""
+UIViewAdapter: TypeAdapter[UIView] = TypeAdapter(UIView)
+"""Canonical entry point for parsing dict → typed view."""
 
 
 __all__ = [
@@ -133,6 +133,6 @@ __all__ = [
     "ConversationView",
     "SideBySideView",
     "DocumentReader",
-    "UIPrimitive",
-    "UIPrimitiveAdapter",
+    "UIView",
+    "UIViewAdapter",
 ]

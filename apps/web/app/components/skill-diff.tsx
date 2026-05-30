@@ -2,7 +2,7 @@
 // proposed (right). Each side renders the full skill body for that
 // version, with mismatched lines highlighted (`diff-del` on the left,
 // `diff-add` on the right) and shared lines as `ctx`. Classes are
-// already defined in `public/styles/primitives.css` — same set the
+// already defined in `public/styles/views.css` — same set the
 // `07-proposal-detail.html` mock uses.
 //
 // We keep the LCS computation (rare >500-line skills, fine) and emit
@@ -186,7 +186,7 @@ function Line({
  if (kind === 'context') {
  return <span className="ctx">{text || ' '}</span>
  }
- // `diff-add` / `diff-del` are styled in primitives.css and already
+ // `diff-add` / `diff-del` are styled in views.css and already
  // include the `+ ` / `− ` glyph via ::before, so don't prepend it.
  // `.diff-line` (globals.css) makes each one a full-row block.
  return (

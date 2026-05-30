@@ -202,7 +202,7 @@ CONTRACT_REVIEW_SPEC = WorkflowSpec(
         tabs=[
             UITab(
                 name="Review",
-                primitives=[
+                views=[
                     MetricCards(
                         type="MetricCards",
                         fields=[

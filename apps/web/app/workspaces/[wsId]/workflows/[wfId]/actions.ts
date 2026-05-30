@@ -6,13 +6,13 @@ import {
  createDescriptionProposal,
  createMetricProposal,
  createSimProposal,
- createUIPrimitiveProposal,
+ createUIViewProposal,
  KernelApiError,
  runWorkflowIteration,
  type CreateDescriptionProposalBody,
  type CreateMetricProposalBody,
  type CreateSimProposalBody,
- type CreateUIPrimitiveProposalBody,
+ type CreateUIViewProposalBody,
  type ProposalSummary,
 } from '@/lib/api'
 
@@ -119,12 +119,12 @@ export async function createSimProposalAction(
  }
 }
 
-export async function createUIPrimitiveProposalAction(
+export async function createUIViewProposalAction(
  wfId: string,
- body: CreateUIPrimitiveProposalBody,
+ body: CreateUIViewProposalBody,
 ): Promise<ProposalActionResult> {
  try {
- return { proposal: await createUIPrimitiveProposal(wfId, body), error: null }
+ return { proposal: await createUIViewProposal(wfId, body), error: null }
  } catch (err) {
  return { proposal: null, error: proposalErrMsg(err) }
  }

@@ -170,7 +170,7 @@ async def test_endpoint_returns_zero_findings_for_derived_spec(
         WorkflowEnvironment,
         WorkflowSpec,
     )
-    from ownevo_format.ui_primitives import MetricCards
+    from ownevo_format.ui_views import MetricCards
 
     derived = Provenance(kind="derived", source="quoted from description")
     clean_spec = WorkflowSpec(
@@ -189,7 +189,7 @@ async def test_endpoint_returns_zero_findings_for_derived_spec(
             description="minimize error",
         ),
         ui=UILayout(
-            tabs=[UITab(name="Overview", primitives=[MetricCards(type="MetricCards", fields=["score"])])],
+            tabs=[UITab(name="Overview", views=[MetricCards(type="MetricCards", fields=["score"])])],
         ),
     )
     resp = await client.post(

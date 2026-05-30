@@ -27,7 +27,7 @@ from ownevo_format.agent_event import (
     is_tool_call_result,
     is_tool_call_start,
 )
-from ownevo_format.ui_primitives import (
+from ownevo_format.ui_views import (
     AlertList,
     ConversationView,
     DocumentReader,
@@ -37,8 +37,8 @@ from ownevo_format.ui_primitives import (
     SideBySideView,
     TableView,
     TimeSeriesChart,
-    UIPrimitive,
-    UIPrimitiveAdapter,
+    UIView,
+    UIViewAdapter,
 )
 
 __all__ = [
@@ -73,6 +73,6 @@ __all__ = [
     "ConversationView",
     "SideBySideView",
     "DocumentReader",
-    "UIPrimitive",
-    "UIPrimitiveAdapter",
+    "UIView",
+    "UIViewAdapter",
 ]

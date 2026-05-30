@@ -1,6 +1,6 @@
 """A3.4 schema-freeze guards for trace-format.
 
-Tag: `v1.0-frozen-2026-W3`. Locks `AgentEvent` and `UIPrimitive` JSON
+Tag: `v1.0-frozen-2026-W3`. Locks `AgentEvent` and `UIView` JSON
 schemas at v1.0 so the W7 UI rendering and the M5 agent loop develop
 against a stable contract. Drift detection: live `json_schema()` vs the
 checked-in snapshots at `packages/trace-format/schemas/`.
@@ -15,7 +15,7 @@ If a test here fails:
     `uv run python scripts/regen_schemas.py` from
     `packages/trace-format/`, and re-test the W7 UI surface (M5 agent
     loop trace ingestion + the proposal-detail page that reads
-    UIPrimitive blocks).
+    UIView blocks).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from ownevo_format import AgentEventAdapter
 from ownevo_format.agent_event import SCHEMA_VERSION
-from ownevo_format.ui_primitives import UIPrimitive
+from ownevo_format.ui_views import UIView
 from pydantic import TypeAdapter
 
 _SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
@@ -77,9 +77,9 @@ def test_agent_event_schema_matches_frozen_snapshot():
     )
 
 
-def test_ui_primitive_schema_matches_frozen_snapshot():
+def test_ui_view_schema_matches_frozen_snapshot():
     _assert_matches(
-        "TypeAdapter(UIPrimitive).json_schema()",
-        TypeAdapter(UIPrimitive).json_schema(),
-        _SCHEMAS_DIR / f"ui_primitives.v{SCHEMA_VERSION}.json",
+        "TypeAdapter(UIView).json_schema()",
+        TypeAdapter(UIView).json_schema(),
+        _SCHEMAS_DIR / f"ui_views.v{SCHEMA_VERSION}.json",
     )

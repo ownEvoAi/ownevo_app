@@ -14,16 +14,16 @@ import {
  type WorkflowSpecShape,
 } from '@/lib/api'
 import { relativeTime } from '@/lib/format'
-import { AlertList } from '@/app/components/primitives/alert-list'
-import { ConversationView } from '@/app/components/primitives/conversation-view'
-import { DocumentReader } from '@/app/components/primitives/document-reader'
-import { KanbanBoard } from '@/app/components/primitives/kanban-board'
-import { MetricCards } from '@/app/components/primitives/metric-cards'
-import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
-import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
-import { TableView } from '@/app/components/primitives/table-view'
-import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
-import { resolveTabPrimitives } from '@/lib/primitive-data-resolver'
+import { AlertList } from '@/app/components/views/alert-list'
+import { ConversationView } from '@/app/components/views/conversation-view'
+import { DocumentReader } from '@/app/components/views/document-reader'
+import { KanbanBoard } from '@/app/components/views/kanban-board'
+import { MetricCards } from '@/app/components/views/metric-cards'
+import { ScheduleGrid } from '@/app/components/views/schedule-grid'
+import { SideBySideView } from '@/app/components/views/side-by-side-view'
+import { TableView } from '@/app/components/views/table-view'
+import { TimeSeriesChart } from '@/app/components/views/time-series-chart'
+import { resolveTabViews } from '@/lib/view-data-resolver'
 
 interface PageProps {
  params: Promise<{ wsId: string; wfId: string }>
@@ -40,7 +40,7 @@ interface PageProps {
 // triggers. No agent emission needed.
 //
 // Output side passes `context: 'operate'` to the layer-D resolver so
-// iteration-meta and eval-prediction primitives stay empty here. They
+// iteration-meta and eval-prediction views stay empty here. They
 // will be replaced with real production output when a workflow-
 // specific production_output payload lands (kernel-side: a
 // `submit_production_output` tool + `workflow_production_outputs`
@@ -93,10 +93,10 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  // 1. tab named exactly "operate" (mock-shaped specs)
  // 2. the second tab if the spec has ≥2 (Overview-at-0 + Operate-at-1)
  // 3. the first tab if there's only one (single-tab specs share
- // primitives between Overview and Operate — the chrome differs,
- // not the primitive set)
+ // views between Overview and Operate — the chrome differs,
+ // not the view set)
  // 4. nothing when zero tabs are declared
- // Matches the operator route's fallback (`resolvePrimitives` reads
+ // Matches the operator route's fallback (`resolveViews` reads
  // tabs[0]), so /operate and /operator/[wf] stay in sync.
  const tabs = spec?.ui?.tabs ?? []
  const operateTab =
@@ -104,8 +104,8 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  tabs[1] ??
  tabs[0]
 
- const primitives = operateTab
- ? resolveTabPrimitives(
+ const views = operateTab
+ ? resolveTabViews(
  {
  spec,
  iterations,
@@ -119,10 +119,10 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  ) ?? []
  : []
 
- const resolved = primitives.filter((p) => p.kind !== 'empty')
- const unresolvedTypes = primitives
- .filter((p): p is Extract<typeof primitives[number], { kind: 'empty' }> => p.kind === 'empty')
- .map((p) => p.primitiveType)
+ const resolved = views.filter((p) => p.kind !== 'empty')
+ const unresolvedTypes = views
+ .filter((p): p is Extract<typeof views[number], { kind: 'empty' }> => p.kind === 'empty')
+ .map((p) => p.viewType)
 
  const pendingProposals = proposals.filter(
  (p) => p.state === 'gate-passed' || p.state === 'pending',
@@ -142,7 +142,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  // "Has the agent produced any domain-shaped output the operator can
  // actually see?" — drives the status banner. Doesn't track live
  // triggers (no live-trigger plumbing yet); reflects only whether the
- // latest iteration produced a payload primitive the resolver can
+ // latest iteration produced a payload view the resolver can
  // render.
  const hasProduction =
  (caseOutputs?.items ?? []).some(
@@ -256,7 +256,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  Outputs
  </h2>
  {resolved.length > 0 ? (
- <div className="overview-primitives">
+ <div className="overview-views">
  {resolved.map((p, i) => {
  if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
  if (p.kind === 'TimeSeriesChart')
@@ -288,7 +288,7 @@ export default async function WorkflowOperatePage({ params }: PageProps) {
  </strong>
  <p style={{ margin: '8px 0 0' }}>
  When a trigger fires and the agent produces output against
- live data, the spec&rsquo;s declared primitives
+ live data, the spec&rsquo;s declared views
  {unresolvedTypes.length > 0 ? (
  <>
  {' '}({unresolvedTypes.join(', ')})

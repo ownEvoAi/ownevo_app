@@ -46,10 +46,12 @@ _SCHEMAS_DIR = (
 
 
 def test_workflow_spec_schema_version_is_pinned():
-    """v1.0 → v1.1 (ScheduleGrid primitive) → v1.2 (MCP DataSource fields) →
-    v1.3 (upload DataSource fields) → v1.4 (triggers list).
-    All additive; the pin is structural drift detection only."""
-    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.4"
+    """v1.0 → v1.1 (ScheduleGrid view) → v1.2 (MCP DataSource fields) →
+    v1.3 (upload DataSource fields) → v1.4 (triggers list) →
+    v1.5 (UITab field `primitives` renamed to `views`).
+    v1.1–v1.4 additive; v1.5 is a structural field rename. The pin is
+    structural drift detection only."""
+    assert WORKFLOW_SPEC_SCHEMA_VERSION == "1.5"
 
 
 def test_simulation_plan_schema_version_is_pinned():
