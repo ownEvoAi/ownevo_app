@@ -165,8 +165,9 @@ build:
 
 ```bash
 # Pin a released version (recommended over :latest for reproducibility).
-export OWNEVO_KERNEL_IMAGE=ghcr.io/ownevoai/ownevo-kernel:v0.1.0
-export OWNEVO_WEB_IMAGE=ghcr.io/ownevoai/ownevo-web:v0.1.0
+# Image tags carry no leading "v" (e.g. 0.14.0, not v0.14.0).
+export OWNEVO_KERNEL_IMAGE=ghcr.io/ownevoai/ownevo-kernel:0.14.0
+export OWNEVO_WEB_IMAGE=ghcr.io/ownevoai/ownevo-web:0.14.0
 
 docker compose pull                                   # fetch the images
 ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --no-build
