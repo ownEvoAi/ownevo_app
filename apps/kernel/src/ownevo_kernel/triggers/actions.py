@@ -3,9 +3,12 @@
 When a trigger fires it dispatches one of three actions:
 
 ``run_clustering``
-    Runs `cluster_production_failures` for the workflow immediately (no
-    debounce; the trigger itself is the debounce mechanism for cron /
-    threshold triggers).
+    Enqueues a production-failure clustering pass for the workflow on the
+    durable job queue. ``action_enqueue_clustering`` inserts the
+    ``run_clustering`` job; the ``JobWorker`` later calls
+    ``action_run_clustering`` (the executor that actually runs the heavy
+    pipeline). Like ``run_iteration``, the work then survives a kernel restart
+    and is idempotent per workflow.
 
 ``run_iteration``
     Enqueues one improvement-loop iteration for the workflow on the durable
@@ -51,6 +54,11 @@ async def action_run_clustering(
 ) -> int:
     """Run the production-failure clustering pipeline for `workflow_id`.
 
+    This is the **executor**: it runs the heavy pipeline. It is invoked by the
+    ``JobWorker``'s ``run_clustering`` handler after a job is claimed — not
+    directly from a request or background loop. To *schedule* clustering, call
+    ``action_enqueue_clustering`` instead.
+
     Returns the number of clusters persisted.  Imports the heavy
     clustering extras lazily — the caller can catch `ImportError` and
     log a meaningful message when the extras are absent.
@@ -59,13 +67,23 @@ async def action_run_clustering(
     the connection is properly scoped under RLS before any workspace-scoped
     table (``traces``, ``failure_clusters``) is read or written.
     """
-    from ..clustering.default_impl import (
-        AnthropicLabeler,
-        HDBSCANClusterer,
-        SentenceTransformerEmbedder,
-        UMAPReducer,
-    )
-    from ..clustering.from_traces import cluster_production_failures
+    # These imports are the only source of ImportError in this function.
+    # Guarded here so the caller's `except ImportError` stays narrowly scoped
+    # to missing-extras detection rather than catching unrelated import errors
+    # from inside the pipeline.
+    try:
+        from ..clustering.default_impl import (
+            AnthropicLabeler,
+            HDBSCANClusterer,
+            SentenceTransformerEmbedder,
+            UMAPReducer,
+        )
+        from ..clustering.from_traces import cluster_production_failures
+    except ImportError as exc:
+        raise ImportError(
+            "clustering or agent extras not installed; "
+            "run `pip install ownevo-kernel[clustering,agent]` to enable"
+        ) from exc
 
     async with acquire_workspace_conn(pool, workspace_id) as conn:
         results = await cluster_production_failures(
@@ -77,6 +95,54 @@ async def action_run_clustering(
             labeler=AnthropicLabeler(),
         )
     return len(results)
+
+
+async def action_enqueue_clustering(
+    pool: asyncpg.Pool,
+    workflow_id: str,
+    workspace_id: str,
+) -> uuid.UUID | None:
+    """Enqueue a production-failure clustering pass for `workflow_id`.
+
+    Inserts a ``run_clustering`` job on the durable queue rather than running
+    the heavy pipeline inline: a background ``JobWorker`` claims it and calls
+    ``action_run_clustering``, so the work survives a kernel restart and is
+    retried if the worker dies mid-run. Mirrors ``action_run_iteration``.
+
+    Enqueue is idempotent per workflow — the queue's active-job unique index
+    (``workspace_id``, ``kind``, ``workflow_id``) means a second enqueue for a
+    workflow that already has a queued or running clustering job is a no-op.
+    The index includes ``kind``, so a pending clustering job and a pending
+    iteration job for the same workflow coexist.
+
+    Returns the new job id, or ``None`` when a clustering job for this workflow
+    was already queued or running.
+
+    ``workspace_id`` must match the workspace the workflow belongs to so the
+    job row is correctly scoped under RLS before the worker picks it up.
+    """
+    from ..jobs import enqueue_job
+
+    async with acquire_workspace_conn(pool, workspace_id) as conn:
+        job_id = await enqueue_job(
+            conn,
+            kind="run_clustering",
+            payload={"workflow_id": workflow_id},
+        )
+
+    if job_id is None:
+        _log.info(
+            "trigger: clustering already queued/running for workflow %s; "
+            "skipped duplicate enqueue",
+            workflow_id,
+        )
+    else:
+        _log.info(
+            "trigger: enqueued clustering job %s for workflow %s",
+            job_id,
+            workflow_id,
+        )
+    return job_id
 
 
 async def action_run_iteration(

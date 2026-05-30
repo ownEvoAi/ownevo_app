@@ -100,9 +100,9 @@ _AUTOTRIGGER_DEBOUNCE_ENV = "OWNEVO_CLUSTER_AUTOTRIGGER_DEBOUNCE_SECONDS"
 # Disabled by default; enable with OWNEVO_TRIGGER_SCHEDULER=true.
 _TRIGGER_SCHEDULER_ENV = "OWNEVO_TRIGGER_SCHEDULER"
 
-# Background worker that drains the durable job queue (run_iteration jobs).
-# The trigger scheduler is its only producer, so it follows the scheduler by
-# default; OWNEVO_JOB_WORKER overrides either way ("true"/"false").
+# Background worker that drains the durable job queue (run_iteration and
+# run_clustering jobs). Follows the trigger scheduler by default;
+# OWNEVO_JOB_WORKER overrides either way ("true"/"false").
 _JOB_WORKER_ENV = "OWNEVO_JOB_WORKER"
 
 
@@ -288,9 +288,9 @@ def create_app(
             app.state.trigger_scheduler = scheduler
             logger.info("trigger scheduler: enabled")
 
-        # Durable job-queue worker. Drains run_iteration jobs the scheduler
-        # enqueues; follows the scheduler by default so a restart resumes
-        # trigger-fired iteration work instead of dropping it.
+        # Durable job-queue worker. Drains run_iteration and run_clustering
+        # jobs; follows the scheduler by default so a restart resumes
+        # in-flight work instead of dropping it.
         app.state.job_worker = None
         if _job_worker_enabled() and not is_demo_mode():
             from ..jobs import JobWorker
@@ -298,6 +298,13 @@ def create_app(
             await worker.start()
             app.state.job_worker = worker
             logger.info("job worker: enabled")
+        elif app.state.cluster_auto_trigger is not None:
+            # Auto-trigger enqueues run_clustering jobs; without a job worker
+            # those jobs will pile up in the queue and never run.
+            logger.warning(
+                "cluster auto-trigger is enabled but the job worker is disabled "
+                "(set OWNEVO_JOB_WORKER=true to drain run_clustering jobs)"
+            )
 
         try:
             yield

@@ -7,7 +7,7 @@
     workspace-scoped DB write is properly bound under RLS.
 3.  Validates any kind-specific prerequisites (HMAC already checked by the
     webhook route; cron/threshold triggers have no incoming payload to validate).
-4.  Dispatches to `action_run_clustering`, `action_run_iteration`, or
+4.  Dispatches to `action_enqueue_clustering`, `action_run_iteration`, or
     `action_ingest_failures`.
 5.  Records a `TriggerFire` row via `TriggerRegistry.record_fire`.
 6.  Returns a `DispatchResult` for the caller to surface in the API response.
@@ -19,6 +19,8 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import uuid
+
     import asyncpg
 
 from pydantic import BaseModel, ConfigDict
@@ -84,8 +86,14 @@ class TriggerDispatcher:
             workspace_id = await _fetch_workflow_workspace_id(self._pool, workflow_id)
 
             if trigger.action == "run_clustering":
-                n = await _dispatch_clustering(self._pool, workflow_id, workspace_id)
-                detail = f"clustering completed: {n} cluster(s)"
+                job_id = await _dispatch_clustering(
+                    self._pool, workflow_id, workspace_id
+                )
+                detail = (
+                    f"clustering enqueued (job {job_id})"
+                    if job_id is not None
+                    else "clustering already queued"
+                )
 
             elif trigger.action == "run_iteration":
                 await _dispatch_iteration(self._pool, workflow_id, workspace_id)
@@ -176,9 +184,14 @@ async def _fetch_workflow_workspace_id(pool: asyncpg.Pool, workflow_id: str) -> 
 
 async def _dispatch_clustering(
     pool: asyncpg.Pool, workflow_id: str, workspace_id: str
-) -> int:
-    from .actions import action_run_clustering
-    return await action_run_clustering(pool, workflow_id, workspace_id)
+) -> uuid.UUID | None:
+    """Enqueue a durable run_clustering job; the JobWorker runs the pipeline.
+
+    Returns the new job id, or None when a clustering job for this workflow is
+    already queued or running (idempotent enqueue).
+    """
+    from .actions import action_enqueue_clustering
+    return await action_enqueue_clustering(pool, workflow_id, workspace_id)
 
 
 async def _dispatch_iteration(
