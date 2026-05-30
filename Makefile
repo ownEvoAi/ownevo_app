@@ -27,6 +27,8 @@ help:
 	@printf '    dev-logs            tail logs from all compose services\n'
 	@printf '    api                 run kernel API directly (uvicorn :8000, no docker)\n'
 	@printf '    web-dev             run Next.js dev server directly (:3000, no docker)\n'
+	@printf '    db-migrate          apply pending migrations against dev Postgres (idempotent)\n'
+	@printf '    db-reset            DESTRUCTIVE: drop + recreate + migrate the dev database\n'
 	@printf '\n  ${BOLD}Seed${RESET}\n'
 	@printf '    seed-demo           seed credit-risk + contract-review workflows\n'
 	@printf '    seed-demo-with-iter same, plus run one iteration (costs ~$$0.30)\n'
@@ -499,7 +501,7 @@ db-reset:
 	docker compose up -d postgres
 	@echo "waiting for postgres to be ready..."
 	@until docker compose exec -T postgres pg_isready -U ownevo -d ownevo >/dev/null 2>&1; do sleep 1; done
-	docker compose exec -T postgres dropdb -U ownevo --if-exists ownevo
+	docker compose exec -T postgres dropdb -U ownevo --force --if-exists ownevo
 	docker compose exec -T postgres createdb -U ownevo ownevo
 	$(MAKE) db-migrate
 

@@ -320,8 +320,11 @@ async def migrate(conn: asyncpg.Connection, directory: Path = MIGRATIONS_DIR) ->
     applied: list[str] = []
     for path in migration_files(directory):
         sql = path.read_text()
+        sql_no_comments = "\n".join(
+            line for line in sql.splitlines() if not line.lstrip().startswith("--")
+        )
         needs_no_txn = (
-            "ADD VALUE" in sql.upper()
+            "ADD VALUE" in sql_no_comments.upper()
             or "-- ownevo:no-txn" in sql
         )
         if needs_no_txn:

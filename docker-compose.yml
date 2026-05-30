@@ -34,7 +34,7 @@ services:
     image: ownevo-kernel:local
     container_name: ownevo-migrate
     command: ["uv", "run", "--package", "ownevo-kernel", "--extra", "api",
-              "--extra", "agent", "python", "apps/kernel/scripts/migrate.py"]
+              "python", "apps/kernel/scripts/migrate.py"]
     environment:
       OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
     depends_on:
@@ -96,6 +96,9 @@ services:
       OWNEVO_PROVIDER_OLLAMA_ENABLED: ${OWNEVO_PROVIDER_OLLAMA_ENABLED:-false}
       OWNEVO_PROVIDER_OLLAMA_MODELS: ${OWNEVO_PROVIDER_OLLAMA_MODELS:-}
       OWNEVO_LLM_HOST: ${OWNEVO_LLM_HOST:-}
+      OWNEVO_CREDENTIALS_MASTER_KEY: ${OWNEVO_CREDENTIALS_MASTER_KEY:-}
+      OWNEVO_DEMO_SIGNING_KEY: ${OWNEVO_DEMO_SIGNING_KEY:-}
+      OWNEVO_INTERNAL_AUTH_KEY: ${OWNEVO_INTERNAL_AUTH_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
