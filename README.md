@@ -93,7 +93,18 @@ make seed-demo-with-iter                    # seed two workflows + run one itera
 
 `make dev-down` to stop. `make smoke` to verify the stack. `make doctor` to preflight before deploying. `make help` for the common targets, `make help-all` for everything.
 
-Full deployment options — local, Docker Compose, Fly.io: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). One-shot Fly.io deploy: `make fly-bootstrap`.
+Prefer not to build from source? Pre-built images are published to GHCR on
+every release — `ghcr.io/ownevoai/ownevo-kernel` and `…/ownevo-web` — and run
+on the same compose file:
+
+```bash
+export OWNEVO_KERNEL_IMAGE=ghcr.io/ownevoai/ownevo-kernel:latest
+export OWNEVO_WEB_IMAGE=ghcr.io/ownevoai/ownevo-web:latest
+docker compose pull
+ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --no-build
+```
+
+Full deployment options — local, Docker Compose, published images, Fly.io: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). One-shot Fly.io deploy: `make fly-bootstrap`.
 
 ## Repo layout
 

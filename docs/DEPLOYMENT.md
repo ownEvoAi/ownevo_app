@@ -6,6 +6,7 @@ Three deployment paths are supported:
 |---|---|---|
 | [Local dev (bare metal)](#local-dev-bare-metal) | Daily kernel + web iteration | ~5 min |
 | [Local Docker (compose)](#local-docker-compose) | Full-stack testing, demo prep | ~10 min |
+| [Run from published images (GHCR)](#run-from-published-images-ghcr) | Self-host without building from source | ~5 min |
 | [Fly.io (production demo)](#flyio-production-demo) | Live public demo URL | ~45 min first-run |
 
 ---
@@ -141,6 +142,49 @@ make seed-demo-with-iter
 runs every migration from scratch. (For the full-stack compose flow you can
 instead `make dev-down && docker compose down -v && make dev-up`, which wipes
 the Postgres volume and lets the `migrate` service rebuild the schema.)
+
+---
+
+## Run from published images (GHCR)
+
+Every `v*` tag publishes pre-built kernel and web images to the GitHub
+Container Registry, so a self-hoster can run the full stack without a source
+build. The images are public — `docker pull` needs no login.
+
+```
+ghcr.io/ownevoai/ownevo-kernel:<version>   # also tagged latest, <major>.<minor>, <major>
+ghcr.io/ownevoai/ownevo-web:<version>
+```
+
+The same `docker-compose.yml` runs either built-from-source or pulled images:
+the `image:` fields read `OWNEVO_KERNEL_IMAGE` / `OWNEVO_WEB_IMAGE`, defaulting
+to the local build tags when unset. Point them at the registry and skip the
+build:
+
+```bash
+# Pin a released version (recommended over :latest for reproducibility).
+export OWNEVO_KERNEL_IMAGE=ghcr.io/ownevoai/ownevo-kernel:v0.1.0
+export OWNEVO_WEB_IMAGE=ghcr.io/ownevoai/ownevo-web:v0.1.0
+
+docker compose pull                                   # fetch the images
+ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --no-build
+```
+
+`--no-build` makes the absence of a build toolchain explicit — the run uses
+only the pulled images. The one-shot `migrate` service shares the kernel
+image, so `OWNEVO_KERNEL_IMAGE` covers migrations too; it runs
+`scripts/migrate.py` before the kernel starts, exactly as in the
+build-from-source flow. Seed, logs, and teardown are identical to
+[Local Docker (compose)](#local-docker-compose) above (`make seed-demo`,
+`make dev-logs`, `make dev-down`).
+
+The images are `linux/amd64`. On Apple Silicon / arm64 they run under Docker
+Desktop's built-in emulation.
+
+Self-hosting is permitted for internal and production use under the
+[Business Source License](../LICENSE)'s Additional Use Grant — the only
+carve-out is offering ownEvo as a hosted competing service. See
+[README § License](../README.md#license).
 
 ---
 

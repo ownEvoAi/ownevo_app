@@ -31,7 +31,12 @@ services:
     build:
       context: .
       dockerfile: apps/kernel/Dockerfile
-    image: ownevo-kernel:local
+    # Defaults to the locally-built tag. Point at a published image to run
+    # without building from source, e.g.
+    #   OWNEVO_KERNEL_IMAGE=ghcr.io/ownevoai/ownevo-kernel:v0.1.0
+    # then `docker compose pull && docker compose up -d --no-build`. See
+    # docs/DEPLOYMENT.md § "Run from published images (GHCR)".
+    image: ${OWNEVO_KERNEL_IMAGE:-ownevo-kernel:local}
     container_name: ownevo-migrate
     command: ["uv", "run", "--package", "ownevo-kernel", "--extra", "api",
               "python", "apps/kernel/scripts/migrate.py"]
@@ -46,7 +51,7 @@ services:
     build:
       context: .
       dockerfile: apps/kernel/Dockerfile
-    image: ownevo-kernel:local
+    image: ${OWNEVO_KERNEL_IMAGE:-ownevo-kernel:local}
     container_name: ownevo-kernel
     environment:
       OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
@@ -112,6 +117,9 @@ services:
     build:
       context: apps/web
       dockerfile: Dockerfile
+    # Defaults to the locally-built tag; set OWNEVO_WEB_IMAGE to a published
+    # image (e.g. ghcr.io/ownevoai/ownevo-web:v0.1.0) to run without building.
+    image: ${OWNEVO_WEB_IMAGE:-ownevo-web:local}
     container_name: ownevo-web
     environment:
       OWNEVO_KERNEL_API_URL: http://kernel:8000
