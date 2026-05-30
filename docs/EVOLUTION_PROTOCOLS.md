@@ -113,7 +113,7 @@ The pipeline (matches `clustering/` module):
 5. Label via LLM (one short cluster-name + rationale per cluster).
 6. Insert into `failure_clusters` with a content `fingerprint` so re-runs are idempotent (see migration 0002).
 
-W3 Track B introduced a **cluster-quality threshold:** if HDBSCAN
+The clustering layer enforces a **cluster-quality threshold:** if HDBSCAN
 returns one mega-cluster or all-noise, the curator refuses to promote
 and surfaces "more iterations needed" instead of seeding garbage
 clusters. See `clustering/quality.py`.

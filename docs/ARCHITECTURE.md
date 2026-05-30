@@ -91,13 +91,13 @@ flowchart LR
   SP --> EC[EvalCases generator<br/>10-30 balanced cases]
   EC --> M[Metric generator<br/>direction + target]
   M --> ME[Meta-eval LLM judge<br/>≥0.7 agreement gate]
-  ME -- pass --> R[Workflow registered<br/>UI primitives selected]
+  ME -- pass --> R[Workflow registered<br/>UI views selected]
   ME -- fail --> Desc
 ```
 
 The four artifacts are **discriminated unions**: each typed (Pydantic schemas in `packages/trace-format/` and `apps/kernel/src/ownevo_kernel/nl_gen/`), `extra="forbid"`, `frozen=True`. The seam is the schema; the prompts are best-effort.
 
-The `WorkflowSpec.ui.tabs[].primitives[]` field declares which **render primitives** (MetricCards, TimeSeriesChart, etc.) the workspace should show. The web app renders those primitives today; the resolver that maps real agent output to typed render data is deferred work.
+The `WorkflowSpec.ui.tabs[].views[]` field declares which **render views** (MetricCards, TimeSeriesChart, etc.) the workspace should show. The web app renders those views today; the resolver that maps real agent output to typed render data is deferred work.
 
 ---
 
@@ -147,7 +147,7 @@ sequenceDiagram
   Web->>K: GET /api/workflows/{id}<br/>GET /api/workflows/{id}/skills
   Web->>K: GET /api/workflows/{id}/failure_clusters
   K-->>Web: anatomy + skills + clusters
-  Web-->>Op: Overview with primitives,<br/>Failures list, Agent Anatomy
+  Web-->>Op: Overview with views,<br/>Failures list, Agent Anatomy
 
   Op->>Web: click cluster → opens latest_proposal_id
   Web->>K: GET /api/proposals/{id}
@@ -200,21 +200,21 @@ apps/web/app/
     audit/                                append-only audit trail viewer
     skills/                               Skills library
     skills/[skillId]/                     per-skill detail + version history + LCS diff
-    primitives/                           Views library — render-primitive showcase
+    views/                                Views library — render-view showcase
     workflows/[wfId]/                     per-workflow Overview, Failures, Traces, Audit tabs
     workflows/[wfId]/traces/[traceId]/    per-trace step inspection
     workflows/new/                        NL-gen storyboard
     workflows/connect/                    Connect-existing-agent flow (eval-only / eval-propose modes)
     proposals/[id]/                       proposal review (diff + gate + approve/deploy/rollback)
   components/
-    primitives/                           9 leaf render components
+    views/                                9 leaf render components
     agent-anatomy.tsx                     three-column skills + tools + topology pane
     skill-diff.tsx                        LCS diff
   lib/
     api.ts                                kernel API client (typed)
-    primitives-mock-data.ts               per-workflow mock resolver
+    view-data-resolver.ts                 per-workflow mock resolver
 
-packages/trace-format/                    AgentEvent + UIPrimitive Pydantic schemas + canonical SPEC.md
+packages/trace-format/                    AgentEvent + UIView Pydantic schemas + canonical SPEC.md
 ```
 
 ### Route taxonomy
@@ -245,28 +245,29 @@ Per-request resolution is **also wired** (migration 0035, [`AUTH.md`](AUTH.md)):
 
 ---
 
-## 8. Layered primitive architecture
+## 8. Two render layers: platform primitives vs. workflow views
 
-Two distinct primitive layers, intentional:
+Two distinct UI layers, intentional — and named differently so they don't get
+conflated:
 
-**ownEvo platform primitives:**
+**ownEvo platform primitives** (fixed components that ship with the platform):
 - LiftChart (improvement-loop signal)
 - FailureClusterCard
 - AgentAnatomy pane
 - ProposalDiff (SideBySide for skill versions)
 
-**Workflow render primitives:**
+**Workflow render views** (the typed `UIView` set NL-gen draws from):
 - MetricCards, TimeSeriesChart, TableView, AlertList
 - KanbanBoard, ScheduleGrid
 - ConversationView, SideBySideView (clause-level), DocumentReader
 
-Platform primitives drive the **improvement-loop surface** (what the platform tells the domain expert about the loop). Render primitives drive the **workflow operator surface** (what the operator sees when they use the workflow). NL-gen picks render primitives from the typed set when generating a workflow spec.
+Platform primitives drive the **improvement-loop surface** (what the platform tells the domain expert about the loop). Render views drive the **workflow operator surface** (what the operator sees when they use the workflow). NL-gen picks views from the typed set when generating a workflow spec.
 
 ---
 
 ## 9. Known boundaries (not yet built)
 
-- **Layer D resolver:** real agent output → primitive `source` field → typed render data. Today the resolver is hand-curated mocks.
+- **Layer D resolver:** real agent output → view `source` field → typed render data. Today the resolver is hand-curated mocks.
 - **Sandbox provider migration:** e2b / Modal swap behind the `SandboxRuntime` Protocol.
 - **Audit-chain crypto upgrade:** Merkle root + signed export on top of the existing parent-hash chain. The shipped claim today is "append-only audit log, customer-controlled export" — not "tamper-evident hash chain".
 - **Multi-metric Pareto gate:** the gate today compares a single composite `val_score`. A signal-layer Pareto rule (per-dimension metrics, "all improve, none regress") is implied by the talk narrative but not yet in code or schema. See [`MULTI_METRIC_GATE_GAP.md`](MULTI_METRIC_GATE_GAP.md).

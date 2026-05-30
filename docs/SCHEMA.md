@@ -149,7 +149,7 @@ One row per loop iteration. `parent_skill_version_id` is what the agent started 
 
 `best_ever_score_before` and `best_ever_score_after` are the gate's "best ever val_score" snapshots. The convention: `best_ever_score_after = max(best_ever_score_before, val_score)` if gate passed, else equals `best_ever_score_before`.
 
-The child table `iteration_case_outputs` (one row per `(iteration, eval_case)`) carries the agent's per-case structured output — used by TableView / AlertList primitives in the operator shell.
+The child table `iteration_case_outputs` (one row per `(iteration, eval_case)`) carries the agent's per-case structured output — used by TableView / AlertList views in the operator shell.
 
 ### `proposals` + `approvals`
 *Introduced by: [0001](MIGRATIONS.md#0001--substrate).*

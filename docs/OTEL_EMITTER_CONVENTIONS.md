@@ -1,4 +1,4 @@
-# ownEvo OTel Emitter — Span Conventions (Track 17.2.3)
+# ownEvo OTel Emitter — Span Conventions
 
 The ownEvo kernel emits OpenTelemetry spans for its own analysis events to
 any customer-configured OTLP backend (Datadog, Honeycomb, Jaeger, etc.).
