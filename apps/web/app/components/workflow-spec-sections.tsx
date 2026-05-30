@@ -437,7 +437,7 @@ export function ViewsSection({
  const meta =
  items.length > 0
  ? `${items.length} view${items.length === 1 ? '' : 's'} selected · ${skillCount} skill${skillCount === 1 ? '' : 's'} registered`
- : 'no operate-view views yet'
+ : 'no views configured yet'
  const previewAction = (
  <Link
  href={operateHref}

@@ -978,6 +978,157 @@ async def test_approve_ui_view_merges_into_spec_ui(
     assert types == ["MetricCards", "AlertList"]
 
 
+async def test_migration_0044_rewrites_primitives_to_views(
+    db: asyncpg.Connection,
+):
+    """Migration 0044 JSONB-rewrite SQL: primitives key → views key.
+
+    Seeds a workflow with the pre-rename spec shape (ui.tabs[].primitives),
+    seeds a proposal with the old proposed_payload shape ({"primitives": [...]}),
+    then exercises the exact UPDATE SQL from migration 0044 steps 2 and 3.
+    Asserts that:
+      - the workflow spec has tabs[0].views and no tabs[0].primitives key
+      - schema_version was bumped to "1.5"
+      - WorkflowSpec.model_validate() succeeds (extra="forbid" would catch a stale key)
+      - the proposal's proposed_payload is keyed "views" with the original list
+    """
+    import json as _json
+
+    from ownevo_kernel.nl_gen import WorkflowSpec
+
+    wf_id = "wf-mig-0044"
+    # Pre-rename (v1.4) spec shape: the per-tab render list is keyed
+    # `primitives`. Every other field is a valid WorkflowSpec value so the
+    # post-migration model_validate below exercises the rename in isolation.
+    old_spec = {
+        "schema_version": "1.4",
+        "id": wf_id,
+        "domain": "supply-chain",
+        "environment": {
+            "entities": [],
+            "data_sources": [],
+            "env_generators": [],
+            "personas": [],
+        },
+        "tools": [{"name": "lookup_velocity"}],
+        "reviewer": {"role": "supply chain VP"},
+        "success_criterion": {
+            "direction": "maximize",
+            "target_metric_name": "forecast_accuracy",
+            "description": "improve forecast accuracy",
+        },
+        "ui": {
+            "layout": "tabs",
+            "tabs": [
+                {
+                    "name": "Overview",
+                    "primitives": [{"type": "MetricCards", "fields": ["accuracy"]}],
+                }
+            ],
+        },
+    }
+
+    await db.execute(
+        "INSERT INTO workflows (id, description, spec) VALUES ($1, 'mig-test', $2::jsonb)",
+        wf_id,
+        _json.dumps(old_spec),
+    )
+    await db.execute(
+        "INSERT INTO iterations (workflow_id, iteration_index, state, "
+        "val_score, best_ever_score_after, ended_at) VALUES ($1, 0, 'gate-pass'::iteration_state, 0.5, 0.5, now())",
+        wf_id,
+    )
+    # Seed a proposal with old payload shape ({"primitives": [...]}).
+    # kind='ui-view' is correct post-migration (enum was renamed in step 1).
+    proposal_id = await db.fetchval(
+        """
+        INSERT INTO proposals
+            (iteration_id, skill_id, proposed_content,
+             proposed_payload, plain_language_summary, kind, state)
+        VALUES ((SELECT id FROM iterations WHERE workflow_id=$1 LIMIT 1),
+                NULL, '', $2::jsonb, 'mig test', 'ui-view'::proposal_kind, 'gate-passed'::proposal_state)
+        RETURNING id
+        """,
+        wf_id,
+        _json.dumps({"primitives": [{"type": "MetricCards"}]}),
+    )
+
+    # --- Apply migration 0044 step 2: rewrite workflows.spec ---
+    await db.execute(
+        """
+        UPDATE workflows w
+        SET spec = jsonb_set(
+            jsonb_set(
+                w.spec,
+                '{ui,tabs}',
+                (
+                    SELECT jsonb_agg(
+                        CASE
+                            WHEN tab ? 'primitives'
+                            THEN (tab - 'primitives')
+                                 || jsonb_build_object('views', tab -> 'primitives')
+                            ELSE tab
+                        END
+                        ORDER BY ord
+                    )
+                    FROM jsonb_array_elements(w.spec -> 'ui' -> 'tabs')
+                         WITH ORDINALITY AS t(tab, ord)
+                )
+            ),
+            '{schema_version}',
+            '\"1.5\"'::jsonb
+        )
+        WHERE w.id = $1
+          AND w.spec ? 'ui'
+          AND (w.spec -> 'ui') ? 'tabs'
+          AND jsonb_typeof(w.spec -> 'ui' -> 'tabs') = 'array'
+          AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(w.spec -> 'ui' -> 'tabs') AS e(tab)
+              WHERE e.tab ? 'primitives'
+          )
+        """,
+        wf_id,
+    )
+
+    # --- Apply migration 0044 step 3: rewrite proposals.proposed_payload ---
+    await db.execute(
+        """
+        UPDATE proposals
+        SET proposed_payload =
+                (proposed_payload - 'primitives')
+                || jsonb_build_object('views', proposed_payload -> 'primitives')
+        WHERE id = $1
+          AND kind = 'ui-view'
+          AND proposed_payload ? 'primitives'
+        """,
+        proposal_id,
+    )
+
+    # --- Assert workflow spec ---
+    raw = await db.fetchval("SELECT spec FROM workflows WHERE id = $1", wf_id)
+    spec_dict = _json.loads(raw) if isinstance(raw, str) else raw
+    tab = spec_dict["ui"]["tabs"][0]
+    assert "primitives" not in tab, "old key must be gone after migration"
+    assert "views" in tab, "new key must be present"
+    assert tab["views"][0]["type"] == "MetricCards"
+    assert spec_dict["schema_version"] == "1.5"
+
+    # WorkflowSpec.model_validate with extra="forbid" rejects a stale "primitives" key.
+    parsed = WorkflowSpec.model_validate(spec_dict)
+    assert parsed.ui is not None
+    assert len(parsed.ui.tabs[0].views) == 1
+    assert parsed.ui.tabs[0].views[0].type == "MetricCards"
+
+    # --- Assert proposal payload ---
+    raw_payload = await db.fetchval(
+        "SELECT proposed_payload FROM proposals WHERE id = $1", proposal_id
+    )
+    payload = _json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+    assert "primitives" not in payload, "old key must be gone from proposal payload"
+    assert payload["views"] == [{"type": "MetricCards"}]
+
+
 async def test_approve_sim_merges_sections_into_spec(
     db: asyncpg.Connection, api_client: httpx.AsyncClient,
 ):

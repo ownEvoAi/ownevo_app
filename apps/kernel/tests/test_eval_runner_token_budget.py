@@ -2,7 +2,7 @@
 
 Two layers:
 
-  * View: `TokenBudget.record` accumulates input+output tokens,
+  * Unit: `TokenBudget.record` accumulates input+output tokens,
     raises `TokenBudgetExceededError` post-call when cumulative > cap,
     rejects invalid construction.
   * Integration: the budget threads through `predict_one`,
@@ -101,7 +101,7 @@ def _predict_response(
 
 
 # ---------------------------------------------------------------------------
-# View
+# Unit
 # ---------------------------------------------------------------------------
 
 

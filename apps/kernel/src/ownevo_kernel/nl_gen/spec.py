@@ -41,7 +41,7 @@ SCHEMA_VERSION = "1.5"
 
 v1.0 → v1.1 (2026-05-11): added `ScheduleGrid` to the
 `UIView` discriminated union (9 views, was 8) to close the
-parity gap with `www/preview/s26-rk7p3/27-views.html`. Additive
+parity gap with `www/preview/s26-rk7p3/27-primitives.html`. Additive
 change — every v1.0 spec validates under v1.1; no `Literal` union was
 narrowed.
 
