@@ -149,7 +149,9 @@ the Postgres volume and lets the `migrate` service rebuild the schema.)
 
 Every `v*` tag publishes pre-built kernel and web images to the GitHub
 Container Registry, so a self-hoster can run the full stack without a source
-build. The images are public — `docker pull` needs no login.
+build. The images are public — `docker pull` needs no login. (One-time setup: after the
+first tagged publish, flip both packages to public in the GitHub package settings for the
+`ownEvoAi` org. Until that toggle is flipped, pulls will 403 for unauthenticated clients.)
 
 ```
 ghcr.io/ownevoai/ownevo-kernel:<version>   # also tagged latest, <major>.<minor>, <major>

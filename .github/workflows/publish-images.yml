@@ -27,7 +27,7 @@ name: publish-images
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     # Manual run (e.g. to re-push after a registry hiccup). A dispatch off a
     # branch publishes branch/sha-tagged images, not `latest` — only a semver
@@ -43,12 +43,45 @@ permissions:
   packages: write
 
 jobs:
+  # Lightweight gate: lint + web build. Catches the most common broken-image
+  # scenarios (ruff errors, Next.js build failures) before any image is pushed.
+  # Full DB-gated tests run on PRs and main pushes via ci.yml; this job covers
+  # the tag-push path where ci.yml doesn't trigger.
+  pre-flight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3.2.4
+
+      - name: Lint (ruff)
+        run: uv run ruff check apps/kernel/ packages/trace-format/
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: apps/web
+
+      - name: Build web (production)
+        run: npm run build
+        working-directory: apps/web
+
   publish:
+    needs: [pre-flight]
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           # The kernel Dockerfile copies uv.lock + packages/trace-format +
