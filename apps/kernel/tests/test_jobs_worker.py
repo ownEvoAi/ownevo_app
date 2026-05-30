@@ -187,6 +187,74 @@ async def test_terminal_failure_emits_structured_log(
         await pool.close()
 
 
+async def test_worker_runs_run_clustering_job(
+    db: asyncpg.Connection, monkeypatch
+) -> None:
+    """A run_clustering job is claimed and dispatched to the real
+    `_run_clustering` handler, which calls the (stubbed) executor and
+    completes the job with the cluster count."""
+    import ownevo_kernel.triggers.actions as actions
+
+    pool = await _pool_for_db(db)
+    try:
+        async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+            job_id = await enqueue_job(
+                conn, kind="run_clustering", payload={"workflow_id": "wf-cluster"}
+            )
+
+        seen: list = []
+
+        async def fake_run_clustering(p, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+            seen.append((workflow_id, workspace_id))
+            return 3
+
+        monkeypatch.setattr(actions, "action_run_clustering", fake_run_clustering)
+        worker = JobWorker(pool, heartbeat_interval=3600.0)
+
+        await worker._tick()
+
+        assert seen == [("wf-cluster", DEFAULT_WORKSPACE_ID)]
+        row = await _status(pool, job_id)
+        assert row["status"] == "succeeded"
+        assert '"clusters": 3' in row["result"]
+    finally:
+        await pool.close()
+
+
+async def test_run_clustering_importerror_completes_as_noop(
+    db: asyncpg.Connection, monkeypatch
+) -> None:
+    """When the clustering extras are absent the executor raises ImportError;
+    the handler completes the job as a no-op rather than burning retries."""
+    import ownevo_kernel.triggers.actions as actions
+
+    pool = await _pool_for_db(db)
+    try:
+        async with acquire_workspace_conn(pool, DEFAULT_WORKSPACE_ID) as conn:
+            job_id = await enqueue_job(
+                conn,
+                kind="run_clustering",
+                payload={"workflow_id": "wf-noext"},
+                max_attempts=3,
+            )
+
+        async def raise_import(p, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+            raise ImportError("clustering extras not installed")
+
+        monkeypatch.setattr(actions, "action_run_clustering", raise_import)
+        worker = JobWorker(pool, heartbeat_interval=3600.0)
+
+        await worker._tick()
+
+        row = await _status(pool, job_id)
+        # Completed (not retried) even though retries remained.
+        assert row["status"] == "succeeded"
+        assert row["attempts"] == 1
+        assert "clustering_extras_absent" in row["result"]
+    finally:
+        await pool.close()
+
+
 async def test_worker_start_stop_is_graceful(db: asyncpg.Connection) -> None:
     pool = await _pool_for_db(db)
     try:

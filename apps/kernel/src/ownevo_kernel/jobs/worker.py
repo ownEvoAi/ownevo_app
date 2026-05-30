@@ -107,6 +107,7 @@ class JobWorker:
         # the claim/heartbeat/complete machinery without a real LLM.
         self._dispatch: dict[str, JobHandler] = {
             "run_iteration": self._run_iteration,
+            "run_clustering": self._run_clustering,
         }
 
     # ------------------------------------------------------------------
@@ -316,6 +317,36 @@ class JobWorker:
             "iteration_index": outcome.iteration_index,
             "state": outcome.state,
         }
+
+    async def _run_clustering(
+        self, job: asyncpg.Record, workspace_id: str
+    ) -> dict[str, Any]:
+        """Run one production-failure clustering pass for the job's workflow.
+
+        Delegates to ``action_run_clustering`` (the executor), imported lazily
+        so the worker module stays importable without the heavy
+        ``clustering`` / ``agent`` extras. If the extras are absent the
+        executor raises ``ImportError``; we complete the job as a no-op rather
+        than fail it, because a missing-extra condition is not fixable by retry
+        and should not burn the retry budget.
+        """
+        from ..triggers.actions import action_run_clustering
+
+        payload = _decode_payload(job["payload"])
+        workflow_id = payload["workflow_id"]
+
+        try:
+            n = await action_run_clustering(self._pool, workflow_id, workspace_id)
+        except ImportError:
+            _log.warning(
+                "job worker: clustering extras not installed; completing "
+                "run_clustering job %s as a no-op (install the `clustering` + "
+                "`agent` extras to enable)",
+                job["id"],
+            )
+            return {"skipped": "clustering_extras_absent", "clusters": 0}
+
+        return {"clusters": n}
 
 
 __all__ = ["JobWorker", "JobHandler"]

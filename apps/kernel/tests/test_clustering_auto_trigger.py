@@ -1,9 +1,10 @@
 """Tests for the debounced production-failure auto-clustering trigger.
 
-No DB and no clustering deps: the clustering run is injected as a fake
-`cluster_runner`, and a hand-driven `clock` makes the debounce
-deterministic without real sleeps. The few timing-sensitive assertions
-(start/stop) use a tiny poll interval.
+No DB and no clustering deps: the auto-trigger now *enqueues* a durable
+`run_clustering` job rather than running the pipeline inline, so the enqueue
+is injected as a fake `enqueue_fn`, and a hand-driven `clock` makes the
+debounce deterministic without real sleeps. The few timing-sensitive
+assertions (start/stop) use a tiny poll interval.
 """
 
 from __future__ import annotations
@@ -12,55 +13,16 @@ import asyncio
 
 from ownevo_kernel.clustering.auto_trigger import ClusterAutoTrigger
 
-
-class _FakeAcquire:
-    def __init__(self, conn: object) -> None:
-        self._conn = conn
-
-    async def __aenter__(self) -> object:
-        return self._conn
-
-    async def __aexit__(self, *_: object) -> bool:
-        return False
+# Sentinel pool — the injected enqueue_fn ignores it, so it is never touched.
+_POOL = object()
 
 
-class _FakeConn:
-    """Sentinel conn that satisfies set_workspace (workspace lookup + GUC set).
-
-    `acquire_workspace_conn` binds the workspace before yielding, so the conn
-    the runner receives must answer the `workspaces` lookup (live row) and the
-    set_config call. Records bound workspaces so a test can assert the run was
-    scoped correctly.
-    """
-
-    def __init__(self) -> None:
-        self.bound_workspaces: list[str] = []
-
-    async def fetchrow(self, sql: str, *args: object) -> dict[str, object]:
-        return {"deleted_at": None}
-
-    async def execute(self, sql: str, *args: object) -> str:
-        if "set_config" in sql:
-            self.bound_workspaces.append(args[1])  # type: ignore[arg-type]
-        return "SELECT 1"
-
-
-class _FakePool:
-    """Stands in for an asyncpg pool — `acquire()` yields a sentinel conn."""
-
-    def __init__(self) -> None:
-        self.conn = _FakeConn()
-
-    def acquire(self) -> _FakeAcquire:
-        return _FakeAcquire(self.conn)
-
-
-def _trigger(*, debounce: float, runner, clock):  # noqa: ANN001, ANN202
+def _trigger(*, debounce: float, enqueue, clock):  # noqa: ANN001, ANN202
     return ClusterAutoTrigger(
-        _FakePool(),
+        _POOL,  # type: ignore[arg-type]
         debounce_seconds=debounce,
         poll_interval_seconds=0.01,
-        cluster_runner=runner,
+        enqueue_fn=enqueue,
         clock=clock,
     )
 
@@ -68,15 +30,15 @@ def _trigger(*, debounce: float, runner, clock):  # noqa: ANN001, ANN202
 # --- debounce / coalescing (drive _drain_due directly) ---------------------
 
 
-async def test_debounce_coalesces_a_burst_into_one_run() -> None:
+async def test_debounce_coalesces_a_burst_into_one_enqueue() -> None:
     now = [0.0]
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
 
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
-        calls.append(workflow_id)
-        return []
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+        calls.append((workspace_id, workflow_id))
+        return "job-1"
 
-    trig = _trigger(debounce=30.0, runner=runner, clock=lambda: now[0])
+    trig = _trigger(debounce=30.0, enqueue=enqueue, clock=lambda: now[0])
 
     # A burst of signals (wave-flushes) keeps resetting the debounce timer.
     trig.signal("default", "wf1")
@@ -88,35 +50,35 @@ async def test_debounce_coalesces_a_burst_into_one_run() -> None:
     await trig._drain_due()
     assert calls == []
 
-    # 35s after the last signal — now it runs, exactly once for the burst.
+    # 35s after the last signal — now it enqueues, exactly once for the burst.
     now[0] = 45.0
     await trig._drain_due()
-    assert calls == ["wf1"]
+    assert calls == [("default", "wf1")]
 
     # Already cleared — a later drain with no new signal does nothing.
     now[0] = 200.0
     await trig._drain_due()
-    assert calls == ["wf1"]
+    assert calls == [("default", "wf1")]
 
 
-async def test_signal_during_run_requeues_for_next_cycle() -> None:
+async def test_signal_during_enqueue_requeues_for_next_cycle() -> None:
     now = [0.0]
     calls: list[str] = []
     trig_holder: list[ClusterAutoTrigger] = []
 
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
         calls.append(workflow_id)
         if len(calls) == 1:
-            # A trace lands mid-run; it must not be lost.
+            # A trace lands mid-enqueue; it must not be lost.
             trig_holder[0].signal("default", workflow_id)
-        return []
+        return "job"
 
-    trig = _trigger(debounce=30.0, runner=runner, clock=lambda: now[0])
+    trig = _trigger(debounce=30.0, enqueue=enqueue, clock=lambda: now[0])
     trig_holder.append(trig)
 
     trig.signal("default", "wf")
     now[0] = 100.0
-    await trig._drain_due()  # due → runs, re-signals at t=100
+    await trig._drain_due()  # due → enqueues, re-signals at t=100
     assert calls == ["wf"]
 
     now[0] = 120.0
@@ -128,15 +90,15 @@ async def test_signal_during_run_requeues_for_next_cycle() -> None:
     assert calls == ["wf", "wf"]
 
 
-async def test_multiple_workflows_each_run_once() -> None:
+async def test_multiple_workflows_each_enqueue_once() -> None:
     now = [0.0]
     calls: list[str] = []
 
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
         calls.append(workflow_id)
-        return []
+        return "job"
 
-    trig = _trigger(debounce=10.0, runner=runner, clock=lambda: now[0])
+    trig = _trigger(debounce=10.0, enqueue=enqueue, clock=lambda: now[0])
     trig.signal("default", "a")
     trig.signal("default", "b")
     now[0] = 15.0
@@ -144,33 +106,32 @@ async def test_multiple_workflows_each_run_once() -> None:
     assert sorted(calls) == ["a", "b"]
 
 
+async def test_workspace_is_carried_through_to_enqueue() -> None:
+    """The enqueue is scoped to the workspace the ingest signal landed in."""
+    calls: list[tuple[str, str]] = []
+
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+        calls.append((workspace_id, workflow_id))
+        return "job"
+
+    trig = _trigger(debounce=0.0, enqueue=enqueue, clock=lambda: 0.0)
+    trig.signal("ws-a", "wf")
+    await trig._drain_due()
+    assert calls == [("ws-a", "wf")]
+
+
 # --- failure handling ------------------------------------------------------
 
 
-async def test_importerror_disables_the_trigger() -> None:
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
-        raise ImportError("clustering extras not installed")
+async def test_enqueue_exception_is_swallowed_and_workflow_dropped() -> None:
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+        raise ValueError("transient enqueue failure")
 
-    trig = _trigger(debounce=0.0, runner=runner, clock=lambda: 0.0)
-    trig.signal("default", "wf")
-    await trig._drain_due()
-
-    assert trig._disabled is True
-    # Further signals are ignored — no per-ingest log spam.
-    trig.signal("default", "wf2")
-    assert trig._pending == {}
-
-
-async def test_runner_exception_is_swallowed_and_workflow_dropped() -> None:
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
-        raise ValueError("transient clustering failure")
-
-    trig = _trigger(debounce=0.0, runner=runner, clock=lambda: 0.0)
+    trig = _trigger(debounce=0.0, enqueue=enqueue, clock=lambda: 0.0)
     trig.signal("default", "wf")
     # Must not propagate — a background job can't take down the event loop.
     await trig._drain_due()
     assert trig._pending == {}
-    assert trig._disabled is False
 
 
 # --- start / stop lifecycle ------------------------------------------------
@@ -180,11 +141,11 @@ async def test_start_processes_signals_and_stop_halts_the_task() -> None:
     now = [0.0]
     calls: list[str] = []
 
-    async def runner(conn, workflow_id):  # noqa: ANN001, ANN202
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
         calls.append(workflow_id)
-        return []
+        return "job"
 
-    trig = _trigger(debounce=0.0, runner=runner, clock=lambda: now[0])
+    trig = _trigger(debounce=0.0, enqueue=enqueue, clock=lambda: now[0])
     await trig.start()
     trig.signal("default", "wf")
 
@@ -200,13 +161,9 @@ async def test_start_processes_signals_and_stop_halts_the_task() -> None:
 
 
 async def test_stop_is_safe_without_start() -> None:
-    trig = _trigger(debounce=0.0, runner=None, clock=lambda: 0.0)
+    async def enqueue(pool, workflow_id, workspace_id):  # noqa: ANN001, ANN202
+        return "job"
+
+    trig = _trigger(debounce=0.0, enqueue=enqueue, clock=lambda: 0.0)
     await trig.stop()  # no task — must not raise
     assert trig._task is None
-
-
-async def test_signal_is_noop_when_disabled() -> None:
-    trig = _trigger(debounce=0.0, runner=None, clock=lambda: 0.0)
-    trig._disabled = True
-    trig.signal("default", "wf")
-    assert trig._pending == {}
