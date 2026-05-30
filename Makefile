@@ -11,7 +11,7 @@
         meta-eval m5-cluster-failures cluster-label-eval \
         llm-judge-approver-eval nl-gen-cluster-failures \
         m5-replay-7day m5-replay-30day m5-replay-bootstrap nl-gen-demo-loop revert-skill \
-        dev-up dev-down dev-logs dev-ps \
+        dev-up dev-down dev-logs dev-ps db-migrate db-reset \
         fly-migrate fly-deploy-kernel fly-deploy-web fly-seed fly-logs fly-ssh
 
 # The default help shows the common everyday targets. `make help-all`
@@ -27,6 +27,8 @@ help:
 	@printf '    dev-logs            tail logs from all compose services\n'
 	@printf '    api                 run kernel API directly (uvicorn :8000, no docker)\n'
 	@printf '    web-dev             run Next.js dev server directly (:3000, no docker)\n'
+	@printf '    db-migrate          apply pending migrations against dev Postgres (idempotent)\n'
+	@printf '    db-reset            DESTRUCTIVE: drop + recreate + migrate the dev database\n'
 	@printf '\n  ${BOLD}Seed${RESET}\n'
 	@printf '    seed-demo           seed credit-risk + contract-review workflows\n'
 	@printf '    seed-demo-with-iter same, plus run one iteration (costs ~$$0.30)\n'
@@ -476,6 +478,32 @@ dev-logs:
 
 dev-ps:
 	docker compose ps
+
+# ----------------------------------------------------------------------------
+# Database migrations (host-run, against the dev Postgres)
+# ----------------------------------------------------------------------------
+
+# Default to the compose Postgres; override by exporting OWNEVO_DATABASE_URL.
+OWNEVO_DATABASE_URL ?= postgresql://ownevo:ownevo@localhost:5432/ownevo
+
+# Apply all pending migrations in filename order. Idempotent — re-running on a
+# fully-migrated DB is a no-op. This is the host equivalent of the compose
+# `migrate` service; use it for the `make api` (host uvicorn) flow.
+db-migrate:
+	OWNEVO_DATABASE_URL="$(OWNEVO_DATABASE_URL)" \
+	    uv run --package ownevo-kernel --extra api \
+	    python apps/kernel/scripts/migrate.py
+
+# DESTRUCTIVE: drop and recreate the dev database, then migrate from scratch.
+# Runs against the compose Postgres container (`ownevo-postgres`). Never run
+# against production — it deletes all data.
+db-reset:
+	docker compose up -d postgres
+	@echo "waiting for postgres to be ready..."
+	@until docker compose exec -T postgres pg_isready -U ownevo -d ownevo >/dev/null 2>&1; do sleep 1; done
+	docker compose exec -T postgres dropdb -U ownevo --force --if-exists ownevo
+	docker compose exec -T postgres createdb -U ownevo ownevo
+	$(MAKE) db-migrate
 
 # ----------------------------------------------------------------------------
 # Fly.io deployment (TODO-42 — docs/runbooks/fly-deploy.md)

@@ -10,17 +10,43 @@ services:
       - "${OWNEVO_PG_PORT:-5432}:5432"
     volumes:
       - ownevo-pg-data:/var/lib/postgresql/data
-      - ./apps/kernel/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "ownevo", "-d", "ownevo"]
       interval: 2s
       timeout: 5s
       retries: 15
 
+  # One-shot migration runner. Replaces the old
+  # `migrations:/docker-entrypoint-initdb.d` mount, which (a) only ran on a
+  # first-boot empty data dir, (b) bypassed the `schema_migrations` ledger so
+  # re-runs and partial applies were untracked, and (c) ran each file through
+  # psql's implicit transaction, which `CREATE INDEX CONCURRENTLY` (migrations
+  # 0018b/0024/0027) refuses. `scripts/migrate.py` is the real runner: it
+  # tracks applied files, is idempotent, and runs the `-- ownevo:no-txn`
+  # migrations outside a transaction. Runs to completion then exits; the
+  # kernel waits on `service_completed_successfully` so it never starts
+  # against an unmigrated schema. Shares the kernel image (same build) so the
+  # stack builds once.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/kernel/Dockerfile
+    image: ownevo-kernel:local
+    container_name: ownevo-migrate
+    command: ["uv", "run", "--package", "ownevo-kernel", "--extra", "api",
+              "python", "apps/kernel/scripts/migrate.py"]
+    environment:
+      OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   kernel:
     build:
       context: .
       dockerfile: apps/kernel/Dockerfile
+    image: ownevo-kernel:local
     container_name: ownevo-kernel
     environment:
       OWNEVO_DATABASE_URL: postgresql://ownevo:ownevo@postgres:5432/ownevo
@@ -70,11 +96,16 @@ services:
       OWNEVO_PROVIDER_OLLAMA_ENABLED: ${OWNEVO_PROVIDER_OLLAMA_ENABLED:-false}
       OWNEVO_PROVIDER_OLLAMA_MODELS: ${OWNEVO_PROVIDER_OLLAMA_MODELS:-}
       OWNEVO_LLM_HOST: ${OWNEVO_LLM_HOST:-}
+      OWNEVO_CREDENTIALS_MASTER_KEY: ${OWNEVO_CREDENTIALS_MASTER_KEY:-}
+      OWNEVO_DEMO_SIGNING_KEY: ${OWNEVO_DEMO_SIGNING_KEY:-}
+      OWNEVO_INTERNAL_AUTH_KEY: ${OWNEVO_INTERNAL_AUTH_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   web:

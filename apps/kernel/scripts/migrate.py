@@ -72,8 +72,11 @@ async def run() -> None:
             #
             # In both cases the SQL runs directly on the connection, then
             # the migration record is written in its own short transaction.
+            sql_no_comments = "\n".join(
+                line for line in sql.splitlines() if not line.lstrip().startswith("--")
+            )
             needs_no_txn = (
-                "ADD VALUE" in sql.upper()
+                "ADD VALUE" in sql_no_comments.upper()
                 or "-- ownevo:no-txn" in sql
             )
             if needs_no_txn:
