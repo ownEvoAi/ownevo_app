@@ -9,7 +9,7 @@ five minutes (description + spec + eval cases, no iterations yet).
 
 With `--with-iterations`, the script ALSO runs one iteration per seeded
 workflow so the operator pages light up immediately: case-outputs
-populate the TableView / AlertList / KanbanBoard primitives without a
+populate the TableView / AlertList / KanbanBoard views without a
 manual "Run iteration" click. Requires `ANTHROPIC_API_KEY` — the
 iteration calls the agent + proposer LLM. Skipped silently when the
 key is missing (the workflow rows still seed cleanly).

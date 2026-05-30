@@ -142,13 +142,13 @@ DIMENSION_SPECS: tuple[DimensionSpec, ...] = (
         key="operate_ui_primitives",
         label="Operate-view UI",
         intent=(
-            "Which renderable primitives match the operator's daily "
+            "Which renderable views match the operator's daily "
             "workflow? Pick from MetricCards, TimeSeriesChart, TableView, "
             "AlertList, KanbanBoard, ScheduleGrid, ConversationView, "
             "SideBySideView, DocumentReader. The choice shapes what the "
             "agent's `output_payload_json` is expected to carry."
         ),
-        informs=("WorkflowSpec.ui.tabs[*].primitives",),
+        informs=("WorkflowSpec.ui.tabs[*].views",),
     ),
     DimensionSpec(
         key="reviewer_role",

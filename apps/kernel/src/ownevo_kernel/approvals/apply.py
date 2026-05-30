@@ -2,7 +2,7 @@
 
 Skill proposals point at a `skill_versions` row and a deploy step
 flips `skills.deployed_version_id` to that row. Non-skill artifact
-proposals (description / metric / sim / ui-primitive) update the
+proposals (description / metric / sim / ui-view) update the
 workflow row directly on approval — there's no separate version
 table to point at and no separate deploy step.
 
@@ -151,21 +151,21 @@ async def apply_metric_proposal(
     }
 
 
-async def apply_ui_primitive_proposal(
+async def apply_ui_view_proposal(
     conn: asyncpg.Connection,
     *,
     workflow_id: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Replace `spec.ui.tabs[0].primitives` with the proposed list.
+    """Replace `spec.ui.tabs[0].views` with the proposed list.
 
-    `payload['primitives']` is the new list. The spec's other shape
+    `payload['views']` is the new list. The spec's other shape
     (tools, personas, environment, etc.) is left untouched.
     """
-    new_primitives = payload.get("primitives")
-    if not isinstance(new_primitives, list):
+    new_views = payload.get("views")
+    if not isinstance(new_views, list):
         raise ValueError(
-            "ui-primitive proposal payload missing list `primitives`"
+            "ui-view proposal payload missing list `views`"
         )
 
     spec = await _read_spec(conn, workflow_id)
@@ -179,14 +179,14 @@ async def apply_ui_primitive_proposal(
         ui["tabs"] = tabs
     if not isinstance(tabs[0], dict):
         tabs[0] = {}
-    tabs[0]["primitives"] = new_primitives
+    tabs[0]["views"] = new_views
 
     await _write_spec(conn, workflow_id, spec)
     return {
-        "applied_kind": "ui-primitive",
-        "primitive_count": len(new_primitives),
-        "primitive_types": [
-            p.get("type") for p in new_primitives if isinstance(p, dict)
+        "applied_kind": "ui-view",
+        "view_count": len(new_views),
+        "view_types": [
+            p.get("type") for p in new_views if isinstance(p, dict)
         ],
     }
 
@@ -262,6 +262,6 @@ async def _write_spec(
 APPLY_BY_KIND = {
     "description": apply_description_proposal,
     "metric": apply_metric_proposal,
-    "ui-primitive": apply_ui_primitive_proposal,
+    "ui-view": apply_ui_view_proposal,
     "sim": apply_sim_proposal,
 }

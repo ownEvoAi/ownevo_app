@@ -226,7 +226,7 @@ DEMAND_PREDICTION_SPEC = WorkflowSpec(
         tabs=[
             UITab(
                 name="Forecast",
-                primitives=[
+                views=[
                     MetricCards(
                         type="MetricCards",
                         fields=[

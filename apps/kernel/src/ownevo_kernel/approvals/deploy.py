@@ -249,7 +249,7 @@ async def rollback_proposal(
             )
 
         # Non-skill artifact proposals (description / metric / sim /
-        # ui-primitive) have no skill_versions pointer to revert. The
+        # ui-view) have no skill_versions pointer to revert. The
         # rollback UX for those kinds is "create a new proposal pointing
         # at the previous value". Guard here so a direct API call can't
         # silently succeed without actually reverting anything.

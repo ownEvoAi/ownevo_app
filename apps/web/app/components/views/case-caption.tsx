@@ -1,14 +1,14 @@
 import Link from 'next/link'
-import type { PrimitiveCaseCaption } from './types'
+import type { ViewCaseCaption } from './types'
 
 // Footer link the Operate-context resolver attaches to single-source
-// primitives (TimeSeriesChart, SideBySideView, DocumentReader,
+// views (TimeSeriesChart, SideBySideView, DocumentReader,
 // ConversationView, ScheduleGrid) so the operator can jump from the
 // rendered artifact into the agent's full trace for the case that
-// produced it. Multi-row primitives embed the link per row/item
+// produced it. Multi-row views embed the link per row/item
 // instead of using this footer.
 interface Props {
- caption: PrimitiveCaseCaption | undefined
+ caption: ViewCaseCaption | undefined
 }
 
 function isInternalHref(href: string): boolean {

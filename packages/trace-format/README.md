@@ -35,7 +35,7 @@ The strategic surface (license, public-release timing, package naming) is tracke
 | Module | Purpose | Lands |
 |---|---|---|
 | `src/ownevo_format/agent_event.py` | Typed `AgentEvent` discriminated union (Pydantic) | |
-| `src/ownevo_format/ui_primitives.py` | 8 workflow render primitives (Pydantic) | alongside NL-gen schema freeze |
+| `src/ownevo_format/ui_views.py` | 9 workflow render views (Pydantic) | alongside NL-gen schema freeze |
 | `src/ownevo_format/schemas/` | JSON Schema generated from Pydantic via `model_json_schema()` | + |
 | (TS bindings) | Zod schemas + types — co-located with `apps/web/lib/api/` for now; can extract later | alongside web scaffold |
 | [`SPEC.md`](./SPEC.md) | Canonical spec — what the implementations conform to | Locked 2026-05-03 |

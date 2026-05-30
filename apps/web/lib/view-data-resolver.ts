@@ -1,6 +1,6 @@
 // Layer-D resolver.
 //
-// Maps spec-declared `WorkflowSpec.ui.tabs[].primitives[]` entries to
+// Maps spec-declared `WorkflowSpec.ui.tabs[].views[]` entries to
 // real runtime data. Two render contexts, intentionally separated:
 //
 // context: 'overview' — improvement-loop meta. Iteration count,
@@ -10,9 +10,9 @@
 // context: 'operate' — production execution. What the agent is
 // producing for real (triggered by schedules / events) against
 // live data. Eval predictions are NOT production output, so the
-// case-output-derived primitives (TableView/AlertList/KanbanBoard)
+// case-output-derived views (TableView/AlertList/KanbanBoard)
 // return empty in this context until a production-output payload
-// exists. Iteration-meta primitives (MetricCards/TimeSeriesChart)
+// exists. Iteration-meta views (MetricCards/TimeSeriesChart)
 // stay empty too — that's loop telemetry, not execution.
 //
 // Iteration-derived (overview only, populated when ≥1 iteration exists):
@@ -43,7 +43,7 @@ import type {
  SideBySideData,
  TableData,
  TimeSeriesData,
-} from '@/app/components/primitives/types'
+} from '@/app/components/views/types'
 import type {
  CaseOutputList,
  EvalCaseSummary,
@@ -52,7 +52,7 @@ import type {
  WorkflowSpecShape,
 } from './api'
 
-export type ResolvedPrimitive =
+export type ResolvedView =
  | { kind: 'MetricCards'; data: MetricCardDatum[] }
  | { kind: 'TimeSeriesChart'; data: TimeSeriesData }
  | { kind: 'TableView'; data: TableData }
@@ -62,7 +62,7 @@ export type ResolvedPrimitive =
  | { kind: 'ConversationView'; data: ConversationData }
  | { kind: 'SideBySideView'; data: SideBySideData }
  | { kind: 'DocumentReader'; data: DocumentData }
- | { kind: 'empty'; primitiveType: string; reason: string }
+ | { kind: 'empty'; viewType: string; reason: string }
 
 export type ResolverContext = 'overview' | 'operate'
 
@@ -84,48 +84,48 @@ export interface ResolverInputs {
  // URLs today; the param exists for url stability.
  wsId?: string
  // Render context. 'overview' (default) populates iteration-meta +
- // eval-prediction primitives. 'operate' keeps them empty so the
+ // eval-prediction views. 'operate' keeps them empty so the
  // production-execution view doesn't masquerade loop diagnostics as
  // live output.
  context?: ResolverContext
 }
 
-export function resolvePrimitives(inputs: ResolverInputs): ResolvedPrimitive[] {
- const declared = inputs.spec?.ui?.tabs?.[0]?.primitives ?? []
- return declared.map((primitive) => resolveOne(primitive, inputs))
+export function resolveViews(inputs: ResolverInputs): ResolvedView[] {
+ const declared = inputs.spec?.ui?.tabs?.[0]?.views ?? []
+ return declared.map((view) => resolveOne(view, inputs))
 }
 
-// Resolve primitives from a specific named tab in the spec UI plan.
+// Resolve views from a specific named tab in the spec UI plan.
 // Returns null when the tab isn't declared so the page can render its
 // own empty state (rather than falling back to tab[0] which would
 // duplicate the Overview).
-export function resolveTabPrimitives(
+export function resolveTabViews(
  inputs: ResolverInputs,
  tabName: string,
-): ResolvedPrimitive[] | null {
+): ResolvedView[] | null {
  const tabs = inputs.spec?.ui?.tabs ?? []
  const tab = tabs.find(
  (t) => (t.name ?? '').toLowerCase() === tabName.toLowerCase() ,
  )
  if (!tab) return null
- return (tab.primitives ?? []).map((primitive) =>
- resolveOne(primitive, inputs),
+ return (tab.views ?? []).map((view) =>
+ resolveOne(view, inputs),
  )
 }
 
 function resolveOne(
- primitive: { type: string; [key: string]: unknown },
+ view: { type: string; [key: string]: unknown },
  inputs: ResolverInputs,
-): ResolvedPrimitive {
+): ResolvedView {
  // Operate context = production execution. Read the agent's
  // domain-shaped `output_payload` from each case-output row and
- // render the matching primitive. Empty payloads fall through to a
- // primitive-specific empty state explaining what the agent would
+ // render the matching view. Empty payloads fall through to a
+ // view-specific empty state explaining what the agent would
  // have produced.
  if (inputs.context === 'operate') {
- return resolveFromPayload(primitive, inputs)
+ return resolveFromPayload(view, inputs)
  }
- switch (primitive.type) {
+ switch (view.type) {
  case 'MetricCards':
  return resolveMetricCards(inputs)
  case 'TimeSeriesChart':
@@ -147,14 +147,14 @@ function resolveOne(
  default:
  return {
  kind: 'empty',
- primitiveType: primitive.type,
+ viewType: view.type,
  reason:
  'No layer-D resolver yet — needs structured agent output beyond bool predictions.',
  }
  }
 }
 
-function resolveMetricCards(inputs: ResolverInputs): ResolvedPrimitive {
+function resolveMetricCards(inputs: ResolverInputs): ResolvedView {
  const { iterations, evalCases, proposals } = inputs
 
  const latestVal =
@@ -237,7 +237,7 @@ function resolveMetricCards(inputs: ResolverInputs): ResolvedPrimitive {
  return { kind: 'MetricCards', data }
 }
 
-function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
+function resolveTableView(inputs: ResolverInputs): ResolvedView {
  // Render the latest iteration's per-case
  // agent output as a table. The spec's declared `columns` are
  // advisory today (most spec authors named the workflow's eventual
@@ -249,7 +249,7 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
  if (!co || co.items.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'TableView',
+ viewType: 'TableView',
  reason:
  co === undefined
  ? 'Case-outputs not fetched by this page.'
@@ -309,7 +309,7 @@ function resolveTableView(inputs: ResolverInputs): ResolvedPrimitive {
 }
 
 
-function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
+function resolveAlertList(inputs: ResolverInputs): ResolvedView {
  // Surface the iteration's failed cases as high-severity alerts.
  // Until the agent emits a workflow-specific alert shape (separate
  // from `submit_case_output`'s structured prediction), failed cases
@@ -319,7 +319,7 @@ function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
  if (!co || co.items.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'AlertList',
+ viewType: 'AlertList',
  reason:
  co === undefined
  ? 'Case-outputs not fetched by this page.'
@@ -330,7 +330,7 @@ function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
  if (failed.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'AlertList',
+ viewType: 'AlertList',
  reason: 'No failed cases on the latest iteration.',
  }
  }
@@ -352,7 +352,7 @@ function resolveAlertList(inputs: ResolverInputs): ResolvedPrimitive {
 }
 
 
-function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
+function resolveKanbanBoard(inputs: ResolverInputs): ResolvedView {
  // Latest iteration's cases as cards, columned by outcome × fold.
  // Three columns: Failed (test fold) — what's most operator-actionable
  // since these are the held-out generalization signal — then Failed
@@ -361,7 +361,7 @@ function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
  if (!co || co.items.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'KanbanBoard',
+ viewType: 'KanbanBoard',
  reason:
  co === undefined
  ? 'Case-outputs not fetched by this page.'
@@ -413,7 +413,7 @@ function resolveKanbanBoard(inputs: ResolverInputs): ResolvedPrimitive {
 }
 
 
-function resolveScheduleGrid(_inputs: ResolverInputs): ResolvedPrimitive {
+function resolveScheduleGrid(_inputs: ResolverInputs): ResolvedView {
  // ScheduleGrid wants a day × shift staffing matrix (e.g. labour
  // management's 7-day × 3-shift target/actual grid). The agent's
  // `submit_case_output` shape today carries `{predicted, expected,
@@ -422,14 +422,14 @@ function resolveScheduleGrid(_inputs: ResolverInputs): ResolvedPrimitive {
  // extension), this stays an honest empty.
  return {
  kind: 'empty',
- primitiveType: 'ScheduleGrid',
+ viewType: 'ScheduleGrid',
  reason:
  'Agent does not emit a schedule (rows × cols × cells) payload yet — needs a workflow-specific output_schema beyond bool predictions.',
  }
 }
 
 
-function resolveConversationView(_inputs: ResolverInputs): ResolvedPrimitive {
+function resolveConversationView(_inputs: ResolverInputs): ResolvedView {
  // ConversationView wants a threaded transcript (role / text / ts /
  // citations) — see mock 09 (customer support). The agent emits a
  // single per-case rationale today, not a multi-turn dialogue, and
@@ -439,14 +439,14 @@ function resolveConversationView(_inputs: ResolverInputs): ResolvedPrimitive {
  // stay honest until a transcript-shaped agent payload lands.
  return {
  kind: 'empty',
- primitiveType: 'ConversationView',
+ viewType: 'ConversationView',
  reason:
  'Agent does not emit a threaded transcript payload yet — needs a workflow-specific output_schema carrying user/agent turns + tool calls + citations.',
  }
 }
 
 
-function resolveSideBySideView(_inputs: ResolverInputs): ResolvedPrimitive {
+function resolveSideBySideView(_inputs: ResolverInputs): ResolvedView {
  // SideBySideView wants a {left, right} pair of titled bodies with
  // optional inline highlight spans — used for contract redlines
  // (mock 10) and any "current vs proposed" comparison. The agent's
@@ -455,14 +455,14 @@ function resolveSideBySideView(_inputs: ResolverInputs): ResolvedPrimitive {
  // when the agent emits a proposal-shaped payload.
  return {
  kind: 'empty',
- primitiveType: 'SideBySideView',
+ viewType: 'SideBySideView',
  reason:
  'Agent does not emit a before/after pair payload yet — needs a workflow-specific output_schema carrying {left, right} titled bodies with highlight spans.',
  }
 }
 
 
-function resolveDocumentReader(_inputs: ResolverInputs): ResolvedPrimitive {
+function resolveDocumentReader(_inputs: ResolverInputs): ResolvedView {
  // DocumentReader wants a structured document — heading / paragraph /
  // clause blocks with optional inline spans + a parallel list of
  // margin annotations keyed back to spans (mock 10, contract review).
@@ -471,14 +471,14 @@ function resolveDocumentReader(_inputs: ResolverInputs): ResolvedPrimitive {
  // emits a document-shaped payload.
  return {
  kind: 'empty',
- primitiveType: 'DocumentReader',
+ viewType: 'DocumentReader',
  reason:
  'Agent does not emit a structured document payload yet — needs a workflow-specific output_schema carrying typed blocks + margin annotations.',
  }
 }
 
 
-function resolveTimeSeries(inputs: ResolverInputs): ResolvedPrimitive {
+function resolveTimeSeries(inputs: ResolverInputs): ResolvedView {
  const { iterations } = inputs
  const scored = iterations.filter(
  (it): it is IterationPoint & { val_score: number } =>
@@ -516,13 +516,13 @@ function resolveTimeSeries(inputs: ResolverInputs): ResolvedPrimitive {
 // =============================================================================
 // Operate-context resolvers — render `output_payload` the agent emitted via
 // predict_label's optional output_payload field. The shapes the agent fills
-// match `_PRIMITIVE_PAYLOAD_GUIDE` in apps/kernel/.../eval_runner/agent_solver.py;
+// match `_VIEW_PAYLOAD_GUIDE` in apps/kernel/.../eval_runner/agent_solver.py;
 // agreement between that table and the readers below is what makes this round
 // trip work. Each reader is defensive: if the agent emits a slightly different
 // shape we keep the page rendering rather than throwing.
 // =============================================================================
 
-const PAYLOAD_KEY_BY_PRIMITIVE: Record<string, string> = {
+const PAYLOAD_KEY_BY_VIEW: Record<string, string> = {
  MetricCards: 'metrics',
  TimeSeriesChart: 'time_series',
  TableView: 'table',
@@ -535,29 +535,29 @@ const PAYLOAD_KEY_BY_PRIMITIVE: Record<string, string> = {
 }
 
 function resolveFromPayload(
- primitive: { type: string; [key: string]: unknown },
+ view: { type: string; [key: string]: unknown },
  inputs: ResolverInputs,
-): ResolvedPrimitive {
- const key = PAYLOAD_KEY_BY_PRIMITIVE[primitive.type]
+): ResolvedView {
+ const key = PAYLOAD_KEY_BY_VIEW[view.type]
  if (!key) {
  return {
  kind: 'empty',
- primitiveType: primitive.type,
- reason: 'Operate renderer not implemented for this primitive type yet.',
+ viewType: view.type,
+ reason: 'Operate renderer not implemented for this view type yet.',
  }
  }
  const co = inputs.caseOutputs
  if (!co || co.items.length === 0) {
  return {
  kind: 'empty',
- primitiveType: primitive.type,
+ viewType: view.type,
  reason:
  'No production run captured yet. Output renders here once the agent emits an output_payload for at least one case.',
  }
  }
- // Cases the agent annotated with a payload for THIS primitive. Empty
- // means the agent skipped this primitive for every case — show why
- // rather than rendering an empty primitive that looks broken.
+ // Cases the agent annotated with a payload for THIS view. Empty
+ // means the agent skipped this view for every case — show why
+ // rather than rendering an empty view that looks broken.
  // `caseHref` is the per-case trace detail link; the operator clicks
  // any rendered card / row / alert to inspect the agent's full
  // reasoning chain for that case.
@@ -575,11 +575,11 @@ function resolveFromPayload(
  if (carriers.length === 0) {
  return {
  kind: 'empty',
- primitiveType: primitive.type,
+ viewType: view.type,
  reason: `Agent did not emit \`${key}\` in output_payload for any case on the latest iteration.`,
  }
  }
- switch (primitive.type) {
+ switch (view.type) {
  case 'MetricCards':
  return payloadToMetricCards(carriers)
  case 'TimeSeriesChart':
@@ -601,8 +601,8 @@ function resolveFromPayload(
  default:
  return {
  kind: 'empty',
- primitiveType: primitive.type,
- reason: 'Operate renderer not implemented for this primitive type yet.',
+ viewType: view.type,
+ reason: 'Operate renderer not implemented for this view type yet.',
  }
  }
 }
@@ -629,9 +629,9 @@ type Carrier = {
  value: unknown
 }
 
-// Caption attached to single-instance primitives (TimeSeriesChart,
+// Caption attached to single-instance views (TimeSeriesChart,
 // SideBySideView, etc.) so the operator can click into the case the
-// payload came from. Multi-row primitives (TableView / AlertList /
+// payload came from. Multi-row views (TableView / AlertList /
 // KanbanBoard) embed the link per row/item instead.
 function caseCaption(c: Carrier): { text: string; href: string } | null {
  if (!c.caseHref || !c.caseId) return null
@@ -660,7 +660,7 @@ function asNumber(v: unknown): number | undefined {
  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
 
-function payloadToMetricCards(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToMetricCards(carriers: Carrier[]): ResolvedView {
  // MetricCards take a small fixed set of headline numbers. Pick the
  // first case that emitted metrics — aggregating across cases would
  // mean averaging metrics across different recommendations, which is
@@ -688,14 +688,14 @@ function payloadToMetricCards(carriers: Carrier[]): ResolvedPrimitive {
  if (data.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'MetricCards',
+ viewType: 'MetricCards',
  reason: 'Agent emitted `metrics` but with no usable items.',
  }
  }
  return { kind: 'MetricCards', data }
 }
 
-function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToTimeSeries(carriers: Carrier[]): ResolvedView {
  // Each case may emit its own forecast curve (e.g. one per SKU). Show
  // the first case's curve and label with the case_id. Future: pick up
  // to N cases as additional series.
@@ -704,7 +704,7 @@ function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
  if (!obj) {
  return {
  kind: 'empty',
- primitiveType: 'TimeSeriesChart',
+ viewType: 'TimeSeriesChart',
  reason: 'Agent emitted `time_series` but it was not an object.',
  }
  }
@@ -721,7 +721,7 @@ function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
  if (series.length === 0 || series.every((s) => s.points.length === 0)) {
  return {
  kind: 'empty',
- primitiveType: 'TimeSeriesChart',
+ viewType: 'TimeSeriesChart',
  reason: 'Agent emitted `time_series` but with no usable points.',
  }
  }
@@ -743,7 +743,7 @@ function payloadToTimeSeries(carriers: Carrier[]): ResolvedPrimitive {
 function payloadToTableView(
  carriers: Carrier[],
  iterationIndex: number | null,
-): ResolvedPrimitive {
+): ResolvedView {
  // Aggregate rows from every case that emitted a table. Use the first
  // table's columns as the canonical schema — extra keys in later rows
  // are kept on the row dict (TableView shows declared columns only).
@@ -775,7 +775,7 @@ function payloadToTableView(
  if (columns.length === 0 || rows.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'TableView',
+ viewType: 'TableView',
  reason: 'Agent emitted `table` but with no usable columns/rows.',
  }
  }
@@ -797,7 +797,7 @@ function payloadToTableView(
  return { kind: 'TableView', data }
 }
 
-function payloadToAlertList(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToAlertList(carriers: Carrier[]): ResolvedView {
  // Concatenate alerts across cases. Cap at 8 so the list stays
  // scannable — operator drills into the table for the full set.
  // Each alert carries its case's trace URL via `action_url` so the
@@ -825,14 +825,14 @@ function payloadToAlertList(carriers: Carrier[]): ResolvedPrimitive {
  if (data.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'AlertList',
+ viewType: 'AlertList',
  reason: 'Agent emitted `alerts` but with no usable items.',
  }
  }
  return { kind: 'AlertList', data }
 }
 
-function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToKanban(carriers: Carrier[]): ResolvedView {
  // Use the first case's column definitions; aggregate cards from
  // every case. Cards with column_key that doesn't match a column get
  // dropped (mismatched schema would render an orphan column).
@@ -840,7 +840,7 @@ function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
  if (!first) {
  return {
  kind: 'empty',
- primitiveType: 'KanbanBoard',
+ viewType: 'KanbanBoard',
  reason: 'Agent emitted `kanban` but it was not an object.',
  }
  }
@@ -871,7 +871,7 @@ function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
  if (columnDefs.length === 0 || cards.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'KanbanBoard',
+ viewType: 'KanbanBoard',
  reason: 'Agent emitted `kanban` but with no usable columns/cards.',
  }
  }
@@ -886,14 +886,14 @@ function payloadToKanban(carriers: Carrier[]): ResolvedPrimitive {
  return { kind: 'KanbanBoard', data }
 }
 
-function payloadToScheduleGrid(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToScheduleGrid(carriers: Carrier[]): ResolvedView {
  // Single case's schedule (rows × cols × cells). Aggregating across
  // cases would silently merge different staffing weeks.
  const obj = asObject(carriers[0].value)
  if (!obj) {
  return {
  kind: 'empty',
- primitiveType: 'ScheduleGrid',
+ viewType: 'ScheduleGrid',
  reason: 'Agent emitted `schedule` but it was not an object.',
  }
  }
@@ -907,7 +907,7 @@ function payloadToScheduleGrid(carriers: Carrier[]): ResolvedPrimitive {
  if (rowLabels.length === 0 || colLabels.length === 0 || cellsRaw.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'ScheduleGrid',
+ viewType: 'ScheduleGrid',
  reason: 'Agent emitted `schedule` but it was missing rows/cols/cells.',
  }
  }
@@ -948,13 +948,13 @@ type ScheduleCellDef = ScheduleData['cells'][number]
 type ScheduleCellStatus = ScheduleCellDef['status']
 type TableColumn = TableData['columns'][number]
 
-function payloadToConversation(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToConversation(carriers: Carrier[]): ResolvedView {
  // Threaded transcript — first case only.
  const obj = asObject(carriers[0].value)
  if (!obj) {
  return {
  kind: 'empty',
- primitiveType: 'ConversationView',
+ viewType: 'ConversationView',
  reason: 'Agent emitted `conversation` but it was not an object.',
  }
  }
@@ -974,7 +974,7 @@ function payloadToConversation(carriers: Carrier[]): ResolvedPrimitive {
  if (messages.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'ConversationView',
+ viewType: 'ConversationView',
  reason: 'Agent emitted `conversation` but with no usable turns.',
  }
  }
@@ -984,7 +984,7 @@ function payloadToConversation(carriers: Carrier[]): ResolvedPrimitive {
  return { kind: 'ConversationView', data }
 }
 
-function payloadToSideBySide(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToSideBySide(carriers: Carrier[]): ResolvedView {
  // Pick the first carrier that has both left+right populated. Falls
  // back to whatever the first non-empty case emits, even if one side
  // is missing (we synthesise the other side as a placeholder).
@@ -1009,17 +1009,17 @@ function payloadToSideBySide(carriers: Carrier[]): ResolvedPrimitive {
  }
  return {
  kind: 'empty',
- primitiveType: 'SideBySideView',
+ viewType: 'SideBySideView',
  reason: 'Agent emitted `side_by_side` but with no usable left/right bodies.',
  }
 }
 
-function payloadToDocument(carriers: Carrier[]): ResolvedPrimitive {
+function payloadToDocument(carriers: Carrier[]): ResolvedView {
  const obj = asObject(carriers[0].value)
  if (!obj) {
  return {
  kind: 'empty',
- primitiveType: 'DocumentReader',
+ viewType: 'DocumentReader',
  reason: 'Agent emitted `document` but it was not an object.',
  }
  }
@@ -1055,7 +1055,7 @@ function payloadToDocument(carriers: Carrier[]): ResolvedPrimitive {
  if (blocks.length === 0) {
  return {
  kind: 'empty',
- primitiveType: 'DocumentReader',
+ viewType: 'DocumentReader',
  reason: 'Agent emitted `document` but with no usable blocks.',
  }
  }

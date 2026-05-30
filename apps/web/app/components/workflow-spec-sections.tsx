@@ -414,20 +414,20 @@ export function MetricSection({
  )
 }
 
-export function PrimitivesSection({
- primitives,
+export function ViewsSection({
+ views,
  operateHref,
  skillCount,
  attributionSlot,
  action,
 }: {
- primitives: unknown[]
+ views: unknown[]
  operateHref: string
  skillCount: number
  attributionSlot?: React.ReactNode
  action?: React.ReactNode
 }) {
- const items = primitives
+ const items = views
  .map((p) => {
  if (typeof p !== 'object' || p === null) return null
  const t = (p as { type?: unknown }).type
@@ -436,8 +436,8 @@ export function PrimitivesSection({
  .filter((s): s is string => s !== null)
  const meta =
  items.length > 0
- ? `${items.length} primitive${items.length === 1 ? '' : 's'} selected · ${skillCount} skill${skillCount === 1 ? '' : 's'} registered`
- : 'no operate-view primitives yet'
+ ? `${items.length} view${items.length === 1 ? '' : 's'} selected · ${skillCount} skill${skillCount === 1 ? '' : 's'} registered`
+ : 'no views configured yet'
  const previewAction = (
  <Link
  href={operateHref}
@@ -456,17 +456,17 @@ export function PrimitivesSection({
  {attributionSlot}
  {items.length === 0 ? (
  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
- NL-gen didn&apos;t pick any UI primitives for this workflow.
- The Operate tab will render an empty state until a primitive
+ NL-gen didn&apos;t pick any UI views for this workflow.
+ The Operate tab will render an empty state until a view
  is added to the spec.
  </p>
  ) : (
- <div className="prim-grid">
+ <div className="view-tile-grid">
  {items.map((t, i) => (
- <div key={`${t}-${i}`} className="prim selected">
- <div className="prim-icon">{t.slice(0, 1)}</div>
- <span className="prim-name">{t}</span>
- <span className="prim-check">✓</span>
+ <div key={`${t}-${i}`} className="view-tile selected">
+ <div className="view-tile-icon">{t.slice(0, 1)}</div>
+ <span className="view-tile-name">{t}</span>
+ <span className="view-tile-check">✓</span>
  </div>
  ))}
  </div>

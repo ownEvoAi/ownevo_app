@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════
-   ownEvo workflow render primitives.
+   ownEvo workflow render views.
 
    These are the components a workflow's `ui` spec composes from.
    The natural-language generator picks from this set at workflow

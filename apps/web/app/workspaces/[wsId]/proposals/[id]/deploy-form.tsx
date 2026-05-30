@@ -22,7 +22,7 @@ export function DeployForm({
  wsId: string
  workflowId: string
  state: 'approved-awaiting-deploy' | 'deployed'
- kind?: 'skill' | 'description' | 'metric' | 'sim' | 'ui-primitive'
+ kind?: 'skill' | 'description' | 'metric' | 'sim' | 'ui-view'
  demoMode?: boolean
 }) {
  const router = useRouter()

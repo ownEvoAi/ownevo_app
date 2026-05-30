@@ -8,14 +8,14 @@ import {
 } from '@/lib/api'
 import {
  MetricSection,
- PrimitivesSection,
+ ViewsSection,
  simulatorMeta,
  SimulatorSection,
 } from '@/app/components/workflow-spec-sections'
 import { InlineDescriptionBlock } from '../inline-description-edit'
 import { ProposeMetricEdit } from './propose-metric-edit'
 import { ProposeSimEdit } from './propose-sim-edit'
-import { ProposeUIPrimitiveEdit } from './propose-ui-primitive-edit'
+import { ProposeUIViewEdit } from './propose-ui-view-edit'
 
 interface PageProps {
  params: Promise<{ wsId: string; wfId: string }>
@@ -24,7 +24,7 @@ interface PageProps {
 // Post-creation Spec tab — the artifact view rendered against the live
 // workflow 30+ days after authoring. Agent environment (tools / personas
 // / data sources / env generators) + Success metric + Operate-view UI
-// primitives, every section editable through the regression gate. The
+// views, every section editable through the regression gate. The
 // description is editable in place (cosmetic; no gate flow).
 //
 // "Agent environment" used to be labelled "Simulator" in the UI; the
@@ -76,7 +76,7 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
  const personas = spec.environment?.personas ?? []
  const envGenerators = spec.environment?.env_generators ?? []
  const dataSources = spec.environment?.data_sources ?? []
- const primitives = spec.ui?.tabs?.[0]?.primitives ?? []
+ const views = spec.ui?.tabs?.[0]?.views ?? []
  const metricDef = anatomy.metric_definition ?? null
  const simPlan = anatomy.simulation_plan ?? null
  const skillCount = skills.length
@@ -96,7 +96,7 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
  <p className="spec-tab-sub">
  The generated artifacts that define this workflow. Edits to
  the description are cosmetic; edits to the agent
- environment, success metric, or operate-view primitives
+ environment, success metric, or operate-view views
  flow through the regression gate. Eval cases live on their
  own tab.
  </p>
@@ -136,15 +136,15 @@ export default async function WorkflowSpecPage({ params }: PageProps) {
  }
  />
 
- <PrimitivesSection
- primitives={primitives}
+ <ViewsSection
+ views={views}
  operateHref={operateHref}
  skillCount={skillCount}
  action={
- <ProposeUIPrimitiveEdit
+ <ProposeUIViewEdit
  wsId={wsId}
  wfId={wfId}
- current={primitives as Array<{ type: string }>}
+ current={views as Array<{ type: string }>}
  />
  }
  />

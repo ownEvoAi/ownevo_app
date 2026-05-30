@@ -1,14 +1,14 @@
 /* Mock CSS lifted verbatim from — single source
- of truth for shell tokens + workflow primitives. Polish in will
+ of truth for shell tokens + workflow views. Polish in will
  pull these into a build pipeline; for now `next dev` serves them
  from public/styles. */
 @import url('/styles/shell.css');
-@import url('/styles/primitives.css');
+@import url('/styles/views.css');
 
 /* ---------------------------------------------------------------------
  — proposal detail polish (lifted from
  www/preview/s26-rk7p3/07-proposal-detail.html <style> block).
- primitives.css owns the tokens + .side / .diff-add / .diff-del
+ views.css owns the tokens + .side / .diff-add / .diff-del
  building blocks; the page-level layout pieces (gate headline +
  per-case list, diff line block layout, sidebar cards, rationale)
  live here so the React components can reference class names instead
@@ -102,7 +102,7 @@
 
 /* Diff line layout inside .side-body.code — full-row highlight.
  .diff-line base rule (display:block + padding + margin + border-radius) lives
- in primitives.css; we don't redeclare it here to avoid clobbering border-radius. */
+ in views.css; we don't redeclare it here to avoid clobbering border-radius. */
 .ctx {
  display: block;
  color: var(--text-3);
@@ -295,7 +295,7 @@
 /* ---------------------------------------------------------------------
  — /workflows/preview page (mock-04 layout) + meta-eval coverage
  badge. Styles for the React preview page
- (no UI-primitives picker, no source-quote edit link, no per-
+ (no UI-views picker, no source-quote edit link, no per-
  row Edit/Regenerate buttons — those land with write path).
  --------------------------------------------------------------------- */
 
@@ -601,13 +601,13 @@
  margin-top: 0;
 }
 
-/* UI primitives grid (Operate-view selection on review page). */
-.prim-grid {
+/* UI views grid (Operate-view selection on review page). */
+.view-tile-grid {
  display: grid;
  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
  gap: 10px;
 }
-.prim {
+.view-tile {
  background: var(--surface);
  border: 1px solid var(--border);
  border-radius: 6px;
@@ -616,11 +616,11 @@
  gap: 10px;
  align-items: center;
 }
-.prim.selected {
+.view-tile.selected {
  border-color: var(--accent);
  background: var(--accent-muted);
 }
-.prim-icon {
+.view-tile-icon {
  width: 28px;
  height: 28px;
  border-radius: 6px;
@@ -634,21 +634,21 @@
  font-size: 12px;
  font-weight: 600;
 }
-.prim.selected .prim-icon {
+.view-tile.selected .view-tile-icon {
  color: var(--accent);
  border-color: var(--accent);
 }
-.prim-name {
+.view-tile-name {
  font-size: 12.5px;
  font-weight: 500;
  color: var(--text);
 }
-.prim-check {
+.view-tile-check {
  margin-left: auto;
  color: var(--text-faint);
  font-size: 13px;
 }
-.prim.selected .prim-check {
+.view-tile.selected .view-tile-check {
  color: var(--accent);
 }
 
@@ -1420,7 +1420,7 @@
  font-variant-numeric: tabular-nums;
 }
 
-/* Pill colors (defined in primitives.css for the established set
+/* Pill colors (defined in views.css for the established set
  ensure `green` and `amber` cover what the badge needs) */
 
 /* ---------------------------------------------------------------------
@@ -1921,17 +1921,17 @@
  font-size: 12px;
 }
 
-.ui-primitive-diff {
+.ui-view-diff {
  display: flex;
  flex-direction: column;
  gap: 12px;
 }
-.ui-primitive-diff-row {
+.ui-view-diff-row {
  display: flex;
  align-items: flex-start;
  gap: 14px;
 }
-.ui-primitive-diff-label {
+.ui-view-diff-label {
  flex: 0 0 130px;
  font-size: 11.5px;
  text-transform: uppercase;
@@ -1939,25 +1939,25 @@
  color: var(--text-muted);
  padding-top: 4px;
 }
-.ui-primitive-diff-label.added {
+.ui-view-diff-label.added {
  color: #2f855a;
 }
-.ui-primitive-diff-label.removed {
+.ui-view-diff-label.removed {
  color: #b91c1c;
 }
-.ui-primitive-diff-label.unchanged {
+.ui-view-diff-label.unchanged {
  color: var(--text-muted);
 }
-.ui-primitive-diff-pills {
+.ui-view-diff-pills {
  display: flex;
  flex-wrap: wrap;
  gap: 6px;
 }
-.ui-primitive-pill {
+.ui-view-pill {
  font-family: var(--mono);
  font-size: 11.5px;
 }
-.ui-primitive-diff-note {
+.ui-view-diff-note {
  font-size: 12px;
  color: var(--text-muted);
 }
@@ -4017,14 +4017,14 @@ a.anatomy-row-name:hover {
  max-width: 360px;
 }
 
-/* Overview primitives section (8.4.6 — layer-D resolver) */
-.overview-primitives {
+/* Overview views section (8.4.6 — layer-D resolver) */
+.overview-views {
  display: flex;
  flex-direction: column;
  gap: 24px;
  margin-top: 24px;
 }
-.overview-primitive-empty {
+.overview-view-empty {
  background: var(--bg);
  border: 1px dashed var(--border);
  border-radius: 8px;
@@ -4032,7 +4032,7 @@ a.anatomy-row-name:hover {
  font-size: 12.5px;
  color: var(--text-muted);
 }
-.overview-primitive-empty strong {
+.overview-view-empty strong {
  color: var(--text-2);
  font-weight: 500;
 }
@@ -4209,8 +4209,8 @@ a.anatomy-row-name:hover {
  text-align: right;
 }
 
-/* Collapsed "unresolved primitives" note on workflow Overview */
-.overview-primitives-unresolved {
+/* Collapsed "unresolved views" note on workflow Overview */
+.overview-views-unresolved {
  font-size: 11.5px;
  color: var(--text-muted);
  margin: 4px 0 0;
@@ -4219,7 +4219,7 @@ a.anatomy-row-name:hover {
  border: 1px dashed var(--border);
  border-radius: 6px;
 }
-.overview-primitives-unresolved strong {
+.overview-views-unresolved strong {
  color: var(--text-2);
  font-weight: 500;
 }

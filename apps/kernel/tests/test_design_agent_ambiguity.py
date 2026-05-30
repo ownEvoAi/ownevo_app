@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from ownevo_format.ui_primitives import MetricCards
+from ownevo_format.ui_views import MetricCards
 from ownevo_kernel.design_agent.ambiguity import (
     AmbiguityFinding,
     AmbiguityReport,
@@ -361,7 +361,7 @@ def _build_minimal_spec(
             tabs=[
                 UITab(
                     name="Overview",
-                    primitives=[
+                    views=[
                         MetricCards(type="MetricCards", fields=["score"]),
                     ],
                 ),

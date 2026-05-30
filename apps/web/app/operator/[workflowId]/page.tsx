@@ -16,16 +16,16 @@ import {
  type WorkflowSummary,
 } from '@/lib/api'
 import { formatDateTime, formatScore, relativeTime, workflowDisplayTitle } from '@/lib/format'
-import { AlertList } from '@/app/components/primitives/alert-list'
-import { ConversationView } from '@/app/components/primitives/conversation-view'
-import { DocumentReader } from '@/app/components/primitives/document-reader'
-import { KanbanBoard } from '@/app/components/primitives/kanban-board'
-import { MetricCards } from '@/app/components/primitives/metric-cards'
-import { ScheduleGrid } from '@/app/components/primitives/schedule-grid'
-import { SideBySideView } from '@/app/components/primitives/side-by-side-view'
-import { TableView } from '@/app/components/primitives/table-view'
-import { TimeSeriesChart } from '@/app/components/primitives/time-series-chart'
-import { resolveTabPrimitives, resolvePrimitives } from '@/lib/primitive-data-resolver'
+import { AlertList } from '@/app/components/views/alert-list'
+import { ConversationView } from '@/app/components/views/conversation-view'
+import { DocumentReader } from '@/app/components/views/document-reader'
+import { KanbanBoard } from '@/app/components/views/kanban-board'
+import { MetricCards } from '@/app/components/views/metric-cards'
+import { ScheduleGrid } from '@/app/components/views/schedule-grid'
+import { SideBySideView } from '@/app/components/views/side-by-side-view'
+import { TableView } from '@/app/components/views/table-view'
+import { TimeSeriesChart } from '@/app/components/views/time-series-chart'
+import { resolveTabViews, resolveViews } from '@/lib/view-data-resolver'
 import { WorkflowSwitcher } from './workflow-switcher'
 
 interface PageProps {
@@ -38,10 +38,10 @@ interface PageProps {
 // which one). The shell renders what the agent has produced for review,
 // stripped of the improvement-loop chrome.
 //
-// What's wired today: the Operate spec's primitives (MetricCards,
+// What's wired today: the Operate spec's views (MetricCards,
 // TimeSeriesChart) plus a recent-runs table.
 //
-// Layer-D primitives: TableView / AlertList / KanbanBoard are wired to
+// Layer-D views: TableView / AlertList / KanbanBoard are wired to
 // per-case output. ScheduleGrid / ConversationView / SideBySideView /
 // DocumentReader are wired but return `empty` until per-workflow
 // output_schema support lands.
@@ -90,7 +90,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  const operateTab =
  tabs.find((t) => (t.name ?? '').toLowerCase() === 'operate') ?? tabs[1]
  // Operator persona view = production execution. Pass `context:
- // 'operate'` so iteration-meta + eval-prediction primitives stay
+ // 'operate'` so iteration-meta + eval-prediction views stay
  // empty here; the operator is reviewing what the agent has produced
  // for real, not how it scored against the eval suite.
  const resolverInputs = {
@@ -102,14 +102,14 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  wsId,
  context: 'operate' as const,
  }
- const primitives = operateTab
- ? resolveTabPrimitives(resolverInputs, operateTab.name ?? 'operate') ?? []
- : resolvePrimitives(resolverInputs)
+ const views = operateTab
+ ? resolveTabViews(resolverInputs, operateTab.name ?? 'operate') ?? []
+ : resolveViews(resolverInputs)
 
- const resolved = primitives.filter((p) => p.kind !== 'empty')
- const unresolvedTypes = primitives
- .filter((p): p is Extract<typeof primitives[number], { kind: 'empty' }> => p.kind === 'empty')
- .map((p) => p.primitiveType)
+ const resolved = views.filter((p) => p.kind !== 'empty')
+ const unresolvedTypes = views
+ .filter((p): p is Extract<typeof views[number], { kind: 'empty' }> => p.kind === 'empty')
+ .map((p) => p.viewType)
 
  const latest = iterations.length > 0 ? iterations[iterations.length - 1] : null
  const pendingProposals = proposals.filter(
@@ -212,7 +212,7 @@ export default async function OperatorPage({ params, searchParams }: PageProps) 
  ) : null}
 
  {resolved.length > 0 && (
- <section className="overview-primitives" style={{ marginTop: 14 }}>
+ <section className="overview-views" style={{ marginTop: 14 }}>
  {resolved.map((p, i) => {
  if (p.kind === 'MetricCards') return <MetricCards key={i} data={p.data} />
  if (p.kind === 'TimeSeriesChart')

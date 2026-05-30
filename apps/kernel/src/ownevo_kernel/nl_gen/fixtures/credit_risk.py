@@ -204,7 +204,7 @@ CREDIT_RISK_SPEC = WorkflowSpec(
         tabs=[
             UITab(
                 name="Portfolio",
-                primitives=[
+                views=[
                     MetricCards(
                         type="MetricCards",
                         fields=[

@@ -1,4 +1,4 @@
-"""Tests for the UI primitive discriminated union.
+"""Tests for the UI view discriminated union.
 
 Mirrors test_agent_event.py — every variant round-trips, the discriminator
 rejects unknown types, defaults are populated, frozen models reject mutation.
@@ -17,14 +17,14 @@ from ownevo_format import (
     SideBySideView,
     TableView,
     TimeSeriesChart,
-    UIPrimitiveAdapter,
+    UIViewAdapter,
 )
 from pydantic import ValidationError
 
 
 def test_metric_cards_round_trip():
     p = MetricCards(type="MetricCards", fields=["accuracy", "count"])
-    rebuilt = UIPrimitiveAdapter.validate_python(p.model_dump())
+    rebuilt = UIViewAdapter.validate_python(p.model_dump())
     assert isinstance(rebuilt, MetricCards)
     assert rebuilt == p
 
@@ -33,7 +33,7 @@ def test_time_series_chart_with_group_by():
     p = TimeSeriesChart(
         type="TimeSeriesChart", x="week", y=["forecast", "actual"], group_by="region"
     )
-    rebuilt = UIPrimitiveAdapter.validate_python(p.model_dump())
+    rebuilt = UIViewAdapter.validate_python(p.model_dump())
     assert isinstance(rebuilt, TimeSeriesChart)
     assert rebuilt.group_by == "region"
 
@@ -66,7 +66,7 @@ def test_schedule_grid_round_trip():
         cols_source="days",
         cells_source="assignments",
     )
-    rebuilt = UIPrimitiveAdapter.validate_python(p.model_dump())
+    rebuilt = UIViewAdapter.validate_python(p.model_dump())
     assert isinstance(rebuilt, ScheduleGrid)
     assert rebuilt == p
 
@@ -85,7 +85,7 @@ def test_conversation_view_requires_trace_source():
 
 def test_discriminator_rejects_unknown_type():
     with pytest.raises(ValidationError):
-        UIPrimitiveAdapter.validate_python(
+        UIViewAdapter.validate_python(
             {"type": "MysteryWidget", "source": "x"}
         )
 

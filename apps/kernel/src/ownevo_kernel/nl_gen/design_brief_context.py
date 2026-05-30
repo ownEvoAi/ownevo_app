@@ -161,7 +161,7 @@ SPEC_DIMENSIONS: tuple[DesignDimension, ...] = (
 )
 """Dimensions consumed by `generate_workflow_spec`. The spec is the
 artifact that carries the workflow's goal, tools, data sources, UI
-primitives, and reviewer — every dimension that shapes the spec lands
+views, and reviewer — every dimension that shapes the spec lands
 here."""
 
 SIM_PLAN_DIMENSIONS: tuple[DesignDimension, ...] = (

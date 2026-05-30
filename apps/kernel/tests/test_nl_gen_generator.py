@@ -270,7 +270,7 @@ async def test_live_generates_structurally_valid_spec(fixture_id):
     assert len(result.environment.personas) >= 1
     assert len(result.environment.env_generators) >= 1
     assert result.success_criterion.target_metric_name
-    assert result.ui.tabs and result.ui.tabs[0].primitives
+    assert result.ui.tabs and result.ui.tabs[0].views
     # Every tool must carry provenance — the demo's load-bearing claim.
     for tool in result.tools:
         assert tool.provenance is not None

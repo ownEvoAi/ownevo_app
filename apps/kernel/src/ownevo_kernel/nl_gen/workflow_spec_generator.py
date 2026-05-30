@@ -61,13 +61,12 @@ SYSTEM_PROMPT = (
     "into `known_past_misses` — phrases like \"we missed X\", \"we "
     "underweighted Y\", \"past misses: ...\". Quote the phrase verbatim. "
     "Downstream stages turn these into eval cases.\n"
-    "3. Pick UI primitives from the 9-variant set, choosing what fits the "
+    "3. Pick UI views from the 9-variant set, choosing what fits the "
     "domain:\n"
     "   - tabular / forecasting: MetricCards + TimeSeriesChart + TableView + AlertList\n"
     "   - document / contract review: DocumentReader + SideBySideView + AlertList\n"
     "   - ticket / case flow: KanbanBoard + ConversationView + MetricCards\n"
     "   - portfolio / risk: MetricCards + TimeSeriesChart + TableView\n"
-    "   - shift / schedule / capacity: ScheduleGrid + MetricCards\n"
     "4. Distinguish `data_sources` (external systems with fixed schemas — "
     "SAP, NOAA, Salesforce) from `env_generators` (synthetic data the "
     "simulator produces — synthetic catalogs, supplier behaviour, weather "
@@ -217,7 +216,7 @@ async def generate_workflow_spec(
             SPEC_DIMENSIONS)`). When set, appended to the user message
             so the model treats the answers as hard constraints when
             shaping spec.tools, spec.environment.data_sources,
-            spec.ui.tabs[].primitives, and spec.reviewer.
+            spec.ui.tabs[].views, and spec.reviewer.
 
     Returns:
         A validated `WorkflowSpec`.

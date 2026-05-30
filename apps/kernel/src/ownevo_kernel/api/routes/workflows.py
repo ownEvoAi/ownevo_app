@@ -62,7 +62,7 @@ from ..models import (
     SimProposalCreate,
     TryItRequest,
     TryItResponse,
-    UIPrimitiveProposalCreate,
+    UIViewProposalCreate,
     WorkflowAgentModelUpdate,
     WorkflowAnatomy,
     WorkflowDeleteResponse,
@@ -999,7 +999,7 @@ async def list_workflow_case_outputs(
     `iteration` accepts `"latest"` (default — newest by iteration_index)
     or a numeric `iteration_index` like `"5"`. The TableView resolver
     on the operator shell calls this with the default; PLAN 8.4.10
-    binds the response to `Primitive.TableView.binding.source =
+    binds the response to `View.TableView.binding.source =
     'case-output'`.
 
     Returns an empty `items` list (with `iteration_index = None`) when
@@ -1667,7 +1667,7 @@ async def try_workflow_one_case(
 
 
 # 9.2.3 — non-skill artifact proposal create endpoint. Currently only
-# `kind='metric'` is wired; description / sim / ui-primitive follow
+# `kind='metric'` is wired; description / sim / ui-view follow
 # the same shape. The proposal anchors to the workflow's latest
 # iteration (so the audit chain has a context to thread through) and
 # the gate's ordering-inversion check (re-scoring prior iterations
@@ -2021,24 +2021,24 @@ async def create_description_proposal(
     )
 
 
-# 9.2.3 — create kind='ui-primitive' proposal. Parallel to the metric
+# 9.2.3 — create kind='ui-view' proposal. Parallel to the metric
 # flow: anchor to the workflow's latest iteration, persist the new
-# primitive list in `proposed_payload`, return a ProposalSummary so
+# view list in `proposed_payload`, return a ProposalSummary so
 # the web client can route to the proposal-detail page.
 @router.post(
-    "/{workflow_id}/proposals/ui-primitive",
+    "/{workflow_id}/proposals/ui-view",
     response_model=ProposalSummary,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_ui_primitive_proposal(
+async def create_ui_view_proposal(
     workflow_id: str,
-    body: UIPrimitiveProposalCreate,
+    body: UIViewProposalCreate,
     conn: ConnDep,
     _: DemoModeCheck,
 ) -> ProposalSummary:
-    """Create a kind='ui-primitive' proposal staged against the workflow.
+    """Create a kind='ui-view' proposal staged against the workflow.
 
-    `proposed_primitives` is the new operate-tab primitive list; every
+    `proposed_views` is the new operate-tab view list; every
     entry must carry a `type` string. 422 when any entry is missing
     `type` so the diff renderer + post-approval write have a clean
     invariant to rely on.
@@ -2053,13 +2053,13 @@ async def create_ui_primitive_proposal(
             detail="Workflow not found",
         )
 
-    for i, prim in enumerate(body.proposed_primitives):
+    for i, prim in enumerate(body.proposed_views):
         t = prim.get("type")
         if not isinstance(t, str) or not t.strip():
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"proposed_primitives[{i}] is missing a non-empty "
+                    f"proposed_views[{i}] is missing a non-empty "
                     "`type` field"
                 ),
             )
@@ -2074,7 +2074,7 @@ async def create_ui_primitive_proposal(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 "Workflow has no iterations yet. Run a baseline iteration "
-                "before proposing a UI-primitive edit so the proposal has "
+                "before proposing a UI-view edit so the proposal has "
                 "audit context."
             ),
         )
@@ -2091,12 +2091,12 @@ async def create_ui_primitive_proposal(
             VALUES (
                 $1, NULL, NULL,
                 '', $2::jsonb, $3,
-                'ui-primitive'::proposal_kind, 'gate-passed'::proposal_state
+                'ui-view'::proposal_kind, 'gate-passed'::proposal_state
             )
             RETURNING id, created_at, state_updated_at
             """,
             iter_id,
-            json.dumps({"primitives": body.proposed_primitives}),
+            json.dumps({"views": body.proposed_views}),
             body.plain_language_summary,
         )
 
@@ -2106,11 +2106,11 @@ async def create_ui_primitive_proposal(
             payload={
                 "workflow_id": workflow_id,
                 "proposal_id": str(proposal_row["id"]),
-                "kind": "ui-primitive",
+                "kind": "ui-view",
                 "rationale": body.rationale,
-                "primitive_types": [p["type"] for p in body.proposed_primitives],
+                "view_types": [p["type"] for p in body.proposed_views],
             },
-            actor="api:create_ui_primitive_proposal",
+            actor="api:create_ui_view_proposal",
             related_id=proposal_row["id"],
         )
 
@@ -2127,7 +2127,7 @@ async def create_ui_primitive_proposal(
         iteration_id=iter_id,
         iteration_index=iter_index,
         skill_id=None,
-        kind="ui-primitive",
+        kind="ui-view",
         workflow_id=workflow_id,
         workflow_description=description or "",
         state="gate-passed",

@@ -48,7 +48,7 @@ export type ProposalKind =
  | 'description'
  | 'metric'
  | 'sim'
- | 'ui-primitive'
+ | 'ui-view'
 
 export interface ProposalSummary {
  id: string
@@ -327,20 +327,20 @@ export async function createDescriptionProposal(
  )
 }
 
-// 9.2.3 — create a kind='ui-primitive' proposal. `proposed_primitives`
-// is the new operate-tab primitive list; each entry must carry `type`.
-export interface CreateUIPrimitiveProposalBody {
+// 9.2.3 — create a kind='ui-view' proposal. `proposed_views`
+// is the new operate-tab view list; each entry must carry `type`.
+export interface CreateUIViewProposalBody {
  plain_language_summary: string
- proposed_primitives: Array<{ type: string; [k: string]: unknown }>
+ proposed_views: Array<{ type: string; [k: string]: unknown }>
  rationale?: string | null
 }
 
-export async function createUIPrimitiveProposal(
+export async function createUIViewProposal(
  workflowId: string,
- body: CreateUIPrimitiveProposalBody,
+ body: CreateUIViewProposalBody,
 ): Promise<ProposalSummary> {
  return jsonFetch<ProposalSummary>(
- `/api/workflows/${encodeURIComponent(workflowId)}/proposals/ui-primitive`,
+ `/api/workflows/${encodeURIComponent(workflowId)}/proposals/ui-view`,
  {
  method: 'POST',
  body: JSON.stringify(body),
@@ -699,7 +699,7 @@ export async function listWorkflowEvalCases(
  )
 }
 
-// Per-case agent output — wired to the operator-shell TableView primitive.
+// Per-case agent output — wired to the operator-shell TableView view.
 export interface CaseOutputRow {
  eval_case_id: string
  case_id: string | null
@@ -713,7 +713,7 @@ export interface CaseOutputRow {
  // Domain-shaped output the agent emitted for this case (forecast
  // curve, redline pair, recommendation table). Null when the agent
  // didn't emit one. The Operate-tab resolver reads this and dispatches
- // to the workflow's declared primitives.
+ // to the workflow's declared views.
  output_payload: Record<string, unknown> | null
 }
 
@@ -1011,7 +1011,7 @@ export interface WorkflowEnvironmentSpec {
 
 export interface WorkflowUITab {
  name?: string
- primitives?: Array<{ type: string; [key: string]: unknown }>
+ views?: Array<{ type: string; [key: string]: unknown }>
 }
 
 export interface WorkflowUILayout {
@@ -1519,7 +1519,7 @@ export interface DeployResponse {
  proposal_id: string
  state: ProposalState
  // Null for non-skill artifact proposals (description / metric / sim /
- // ui-primitive) — those write directly to the workflow row.
+ // ui-view) — those write directly to the workflow row.
  skill_id: string | null
  skill_deployed_version_id: string | null
 }
